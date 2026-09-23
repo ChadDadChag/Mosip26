@@ -6,17 +6,12 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessService;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
-import io.mosip.registration.liveness.core.audit.AuditRecorder;
-import io.mosip.registration.liveness.core.policy.CooldownTracker;
-import io.mosip.registration.liveness.core.policy.PolicyResolver;
+import io.mosip.registration.liveness.core.policy.ServicePolicies;
 import io.mosip.registration.liveness.core.session.CooldownRefusedSession;
 import io.mosip.registration.liveness.core.util.RandomSource;
 import io.mosip.registration.liveness.core.util.SecureRandomSource;
 import io.mosip.registration.liveness.core.util.SystemTimeSource;
 import io.mosip.registration.liveness.core.util.TimeSource;
-
-import java.util.EnumMap;
-import java.util.Map;
 
 /**
  * Drop-in {@link LivenessService} for UI development: real policy (per workflow, from config), real
@@ -39,25 +34,21 @@ public final class FakeLivenessService implements LivenessService {
     private final AuditSink audit;
     private final RandomSource random;
     private final TimeSource clock;
-    private final CooldownTracker cooldown;
+    private final ServicePolicies policies;
 
-    private volatile ConfigProvider config;
     private volatile FakeScenario scenarioOverride;
-    private final Map<WorkflowType, PolicyResolver.Resolved> policies =
-            new EnumMap<WorkflowType, PolicyResolver.Resolved>(WorkflowType.class);
 
     public FakeLivenessService(ConfigProvider config) {
         this(builder(config));
     }
 
     private FakeLivenessService(Builder b) {
-        this.config = b.config;
         this.scenarioOverride = b.scenario;
         this.timeScale = b.timeScale != null ? b.timeScale : timeScaleFromSystemProperty();
         this.audit = b.audit;
         this.random = b.random != null ? b.random : new SecureRandomSource();
         this.clock = b.clock != null ? b.clock : SystemTimeSource.INSTANCE;
-        this.cooldown = new CooldownTracker(clock);
+        this.policies = new ServicePolicies(b.config, audit, clock, "fake");
     }
 
     public static Builder builder(ConfigProvider config) {
@@ -66,25 +57,22 @@ public final class FakeLivenessService implements LivenessService {
 
     @Override
     public LivenessSession newSession(WorkflowType workflow) {
-        LivenessPolicy p = resolved(workflow).policy;
+        LivenessPolicy p = policies.snapshot(workflow);
         if (!p.enabled) return null;
-        long cooldownLeft = cooldown.remainingMs(workflow);
+        long cooldownLeft = policies.cooldown().remainingMs(workflow);
         if (cooldownLeft > 0) return new CooldownRefusedSession(workflow, cooldownLeft, audit, MODEL_VERSION, "fake");
-        return new FakeLivenessSession(workflow, PolicyResolver.copy(p), effectiveScenario(), timeScale,
-                random, clock, audit, cooldown);
+        return new FakeLivenessSession(workflow, p, effectiveScenario(), timeScale, random, clock, audit,
+                policies.cooldown());
     }
 
     @Override
     public LivenessPolicy policy(WorkflowType workflow) {
-        return PolicyResolver.copy(resolved(workflow).policy);
+        return policies.snapshot(workflow);
     }
 
     @Override
     public void reloadConfig(ConfigProvider config) {
-        synchronized (policies) {
-            this.config = config;
-            policies.clear();
-        }
+        policies.reload(config);
     }
 
     /** Switch the scripted scenario for sessions created from now on; null = use property/config/default. */
@@ -96,6 +84,7 @@ public final class FakeLivenessService implements LivenessService {
     public FakeScenario configuredScenario() {
         FakeScenario s = scenarioOverride;
         if (s == null) s = FakeScenario.parse(System.getProperty(FakeScenario.SYSTEM_PROPERTY));
+        ConfigProvider config = policies.config();
         if (s == null && config != null) s = FakeScenario.parse(config.get(FakeScenario.CONFIG_KEY));
         return s != null ? s : FakeScenario.PASS_ACTIVE;
     }
@@ -105,18 +94,6 @@ public final class FakeLivenessService implements LivenessService {
         if (s != FakeScenario.RANDOM) return s;
         FakeScenario[] all = FakeScenario.values();
         return all[random.nextInt(all.length - 1)]; // RANDOM is last; never picks itself
-    }
-
-    private PolicyResolver.Resolved resolved(WorkflowType workflow) {
-        PolicyResolver.Resolved r;
-        synchronized (policies) {
-            r = policies.get(workflow);
-            if (r != null) return r;
-            r = PolicyResolver.resolve(config, workflow);
-            policies.put(workflow, r);
-        }
-        AuditRecorder.configLoaded(audit, workflow, r.policy, r.configError, "fake");
-        return r;
     }
 
     private static double timeScaleFromSystemProperty() {

@@ -63,6 +63,10 @@ public final class FramePump implements FrameSource.Listener {
         if (slot.getAndSet(null) != null) dropped.incrementAndGet();
     }
 
+    public boolean hasFrame() {
+        return slot.get() != null;
+    }
+
     public long lastArrivalMs() {
         return lastArrivalMs;
     }

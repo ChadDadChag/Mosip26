@@ -229,6 +229,20 @@ public final class SessionStateMachine {
         return out;
     }
 
+    /**
+     * Unrecoverable engine problem outside the per-frame path (analyzer could not be created, internal error):
+     * ends the session with {@code code} unless it is already over.
+     */
+    public List<Effect> onFatal(ErrorCode code, long nowMs) {
+        lastNowMs = nowMs;
+        List<Effect> out = new ArrayList<Effect>();
+        if (isTerminal()) return out;
+        if (state == State.IDLE) sessionStartMs = nowMs;
+        if (code == ErrorCode.MODEL_INTEGRITY_FAILED) audit.modelIntegrityFailed("analyzer could not be created");
+        finishFailed(code, code, nowMs, out);
+        return out;
+    }
+
     public List<Effect> onCancel(long nowMs) {
         lastNowMs = nowMs;
         List<Effect> out = new ArrayList<Effect>();

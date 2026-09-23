@@ -124,6 +124,11 @@ public final class AuditRecorder {
         framesDropped++;
     }
 
+    /** Sets the dropped-frame total (the frame pump counts drops itself). */
+    public synchronized void setFramesDropped(long total) {
+        framesDropped = total;
+    }
+
     // ------------------------------------------------------------------ records
 
     public synchronized void attemptStarted(int attemptNumber) {

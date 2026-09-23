@@ -36,6 +36,10 @@ public final class EventDispatcher {
     private final AtomicBoolean finalSubmitted = new AtomicBoolean(false);
     /** Set on the delivery thread once onComplete ran: guards events queued in a race with complete(). */
     private volatile boolean finalDelivered;
+    /** Queued vs finished callbacks, for {@link #awaitIdle}. Guarded by itself. */
+    private final long[] counts = new long[2];
+    /** Set (under counts) when the delivery thread exits; later tasks are dropped, not queued. */
+    private boolean closed;
 
     public EventDispatcher(LivenessListener listener, String threadName) {
         if (listener == null) throw new IllegalArgumentException("listener must not be null");
@@ -53,7 +57,7 @@ public final class EventDispatcher {
     /** Queues an event. Dropped silently if the final result was already submitted. */
     public void emit(final LivenessEvent event) {
         if (finalSubmitted.get()) return;
-        queue.add(new Runnable() {
+        enqueue(new Runnable() {
             @Override
             public void run() {
                 if (finalDelivered) return;
@@ -69,7 +73,7 @@ public final class EventDispatcher {
     /** Queues the final result. Only the first call wins; later calls return false and do nothing. */
     public boolean complete(LivenessResult result) {
         if (!finalSubmitted.compareAndSet(false, true)) return false;
-        queue.add(new FinalDelivery(result));
+        enqueue(new FinalDelivery(result));
         return true;
     }
 
@@ -83,6 +87,34 @@ public final class EventDispatcher {
         return !thread.isAlive();
     }
 
+    /** Waits until every callback queued so far has run (tests and diagnostics). */
+    public boolean awaitIdle(long timeoutMs) throws InterruptedException {
+        long deadline = System.nanoTime() + timeoutMs * 1000000L;
+        synchronized (counts) {
+            while (counts[1] < counts[0]) {
+                long left = (deadline - System.nanoTime()) / 1000000L;
+                if (left <= 0) return false;
+                counts.wait(left);
+            }
+            return true;
+        }
+    }
+
+    private void enqueue(Runnable task) {
+        synchronized (counts) {
+            if (closed) return; // raced with onComplete: dropped by contract
+            counts[0]++;
+            queue.add(task);
+        }
+    }
+
+    private void finished() {
+        synchronized (counts) {
+            counts[1]++;
+            counts.notifyAll();
+        }
+    }
+
     private void deliverLoop() {
         while (true) {
             Runnable task;
@@ -93,8 +125,14 @@ public final class EventDispatcher {
                 continue;
             }
             task.run();
+            finished();
             if (task instanceof FinalDelivery) {
-                queue.clear(); // events that raced with complete() are dropped by contract
+                synchronized (counts) {
+                    closed = true;
+                    counts[1] += queue.size(); // events that raced with complete() are dropped by contract
+                    queue.clear();
+                    counts.notifyAll();
+                }
                 return;
             }
         }
