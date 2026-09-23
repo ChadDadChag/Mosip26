@@ -161,6 +161,7 @@ final class FakeLivenessSession implements LivenessSession {
     // ---------------------------------------------------------------- worker
 
     private volatile int currentAttempt = 1;
+    private boolean disconnectScripted; // worker-owned
 
     private void runSession() {
         AttemptTracker tracker = new AttemptTracker(policy.maxRetries);
@@ -191,6 +192,8 @@ final class FakeLivenessSession implements LivenessSession {
                 if (o.device) {
                     recorder.deviceError(o.code, o.recoverable, "scripted or reported by FrameSource");
                     if (!o.recoverable) {
+                        emit(LivenessEvent.failure(LivenessEvent.Type.DEVICE_ERROR, o.code, attempt,
+                                tracker.retriesLeft(), false));
                         finishFailed(o.code, o.code, attempt, o.score);
                         return;
                     }
@@ -211,8 +214,11 @@ final class FakeLivenessSession implements LivenessSession {
                             decision.retriesLeft, true));
                 }
                 awaitRetry();
-                if (o.device) restartSource();
-                tracker.beginNextAttempt();
+                if (o.device) {
+                    restartSource(); // a device problem is not a liveness attempt: same attempt number
+                } else {
+                    tracker.beginNextAttempt();
+                }
             }
         } catch (Cancelled c) {
             // cancel() already delivered the CANCELLED result and stopped the source.
@@ -273,7 +279,8 @@ final class FakeLivenessSession implements LivenessSession {
                 return passActive(attempt, policy.minChallenges, previous);
             case DEVICE_DISCONNECT:
                 checking(attempt);
-                if (attempt == 1) {
+                if (!disconnectScripted) { // once per session: device problems do not advance the attempt number
+                    disconnectScripted = true;
                     List<ChallengeType> seq = select(policy.minChallenges, previous);
                     lastIssued = seq;
                     prompt(seq.get(0), 1, seq.size(), attempt);
@@ -288,6 +295,9 @@ final class FakeLivenessSession implements LivenessSession {
                 if (cause == ErrorCode.POOR_QUALITY) return Outcome.fail(cause, Float.NaN, null);
                 return failDuringChallenge(attempt, previous, cause, cause == ErrorCode.CHALLENGE_TIMEOUT);
             }
+            case DEVICE_FAILURE:
+                checking(attempt);
+                throw new DeviceInterrupt(ErrorCode.DEVICE_CONNECTION_FAILED, false);
             case ENGINE_ERROR:
                 emit(LivenessEvent.of(LivenessEvent.Type.CHECKING_PASSIVE, attempt));
                 pause(800);
@@ -420,17 +430,22 @@ final class FakeLivenessSession implements LivenessSession {
 
     // ---------------------------------------------------------------- waiting, cancel, device errors
 
-    /** Waits {@code ms} (scaled by timeScale); wakes early on cancel or a device error from the real source. */
+    /** Real-time slice between re-reads of the injected clock, so a test clock can drive the script. */
+    static final long PACE_SLICE_MS = 10;
+
+    /**
+     * Waits {@code ms} × timeScale of the INJECTED clock (real time in production, a test clock in tests); wakes
+     * early on cancel or a device error from the real source.
+     */
     private void pause(long ms) throws Cancelled, DeviceInterrupt {
-        long scaledNs = (long) (ms * timeScale * 1000000L);
-        long end = System.nanoTime() + scaledNs;
+        long end = clock.nowMs() + (long) (ms * timeScale);
         synchronized (lock) {
             while (true) {
                 checkInterrupts();
-                long leftMs = (end - System.nanoTime()) / 1000000L;
-                if (leftMs <= 0) return;
+                long left = end - clock.nowMs();
+                if (left <= 0) return;
                 try {
-                    lock.wait(leftMs);
+                    lock.wait(Math.min(left, PACE_SLICE_MS));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new Cancelled();

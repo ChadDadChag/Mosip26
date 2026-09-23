@@ -44,13 +44,14 @@ The first match wins:
 | `MULTIPLE_FACES` | GUIDANCE(MULTIPLE_FACES), then ATTEMPT_FAILED(MULTIPLE_FACES), then PASSED after Retry |
 | `POOR_LIGHTING_HINTS` | GUIDANCE(IMPROVE_LIGHTING), then GUIDANCE(MOVE_CLOSER), cleared, then challenges and PASSED |
 | `DEVICE_DISCONNECT` | DEVICE_ERROR(recoverable) mid-challenge; Retry does not use up an attempt; then PASSED |
+| `DEVICE_FAILURE` | DEVICE_ERROR(DEVICE_CONNECTION_FAILED, recoverable=false), then FAILED_FINAL with the same code (no Retry) |
 | `MAX_RETRIES_EXCEEDED` | four failed attempts, then FAILED_FINAL. For OPERATOR this starts the 60 s cooldown: the next session fails immediately. |
 | `ENGINE_ERROR` | ATTEMPT_FAILED(ENGINE_ERROR) without using a retry, then FAILED_FINAL(ENGINE_ERROR) |
 | `RANDOM` | one of the above, picked for each session |
 
 ## Timing
 
-`-Dliveness.fake.timeScale=1.0` gives realistic pacing and is the default: about 1.5 s of checking, about 2 s per challenge, then hold still. Use `0.25` for 4× speed, or `0` for instant (automated tests).
+`-Dliveness.fake.timeScale=1.0` gives realistic pacing and is the default (timing follows the injected clock, so tests can also drive it with a manual clock via `builder.clock(...)`): about 1.5 s of checking, about 2 s per challenge, then hold still. Use `0.25` for 4× speed, or `0` for instant (automated tests).
 
 ## Behaviour your UI can rely on (the same as the real engine)
 

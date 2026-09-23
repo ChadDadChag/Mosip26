@@ -23,6 +23,9 @@ import java.util.UUID;
  */
 public final class CooldownRefusedSession implements LivenessSession {
 
+    /** Reported as {@code modelVersion} when no analyzer was loaded (the camera and model are never opened). */
+    public static final String MODEL_UNAVAILABLE = "unavailable";
+
     private final String sessionId = UUID.randomUUID().toString();
     private final WorkflowType workflow;
     private final long remainingMs;
@@ -33,7 +36,8 @@ public final class CooldownRefusedSession implements LivenessSession {
 
     public CooldownRefusedSession(WorkflowType workflow, long remainingMs, AuditSink audit, String modelVersion,
                                   String engine) {
-        this.workflow = workflow; this.remainingMs = remainingMs; this.audit = audit; this.modelVersion = modelVersion;
+        this.workflow = workflow; this.remainingMs = remainingMs; this.audit = audit;
+        this.modelVersion = modelVersion != null ? modelVersion : MODEL_UNAVAILABLE;
         this.engine = engine;
     }
 

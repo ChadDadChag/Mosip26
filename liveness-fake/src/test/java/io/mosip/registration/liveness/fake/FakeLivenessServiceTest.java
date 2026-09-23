@@ -116,7 +116,8 @@ class FakeLivenessServiceTest {
                 Arguments.of(FakeScenario.NO_FACE_THEN_PASS, Decision.PASSED, null, 1, PassPath.PASSIVE_ONLY, 0, null),
                 Arguments.of(FakeScenario.MULTIPLE_FACES, Decision.PASSED, null, 2, PassPath.ACTIVE_CHALLENGE, 2, ErrorCode.MULTIPLE_FACES),
                 Arguments.of(FakeScenario.POOR_LIGHTING_HINTS, Decision.PASSED, null, 1, PassPath.ACTIVE_CHALLENGE, 2, null),
-                Arguments.of(FakeScenario.DEVICE_DISCONNECT, Decision.PASSED, null, 2, PassPath.ACTIVE_CHALLENGE, 2, null),
+                Arguments.of(FakeScenario.DEVICE_DISCONNECT, Decision.PASSED, null, 1, PassPath.ACTIVE_CHALLENGE, 2, null),
+                Arguments.of(FakeScenario.DEVICE_FAILURE, Decision.FAILED, ErrorCode.DEVICE_CONNECTION_FAILED, 1, PassPath.NONE, 0, null),
                 Arguments.of(FakeScenario.MAX_RETRIES_EXCEEDED, Decision.FAILED, ErrorCode.MAX_RETRIES_EXCEEDED, 4, PassPath.NONE, 2, ErrorCode.CHALLENGE_FAILED),
                 Arguments.of(FakeScenario.ENGINE_ERROR, Decision.FAILED, ErrorCode.ENGINE_ERROR, 2, PassPath.NONE, 0, ErrorCode.ENGINE_ERROR));
     }
@@ -413,6 +414,9 @@ class FakeLivenessServiceTest {
         assertWellFormed(l, s);
         assertThat(r.failureCode).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
         assertThat(r.failureCode.userMessage()).isEqualTo(ErrorCode.UserMessage.DEVICE_PROBLEM);
+        LivenessEvent dev = l.ofType(Type.DEVICE_ERROR).get(0);
+        assertThat(dev.recoverable).isFalse();
+        assertThat(dev.error).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
     }
 
     // ------------------------------------------------------------------ scenario selection and audit
@@ -472,5 +476,28 @@ class FakeLivenessServiceTest {
                 for (String v : d.values()) assertThat(v.length()).isLessThan(512);
             }
         }
+    }
+
+    @Test
+    void pacingFollowsTheInjectedClock() throws Exception {
+        ManualClock clock = new ManualClock();
+        FakeLivenessService svc = FakeLivenessService.builder(new MapConfig()).scenario(FakeScenario.PASS_PASSIVE)
+                .timeScale(1.0).clock(clock).build();
+        LivenessSession s = svc.newSession(WorkflowType.RESIDENT);
+        RecordingListener l = run(s, false);
+        // The script waits 1.5 s of CLOCK time: with the clock frozen, nothing completes.
+        assertThat(l.done.await(300, java.util.concurrent.TimeUnit.MILLISECONDS)).isFalse();
+        clock.now += FakeLivenessSession.CHECKING_MS;
+        assertThat(l.await().passed()).isTrue();
+    }
+
+    @Test
+    void deviceFailureScenarioShowsNoRetry() throws Exception {
+        RecordingListener l = run(service(FakeScenario.DEVICE_FAILURE).newSession(WorkflowType.OPERATOR), true);
+        LivenessResult r = l.await();
+        assertThat(r.failureCode.userMessage()).isEqualTo(ErrorCode.UserMessage.DEVICE_PROBLEM);
+        assertThat(l.types()).containsSubsequence(Type.DEVICE_ERROR, Type.FAILED_FINAL);
+        assertThat(l.ofType(Type.DEVICE_ERROR).get(0).recoverable).isFalse();
+        assertThat(l.ofType(Type.ATTEMPT_FAILED)).isEmpty();
     }
 }

@@ -28,8 +28,10 @@ public enum FakeScenario {
     MULTIPLE_FACES,
     /** IMPROVE_LIGHTING then MOVE_CLOSER guidance, cleared, then active pass. */
     POOR_LIGHTING_HINTS,
-    /** Device disconnects mid-challenge (DEVICE_ERROR, recoverable, no retry consumed). Pass after Retry. */
+    /** Device disconnects mid-challenge (DEVICE_ERROR, recoverable; neither a retry nor an attempt is used). Pass after Retry. */
     DEVICE_DISCONNECT,
+    /** The device fails for good after the checking phase: DEVICE_ERROR(recoverable=false), then FAILED_FINAL. */
+    DEVICE_FAILURE,
     /** Every attempt fails (rotating causes). Ends in MAX_RETRIES_EXCEEDED; triggers operator cooldown. */
     MAX_RETRIES_EXCEEDED,
     /** Analyzer failure on every attempt: ATTEMPT_FAILED(ENGINE_ERROR) without consuming a retry, then FAILED_FINAL. */

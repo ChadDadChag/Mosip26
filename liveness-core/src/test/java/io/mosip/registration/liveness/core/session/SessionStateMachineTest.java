@@ -375,7 +375,7 @@ class SessionStateMachineTest {
         seq = 0; // restarted source may restart its sequence numbers
         frames(10, 0.9f);
         assertThat(result().passed()).isTrue();
-        assertThat(result().attempts).isEqualTo(2);
+        assertThat(result().attempts).as("a device problem is not a liveness attempt").isEqualTo(1);
     }
 
     @Test
@@ -383,6 +383,9 @@ class SessionStateMachineTest {
         start();
         record(sm.onSourceError(ErrorCode.CAMERA_UNAVAILABLE, false, "permission", now));
         assertThat(result().failureCode).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
+        LivenessEvent dev = last(Type.DEVICE_ERROR);
+        assertThat(dev.recoverable).isFalse();
+        assertThat(events().subList(events().size() - 2, events().size())).containsExactly(Type.DEVICE_ERROR, Type.FAILED_FINAL);
         assertThat(last(Type.FAILED_FINAL).error).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
     }
 

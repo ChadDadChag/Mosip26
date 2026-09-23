@@ -8,18 +8,16 @@ import io.mosip.registration.liveness.core.EngineTuning;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Passive decision over a window of eligible frames (pure logic, time passed in).
  *
  * <ul>
- *   <li>Eligible: exactly one face, a liveness score, no blocking quality issue, pose within
- *       {@link EngineTuning#maxPassivePoseDeg}. FACE_OFF_CENTER / FACE_TOO_LARGE only produce hints.</li>
+ *   <li>Eligible: {@link FrameAnalysis#usable()} as the contract defines it (exactly one face and no quality issue
+ *       at all), a liveness score, and pose within {@link EngineTuning#maxPassivePoseDeg}.</li>
  *   <li>Window: the last {@code policy.passiveWindowFrames} eligible frames. The window restarts when the face
  *       disappears or changes count (a different face may have been presented).</li>
  *   <li>Decision when the window is full, on the MEDIAN score (contract): below {@code padRejectThreshold} →
@@ -32,11 +30,6 @@ import java.util.Set;
 public final class PassiveEvaluator {
 
     public enum Verdict { PENDING, PASS, ATTACK, NEED_ACTIVE, BELOW_THRESHOLD, TIMEOUT }
-
-    /** Blocking issues: the frame cannot be judged. Others only drive guidance. */
-    static final Set<FrameAnalysis.QualityIssue> BLOCKING = EnumSet.of(FrameAnalysis.QualityIssue.TOO_DARK,
-            FrameAnalysis.QualityIssue.TOO_BRIGHT, FrameAnalysis.QualityIssue.BLURRY,
-            FrameAnalysis.QualityIssue.FACE_TOO_SMALL, FrameAnalysis.QualityIssue.FACE_CUT_OFF);
 
     private final LivenessPolicy policy;
     private final EngineTuning tuning;
@@ -80,8 +73,7 @@ public final class PassiveEvaluator {
     }
 
     boolean isEligible(FrameAnalysis a) {
-        if (a.faceCount != 1 || Float.isNaN(a.livenessScore)) return false;
-        for (FrameAnalysis.QualityIssue q : a.qualityIssues) if (BLOCKING.contains(q)) return false;
+        if (!a.usable() || Float.isNaN(a.livenessScore)) return false;
         return Math.abs(a.yawDeg) <= tuning.maxPassivePoseDeg && Math.abs(a.pitchDeg) <= tuning.maxPassivePoseDeg;
     }
 

@@ -9,15 +9,17 @@ Offline face liveness and presentation attack detection for the Desktop and Andr
 | `liveness-fake` | Part 3 | `FakeLivenessService`, scripted scenarios for UI work (see [liveness-fake/README.md](liveness-fake/README.md)) |
 | `liveness-tools` | Part 3 | Trace recording, replay and threshold tuning, dev only (see [liveness-tools/README.md](liveness-tools/README.md)) |
 
-**Design:** [docs/person3-design.md](docs/person3-design.md) covers the architecture, state machine, decision flow, challenges, errors, security and ISO/IEC 30107 notes. Contract change proposals are in [docs/contract-change-proposals.md](docs/contract-change-proposals.md).
+**Design:** [docs/person3-design.md](docs/person3-design.md) covers configuration (§1.3), the architecture, state machine, decision flow, challenges, errors, security and ISO/IEC 30107 notes. Contract change proposals are in [docs/contract-change-proposals.md](docs/contract-change-proposals.md).
 
 ## Build
 
-You need JDK 17 or newer and Maven 3.9 or newer. The output is Java 8 bytecode, and the build checks the API against the Java 8 and Android API 21 signatures.
+You need JDK 17 or newer and Maven 3.9 or newer (the build enforces both). The output is Java 8 bytecode, and the build checks the API against the Java 8 and Android API 21 signatures.
 
 ```bash
 mvn verify          # all modules; liveness-core has an 85% line-coverage gate
 ```
+
+Part 3 status and audit: [PART3_STATUS.md](PART3_STATUS.md).
 
 ## Use (Parts 4 and 5)
 

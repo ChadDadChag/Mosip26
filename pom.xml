@@ -87,6 +87,24 @@
     </pluginManagement>
 
     <plugins>
+      <!-- Reproducible toolchain: release 8 output needs a JDK 9+ compiler; the team builds with JDK 17+ and Maven 3.9+. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>enforce-build-tools</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion><version>[17,)</version></requireJavaVersion>
+                <requireMavenVersion><version>[3.9,)</version></requireMavenVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <!-- Forbidden-API gate: main code may only use APIs present in both Java 8 and Android API 21. -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>

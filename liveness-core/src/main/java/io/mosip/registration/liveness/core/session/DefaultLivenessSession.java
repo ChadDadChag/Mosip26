@@ -98,7 +98,7 @@ public final class DefaultLivenessSession implements LivenessSession {
 
     private volatile long startMs;
     private volatile int attemptSnapshot;
-    private volatile String modelVersion = "unavailable";
+    private volatile String modelVersion = CooldownRefusedSession.MODEL_UNAVAILABLE;
 
     /**
      * @param ownThread false only in tests, which then drive the worker with {@link #stepForTest}.

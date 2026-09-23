@@ -87,8 +87,11 @@ class PassiveEvaluatorTest {
             ev.offer(Fa.at(i * 100 + 2, 2000 + i).score(Float.NaN).build(), i * 100 + 2);
         }
         assertThat(ev.windowSize()).isZero();
-        // Hint-only issues keep the frame eligible.
+        // Contract: only usable() frames count, so any quality issue (even hint-only ones) excludes the frame.
         ev.offer(Fa.at(3000, 3000).issue(QualityIssue.FACE_OFF_CENTER).build(), 3000);
+        ev.offer(Fa.at(3001, 3001).issue(QualityIssue.FACE_TOO_LARGE).build(), 3001);
+        assertThat(ev.windowSize()).isZero();
+        ev.offer(Fa.at(3002, 3002).build(), 3002);
         assertThat(ev.windowSize()).isEqualTo(1);
     }
 

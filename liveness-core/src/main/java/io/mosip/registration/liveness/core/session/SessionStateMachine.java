@@ -107,8 +107,8 @@ public final class SessionStateMachine {
         List<Effect> out = new ArrayList<Effect>();
         if (state == State.DEVICE_WAIT) {
             if (nowMs - deviceErrorAtMs > tuning.deviceGraceMs) return out; // too late: wait for the user's Retry
-            // Frames resumed within the grace period: restart the attempt automatically, no retry consumed.
-            tracker.beginNextAttempt();
+            // Frames resumed within the grace period: restart the same attempt automatically. A device problem is
+            // not a liveness attempt, so neither the attempt number nor the retry budget changes.
             sanity.resetStream();
             beginAttempt(nowMs, out);
         }
@@ -164,6 +164,8 @@ public final class SessionStateMachine {
         ErrorCode c = code != null ? code : ErrorCode.DEVICE_UNAVAILABLE;
         if (!recoverable) {
             audit.deviceError(c, false, detail);
+            // Tell the UI first (recoverable=false: no Retry button), then end the session.
+            out.add(Effect.emit(LivenessEvent.failure(Type.DEVICE_ERROR, c, attempt(), tracker.retriesLeft(), false)));
             finishFailed(c, c, nowMs, out);
         } else if (state == State.RETRY_AVAILABLE) {
             audit.deviceError(c, true, detail);
@@ -217,8 +219,10 @@ public final class SessionStateMachine {
         lastNowMs = nowMs;
         List<Effect> out = new ArrayList<Effect>();
         if (state == State.RETRY_AVAILABLE || state == State.DEVICE_WAIT) {
-            boolean restart = sourceNeedsRestart || state == State.DEVICE_WAIT;
-            tracker.beginNextAttempt();
+            boolean fromDevice = state == State.DEVICE_WAIT;
+            boolean restart = sourceNeedsRestart || fromDevice;
+            // Retry after a failed attempt starts attempt n+1; Retry after a device problem repeats attempt n.
+            if (!fromDevice) tracker.beginNextAttempt();
             if (restart) {
                 sourceNeedsRestart = false;
                 sanity.resetStream();

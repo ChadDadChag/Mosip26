@@ -34,10 +34,64 @@ Source of truth: `liveness-api` (package `io.mosip.registration.liveness.api`) a
 | `LivenessEngineException` | `code()`. Thrown by the analyzer. Core catches it and never passes it to the listener. |
 | `WorkflowType`, `ChallengeType` | `RESIDENT, OPERATOR, SUPERVISOR`; `BLINK, SMILE, TURN_LEFT, TURN_RIGHT, LOOK_UP, LOOK_DOWN`. |
 
-### 1.3 Effective defaults (from `liveness-default.properties`)
+### 1.3 Configuration design
+
+**Where it comes from.** Config comes from the host app through `ConfigProvider`:
+- Desktop: the synced global/local config (`ApplicationContext`).
+- Android: the client's synced config.
+
+Keys are `mosip.registration.liveness.face.<scope>.<field>`, where `<scope>` is `resident`, `operator`, `supervisor` or `default`. The team split's "timeoutSec" is the contract's `challengeTimeoutMs`. Config is read locally, so it behaves the same online and offline, and a config sync takes effect through `LivenessService.reloadConfig()`.
+
+**Lookup order, per field.** Implemented in `PolicyResolver` and the contract's `LivenessPolicy.load`:
+1. host `<workflow>.<field>`
+2. bundled `<workflow>.<field>` (`liveness-default.properties` inside `liveness-api`)
+3. host `default.<field>`
+4. bundled `default.<field>`
+5. hard-coded field default
+
+This gives exactly the result of merging the bundled file into the host config, as the file instructs. If an app forgets the merge, operators and supervisors still get 1 challenge and operators still get the cooldown.
+
+| Field | Type / valid range | Default (resident / operator / supervisor) | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | true / true / true | `false` → `newSession()` returns null; the app uses its legacy flow |
+| `passiveThreshold` | float, `padRejectThreshold < x ≤ 1` | 0.85 | Median liveness score at or above this passes without a challenge |
+| `padRejectThreshold` | float, `0 ≤ x < passiveThreshold` | 0.30 | Median below this is PAD_FAILURE (also used as the continuous PAD check during challenges) |
+| `passiveWindowFrames` | int ≥ 1 | 10 | `usable()` frames aggregated for the passive median |
+| `passiveTimeoutMs` | int > 0 | 8000 | No full window in time → FACE_NOT_DETECTED / MULTIPLE_FACES / POOR_QUALITY |
+| `activeEnabled` | boolean | true | `false` → an in-between score fails with LIVENESS_BELOW_THRESHOLD |
+| `challengeTypes` | comma list of `ChallengeType`, non-empty, known names | BLINK,SMILE,TURN_LEFT,TURN_RIGHT | Pool the engine picks from (duplicates ignored) |
+| `minChallenges` | int, `1 ≤ x ≤ distinct pool size` | 2 / **1** / **1** | Challenges issued per attempt |
+| `challengeTimeoutMs` | int ≥ 1000 | 6000 | Per challenge, from the prompt |
+| `maxRetries` | int ≥ 0 | 3 | Attempts = 1 + maxRetries (device and engine errors don't count) |
+| `onRepeatedFailure` | `BLOCK` or `COOLDOWN` | BLOCK / **COOLDOWN** / BLOCK | What happens after MAX_RETRIES_EXCEEDED |
+| `cooldownSec` | int ≥ 0 | 60 | COOLDOWN only: new sessions for that workflow are refused for this long (in memory) |
+| `diagnosticMode` | boolean | false | Reserved for extra audit/diagnostic detail; never shown in the UI |
+| `analyzeFps` | int ≥ 1 | 8 | Analysis rate in the passive phase (challenges use at least 15, see P5) |
+
+**Validation.** `LivenessPolicy.validate()` in the contract checks the thresholds, `minChallenges`, `maxRetries`, `challengeTimeoutMs` and `analyzeFps`. `PolicyResolver.validateExtra` adds the checks the contract lacks: window ≥ 1, timeout > 0, cooldown ≥ 0, a non-empty pool, and `minChallenges` ≤ the number of *distinct* types.
+
+Any invalid or unparsable value makes the whole host config for that workflow fall back to the **bundled defaults**:
+- Liveness is never switched off by a bad value.
+- The error is audited as `CONFIG_LOADED{configError}`.
+- `policy(workflow)` returns the policy actually in force.
+
+**Snapshots.** `newSession()` copies the policy, so `reloadConfig()` only affects sessions created afterwards (tested).
+
+**Not config.** Engine-internal thresholds (detector sensitivities, grace periods, continuity limits) are `EngineTuning` fields marked `TUNE:`. They change only in reviewed code, based on the `liveness-tools` tuning report. The fake additionally reads `mosip.registration.liveness.fake.scenario`.
+
+**Shipped defaults** (`liveness-default.properties`):
 
 | Field | default | operator | supervisor |
 |---|---|---|---|
+| passiveThreshold / padRejectThreshold | 0.85 / 0.30 | same | same |
+| passiveWindowFrames / passiveTimeoutMs | 10 / 8000 | same | same |
+| challengeTypes | BLINK, SMILE, TURN_LEFT, TURN_RIGHT | same | same |
+| minChallenges | 2 | **1** | **1** |
+| challengeTimeoutMs / maxRetries | 6000 / 3 (so 4 attempts) | same | same |
+| onRepeatedFailure / cooldownSec | BLOCK / 60 | **COOLDOWN** / 60 | BLOCK / 60 |
+| analyzeFps | 8 | same | same |
+
+---|---|---|---|
 | passiveThreshold / padRejectThreshold | 0.85 / 0.30 | same | same |
 | passiveWindowFrames / passiveTimeoutMs | 10 / 8000 | same | same |
 | challengeTypes | BLINK, SMILE, TURN_LEFT, TURN_RIGHT | same | same |
@@ -98,7 +152,7 @@ flowchart LR
 flowchart TD
   S([start / retry]) --> F{frame analysed}
   F -->|timestamps not increasing ×3| IF[ATTEMPT_FAILED: INVALID_FRAME]
-  F -->|0 or >1 faces, blocking quality, pose > 25°| H[debounced GUIDANCE hint<br/>frame not eligible]
+  F -->|not usable: 0 or >1 faces, any quality issue, pose > 25°| H[debounced GUIDANCE hint<br/>frame not eligible]
   H -->|>1 face for 1.5 s| MF[ATTEMPT_FAILED: MULTIPLE_FACES]
   H -->|no full window in passiveTimeoutMs| TO[ATTEMPT_FAILED: FACE_NOT_DETECTED / MULTIPLE_FACES / POOR_QUALITY]
   H --> F
@@ -131,7 +185,7 @@ stateDiagram-v2
   PASSIVE_CHECK --> DEVICE_WAIT : stream stalled 2 s, or recoverable onError
   ACTIVE_CHALLENGE --> DEVICE_WAIT : stream stalled 2 s, or recoverable onError
   RETRY_AVAILABLE --> STARTING : retry() / new window, new sequence, STARTED(n+1)
-  DEVICE_WAIT --> STARTING : frames resume within 3 s (automatic) or retry() (source restarted)
+  DEVICE_WAIT --> STARTING : frames resume within 3 s (automatic) or retry() (source restarted), same attempt number
   PASSIVE_CHECK --> FAILED_FINAL : attempt failed, no retries left
   ACTIVE_CHALLENGE --> FAILED_FINAL : attempt failed, no retries left
   STARTING --> FAILED_FINAL : non-recoverable device error, MODEL_INTEGRITY_FAILED, engine error cap
@@ -142,7 +196,8 @@ stateDiagram-v2
 Not drawn, to keep the diagram readable:
 - From every non-terminal state, `cancel()` goes to **CANCELLED**: `onComplete(CANCELLED)` and the source stops. There is no CANCELLED event type.
 - A non-recoverable device error or `MODEL_INTEGRITY_FAILED` goes to FAILED_FINAL from any non-terminal state.
-- Device errors and ENGINE_ERROR never consume a retry. ENGINE_ERROR is capped at 2 attempts.
+- Device errors never consume a retry and are not counted as attempts. A non-recoverable one emits DEVICE_ERROR(recoverable=false) and then FAILED_FINAL.
+- ENGINE_ERROR never consumes a retry. It is capped at 2 attempts.
 
 **Invariants** (tested, including two fuzz tests through the real session):
 1. PASSED is only reachable from a full passive window with median ≥ `passiveThreshold`, or after every issued challenge of the final attempt was DETECTED.
@@ -157,10 +212,10 @@ Not drawn, to keep the diagram readable:
 
 | ErrorCode | Raised when | Event emitted | Retry? | UserMessage (contract) | Audit event |
 |---|---|---|---|---|---|
-| `DEVICE_UNAVAILABLE` | `FrameSource.onError(DEVICE_UNAVAILABLE)`; **or** no frame within `startTimeoutMs` (TUNE 5000) after `start()` | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
-| `DEVICE_CONNECTION_FAILED` | passed through from `onError` | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
-| `DEVICE_DISCONNECTED` | passed through from `onError` mid-stream; or no frame at all for `frameStallMs` (TUNE 2000) during an attempt. Frames resuming within `deviceGraceMs` (3000) restart the attempt automatically. | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
-| `CAMERA_UNAVAILABLE` | passed through from `onError` (Android camera busy or permission) | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
+| `DEVICE_UNAVAILABLE` | `FrameSource.onError(DEVICE_UNAVAILABLE)`; **or** no frame within `startTimeoutMs` (TUNE 5000) after `start()` | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
+| `DEVICE_CONNECTION_FAILED` | passed through from `onError` | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
+| `DEVICE_DISCONNECTED` | passed through from `onError` mid-stream; or no frame at all for `frameStallMs` (TUNE 2000) during an attempt. Frames resuming within `deviceGraceMs` (3000) restart the **same** attempt automatically. | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
+| `CAMERA_UNAVAILABLE` | passed through from `onError` (Android camera busy or permission) | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
 | `FACE_NOT_DETECTED` | passive timeout where most frames had `faceCount==0`; or face lost for more than `faceLostMs` (TUNE 1000) during a challenge | `ATTEMPT_FAILED` / `FAILED_FINAL` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
 | `MULTIPLE_FACES` | `faceCount>1` persists more than `multiFaceFailMs` (TUNE 1500) in passive; during a challenge, 2 consecutive frames (TUNE) | `GUIDANCE(MULTIPLE_FACES)` first, then `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
 | `POOR_QUALITY` | passive timeout where faces were present but quality issues blocked the window | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
@@ -198,7 +253,7 @@ Rules:
 
 ## 6. Passive decision (Phase 3 detail)
 
-- **Eligible frame:** `faceCount==1`, `!isNaN(livenessScore)`, no *blocking* quality issue (TOO_DARK, TOO_BRIGHT, BLURRY, FACE_TOO_SMALL, FACE_CUT_OFF), and `|yaw|,|pitch| < 25°` (TUNE). FACE_OFF_CENTER and FACE_TOO_LARGE only produce a hint.
+- **Eligible frame:** `FrameAnalysis.usable()` as the contract defines it (exactly one face and **no quality issue at all**), `!isNaN(livenessScore)`, and `|yaw|,|pitch| ≤ 25°` (TUNE). Every issue also produces a debounced hint, so the user knows what to fix. (Until the Part 3 audit, FACE_OFF_CENTER and FACE_TOO_LARGE frames were counted; that contradicted the contract's "usable frames" and was fixed.)
 - **Window:** the last `passiveWindowFrames` eligible frames (10 at 8 fps is about 1.25 s). Aggregation uses the **median** (the contract comment and `LivenessResult.passiveScore` both say median).
 - **Attack:** median < `padRejectThreshold`, as the contract defines it. No extra "k of window" rule (D1).
 - **Pass:** window full, median ≥ `passiveThreshold`, and no attack.
@@ -276,6 +331,8 @@ The owner (Part 3) asked me to settle these using the problem statement. Items t
 | D12 | Audit granularity | Challenge detail goes in the details map of the attempt-level events. No new AuditSink events. | §9 / Part 4 "log scores, PAD reasons, challenge outcomes". |
 | D13 | Build | Done: `git init`, a root aggregator POM, and a build-only `liveness-api/pom.xml`. JDK 17 + Maven 3.9 via Homebrew, compiling with `--release 8`. animal-sniffer checks main code against the **Java 8 and Android API 21** signatures. | "Same jar on Desktop and Android." |
 | D14 | `challengesIssued` | The **last attempt's** sequence. Every attempt's sequence is in audit. | — |
+| D16 | Device errors vs attempts | A device problem is not a liveness attempt: auto-resume and Retry after DEVICE_ERROR keep the attempt number; `result.attempts` counts liveness attempts only. A non-recoverable device error emits DEVICE_ERROR(recoverable=false) before FAILED_FINAL. | Found by the Part 3 audit (PART3_STATUS.md). |
+| D17 | Passive eligibility | Strictly `FrameAnalysis.usable()`: hint-only issues (off-centre, too large) no longer count towards the window. | Contract wording "usable frames"; found by the audit. |
 | D15 | Fake depends on core | `liveness-fake` reuses core's `EventDispatcher`, `AttemptTracker`, `PolicyResolver`, `CooldownTracker` and `ChallengeSelector`, so retry, cancel, events and policy behave **identically**. Core has no ML or native dependencies, so this costs the apps nothing. | Brief: "make retry()/cancel() behave exactly as the real engine will". |
 
 ### Config naming vs. the team split
@@ -380,9 +437,9 @@ It is the same as 10.2 with `newSession(SUPERVISOR)`: 1 challenge, `onRepeatedFa
 flowchart TD
   E{what went wrong} -->|device: unavailable, connection failed, disconnected, camera unavailable| DV{recoverable?}
   DV -->|yes| DW[DEVICE_ERROR recoverable=true<br/>no retry consumed]
-  DW -->|frames back within 3 s| AUTO[attempt restarts automatically]
+  DW -->|frames back within 3 s| AUTO[same attempt restarts automatically]
   DW -->|user presses Retry| RS[source restarted, new attempt]
-  DV -->|no| FF[FAILED_FINAL with the device code]
+  DV -->|no| FF[DEVICE_ERROR recoverable=false,<br/>then FAILED_FINAL with the device code]
   E -->|model checksum/signature| MI[FAILED_FINAL MODEL_INTEGRITY_FAILED]
   E -->|analyzer crashes 3 frames in a row| EE[ATTEMPT_FAILED ENGINE_ERROR<br/>no retry consumed, 2nd time final]
   E -->|user-related: no face, multiple faces, poor quality,<br/>below threshold, PAD, challenge failed/timeout, invalid frames| UF{retries left?}
@@ -470,8 +527,9 @@ LivenessService liveness = DefaultLivenessService.builder()
 ```
 
 **Verification** (`mvn verify`):
-- **Tests:** 211 across unit, state-machine, detector, runner, scenario, threading, fuzz and tools.
-- **Coverage:** JaCoCo line coverage on `liveness-core` is about 95%, gated at 85%.
+- **Tests:** 232 across unit, state-machine, detector, runner, scenario, threading, fuzz, tools and the requirement-by-requirement audit (`core/statusaudit/Part3RequirementsAuditTest`, see PART3_STATUS.md).
+- **Coverage:** JaCoCo line coverage on `liveness-core` is about 96%, gated at 85%.
+- **Toolchain guard:** Maven Enforcer requires JDK 17+ and Maven 3.9+.
 - **API gates:** animal-sniffer checks main code against the **Java 8 and Android API 21** signatures, and bytecode is Java 8 (`--release 8`).
 - **Mutation spot-check:** disabling blink detection makes the scenario suite fail.
 
