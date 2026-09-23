@@ -14,6 +14,7 @@
     <module>liveness-api</module>
     <module>liveness-core</module>
     <module>liveness-fake</module>
+    <module>liveness-tools</module>
   </modules>
 
   <properties>
