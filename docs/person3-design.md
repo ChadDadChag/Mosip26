@@ -1,6 +1,6 @@
 # liveness-core design (Person 3)
 
-Status: **Phase 0 design + Phase 1 (FakeLivenessService) done.** Decisions in section 9. Covers the session engine, the passive-to-active decision, the active challenges, retries, errors and audit. Diagrams and sections marked *(Phase 9)* are finished later.
+Status: **complete for Part 3 (Phases 0–9).** Decisions are in section 9, and sections for Parts 1, 2, 4 and 5 are to be stitched into section 15. Covers the session engine, the passive-to-active decision, the active challenges, retries, errors and audit. Diagrams and sections marked *(Phase 9)* are finished later.
 
 Source of truth: `liveness-api` (package `io.mosip.registration.liveness.api`) and `liveness-default.properties`. Where this doc and the contract disagree, the contract wins. Section 8 lists every place where the Person 3 brief and the contract differ.
 
@@ -54,94 +54,100 @@ Source of truth: `liveness-api` (package `io.mosip.registration.liveness.api`) a
 
 ```mermaid
 flowchart LR
-  subgraph P1["FrameSource (P1)"]
+  subgraph P1["FrameSource (Part 1)"]
     SRC[source thread]
   end
-  subgraph Session["DefaultLivenessSession"]
-    SLOT[(latest-frame slot<br/>AtomicReference)]
-    W[session worker thread<br/>analyzer + state machine]
-    D[event dispatcher thread<br/>serial, final-gated]
+  subgraph Session["DefaultLivenessSession (Part 3)"]
+    PUMP[(FramePump<br/>latest-frame slot)]
+    Q[[input queue<br/>retry / cancel / device errors / wake-ups]]
+    W[worker thread liveness-id<br/>analyzer + SessionStateMachine + ChallengeRunner]
+    D[dispatcher thread liveness-events-id<br/>serial, exactly-once final]
   end
-  subgraph P2["FaceAnalyzer (P2)"]
+  subgraph P2["FaceAnalyzer (Part 2)"]
     FA[analyze]
   end
-  APP[App listener<br/>marshals to UI thread]
-  SRC -- onFrame: overwrite slot, O(1) --> SLOT
-  SRC -- onError --> W
-  SLOT -- take newest, throttle to analyzeFps --> W
+  APP[App listener, Part 4/5<br/>marshals to UI thread]
+  SRC -- onFrame: swap slot, O(1) --> PUMP
+  SRC -- onError --> Q
+  PUMP -- wake --> Q
+  Q --> W
+  PUMP -- newest frame, at analyzeFps / 15 fps in challenges --> W
   W <--> FA
-  W -- events / result --> D
+  W -- effects: events, result --> D
   D --> APP
-  APP -. cancel / retry any thread .-> W
+  APP -. retry / cancel, any thread .-> Q
 ```
 
-- **Source thread.** `onFrame` only overwrites the single latest-frame slot and counts drops. It never blocks and never queues.
-- **Worker thread** (one per session, a daemon thread named `liveness-<sessionId8>`). It takes the newest frame, throttles to `analyzeFps`, calls `analyzer.analyze` exactly once per frame it takes, and feeds `SessionStateMachine`. It polls with a 50 ms timed wait, so timeouts fire even when no frames arrive. The analyzer is created, used and `close()`d only on this thread.
-- **Dispatcher thread** (`EventDispatcher`: one per session, a plain thread plus a `LinkedBlockingQueue`). It delivers `onEvent` and `onComplete` in order. A slow listener therefore never stalls analysis. The first `complete()` wins a compare-and-set, and every later event or result is dropped. The thread exits after `onComplete`. It is deliberately *not* an `ExecutorService`: a `ThreadPoolExecutor` shut down while its first worker is starting can strand the queued final task, which a regression test caught. **The session enters RETRY_AVAILABLE before emitting ATTEMPT_FAILED**, so a `retry()` called from inside that callback is never lost. This gives **exactly one `onComplete` per session, with no events after it**.
-- **Callback thread (documented for P4/P5):** every callback runs on the session's dispatcher thread, never on the UI thread and never on the camera thread. Apps must use `Platform.runLater` or post to the Flutter main isolate. Listeners may call `retry()` and `cancel()` from inside a callback, because both only enqueue.
-- **`cancel()`** can be called from any thread and is idempotent. It enqueues onComplete(CANCELLED) through the same compare-and-set, signals the worker, and the worker then stops the source and closes the analyzer. If it is called after `onComplete`, it does nothing.
-- **`SessionStateMachine`** is pure: `Transition next(State, Input)` → `(State, List<Effect>)`. It has no threads, no clock reads and no I/O. Inputs are `FrameAnalyzed`, `Tick(nowMs)`, `SourceError`, `SourceFrameResumed`, `RetryRequested`, `CancelRequested` and `AnalyzerFailed`. Effects are `Emit(event)`, `Complete(result)`, `Audit(...)`, `StopSource`, `RestartSource` and `ResetDetectors`.
-- **Injected** `TimeSource` (monotonic ms) and `RandomSource` (`SecureRandom` in production, seeded in tests). No `Thread.sleep` in tests: the worker loop can be stepped by hand.
+| Thread | Does | Never does |
+|---|---|---|
+| Source (Part 1) | `onFrame` swaps the pump's single latest-frame slot. The older unanalysed frame is overwritten and counted as dropped. `onError` enqueues. | Blocks, queues frames, or calls the analyzer |
+| Worker `liveness-<id>` | Creates, uses and closes the analyzer (one per session, contract). Analyses at most `analyzeFps` (passive) or `max(analyzeFps, 15)` (challenges). Feeds `SessionStateMachine`. Ticks at least every 50 ms so timeouts fire without frames. Executes effects. | Calls the listener directly |
+| Dispatcher `liveness-events-<id>` | Delivers every callback in order. The first `complete()` wins; nothing is delivered after `onComplete`, and the thread then exits. | Runs engine logic |
+
+- **Apps (Parts 4 and 5):** callbacks never arrive on the UI or camera thread. Use `Platform.runLater` (JavaFX) or post to the Flutter main isolate. `retry()` and `cancel()` are safe from any thread, including inside a callback.
+- **`cancel()`** delivers `onComplete(CANCELLED)` immediately from the calling thread, even while the worker is inside `analyze()` (tested), and stops the source. The worker then closes the analyzer. It is idempotent, and does nothing after the final result.
+- **Pure core:** `SessionStateMachine` takes each input with the current time and returns `Effect`s (`EMIT`, `COMPLETE`, `STOP_SOURCE`, `RESTART_SOURCE`, `TRIP_COOLDOWN`). It has no threads, clock reads or I/O. `ChallengeRunner` and the detectors are pure in the same way. Tests drive the real session step by step with a manual clock (`ScenarioDriver`), with no sleeps.
+- **Randomness:** challenge order and the prompt jitter use `SecureRandom` in production and a seeded source in tests.
+- **Safety net:** any unexpected `Throwable` on the worker still produces exactly one `FAILED(ENGINE_ERROR)`.
 
 ---
 
-## 3. Session state machine
+## 3. Passive-to-active decision flow
+
+```mermaid
+flowchart TD
+  S([start / retry]) --> F{frame analysed}
+  F -->|timestamps not increasing ×3| IF[ATTEMPT_FAILED: INVALID_FRAME]
+  F -->|0 or >1 faces, blocking quality, pose > 25°| H[debounced GUIDANCE hint<br/>frame not eligible]
+  H -->|>1 face for 1.5 s| MF[ATTEMPT_FAILED: MULTIPLE_FACES]
+  H -->|no full window in passiveTimeoutMs| TO[ATTEMPT_FAILED: FACE_NOT_DETECTED / MULTIPLE_FACES / POOR_QUALITY]
+  H --> F
+  F -->|eligible| W[add to window of passiveWindowFrames]
+  W -->|window not full| F
+  W -->|full| M{median liveness score}
+  M -->|below padRejectThreshold 0.30| PAD[ATTEMPT_FAILED: PAD_FAILURE<br/>no challenge offered]
+  M -->|at least passiveThreshold 0.85| PASS([PASSED, passive only<br/>best frame from window])
+  M -->|between| AE{activeEnabled?}
+  AE -->|no| BT[ATTEMPT_FAILED: LIVENESS_BELOW_THRESHOLD]
+  AE -->|yes| CH[select minChallenges challenges<br/>SecureRandom, see §7]
+  CH --> RUN[challenges with continuous PAD,<br/>face count and continuity checks]
+  RUN -->|all detected + neutral hold| PASS2([PASSED via challenge])
+  RUN -->|wrong action / timeout / PAD / faces| FAIL[ATTEMPT_FAILED]
+```
+
+## 3a. Session state machine (as built)
 
 ```mermaid
 stateDiagram-v2
   [*] --> IDLE : newSession()
-  IDLE --> STARTING : start(source, listener)\n/ emit STARTED(1), audit LIVENESS_STARTED
-  IDLE --> FAILED_FINAL : start() while cooldown active\n/ MAX_RETRIES_EXCEEDED (D2)
-
-  STARTING --> PASSIVE_CHECK : first frame received\n/ emit CHECKING_PASSIVE
-  STARTING --> DEVICE_ERROR : source.onError OR no frame within startTimeout
-
-  PASSIVE_CHECK --> PASSIVE_CHECK : frame / update window, debounced GUIDANCE
-  PASSIVE_CHECK --> FINALISING : window full, median >= passiveThreshold,\nno attack  [PASS]
-  PASSIVE_CHECK --> ATTEMPT_FAILED : median < padRejectThreshold [PAD_FAILURE]
-  PASSIVE_CHECK --> ACTIVE_CHALLENGE : window full, pad <= median < passive,\nactiveEnabled / select sequence
-  PASSIVE_CHECK --> ATTEMPT_FAILED : same band, !activeEnabled [LIVENESS_BELOW_THRESHOLD]
-  PASSIVE_CHECK --> ATTEMPT_FAILED : passiveTimeout, no window\n[FACE_NOT_DETECTED | MULTIPLE_FACES | POOR_QUALITY]
-  PASSIVE_CHECK --> ATTEMPT_FAILED : multiple faces persist [MULTIPLE_FACES]
-
-  state ACTIVE_CHALLENGE {
-    [*] --> PRE_PROMPT
-    PRE_PROMPT --> PROMPTED : jitter 0-400 ms elapsed and\nneutral baseline stable / emit CHALLENGE_PROMPT(i,n)
-    PROMPTED --> PROMPTED : detector IN_PROGRESS / CHALLENGE_PROGRESS
-    PROMPTED --> DETECTED : detector DETECTED / emit ACTION_DETECTED
-    DETECTED --> PRE_PROMPT : i < n (next challenge)
-    DETECTED --> [*] : i == n
-  }
-  ACTIVE_CHALLENGE --> FINALISING : all n detected / emit HOLD_STILL
-  ACTIVE_CHALLENGE --> ATTEMPT_FAILED : WRONG_ACTION, continuity break,\npre-prompt action [CHALLENGE_FAILED]
-  ACTIVE_CHALLENGE --> ATTEMPT_FAILED : challengeTimeout [CHALLENGE_TIMEOUT]
-  ACTIVE_CHALLENGE --> ATTEMPT_FAILED : rolling liveness < padReject [PAD_FAILURE]
-  ACTIVE_CHALLENGE --> ATTEMPT_FAILED : face count != 1 persists\n[MULTIPLE_FACES | FACE_NOT_DETECTED]
-  ACTIVE_CHALLENGE --> ATTEMPT_FAILED : stalled or non-monotonic frames [INVALID_FRAME]
-
-  FINALISING --> PASSED : neutral frontal best frame captured\n(or finaliseTimeout: use best passive-window frame)
-  FINALISING --> ATTEMPT_FAILED : attack signal during hold [PAD_FAILURE]
-  PASSED --> [*] : emit PASSED, onComplete(PASSED)
-
-  ATTEMPT_FAILED --> RETRY_AVAILABLE : retriesLeft > 0\n/ emit ATTEMPT_FAILED(code, retriesLeft)
-  ATTEMPT_FAILED --> FAILED_FINAL : retriesLeft == 0
-  RETRY_AVAILABLE --> STARTING : retry() / attempt+1, new window,\nnew sequence, emit STARTED
-  FAILED_FINAL --> [*] : emit FAILED_FINAL, onComplete(FAILED),\ncooldown if COOLDOWN
-
-  DEVICE_ERROR --> STARTING : recoverable and frames resume within grace\n(attempt restarts, no retry consumed)
-  DEVICE_ERROR --> DEVICE_WAIT : recoverable, grace expired\n/ emit DEVICE_ERROR(recoverable=true)
-  DEVICE_WAIT --> STARTING : retry() / restart source (no retry consumed)
-  DEVICE_ERROR --> FAILED_FINAL : non-recoverable\n/ emit DEVICE_ERROR(false)
+  IDLE --> STARTING : start() / STARTED(1)
+  STARTING --> PASSIVE_CHECK : first valid analysed frame / CHECKING_PASSIVE
+  STARTING --> DEVICE_WAIT : no frame in 5 s, or recoverable onError / DEVICE_ERROR
+  PASSIVE_CHECK --> PASSED : window median >= passiveThreshold
+  PASSIVE_CHECK --> ACTIVE_CHALLENGE : padReject <= median < passive, activeEnabled
+  PASSIVE_CHECK --> RETRY_AVAILABLE : attempt failed, retries left / ATTEMPT_FAILED
+  ACTIVE_CHALLENGE --> PASSED : every challenge DETECTED + neutral hold
+  ACTIVE_CHALLENGE --> RETRY_AVAILABLE : attempt failed, retries left / ATTEMPT_FAILED
+  PASSIVE_CHECK --> DEVICE_WAIT : stream stalled 2 s, or recoverable onError
+  ACTIVE_CHALLENGE --> DEVICE_WAIT : stream stalled 2 s, or recoverable onError
+  RETRY_AVAILABLE --> STARTING : retry() / new window, new sequence, STARTED(n+1)
+  DEVICE_WAIT --> STARTING : frames resume within 3 s (automatic) or retry() (source restarted)
+  PASSIVE_CHECK --> FAILED_FINAL : attempt failed, no retries left
+  ACTIVE_CHALLENGE --> FAILED_FINAL : attempt failed, no retries left
+  STARTING --> FAILED_FINAL : non-recoverable device error, MODEL_INTEGRITY_FAILED, engine error cap
+  PASSED --> [*] : PASSED event, onComplete(PASSED), stop source
+  FAILED_FINAL --> [*] : FAILED_FINAL event, onComplete(FAILED), stop source, cooldown if configured
 ```
 
-Every non-terminal state also has this transition (left out of the diagram for clarity):
-- `cancel()` → **CANCELLED**: `onComplete(CANCELLED, failureCode=CANCELLED)`, stop the source and close the analyzer. There is no `CANCELLED` event type, so the result is the only signal.
-- An analyzer failure (`LivenessEngineException` or `RuntimeException`) is handled as in section 4 (`ENGINE_ERROR` / `MODEL_INTEGRITY_FAILED`).
+Not drawn, to keep the diagram readable:
+- From every non-terminal state, `cancel()` goes to **CANCELLED**: `onComplete(CANCELLED)` and the source stops. There is no CANCELLED event type.
+- A non-recoverable device error or `MODEL_INTEGRITY_FAILED` goes to FAILED_FINAL from any non-terminal state.
+- Device errors and ENGINE_ERROR never consume a retry. ENGINE_ERROR is capped at 2 attempts.
 
-Invariants that will be tested, and fuzzed in Phase 7:
-1. PASSED is reachable only through `PASSIVE_CHECK[PASS]` or `ACTIVE_CHALLENGE[all n DETECTED]`, followed by FINALISING.
-2. The attack check (rolling median < `padRejectThreshold`) runs on every analysed frame in PASSIVE_CHECK, ACTIVE_CHALLENGE and FINALISING. Any hit is a transition to ATTEMPT_FAILED(PAD_FAILURE). Nothing overrides it.
-3. Terminal states (PASSED, FAILED_FINAL, CANCELLED) absorb every input.
+**Invariants** (tested, including two fuzz tests through the real session):
+1. PASSED is only reachable from a full passive window with median ≥ `passiveThreshold`, or after every issued challenge of the final attempt was DETECTED.
+2. An attack signal ends the attempt: the passive median below `padRejectThreshold`, or a 3-frame rolling median below it during challenges or the final hold. A constant attack score never passes, whatever motions are performed (fuzz-tested).
+3. Exactly one `onComplete`, with nothing after it. Terminal states ignore every input.
 
 ---
 
@@ -153,7 +159,7 @@ Invariants that will be tested, and fuzzed in Phase 7:
 |---|---|---|---|---|---|
 | `DEVICE_UNAVAILABLE` | `FrameSource.onError(DEVICE_UNAVAILABLE)`; **or** no frame within `startTimeoutMs` (TUNE 5000) after `start()` | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
 | `DEVICE_CONNECTION_FAILED` | passed through from `onError` | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
-| `DEVICE_DISCONNECTED` | passed through from `onError` mid-stream; or a recoverable error with no frames within `deviceGraceMs` (TUNE 3000) | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
+| `DEVICE_DISCONNECTED` | passed through from `onError` mid-stream; or no frame at all for `frameStallMs` (TUNE 2000) during an attempt. Frames resuming within `deviceGraceMs` (3000) restart the attempt automatically. | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
 | `CAMERA_UNAVAILABLE` | passed through from `onError` (Android camera busy or permission) | `DEVICE_ERROR(recoverable)` | No | DEVICE_PROBLEM | DEVICE_ERROR |
 | `FACE_NOT_DETECTED` | passive timeout where most frames had `faceCount==0`; or face lost for more than `faceLostMs` (TUNE 1000) during a challenge | `ATTEMPT_FAILED` / `FAILED_FINAL` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
 | `MULTIPLE_FACES` | `faceCount>1` persists more than `multiFaceFailMs` (TUNE 1500) in passive; during a challenge, 2 consecutive frames (TUNE) | `GUIDANCE(MULTIPLE_FACES)` first, then `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
@@ -163,7 +169,7 @@ Invariants that will be tested, and fuzzed in Phase 7:
 | `CHALLENGE_FAILED` | detector `WRONG_ACTION` (clearly opposite movement); `FaceContinuityGuard` break (face swap or photo switch) | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED (`reason=WRONG_ACTION / CONTINUITY_BREAK`) |
 | `CHALLENGE_TIMEOUT` | `challengeTimeoutMs` passed since the prompt without DETECTED; or no stable neutral baseline within `baselineTimeoutMs` (4 s) before a prompt | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED (`reason=TIMEOUT / BASELINE_UNSTABLE`) |
 | `MAX_RETRIES_EXCEEDED` | an attempt fails when `retriesLeft == 0`; also used for a cooldown refusal (D2) | `FAILED_FINAL` | n/a | MAX_ATTEMPTS_REACHED | LIVENESS_FAILED_FINAL (`lastCause=<code>`) |
-| `INVALID_FRAME` | frame `sequence` or `timestampMs` does not increase; the same timestamp is repeated for more than `stallMs` (TUNE 1000) while the source is running; implausible FPS (below 3 or above 120, TUNE); analyzer throws `INVALID_FRAME` | `ATTEMPT_FAILED` | Yes | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
+| `INVALID_FRAME` | analysed frames whose `sequence` or `timestampMs` does not strictly increase, or that arrive < 5 ms apart (implausible), 3 times in one attempt (TUNE); or the analyzer rejects 3 frames with `INVALID_FRAME` | `ATTEMPT_FAILED` | Yes | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
 | `ENGINE_ERROR` | analyzer throws `ENGINE_ERROR` or a `RuntimeException` on `engineErrorFrames` consecutive frames (TUNE 3). A single bad frame is skipped. | `ATTEMPT_FAILED` | **No** (D7) | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
 | `MODEL_INTEGRITY_FAILED` | analyzer factory or `analyze` throws with this code | `FAILED_FINAL(recoverable=false)` | Final | VERIFICATION_NOT_COMPLETED | MODEL_INTEGRITY_FAILED + LIVENESS_FAILED_FINAL |
 | `CANCELLED` | `cancel()` | none (result only) | Final | NONE | LIVENESS_FAILED_FINAL (`cancelled=true`) |
@@ -215,7 +221,7 @@ stateDiagram-v2
   HOLD --> PASSED : >= 400 ms and a neutral, frontal best frame (or 2 s max)
   note right of PROMPTED
     On every frame, in every sub-phase:
-    1 face (lost 1 s: FACE_NOT_DETECTED; 2 frames with >1: MULTIPLE_FACES),
+    1 face (lost 1 s: FACE_NOT_DETECTED, 2 frames with more than 1: MULTIPLE_FACES),
     face continuity (IoU / centre / size),
     rolling 3-frame PAD median (PAD_FAILURE)
   end note
@@ -285,3 +291,195 @@ Part 3 only: the orchestrator/state machine, the passive→active decision, chal
 - `FrameSource`, the SBI adapter and the mock device: Part 1
 - `FaceAnalyzer`, models and PAD evaluation: Part 2
 - the app UIs, `ConfigProvider` and `AuditSink` implementations: Parts 4 and 5
+
+---
+
+## 10. Sequence diagrams (engine level)
+
+These show the calls between the app, the Part 3 engine, and the Part 1 and Part 2 components. The app-internal parts (screens, the capture and authentication flows) are owned by Parts 4 and 5 and are stitched in under section 15.
+
+### 10.1 Resident face capture (2 challenges if passive is inconclusive)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as Registration app (Part 4/5)
+  participant Svc as LivenessService
+  participant S as LivenessSession
+  participant Src as FrameSource (Part 1)
+  participant FA as FaceAnalyzer (Part 2)
+  participant L as LivenessListener (app)
+  participant A as AuditSink (app)
+  App->>Svc: newSession(RESIDENT)
+  Svc-->>App: session (null means liveness disabled: legacy capture)
+  App->>S: start(frameSource, listener)
+  S->>Src: start(pump)
+  S->>A: LIVENESS_STARTED
+  S-->>L: STARTED(1), CHECKING_PASSIVE
+  loop about 1.25 s: 10 eligible frames at 8 fps
+    Src->>S: onFrame (newest kept, older dropped)
+    S->>FA: analyze(frame)
+    FA-->>S: FrameAnalysis
+    S-->>L: GUIDANCE (debounced, if a problem persists)
+  end
+  alt median >= 0.85
+    S-->>L: PASSED, then onComplete(PASSED, PASSIVE_ONLY, bestFrame)
+  else 0.30 <= median < 0.85
+    loop each of 2 random challenges
+      S-->>L: CHALLENGE_PROMPT(type, i, 2, 6000 ms) after 0-400 ms jitter
+      S->>FA: analyze at 15 fps, with detector, PAD, face count and continuity on every frame
+      S-->>L: CHALLENGE_PROGRESS..., ACTION_DETECTED
+    end
+    S-->>L: HOLD_STILL, PASSED, then onComplete(PASSED, ACTIVE_CHALLENGE, neutral bestFrame)
+  else median < 0.30
+    S-->>L: ATTEMPT_FAILED(PAD_FAILURE, retriesLeft)
+    App->>S: retry() (user presses Retry)
+  end
+  S->>Src: stop()
+  S->>A: LIVENESS_PASSED or LIVENESS_FAILED_FINAL (scores, challenges, timings, model version)
+  App->>App: accept bestFrame into the existing capture flow only if result.passed()
+```
+
+### 10.2 Operator biometric authentication (1 challenge, cooldown)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as Login screen (Part 4/5)
+  participant Svc as LivenessService
+  participant S as LivenessSession
+  participant L as Listener
+  participant M as Existing face match (MOSIP)
+  App->>Svc: newSession(OPERATOR)
+  alt cooldown active (after MAX_RETRIES_EXCEEDED)
+    Svc-->>App: refused session
+    App->>S: start()
+    S-->>L: FAILED_FINAL(MAX_RETRIES_EXCEEDED), onComplete(FAILED), camera not opened
+  else normal
+    App->>S: start(frameSource, listener)
+    S-->>L: passive, then at most 1 challenge (policy operator.minChallenges=1)
+    S-->>L: onComplete(result)
+    opt result.passed()
+      App->>M: match(result.bestFrame) against the operator's enrolled face
+      M-->>App: match / no match
+    end
+    Note over App: Login succeeds only if liveness PASSED AND the face matches (liveness is an extra control)
+  end
+  Note over Svc: 4 failed attempts (1 + maxRetries) trip the operator cooldown (60 s, onRepeatedFailure=COOLDOWN)
+```
+
+### 10.3 Supervisor biometric authentication
+
+It is the same as 10.2 with `newSession(SUPERVISOR)`: 1 challenge, `onRepeatedFailure=BLOCK` (no cooldown), and the recovery guidance comes from the app. The supervisor must be physically present: the continuous PAD check and the face-continuity guard apply exactly as for the resident flow.
+
+---
+
+## 11. Error handling and recovery flow
+
+```mermaid
+flowchart TD
+  E{what went wrong} -->|device: unavailable, connection failed, disconnected, camera unavailable| DV{recoverable?}
+  DV -->|yes| DW[DEVICE_ERROR recoverable=true<br/>no retry consumed]
+  DW -->|frames back within 3 s| AUTO[attempt restarts automatically]
+  DW -->|user presses Retry| RS[source restarted, new attempt]
+  DV -->|no| FF[FAILED_FINAL with the device code]
+  E -->|model checksum/signature| MI[FAILED_FINAL MODEL_INTEGRITY_FAILED]
+  E -->|analyzer crashes 3 frames in a row| EE[ATTEMPT_FAILED ENGINE_ERROR<br/>no retry consumed, 2nd time final]
+  E -->|user-related: no face, multiple faces, poor quality,<br/>below threshold, PAD, challenge failed/timeout, invalid frames| UF{retries left?}
+  UF -->|yes| AF[ATTEMPT_FAILED code + retriesLeft<br/>UI shows message + Retry]
+  AF -->|retry| NEW[new attempt: fresh passive window,<br/>fresh challenge sequence]
+  UF -->|no| MR[FAILED_FINAL MAX_RETRIES_EXCEEDED<br/>audit keeps lastCause]
+  MR -->|onRepeatedFailure=COOLDOWN| CD[workflow refused for cooldownSec]
+  MR -->|BLOCK| RG[app shows recovery guidance<br/>resident: biometric exception flow]
+```
+
+The table of ErrorCode, trigger, user message and retry accounting is in section 4. What goes into audit (all through `AuditRecorder`, keys in `AuditRecorder.Keys`):
+
+| Audit event | Fields |
+|---|---|
+| `CONFIG_LOADED` | engine, policy summary, config error (if the host config was invalid and bundled defaults were used) |
+| `MODEL_LOADED` / `MODEL_INTEGRITY_FAILED` | model version, reason |
+| `LIVENESS_STARTED` | attempt, model version, device id, certification level |
+| `LIVENESS_ATTEMPT_FAILED` | errorCode, retriesLeft, reason, passive outcome, median score, window frames, passive ms, challenge log (`TYPE:OUTCOME:ms`), attempt ms |
+| `PAD_ATTACK_SUSPECTED` | median score, per-model PAD output medians (`pad.*`, max 8), reason |
+| `DEVICE_ERROR` | errorCode, recoverable, device detail (truncated to 120 chars) |
+| `LIVENESS_PASSED` / `LIVENESS_FAILED_FINAL` | pass path or errorCode and lastCause, cooldownSec, total duration, frames analysed and dropped, average processing ms |
+
+**Never in audit:** images, frame bytes, landmarks or coordinates. `AuditRecorder`'s public API cannot accept those types, and a reflection test enforces this.
+
+---
+
+## 12. Security considerations
+
+| Threat | Mitigation in Part 3 |
+|---|---|
+| Printed photo / screen replay passes passively | Passive decision uses the **median** over a window, and median < `padRejectThreshold` fails with **no fallback to challenges**. |
+| Attacker performs the requested action with a mask, photo cut-out or video | **Continuous PAD** during every challenge and the final hold: a 3-frame rolling median below `padRejectThreshold` fails immediately. The action cannot compensate (tested end to end). |
+| Pre-recorded video of the actions | **Unpredictable challenges** (SecureRandom; a retry never reuses the previous sequence) and a **random 0–400 ms prompt jitter**. Only motion **after** the prompt plus 150 ms human reaction time counts, and only once the face was seen back at neutral, so motion already under way at the prompt never counts. |
+| Head wiggling or random motion from a replay | Actions must be **held** (≥ 200 ms, ≥ 3 frames) and turns and looks must **return**. Moving the **opposite** way is WRONG_ACTION and fails the attempt. |
+| Swapping faces or photos mid-session | **FaceContinuityGuard**: IoU, centre-jump and size-ratio checks between consecutive frames (looser across short gaps). The face lost for 1 s, or 2 frames with more than one face, fails. |
+| Frame injection / frozen or replayed streams | **FrameSanity**: sequence and timestamps must strictly increase and be plausibly spaced. Three violations mean INVALID_FRAME, which consumes a retry. |
+| Probing the PAD model | A PAD failure only ever shows the generic "Face verification could not be completed" (contract `userMessage()`). PAD scores go to audit only. |
+| Brute-force retries at operator login | Retry limit (1 + `maxRetries`), then a per-workflow **cooldown** (operator by default). |
+| Weakening liveness through a bad config | Invalid host config falls back to the **bundled defaults** (liveness stays on) and is audited. |
+| Privacy | No images, landmarks or coordinates in audit, logs or tuning traces (traces keep only scale-free features). |
+| Offline operation | The engine makes **no network calls** and has no runtime dependencies beyond the contract. Config comes from the host's synced config, and models are loaded by Part 2's factory from local, verified files. Behaviour is identical online and offline. |
+
+Known limits:
+- The cooldown is in memory, so it resets on app restart (proposal P1).
+- Thresholds are `TUNE:` guesses until the Phase 8 report runs on real recordings.
+- The analysis rate during challenges assumes the analyzer can keep up with about 15 fps (proposal P5).
+
+---
+
+## 13. ISO/IEC 30107 alignment notes
+
+- **Scope of attack instruments (30107-1):** printed photos (flat and curved), photos or videos shown on a phone, tablet or monitor screen, and video replay. Masks are partly covered by the continuous passive PAD, depending on Part 2's model. Part 3 adds challenge-response on top of Part 2's passive PAD, so a static artefact cannot pass an inconclusive session.
+- **Metrics (30107-3):**
+  - **APCER** is the proportion of attack presentations wrongly accepted, reported per attack instrument species. The highest APCER over the species is the one to quote.
+  - **BPCER** is the proportion of bona fide presentations wrongly rejected.
+  - **ACER** is (max APCER + BPCER) / 2, as used in the literature (not normative in the 2023 edition).
+- **How to measure with Part 2's evaluation set:**
+  1. Record each bona fide and attack sample as a trace with `TraceRecorder`.
+  2. Run `DetectorTuningReport`. Its passive table gives, for any threshold t, the attacks accepted without a challenge (median ≥ t) and the bona fide sessions below t.
+  3. For end-to-end APCER, replay attack traces through the full engine. An attack passes only if it clears passive, or completes randomly chosen challenges while its score stays ≥ `padRejectThreshold`.
+- **Threshold trade-off (policy, per workflow):**
+  - Raising `passiveThreshold` lowers passive-only APCER, but sends more genuine people to a challenge (more friction, not rejection).
+  - Raising `padRejectThreshold` lowers APCER further but raises BPCER, because genuine people with low scores are rejected outright.
+  - The band between the two thresholds is resolved by challenges, which is where the hybrid design earns its keep. Defaults are 0.85 and 0.30. Change them only through a contract PR, backed by the report on real data.
+- **Reporting:** state the evaluation population, the attack species, the capture devices (L0/L1 certification from `DeviceInfo`), and the model version (in every audit record).
+
+---
+
+## 14. Module map, usage and verification
+
+| Module | Contents | Ships in apps |
+|---|---|---|
+| `liveness-api` | Shared contract (17 Java files + `liveness-default.properties`, team-owned; only a build file was added) | yes |
+| `liveness-core` | Engine: `DefaultLivenessService`, session, state machine, passive, challenges, detectors, audit, policy | yes |
+| `liveness-fake` | `FakeLivenessService`: scripted scenarios for UI work, with the same semantics as the engine | dev builds |
+| `liveness-tools` | Trace recorder, replayer, tuning report, synthetic traces | no |
+
+```java
+// Swap the fake for the real engine: only construction changes.
+LivenessService liveness = DefaultLivenessService.builder()
+        .config(configProvider)            // Part 4/5 ConfigProvider
+        .analyzerFactory(part2Factory)     // Part 2: one FaceAnalyzer per session
+        .auditSink(auditSink)              // Part 4/5 AuditSink
+        .build();
+```
+
+**Verification** (`mvn verify`):
+- **Tests:** 211 across unit, state-machine, detector, runner, scenario, threading, fuzz and tools.
+- **Coverage:** JaCoCo line coverage on `liveness-core` is about 95%, gated at 85%.
+- **API gates:** animal-sniffer checks main code against the **Java 8 and Android API 21** signatures, and bytecode is Java 8 (`--release 8`).
+- **Mutation spot-check:** disabling blink detection makes the scenario suite fail.
+
+---
+
+## 15. Other parts' sections (to be stitched in by Part 3)
+
+- **Part 1: Device and frame pipeline.** Device integration interface, frame streaming architecture diagram, SBI adapter, mock L0/L1 device, device error handling. *(pending)*
+- **Part 2: Passive liveness and PAD engine.** Model comparison and choice, `FaceAnalyzer` implementation, PAD architecture, ISO/IEC 30107-3 evaluation (APCER/BPCER/ACER per threshold), model packaging and signature verification. *(pending)*
+- **Part 4: Desktop Registration Client integration.** JavaFX screens, resident/operator/supervisor Desktop sequence diagrams, config wiring, audit module adapter, diagnostic mode. *(pending)*
+- **Part 5: Android Registration Client integration.** Flutter screens, platform/event channel bridge, Android sequence diagrams, performance benchmark report. *(pending)*

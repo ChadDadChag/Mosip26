@@ -1,6 +1,6 @@
 # liveness-fake: scripted `LivenessService` for UI work
 
-`FakeLivenessService` implements the real contract (`LivenessService` / `LivenessSession`). It uses the real per-workflow policy, real threading, and real retry, cancel and cooldown behaviour. Only the decisions are scripted. To switch to the real engine later, change the line that constructs the service; nothing else changes.
+`FakeLivenessService` implements the real contract (`LivenessService` / `LivenessSession`). It uses the real per-workflow policy, real threading, and real retry, cancel and cooldown behaviour. Only the decisions are scripted. To switch to the real engine later, change the line that constructs the service: `DefaultLivenessService.builder().config(config).analyzerFactory(part2Factory).auditSink(auditSink).build()`. Nothing else changes.
 
 ## Usage
 
