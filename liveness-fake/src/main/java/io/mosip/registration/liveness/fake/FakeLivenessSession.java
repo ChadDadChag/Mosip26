@@ -11,6 +11,8 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
+import io.mosip.registration.liveness.core.audit.AuditRecorder;
+import io.mosip.registration.liveness.core.audit.AuditRecorder.ChallengeOutcome;
 import io.mosip.registration.liveness.core.challenge.ChallengeSelector;
 import io.mosip.registration.liveness.core.policy.CooldownTracker;
 import io.mosip.registration.liveness.core.session.AttemptTracker;
@@ -21,9 +23,7 @@ import io.mosip.registration.liveness.core.util.TimeSource;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -56,7 +56,7 @@ final class FakeLivenessSession implements LivenessSession {
     private final double timeScale;
     private final RandomSource random;
     private final TimeSource clock;
-    private final AuditSink audit;
+    private final AuditRecorder recorder;
     private final CooldownTracker cooldown;
     private final ChallengeSelector selector;
     private final AtomicReference<Frame> latestFrame = new AtomicReference<Frame>();
@@ -78,7 +78,8 @@ final class FakeLivenessSession implements LivenessSession {
     FakeLivenessSession(WorkflowType workflow, LivenessPolicy policy, FakeScenario scenario, double timeScale,
                         RandomSource random, TimeSource clock, AuditSink audit, CooldownTracker cooldown) {
         this.workflow = workflow; this.policy = policy; this.scenario = scenario; this.timeScale = timeScale;
-        this.random = random; this.clock = clock; this.audit = audit; this.cooldown = cooldown;
+        this.random = random; this.clock = clock; this.cooldown = cooldown;
+        this.recorder = new AuditRecorder(audit, workflow, sessionId, FakeLivenessService.MODEL_VERSION, clock, "fake");
         this.selector = new ChallengeSelector(random);
     }
 
@@ -140,12 +141,7 @@ final class FakeLivenessSession implements LivenessSession {
                     ErrorCode.CANCELLED, null, Float.NaN, attempts));
         }
         stopSource();
-        if (won) {
-            Map<String, String> d = details(attempts);
-            d.put("errorCode", ErrorCode.CANCELLED.name());
-            d.put("cancelled", "true");
-            audit(AuditSink.Event.LIVENESS_FAILED_FINAL, d);
-        }
+        if (won) recorder.cancelled();
     }
 
     @Override
@@ -174,7 +170,7 @@ final class FakeLivenessSession implements LivenessSession {
                 int attempt = tracker.attemptNumber();
                 currentAttempt = attempt;
                 emit(LivenessEvent.of(LivenessEvent.Type.STARTED, attempt));
-                audit(AuditSink.Event.LIVENESS_STARTED, details(attempt));
+                recorder.attemptStarted(attempt);
 
                 Outcome o;
                 try {
@@ -187,15 +183,13 @@ final class FakeLivenessSession implements LivenessSession {
                     lastIssued = o.issued;
                 }
 
+                recordPassive(o);
                 if (o.passed) {
                     finishPassed(o, attempt);
                     return;
                 }
                 if (o.device) {
-                    Map<String, String> d = details(attempt);
-                    d.put("errorCode", o.code.name());
-                    d.put("recoverable", Boolean.toString(o.recoverable));
-                    audit(AuditSink.Event.DEVICE_ERROR, d);
+                    recorder.deviceError(o.code, o.recoverable, "scripted or reported by FrameSource");
                     if (!o.recoverable) {
                         finishFailed(o.code, o.code, attempt, o.score);
                         return;
@@ -210,11 +204,8 @@ final class FakeLivenessSession implements LivenessSession {
                         finishFailed(decision.code, o.code, attempt, o.score);
                         return;
                     }
-                    Map<String, String> d = details(attempt);
-                    d.put("errorCode", o.code.name());
-                    d.put("retriesLeft", Integer.toString(decision.retriesLeft));
-                    if (o.code == ErrorCode.PAD_FAILURE) audit(AuditSink.Event.PAD_ATTACK_SUSPECTED, d);
-                    audit(AuditSink.Event.LIVENESS_ATTEMPT_FAILED, d);
+                    if (o.code == ErrorCode.PAD_FAILURE) recorder.padSuspected(o.score, null, "scripted");
+                    recorder.attemptFailed(o.code, decision.retriesLeft, null);
                     enterWaitingForRetry();
                     emit(LivenessEvent.failure(LivenessEvent.Type.ATTEMPT_FAILED, decision.code, attempt,
                             decision.retriesLeft, true));
@@ -325,11 +316,12 @@ final class FakeLivenessSession implements LivenessSession {
         lastIssued = seq;
         for (int i = 0; i < seq.size(); i++) {
             ChallengeType c = seq.get(i);
-            prompt(c, i + 1, seq.size(), attempt);
+            long promptedAt = prompt(c, i + 1, seq.size(), attempt);
             progress(c, i + 1, seq.size(), 0.35f, attempt);
             pause(PROGRESS_STEP_MS);
             progress(c, i + 1, seq.size(), 0.7f, attempt);
             pause(PROGRESS_STEP_MS);
+            recorder.challengeResolved(c, ChallengeOutcome.DETECTED, clock.nowMs() - promptedAt);
             emit(LivenessEvent.of(LivenessEvent.Type.ACTION_DETECTED, attempt));
             pause(ACTION_DETECTED_PAUSE_MS);
         }
@@ -344,7 +336,7 @@ final class FakeLivenessSession implements LivenessSession {
         List<ChallengeType> seq = select(policy.minChallenges, previous);
         lastIssued = seq;
         ChallengeType c = seq.get(0);
-        prompt(c, 1, seq.size(), attempt);
+        long promptedAt = prompt(c, 1, seq.size(), attempt);
         if (timeout) {
             progress(c, 1, seq.size(), 0.2f, attempt);
             pause(Math.max(0, policy.challengeTimeoutMs - PROMPT_TO_FIRST_PROGRESS_MS));
@@ -352,14 +344,19 @@ final class FakeLivenessSession implements LivenessSession {
             progress(c, 1, seq.size(), 0.35f, attempt);
             pause(PROGRESS_STEP_MS);
         }
+        recorder.challengeResolved(c, timeout ? ChallengeOutcome.TIMEOUT : ChallengeOutcome.WRONG_ACTION,
+                clock.nowMs() - promptedAt);
         return Outcome.fail(code, 0.62f, seq);
     }
 
     /** Emits the prompt after the random 0-400 ms jitter, then waits until the first progress update. */
-    private void prompt(ChallengeType c, int index, int count, int attempt) throws Cancelled, DeviceInterrupt {
+    private long prompt(ChallengeType c, int index, int count, int attempt) throws Cancelled, DeviceInterrupt {
         pause(random.nextInt(MAX_PROMPT_JITTER_MS + 1));
+        long promptedAt = clock.nowMs();
+        recorder.challengeIssued(c);
         emit(LivenessEvent.prompt(c, index, count, policy.challengeTimeoutMs, attempt));
         pause(PROMPT_TO_FIRST_PROGRESS_MS);
+        return promptedAt;
     }
 
     private void progress(ChallengeType c, int index, int count, float p, int attempt) {
@@ -385,12 +382,7 @@ final class FakeLivenessSession implements LivenessSession {
             won = dispatcher.complete(result(LivenessResult.Decision.PASSED, o.path, null, bestFrame(), o.score, attempt));
         }
         stopSource();
-        if (won) {
-            Map<String, String> d = details(attempt);
-            d.put("passPath", o.path.name());
-            d.put("passiveScore", Float.toString(o.score));
-            audit(AuditSink.Event.LIVENESS_PASSED, d);
-        }
+        if (won) recorder.passed(o.path, o.score);
     }
 
     private void finishFailed(ErrorCode finalCode, ErrorCode lastCause, int attempt, float score) throws Cancelled {
@@ -407,12 +399,8 @@ final class FakeLivenessSession implements LivenessSession {
         boolean cooldownTripped = finalCode == ErrorCode.MAX_RETRIES_EXCEEDED
                 && policy.onRepeatedFailure == LivenessPolicy.OnRepeatedFailure.COOLDOWN;
         if (cooldownTripped) cooldown.trip(workflow, policy.cooldownSec);
-        Map<String, String> d = details(attempt);
-        d.put("errorCode", finalCode.name());
-        d.put("lastCause", lastCause.name());
-        if (cooldownTripped) d.put("cooldownSec", Integer.toString(policy.cooldownSec));
-        if (lastCause == ErrorCode.PAD_FAILURE) audit(AuditSink.Event.PAD_ATTACK_SUSPECTED, d);
-        audit(AuditSink.Event.LIVENESS_FAILED_FINAL, d);
+        if (lastCause == ErrorCode.PAD_FAILURE) recorder.padSuspected(score, null, "scripted");
+        recorder.failedFinal(finalCode, lastCause, cooldownTripped ? policy.cooldownSec : 0);
     }
 
     private LivenessResult result(LivenessResult.Decision decision, LivenessResult.PassPath path, ErrorCode code,
@@ -492,6 +480,12 @@ final class FakeLivenessSession implements LivenessSession {
         synchronized (lock) { s = source; }
         if (s == null) return;
         try {
+            FrameSource.DeviceInfo info = s.info();
+            if (info != null) recorder.setDevice(info.deviceId, info.certificationLevel);
+        } catch (RuntimeException ignored) {
+            // Device identity is optional audit context.
+        }
+        try {
             s.start(new FrameSource.Listener() {
                 @Override
                 public void onFrame(Frame frame) {
@@ -541,23 +535,16 @@ final class FakeLivenessSession implements LivenessSession {
         dispatcher.emit(e);
     }
 
-    private Map<String, String> details(int attempt) {
-        Map<String, String> d = new HashMap<String, String>();
-        d.put("attempt", Integer.toString(attempt));
-        d.put("modelVersion", FakeLivenessService.MODEL_VERSION);
-        d.put("fakeScenario", scenario.name());
-        if (!lastIssued.isEmpty()) d.put("challenges", lastIssued.toString());
-        d.put("durationMs", Long.toString(clock.nowMs() - startMs));
-        return d;
-    }
-
-    private void audit(AuditSink.Event event, Map<String, String> details) {
-        if (audit == null) return;
-        try {
-            audit.record(event, workflow, sessionId, details);
-        } catch (RuntimeException ignored) {
-            // Audit failures must not change the liveness outcome.
-        }
+    /** The fake has no real passive window; record a plausible summary so audit has the same shape. */
+    private void recordPassive(Outcome o) {
+        if (o.device) return;
+        String outcome;
+        if (o.passed && o.path == LivenessResult.PassPath.PASSIVE_ONLY) outcome = "PASS";
+        else if (o.code == ErrorCode.PAD_FAILURE) outcome = "ATTACK";
+        else if (o.issued != null || o.path == LivenessResult.PassPath.ACTIVE_CHALLENGE
+                || o.code == ErrorCode.LIVENESS_BELOW_THRESHOLD) outcome = "NEED_ACTIVE";
+        else outcome = "INSUFFICIENT";
+        recorder.passiveDecided(outcome, o.score, policy.passiveWindowFrames, CHECKING_MS);
     }
 
     private String shortId() {

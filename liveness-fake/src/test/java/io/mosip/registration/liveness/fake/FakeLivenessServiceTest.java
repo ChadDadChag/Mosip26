@@ -459,13 +459,17 @@ class FakeLivenessServiceTest {
         assertThat(audit.events).contains(AuditSink.Event.CONFIG_LOADED, AuditSink.Event.LIVENESS_STARTED,
                 AuditSink.Event.PAD_ATTACK_SUSPECTED, AuditSink.Event.LIVENESS_ATTEMPT_FAILED,
                 AuditSink.Event.LIVENESS_FAILED_FINAL);
-        List<String> allowed = java.util.Arrays.asList("attempt", "modelVersion", "fakeScenario", "challenges",
-                "durationMs", "errorCode", "retriesLeft", "lastCause", "passPath", "passiveScore", "recoverable",
-                "cancelled", "cooldownSec", "source", "error");
+        List<String> allowed = new ArrayList<String>();
+        for (java.lang.reflect.Field f : io.mosip.registration.liveness.core.audit.AuditRecorder.Keys.class.getFields()) {
+            allowed.add((String) f.get(null));
+        }
         synchronized (audit.details) {
             for (Map<String, String> d : audit.details) {
-                assertThat(allowed).containsAll(d.keySet());
-                for (String v : d.values()) assertThat(v.length()).isLessThan(200);
+                for (String k : d.keySet()) {
+                    assertThat(allowed.contains(k) || k.startsWith("pad.")).as("audit key " + k).isTrue();
+                }
+                // An encoded face image would be tens of KB; the longest legitimate value is the policy summary.
+                for (String v : d.values()) assertThat(v.length()).isLessThan(512);
             }
         }
     }

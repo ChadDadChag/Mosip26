@@ -6,6 +6,7 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessService;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
+import io.mosip.registration.liveness.core.audit.AuditRecorder;
 import io.mosip.registration.liveness.core.policy.CooldownTracker;
 import io.mosip.registration.liveness.core.policy.PolicyResolver;
 import io.mosip.registration.liveness.core.session.CooldownRefusedSession;
@@ -15,7 +16,6 @@ import io.mosip.registration.liveness.core.util.SystemTimeSource;
 import io.mosip.registration.liveness.core.util.TimeSource;
 
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -69,7 +69,7 @@ public final class FakeLivenessService implements LivenessService {
         LivenessPolicy p = resolved(workflow).policy;
         if (!p.enabled) return null;
         long cooldownLeft = cooldown.remainingMs(workflow);
-        if (cooldownLeft > 0) return new CooldownRefusedSession(workflow, cooldownLeft, audit, MODEL_VERSION);
+        if (cooldownLeft > 0) return new CooldownRefusedSession(workflow, cooldownLeft, audit, MODEL_VERSION, "fake");
         return new FakeLivenessSession(workflow, PolicyResolver.copy(p), effectiveScenario(), timeScale,
                 random, clock, audit, cooldown);
     }
@@ -115,16 +115,7 @@ public final class FakeLivenessService implements LivenessService {
             r = PolicyResolver.resolve(config, workflow);
             policies.put(workflow, r);
         }
-        if (audit != null) {
-            Map<String, String> d = new HashMap<String, String>();
-            d.put("source", "fake");
-            if (r.configError != null) d.put("error", r.configError);
-            try {
-                audit.record(AuditSink.Event.CONFIG_LOADED, workflow, null, d);
-            } catch (RuntimeException ignored) {
-                // Audit failures must not change liveness behaviour.
-            }
-        }
+        AuditRecorder.configLoaded(audit, workflow, r.policy, r.configError, "fake");
         return r;
     }
 
