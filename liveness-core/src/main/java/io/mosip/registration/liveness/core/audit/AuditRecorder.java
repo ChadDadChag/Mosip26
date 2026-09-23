@@ -62,7 +62,7 @@ public final class AuditRecorder {
     }
 
     /** Outcome of one challenge, as recorded in {@link Keys#CHALLENGES}. */
-    public enum ChallengeOutcome { DETECTED, WRONG_ACTION, TIMEOUT, CONTINUITY_BREAK, PRE_PROMPT_MOTION, FACE_LOST,
+    public enum ChallengeOutcome { DETECTED, WRONG_ACTION, TIMEOUT, BASELINE_UNSTABLE, CONTINUITY_BREAK, FACE_LOST,
         MULTIPLE_FACES, PAD_FAILURE, INVALID_FRAME, ABORTED }
 
     static final int MAX_FREE_TEXT = 120;

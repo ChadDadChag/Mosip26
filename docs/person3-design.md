@@ -160,8 +160,8 @@ Invariants that will be tested, and fuzzed in Phase 7:
 | `POOR_QUALITY` | passive timeout where faces were present but quality issues blocked the window | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
 | `LIVENESS_BELOW_THRESHOLD` | `padReject ≤ median < passive` and `activeEnabled == false` | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
 | `PAD_FAILURE` | median < `padRejectThreshold` on the passive window; rolling median < `padRejectThreshold` during a challenge or finalising. **No fallback to active.** | `ATTEMPT_FAILED` | Yes | VERIFICATION_NOT_COMPLETED (generic) | PAD_ATTACK_SUSPECTED + LIVENESS_ATTEMPT_FAILED |
-| `CHALLENGE_FAILED` | detector `WRONG_ACTION`; `FaceContinuityGuard` break; movement already in progress at prompt time | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED (`reason=wrong_action / continuity / pre_prompt`) |
-| `CHALLENGE_TIMEOUT` | `challengeTimeoutMs` passed since the prompt without DETECTED | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
+| `CHALLENGE_FAILED` | detector `WRONG_ACTION` (clearly opposite movement); `FaceContinuityGuard` break (face swap or photo switch) | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED (`reason=WRONG_ACTION / CONTINUITY_BREAK`) |
+| `CHALLENGE_TIMEOUT` | `challengeTimeoutMs` passed since the prompt without DETECTED; or no stable neutral baseline within `baselineTimeoutMs` (4 s) before a prompt | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED (`reason=TIMEOUT / BASELINE_UNSTABLE`) |
 | `MAX_RETRIES_EXCEEDED` | an attempt fails when `retriesLeft == 0`; also used for a cooldown refusal (D2) | `FAILED_FINAL` | n/a | MAX_ATTEMPTS_REACHED | LIVENESS_FAILED_FINAL (`lastCause=<code>`) |
 | `INVALID_FRAME` | frame `sequence` or `timestampMs` does not increase; the same timestamp is repeated for more than `stallMs` (TUNE 1000) while the source is running; implausible FPS (below 3 or above 120, TUNE); analyzer throws `INVALID_FRAME` | `ATTEMPT_FAILED` | Yes | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
 | `ENGINE_ERROR` | analyzer throws `ENGINE_ERROR` or a `RuntimeException` on `engineErrorFrames` consecutive frames (TUNE 3). A single bad frame is skipped. | `ATTEMPT_FAILED` | **No** (D7) | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
@@ -199,19 +199,41 @@ Rules:
 - **Otherwise:** ACTIVE_CHALLENGE if `activeEnabled`, else LIVENESS_BELOW_THRESHOLD.
 - **Timeout:** if `passiveTimeoutMs` passes without a full window, the code is chosen by majority reason among the rejected frames: no face → FACE_NOT_DETECTED, >1 face → MULTIPLE_FACES, anything else → POOR_QUALITY.
 
-## 7. Active challenges (Phases 4–5 detail)
+## 7. Active challenges (as built in Phases 4–5)
 
-- **Selection:** `minChallenges` distinct types from `policy.challengePool ∩ detectorsAvailable`, using `SecureRandom`. Opposite pairs (TURN_LEFT↔TURN_RIGHT, LOOK_UP↔LOOK_DOWN) are never placed next to each other. The full sequence never repeats the previous attempt's sequence, which only matters when the pool is small.
-- **Baseline: a deliberate deviation from the brief.** The brief builds the baseline from the first ~5 frames *after* the prompt. At `analyzeFps=8`, 5 frames is 625 ms, and people start moving 200–500 ms after a prompt, so that baseline would contain the action. Instead, the baseline comes from the stable neutral frames **during the pre-prompt jitter/hold**. That is the tail of the passive window for challenge 1 and the neutral return of the previous challenge for later ones. The prompt is only shown once the baseline is stable. Anything moving more than 50% of the action threshold within the first 150 ms (TUNE) after the prompt counts as pre-emptive movement and fails with CHALLENGE_FAILED.
-- **Detectors:**
-  - BLINK uses EAR from `leftEye`/`rightEye` p1..p6.
-  - SMILE uses the mouth width ÷ inter-ocular distance, plus corner lift relative to the mid-point of `mouthUpperInner`/`mouthLowerInner`.
-  - TURN uses `userYaw = yawDeg`. The contract already says +yaw is the subject's left, so no mirroring flip is applied. This is pinned in `FaceGeometry.userYaw()` with a test.
-  - LOOK uses `pitchDeg`. **The sign is undefined in the contract** (D3).
-  - All detector timing is **time-based, not frame-count-based**, because the frame rate varies.
-- **Every challenge frame also checks:** `faceCount==1`, `FaceContinuityGuard` (IoU < 0.3 or a centre jump > 0.5×box width between consecutive analysed frames, TUNE), the rolling-median PAD check, strictly increasing timestamps, and the timeout.
+Code: `challenge.ChallengeSelector`, `challenge.ChallengeRunner` (implements `session.ActivePhase`), `detect.*`. Every threshold is a `TUNE:` field in `EngineTuning`, so the Phase 8 report can sweep it.
 
----
+```mermaid
+stateDiagram-v2
+  [*] --> PRE_PROMPT : sequence selected (SecureRandom)
+  PRE_PROMPT --> PROMPTED : random 0-400 ms jitter elapsed AND 5 stable near-frontal frames (baseline)
+  PRE_PROMPT --> FAILED : no stable baseline in 4 s [CHALLENGE_TIMEOUT / BASELINE_UNSTABLE]
+  PROMPTED --> PROMPTED : detector ARMING / IN_PROGRESS (progress per quarter + 1.5 s heartbeat)
+  PROMPTED --> PRE_PROMPT : DETECTED, more challenges (fresh baseline)
+  PROMPTED --> HOLD : DETECTED, last challenge / HOLD_STILL
+  PROMPTED --> FAILED : WRONG_ACTION [CHALLENGE_FAILED] or timeout [CHALLENGE_TIMEOUT]
+  HOLD --> PASSED : >= 400 ms and a neutral, frontal best frame (or 2 s max)
+  note right of PROMPTED
+    On every frame, in every sub-phase:
+    1 face (lost 1 s: FACE_NOT_DETECTED; 2 frames with >1: MULTIPLE_FACES),
+    face continuity (IoU / centre / size),
+    rolling 3-frame PAD median (PAD_FAILURE)
+  end note
+```
+
+- **Selection:** `minChallenges` distinct types from `policy.challengePool ∩ supported`. Opposite motions are never adjacent, and a retry never repeats the previous sequence. Over 10,000 draws the 10 valid 2-of-4 sequences are equally likely. Per type, BLINK and SMILE appear about 60% of the time and each turn about 40%, because the two turns are never paired.
+- **Baseline from *before* the prompt (C9):** 5 consecutive frames with |yaw| and |pitch| ≤ 15° and a spread of ≤ 6°. For challenge 1 the passive window seeds the baseline. Later challenges use fresh frames after the previous action. If none is stable after 1 s, the user gets `GUIDANCE(LOOK_AT_CAMERA)`.
+- **"Armed" instead of "pre-prompt motion fails":** a detector only starts counting once ≥ 150 ms have passed since the prompt **and** the signal has been seen back near neutral (within 30% of its threshold). Motion that started before the prompt, or a spontaneous blink right at it, is ignored and never fails a genuine user. A pre-recorded action therefore has to be timed exactly, after a random jitter.
+- **Detectors** (all relative to the baseline and time-based):
+
+| Challenge | Signal | Detected when | Wrong action |
+|---|---|---|---|
+| BLINK | mean EAR (p1..p6) | < 0.6× baseline, then ≥ 0.85× within 400 ms (one closed frame at 15 fps is enough). Longer closures (eyes shut, closed-eye photo) restart detection. | — |
+| SMILE | mouth width ÷ IOD, and corner lift ÷ IOD | +18% width, or +10% width with +0.03 corner lift, held ≥ 200 ms over ≥ 3 frames | — |
+| TURN_LEFT / TURN_RIGHT | `userYaw` (+ = the user's left) | ≥ 20° in the requested direction, held ≥ 200 ms over ≥ 3 frames, then back within 10° | ≥ 20° the opposite way at any time (wiggles fail) |
+| LOOK_UP / LOOK_DOWN | `userPitch` (+ = up, assumed, P2) | ≥ 13°, held, then back within 8° | ≥ 13° the opposite way |
+
+- **Final hold and best frame:** a frame qualifies when it has one face, no quality issue, |yaw| and |pitch| ≤ 10°, eyes open, and the mouth within 8% of baseline. It is chosen from the passive window plus the post-challenge hold. Mid-action frames are never offered, and tests assert this.
 
 ## 8. Conflicts between the brief and the contract (the contract wins)
 
