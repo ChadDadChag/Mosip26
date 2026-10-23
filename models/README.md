@@ -150,7 +150,36 @@ docstring of its function.
 `liveness-analyzer/src/test/resources/golden/`. Those values include per-stage tensor statistics,
 so a parity failure in Java can be traced to one stage.
 
-## Integrity
+## Integrity (signed bundle `pad-2026.10.1`)
 
-From Phase 4, a signed `manifest.json` / `manifest.sig` in this directory covers these files.
-The analyzer refuses to load a model whose size or SHA-256 differs from the manifest.
+`manifest.json` lists the four files with their sizes and SHA-256 hashes, and carries the mesh's
+`pitchBiasDeg` calibration as a signed parameter. `manifest.sig` holds
+`<keyId>:<hex DER ECDSA P-256 signature>` over the exact bytes of `manifest.json`.
+`.gitattributes` keeps both files byte-exact.
+
+At start-up the analyzer (`VerifiedBundle`, called by `OnnxFaceAnalyzerFactory`) does the
+following:
+- verifies the signature against a public key compiled into `TrustedKeys`, BEFORE parsing;
+- checks every size and hash;
+- builds the ONNX sessions from the same verified bytes.
+
+Any problem gives `MODEL_INTEGRITY_FAILED`, and there is no fallback.
+
+**The key is a development key**, `mosip-liveness-dev-2026-10`. Its private half lives only in
+`%USERPROFILE%\.mosip-liveness\model-signing-key.p8` on the developer's machine and is never
+committed. **Replace it with the production signing key before release.**
+
+To re-sign after changing a model, use `liveness-eval`'s `ModelBundleTool`:
+
+```
+java -cp <liveness-eval classpath> io.mosip.registration.liveness.eval.ModelBundleTool \
+     manifest --dir models --version pad-YYYY.MM.N --key-id <id> --param pitchBiasDeg=-9.5
+     sign     --dir models --key %USERPROFILE%\.mosip-liveness\model-signing-key.p8 --key-id <id>
+     verify   --dir models
+```
+
+Offline updates go through `ModelStore`:
+- **install:** verify, anti-rollback, atomic switch, keep the previous bundle;
+- **rollback:** an explicit operator action.
+
+These are also available as `ModelBundleTool install|rollback`.

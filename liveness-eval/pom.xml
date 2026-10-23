@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.mosip.registration</groupId>
+        <artifactId>registration-client-parent</artifactId>
+        <version>1.2.0.2</version>
+    </parent>
+
+    <artifactId>liveness-eval</artifactId>
+    <name>Registration Liveness Evaluation Tools</name>
+    <description>Part 2: PAD evaluation, benchmark, demo and model bundle tools (development only)</description>
+    <version>1.2.0.2</version>
+
+    <properties>
+        <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
+        <junit.jupiter.version>5.10.2</junit.jupiter.version>
+        <assertj.version>3.25.3</assertj.version>
+        <onnxruntime.version>1.31.0</onnxruntime.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.mosip.registration</groupId>
+            <artifactId>liveness-analyzer</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.mosip.registration</groupId>
+            <artifactId>liveness-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.mosip.registration</groupId>
+            <artifactId>liveness-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Compile scope: these tools run on the desktop JVM only and never ship. -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>${onnxruntime.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

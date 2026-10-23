@@ -19,8 +19,11 @@ import java.util.Set;
  */
 public final class TrustedKeys {
 
-    /** {keyId, hex X.509 SubjectPublicKeyInfo (EC P-256)}. */
+    /** {keyId, hex X.509 SubjectPublicKeyInfo (EC P-256)}. DEV KEY: replace before release. */
     private static final String[][] BUILT_IN = {
+        {"mosip-liveness-dev-2026-10",
+            "3059301306072a8648ce3d020106082a8648ce3d03010703420004784647a03641df9434091fffc1ed39cacf94fc5f3c9997a929"
+            + "31993e279d99e28c1fa38db8debab8ffc48a8a5b81e490049c433ec6fd2f8bb97c5265a57de3f7"},
     };
 
     private final Map<String, PublicKey> keys;
