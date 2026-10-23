@@ -13,7 +13,8 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *   <li>{@code intraOpThreads} (2), {@code accelerator} (CPU | XNNPACK | NNAPI, default CPU)</li>
  *   <li>{@code detectorMaxWidth} (320), {@code detectorScoreThreshold} (0.7), {@code detectorNmsIou} (0.3),
  *       {@code detectorSecondFaceMinAreaRatio} (0.2)</li>
- *   <li>{@code meshPresenceThreshold} (0.5), {@code meshRoiScale} (1.5), {@code pitchBiasDeg} (-9.5)</li>
+ *   <li>{@code meshPresenceThreshold} (0.5), {@code meshRoiScale} (1.5), {@code pitchBiasDeg} (-9.5; when the key is
+ *       absent the model bundle's signed param wins, see {@link #pitchBiasExplicit})</li>
  *   <li>{@code padMaxYawDeg} (30), {@code padMaxPitchDeg} (25): outside this pose range the PAD score is NaN</li>
  *   <li>{@code tooDarkLuma} (40), {@code tooBrightLuma} (220), {@code blurLapVar} (15), {@code minAreaFrac} (0.04),
  *       {@code minFaceWidthPx} (80), {@code maxAreaFrac} (0.60), {@code maxCentreOffset} (0.25)</li>
@@ -32,6 +33,11 @@ public final class AnalyzerConfig {
     public final double meshPresenceThreshold;
     public final double meshRoiScale;
     public final double pitchBiasDeg;
+    /**
+     * True when the host set pitchBiasDeg itself (builder call, or the config key is present). Otherwise the model
+     * bundle's signed {@code params.pitchBiasDeg} replaces the default, because the bias belongs to the mesh model.
+     */
+    public final boolean pitchBiasExplicit;
     public final double padMaxYawDeg;
     public final double padMaxPitchDeg;
     public final double tooDarkLuma;
@@ -49,6 +55,7 @@ public final class AnalyzerConfig {
         meshPresenceThreshold = b.meshPresenceThreshold;
         meshRoiScale = b.meshRoiScale;
         pitchBiasDeg = b.pitchBiasDeg;
+        pitchBiasExplicit = b.pitchBiasExplicit;
         padMaxYawDeg = b.padMaxYawDeg;
         padMaxPitchDeg = b.padMaxPitchDeg;
         tooDarkLuma = b.tooDarkLuma;
@@ -77,6 +84,7 @@ public final class AnalyzerConfig {
         b.meshPresenceThreshold = meshPresenceThreshold;
         b.meshRoiScale = meshRoiScale;
         b.pitchBiasDeg = pitchBiasDeg;
+        b.pitchBiasExplicit = pitchBiasExplicit;
         b.padMaxYawDeg = padMaxYawDeg;
         b.padMaxPitchDeg = padMaxPitchDeg;
         b.tooDarkLuma = tooDarkLuma;
@@ -115,7 +123,8 @@ public final class AnalyzerConfig {
         b.detector = new DetectorConfig(maxWidth, score, iou, ratio);
         b.meshPresenceThreshold = doubleValue(cfg, "meshPresenceThreshold", b.meshPresenceThreshold);
         b.meshRoiScale = doubleValue(cfg, "meshRoiScale", b.meshRoiScale);
-        b.pitchBiasDeg = doubleValue(cfg, "pitchBiasDeg", b.pitchBiasDeg);
+        String bias = cfg.get(KEY_PREFIX + "pitchBiasDeg");
+        if (bias != null && !bias.trim().isEmpty()) b.pitchBiasDeg(doubleValue(cfg, "pitchBiasDeg", b.pitchBiasDeg));
         b.padMaxYawDeg = doubleValue(cfg, "padMaxYawDeg", b.padMaxYawDeg);
         b.padMaxPitchDeg = doubleValue(cfg, "padMaxPitchDeg", b.padMaxPitchDeg);
         b.tooDarkLuma = doubleValue(cfg, "tooDarkLuma", b.tooDarkLuma);
@@ -205,6 +214,7 @@ public final class AnalyzerConfig {
         private double meshPresenceThreshold = 0.5;
         private double meshRoiScale = 1.5;
         private double pitchBiasDeg = -9.5;
+        private boolean pitchBiasExplicit;
         private double padMaxYawDeg = 30;
         private double padMaxPitchDeg = 25;
         private double tooDarkLuma = 40;
@@ -222,7 +232,10 @@ public final class AnalyzerConfig {
         public Builder detector(DetectorConfig v) { detector = v; return this; }
         public Builder meshPresenceThreshold(double v) { meshPresenceThreshold = v; return this; }
         public Builder meshRoiScale(double v) { meshRoiScale = v; return this; }
-        public Builder pitchBiasDeg(double v) { pitchBiasDeg = v; return this; }
+        /** Sets the bias and marks it explicit, so a bundle's signed pitchBiasDeg param no longer replaces it. */
+        public Builder pitchBiasDeg(double v) { pitchBiasDeg = v; pitchBiasExplicit = true; return this; }
+        /** Lets a bundle param replace (false) or not replace (true) the current pitch bias. */
+        public Builder pitchBiasExplicit(boolean v) { pitchBiasExplicit = v; return this; }
         public Builder padMaxYawDeg(double v) { padMaxYawDeg = v; return this; }
         public Builder padMaxPitchDeg(double v) { padMaxPitchDeg = v; return this; }
         public Builder tooDarkLuma(double v) { tooDarkLuma = v; return this; }

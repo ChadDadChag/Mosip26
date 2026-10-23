@@ -56,6 +56,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
 
     private final AnalyzerConfig config;
     private final String modelVersion;
+    private final OnnxModels models;
     private final YuNetDetector detector;
     private final FaceMeshLandmarker landmarker;
     private final SilentFacePad pad;
@@ -69,6 +70,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         if (sharedModels == null || config == null) throw new IllegalArgumentException("null argument");
         this.config = config;
         this.modelVersion = modelVersion;
+        this.models = sharedModels;
         this.detector = new YuNetDetector(sharedModels.env(), sharedModels.session(ModelRole.DETECTOR), config.detector);
         this.landmarker = new FaceMeshLandmarker(sharedModels.env(), sharedModels.session(ModelRole.LANDMARKS), config);
         this.pad = new SilentFacePad(sharedModels.env(), sharedModels.session(ModelRole.PAD_V2),
@@ -184,6 +186,16 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     @Override
     public String modelVersion() {
         return modelVersion;
+    }
+
+    /** The shared sessions this analyzer runs on (tests check sharing). */
+    OnnxModels models() {
+        return models;
+    }
+
+    /** The effective configuration of this analyzer. */
+    public AnalyzerConfig config() {
+        return config;
     }
 
     /** Statistics of this analyzer (not part of the FaceAnalyzer contract; for the benchmark and the demo). */
