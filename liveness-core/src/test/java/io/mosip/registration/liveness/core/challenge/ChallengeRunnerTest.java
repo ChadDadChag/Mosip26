@@ -101,20 +101,66 @@ class ChallengeRunnerTest {
         assertThat(last(Kind.PROMPT).index).isEqualTo(2);
         frames(4, NEUTRAL);
         midAction(2, yaw(12));
-        midAction(4, yaw(27));
-        midAction(1, yaw(14));
-        frame(yaw(4));
+        midAction(4, yaw(27)); // detected when the hold completes, the head still turned
         assertThat(last(Kind.ACTION_DETECTED).challenge).isEqualTo(ChallengeType.TURN_LEFT);
         assertThat(last(Kind.ACTION_DETECTED).durationMs).isPositive();
+        midAction(1, yaw(14));
+        frame(yaw(4));
 
         frames(10, NEUTRAL);
+        // The turn was the last challenge: hold, then LOOK_AT_CAMERA so the user faces the camera for the best frame.
         assertThat(kinds()).containsExactly(Kind.PROMPT, Kind.ACTION_DETECTED, Kind.PROMPT, Kind.ACTION_DETECTED,
-                Kind.HOLD_STILL, Kind.PASSED);
+                Kind.HOLD_STILL, Kind.GUIDANCE, Kind.PASSED);
+        assertThat(last(Kind.GUIDANCE).guidance).isEqualTo(Guidance.LOOK_AT_CAMERA);
         Frame best = last(Kind.PASSED).bestFrame;
         assertThat(best).isNotNull();
         assertThat(midActionFrames).doesNotContain(best);
         assertThat(last(Kind.PASSED).bestFrameFallback).isFalse();
         assertThat(last(Kind.PASSED).bestFrameCheck.status).isEqualTo(Iso19794Check.Status.COMPLIANT);
+    }
+
+    @Test
+    void withRequireReturnTheTurnWaitsForTheReturnAndNoCueIsShown() {
+        tuning.axisRequireReturn = true;
+        start(1, ChallengeType.BLINK, ChallengeType.TURN_LEFT);
+        untilPrompt();
+        frames(5, NEUTRAL);
+        midAction(1, CLOSED);
+        frame(NEUTRAL);
+        untilPrompt();
+        frames(4, NEUTRAL);
+        midAction(2, yaw(12));
+        midAction(4, yaw(27));
+        midAction(1, yaw(14));
+        assertThat(count(Kind.ACTION_DETECTED)).as("held but not back yet").isEqualTo(1);
+        frame(yaw(4));
+        assertThat(last(Kind.ACTION_DETECTED).challenge).isEqualTo(ChallengeType.TURN_LEFT);
+        frames(10, NEUTRAL);
+        assertThat(kinds()).containsExactly(Kind.PROMPT, Kind.ACTION_DETECTED, Kind.PROMPT, Kind.ACTION_DETECTED,
+                Kind.HOLD_STILL, Kind.PASSED);
+    }
+
+    @Test
+    void lookAtCameraFollowsATurnButNotABlinkOrASmile() {
+        start(3, ChallengeType.TURN_RIGHT, ChallengeType.SMILE, ChallengeType.BLINK);
+        untilPrompt();
+        frames(4, NEUTRAL);
+        frames(5, yaw(-26));
+        assertThat(last(Kind.ACTION_DETECTED).challenge).isEqualTo(ChallengeType.TURN_RIGHT);
+        assertThat(steps.get(steps.size() - 1).kind).as("cue right after the turn").isEqualTo(Kind.GUIDANCE);
+        assertThat(last(Kind.GUIDANCE).guidance).isEqualTo(Guidance.LOOK_AT_CAMERA);
+        untilPrompt();
+        frames(4, NEUTRAL);
+        frames(6, SMILE);
+        assertThat(last(Kind.ACTION_DETECTED).challenge).isEqualTo(ChallengeType.SMILE);
+        untilPrompt();
+        frames(5, NEUTRAL);
+        frame(CLOSED);
+        frame(NEUTRAL);
+        assertThat(last(Kind.ACTION_DETECTED).challenge).isEqualTo(ChallengeType.BLINK);
+        frames(10, NEUTRAL);
+        assertThat(count(Kind.GUIDANCE)).as("only the turn's cue").isEqualTo(1);
+        assertThat(count(Kind.PASSED)).isEqualTo(1);
     }
 
     @Test

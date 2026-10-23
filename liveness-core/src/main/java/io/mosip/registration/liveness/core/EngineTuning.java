@@ -125,6 +125,14 @@ public final class EngineTuning {
     /** TUNE: pitch within this of baseline counts as returned. */
     public float lookReturnDeg = 8f;
 
+    /**
+     * TUNE: true restores the original turn/look rule (move, hold, then come back within turnReturnDeg /
+     * lookReturnDeg). Default false: detected when the hold completes, then LOOK_AT_CAMERA asks the user to face the
+     * camera again. Part 2 review: with the product prompt alone 0/9 turns passed; users held 52-63 deg and never
+     * came back.
+     */
+    public boolean axisRequireReturn = false;
+
     // ---- shared hold rule (smile, turn, look)
     /** TUNE: an action must be held at least this long... */
     public long actionHoldMs = 200;

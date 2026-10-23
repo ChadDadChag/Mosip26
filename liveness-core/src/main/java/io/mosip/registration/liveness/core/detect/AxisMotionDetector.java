@@ -5,11 +5,12 @@ import io.mosip.registration.liveness.api.FrameAnalysis;
 import io.mosip.registration.liveness.core.EngineTuning;
 
 /**
- * Shared logic for "move the head along one axis, hold, come back": turn left/right (yaw) and look up/down (pitch).
- * Signed change from baseline in the requested direction must reach {@code minDeg}, be held for
- * {@code actionHoldMs} over {@code actionHoldFrames} frames, then return within {@code returnDeg} of baseline.
- * Moving {@code minDeg} the opposite way, before or after the correct move (head wiggling from a replayed video),
- * is WRONG_ACTION.
+ * Shared logic for "move the head along one axis and hold": turn left/right (yaw) and look up/down (pitch).
+ * Signed change from baseline in the requested direction must reach {@code minDeg} and be held for
+ * {@code actionHoldMs} over {@code actionHoldFrames} frames; that is DETECTED (the runner then shows
+ * LOOK_AT_CAMERA). With {@code axisRequireReturn} the head must also come back within {@code returnDeg} of
+ * baseline, the original rule. Moving {@code minDeg} the opposite way, before or after the correct move (head
+ * wiggling from a replayed video), is WRONG_ACTION.
  */
 abstract class AxisMotionDetector implements ActionDetector {
 
@@ -81,6 +82,10 @@ abstract class AxisMotionDetector implements ActionDetector {
                 if (delta >= min) {
                     holdFrames++;
                     if (holdFrames >= t.actionHoldFrames && nowMs - holdSinceMs >= t.actionHoldMs) {
+                        if (!t.axisRequireReturn) {
+                            progress = 1f;
+                            return DetectorStatus.DETECTED;
+                        }
                         phase = Phase.RETURNING;
                         progress = 0.85f;
                     }

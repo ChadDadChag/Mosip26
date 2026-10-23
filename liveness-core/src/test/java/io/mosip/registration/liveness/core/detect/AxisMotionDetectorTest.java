@@ -15,32 +15,59 @@ class AxisMotionDetectorTest {
     private static Shape yaw(final float d) { return new Shape() { @Override public Fa apply(Fa f) { return f.yaw(d); } }; }
     private static Shape pitch(final float d) { return new Shape() { @Override public Fa apply(Fa f) { return f.pitch(d); } }; }
 
-    private static DetectorHarness turn(ChallengeType type) {
-        return new DetectorHarness(new HeadTurnDetector(EngineTuning.defaults(), type), DetectorHarness.neutralBaseline());
+    private static EngineTuning tuning(boolean requireReturn) {
+        EngineTuning t = EngineTuning.defaults();
+        t.axisRequireReturn = requireReturn;
+        return t;
     }
 
-    private static DetectorHarness look(ChallengeType type) {
-        return new DetectorHarness(new GazePitchDetector(EngineTuning.defaults(), type), DetectorHarness.neutralBaseline());
+    private static DetectorHarness turn(ChallengeType type) {
+        return turn(type, false);
     }
+
+    private static DetectorHarness turn(ChallengeType type, boolean requireReturn) {
+        return new DetectorHarness(new HeadTurnDetector(tuning(requireReturn), type), DetectorHarness.neutralBaseline());
+    }
+
+    private static DetectorHarness look(ChallengeType type, boolean requireReturn) {
+        return new DetectorHarness(new GazePitchDetector(tuning(requireReturn), type), DetectorHarness.neutralBaseline());
+    }
+
+    // ---- default rule: detected when the hold completes, no return needed (Part 2 review)
 
     @Test
-    void turnLeftMeansPositiveUserYawHeldThenReturned() {
+    void turnIsDetectedWhenTheHoldCompletesWithoutComingBack() {
+        assertThat(EngineTuning.defaults().axisRequireReturn).isFalse();
         DetectorHarness h = turn(ChallengeType.TURN_LEFT);
         h.frames(4, NEUTRAL);
         h.frames(2, yaw(12));
-        h.frames(4, yaw(28));   // held 4 frames / 201 ms
+        h.frames(3, yaw(28));   // 3 frames but only 134 ms: not yet
         assertThat(h.detected()).isFalse();
-        h.frame(yaw(15));
-        assertThat(h.detected()).as("not back within 10 deg yet").isFalse();
-        assertThat(h.frame(yaw(5))).isEqualTo(DetectorStatus.DETECTED);
+        assertThat(h.frame(yaw(28))).as("4 frames / 201 ms held").isEqualTo(DetectorStatus.DETECTED);
+        assertThat(h.d.progress()).isEqualTo(1f);
     }
 
     @Test
-    void turnRightMeansNegativeUserYaw() {
-        DetectorHarness h = turn(ChallengeType.TURN_RIGHT);
+    void turnRightAndLookUpDownWithoutReturn() {
+        DetectorHarness right = turn(ChallengeType.TURN_RIGHT);
+        right.frames(4, NEUTRAL);
+        assertThat(right.frames(4, yaw(-26))).isEqualTo(DetectorStatus.DETECTED);
+
+        DetectorHarness up = look(ChallengeType.LOOK_UP, false);
+        up.frames(4, NEUTRAL);
+        assertThat(up.frames(4, pitch(16))).isEqualTo(DetectorStatus.DETECTED);
+
+        DetectorHarness down = look(ChallengeType.LOOK_DOWN, false);
+        down.frames(4, NEUTRAL);
+        assertThat(down.frame(pitch(16))).isEqualTo(DetectorStatus.WRONG_ACTION);
+    }
+
+    @Test
+    void aTurnHeldTooBrieflyIsNotDetected() {
+        DetectorHarness h = turn(ChallengeType.TURN_LEFT);
         h.frames(4, NEUTRAL);
-        h.frames(4, yaw(-26));
-        assertThat(h.frame(NEUTRAL)).isEqualTo(DetectorStatus.DETECTED);
+        for (int i = 0; i < 5; i++) { h.frames(2, yaw(30)); h.frame(yaw(5)); } // never 3 frames / 200 ms in a row
+        assertThat(h.detected()).isFalse();
     }
 
     @Test
@@ -63,21 +90,12 @@ class AxisMotionDetectorTest {
     }
 
     @Test
-    void notReturningIsNotDetected() {
-        DetectorHarness h = turn(ChallengeType.TURN_LEFT);
-        h.frames(4, NEUTRAL);
-        h.frames(60, yaw(30));
-        assertThat(h.detected()).isFalse();
-    }
-
-    @Test
-    void alreadyTurnedAtThePromptMustComeBackFirst() {
+    void alreadyTurnedAtThePromptMustComeBackToArmFirst() {
         DetectorHarness h = turn(ChallengeType.TURN_LEFT);
         assertThat(h.frames(10, yaw(30))).isEqualTo(DetectorStatus.ARMING);
         h.frame(NEUTRAL);
         assertThat(h.detected()).isFalse();
-        h.frames(4, yaw(30));
-        assertThat(h.frame(NEUTRAL)).isEqualTo(DetectorStatus.DETECTED);
+        assertThat(h.frames(4, yaw(30))).isEqualTo(DetectorStatus.DETECTED);
     }
 
     @Test
@@ -87,20 +105,52 @@ class AxisMotionDetectorTest {
         for (int i = 0; i < 5; i++) b.add(Fa.at(i, i).yaw(-8).build());
         DetectorHarness h = new DetectorHarness(new HeadTurnDetector(EngineTuning.defaults(), ChallengeType.TURN_LEFT), Baseline.of(b));
         h.frames(4, yaw(-8));
-        h.frames(4, yaw(14));
-        assertThat(h.frame(yaw(-6))).isEqualTo(DetectorStatus.DETECTED);
+        assertThat(h.frames(4, yaw(14))).isEqualTo(DetectorStatus.DETECTED);
+    }
+
+    // ---- axisRequireReturn = true: the original move, hold, come back rule
+
+    @Test
+    void withRequireReturnTurnLeftIsHeldThenReturned() {
+        DetectorHarness h = turn(ChallengeType.TURN_LEFT, true);
+        h.frames(4, NEUTRAL);
+        h.frames(2, yaw(12));
+        h.frames(4, yaw(28));   // held 4 frames / 201 ms
+        assertThat(h.detected()).isFalse();
+        h.frame(yaw(15));
+        assertThat(h.detected()).as("not back within 10 deg yet").isFalse();
+        assertThat(h.frame(yaw(5))).isEqualTo(DetectorStatus.DETECTED);
     }
 
     @Test
-    void lookUpAndDownUsePitch() {
-        DetectorHarness up = look(ChallengeType.LOOK_UP);
+    void withRequireReturnTurnRightAndLooksComeBack() {
+        DetectorHarness h = turn(ChallengeType.TURN_RIGHT, true);
+        h.frames(4, NEUTRAL);
+        h.frames(4, yaw(-26));
+        assertThat(h.frame(NEUTRAL)).isEqualTo(DetectorStatus.DETECTED);
+
+        DetectorHarness up = look(ChallengeType.LOOK_UP, true);
         up.frames(4, NEUTRAL);
         up.frames(4, pitch(16));
         assertThat(up.frame(NEUTRAL)).isEqualTo(DetectorStatus.DETECTED);
+    }
 
-        DetectorHarness down = look(ChallengeType.LOOK_DOWN);
-        down.frames(4, NEUTRAL);
-        assertThat(down.frame(pitch(16))).isEqualTo(DetectorStatus.WRONG_ACTION);
+    @Test
+    void withRequireReturnNotReturningIsNotDetected() {
+        DetectorHarness h = turn(ChallengeType.TURN_LEFT, true);
+        h.frames(4, NEUTRAL);
+        h.frames(60, yaw(30));
+        assertThat(h.detected()).isFalse();
+    }
+
+    @Test
+    void withRequireReturnAlreadyTurnedAtThePromptMustComeBackFirst() {
+        DetectorHarness h = turn(ChallengeType.TURN_LEFT, true);
+        assertThat(h.frames(10, yaw(30))).isEqualTo(DetectorStatus.ARMING);
+        h.frame(NEUTRAL);
+        assertThat(h.detected()).isFalse();
+        h.frames(4, yaw(30));
+        assertThat(h.frame(NEUTRAL)).isEqualTo(DetectorStatus.DETECTED);
     }
 
     @Test
