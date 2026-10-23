@@ -18,6 +18,9 @@ import java.util.Set;
  *   <li>Opposite motions are never adjacent (TURN_LEFT/TURN_RIGHT, LOOK_UP/LOOK_DOWN): returning from one
  *       looks like the other to a naive detector.</li>
  *   <li>The full sequence differs from the previous attempt's sequence whenever an alternative exists.</li>
+ *   <li>A single-challenge sequence (operator/supervisor default) is never {@link #NOT_ALONE} when another type is
+ *       usable: a replayed video of someone blinking naturally (every 3-4 s) would satisfy a lone BLINK within the
+ *       6 s window. With two or more challenges BLINK is always paired with a motion it cannot fake.</li>
  * </ul>
  * Uniform over all valid sequences (rejection sampling over random permutations).
  */
@@ -26,6 +29,9 @@ public final class ChallengeSelector {
     // Rejection sampling bound; with at most 6 challenge types valid sequences are common, so this is never hit
     // in practice. If it is, the deterministic fallback below still returns a valid sequence.
     private static final int MAX_DRAWS = 200;
+
+    /** Challenges that natural, unprompted behaviour satisfies too often to be the only challenge. */
+    public static final Set<ChallengeType> NOT_ALONE = Collections.unmodifiableSet(EnumSet.of(ChallengeType.BLINK));
 
     private final RandomSource random;
 
@@ -46,6 +52,11 @@ public final class ChallengeSelector {
         if (count < 1 || count > candidates.size()) {
             throw new IllegalArgumentException("Need " + count + " challenges but only " + candidates.size()
                     + " usable types: " + candidates);
+        }
+        if (count == 1) {
+            List<ChallengeType> strong = new ArrayList<ChallengeType>(candidates);
+            strong.removeAll(NOT_ALONE);
+            if (!strong.isEmpty()) candidates = strong; // else the pool is only BLINK: config allows it, so use it
         }
         List<ChallengeType> fallback = null;
         for (int i = 0; i < MAX_DRAWS; i++) {

@@ -11,13 +11,16 @@ import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.core.EngineTuning;
 import io.mosip.registration.liveness.core.audit.AuditRecorder;
 import io.mosip.registration.liveness.core.challenge.ChallengeSelector;
+import io.mosip.registration.liveness.core.detect.FaceGeometry;
 import io.mosip.registration.liveness.core.guidance.PositioningHintFilter;
 import io.mosip.registration.liveness.core.passive.PassiveEvaluator;
 import io.mosip.registration.liveness.core.quality.BestFrameSelector;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The session's decision logic: every input goes in with the current time, and the method returns the side
@@ -57,6 +60,7 @@ public final class SessionStateMachine {
     private boolean sourceNeedsRestart;
     private long multiFaceSinceMs = -1;
     private int consecutiveEngineErrors;
+    private int deviceErrors;
     private float passiveMedian = Float.NaN;
     private List<ChallengeType> sequence = Collections.emptyList();
     private List<ChallengeType> previousSequence;
@@ -107,7 +111,9 @@ public final class SessionStateMachine {
         lastNowMs = nowMs;
         List<Effect> out = new ArrayList<Effect>();
         if (state == State.DEVICE_WAIT) {
-            if (nowMs - deviceErrorAtMs > tuning.deviceGraceMs) return out; // too late: wait for the user's Retry
+            // Too late, or the source gave up (it cannot deliver again until restarted, so this frame is stale):
+            // wait for the user's Retry.
+            if (sourceNeedsRestart || nowMs - deviceErrorAtMs > tuning.deviceGraceMs) return out;
             // Frames resumed within the grace period: restart the same attempt automatically. A device problem is
             // not a liveness attempt, so neither the attempt number nor the retry budget changes.
             sanity.resetStream();
@@ -121,6 +127,7 @@ public final class SessionStateMachine {
         }
         consecutiveEngineErrors = 0;
         audit.frameAnalyzed(a.processingMs);
+        audit.frameObserved(a.livenessScore, a.faceCount, a.qualityIssues);
 
         if (state == State.STARTING) {
             state = State.PASSIVE_CHECK;
@@ -163,18 +170,22 @@ public final class SessionStateMachine {
         List<Effect> out = new ArrayList<Effect>();
         if (isTerminal() || state == State.IDLE) return out;
         ErrorCode c = code != null ? code : ErrorCode.DEVICE_UNAVAILABLE;
-        if (!recoverable) {
-            audit.deviceError(c, false, detail);
-            // Tell the UI first (recoverable=false: no Retry button), then end the session.
-            out.add(Effect.emit(LivenessEvent.failure(Type.DEVICE_ERROR, c, attempt(), tracker.retriesLeft(), false)));
-            finishFailed(c, c, nowMs, out);
-        } else if (state == State.RETRY_AVAILABLE) {
-            audit.deviceError(c, true, detail);
+        if (c == ErrorCode.INVALID_FRAME) {
+            // A corrupt frame the source skipped (Part 1 reports these as recoverable). It is a stream-integrity
+            // problem, not a device problem: count it like a non-monotonic frame and keep going.
+            if (state == State.STARTING || state == State.PASSIVE_CHECK || state == State.ACTIVE_CHALLENGE) {
+                sanity.countViolation();
+                if (sanity.limitReached()) failAttempt(ErrorCode.INVALID_FRAME, "corrupt frames from the source", out);
+            }
+            return out;
+        }
+        audit.deviceError(c, recoverable, detail);
+        if (state == State.RETRY_AVAILABLE) {
             sourceNeedsRestart = true; // the user's Retry will restart the source
         } else if (state == State.DEVICE_WAIT) {
-            audit.deviceError(c, true, detail);
+            if (!recoverable) sourceNeedsRestart = true; // the source gave up: frames will not resume by themselves
         } else {
-            deviceProblem(c, detail, nowMs, out);
+            deviceProblem(c, recoverable, nowMs, out);
         }
         return out;
     }
@@ -189,12 +200,12 @@ public final class SessionStateMachine {
         switch (state) {
             case STARTING:
                 if (lastFrameArrivalMs < attemptStartMs && nowMs - attemptStartMs >= tuning.startTimeoutMs) {
-                    deviceProblem(ErrorCode.DEVICE_UNAVAILABLE, "no frames after start", nowMs, out);
+                    stall(ErrorCode.DEVICE_UNAVAILABLE, "no frames after start", nowMs, out);
                 }
                 break;
             case PASSIVE_CHECK:
                 if (stalled(nowMs, lastFrameArrivalMs)) {
-                    deviceProblem(ErrorCode.DEVICE_DISCONNECTED, "frame stream stalled", nowMs, out);
+                    stall(ErrorCode.DEVICE_DISCONNECTED, "frame stream stalled", nowMs, out);
                 } else if (multiFaceSinceMs >= 0 && nowMs - multiFaceSinceMs >= tuning.multiFaceFailMs) {
                     failAttempt(ErrorCode.MULTIPLE_FACES, "multiple faces persisted", out);
                 } else {
@@ -203,7 +214,7 @@ public final class SessionStateMachine {
                 break;
             case ACTIVE_CHALLENGE:
                 if (stalled(nowMs, lastFrameArrivalMs)) {
-                    deviceProblem(ErrorCode.DEVICE_DISCONNECTED, "frame stream stalled", nowMs, out);
+                    stall(ErrorCode.DEVICE_DISCONNECTED, "frame stream stalled", nowMs, out);
                 } else {
                     List<ActiveStep> steps = new ArrayList<ActiveStep>();
                     active.onTick(nowMs, steps);
@@ -308,8 +319,8 @@ public final class SessionStateMachine {
                 break;
             case NEED_ACTIVE:
                 try {
-                    sequence = Collections.unmodifiableList(selector.select(policy.challengePool, active.supported(),
-                            policy.minChallenges, previousSequence));
+                    sequence = Collections.unmodifiableList(selector.select(policy.challengePool,
+                            measurable(active.supported(), window), policy.minChallenges, previousSequence));
                 } catch (IllegalArgumentException e) {
                     failAttempt(ErrorCode.ENGINE_ERROR, "no supported challenges: " + e.getMessage(), out);
                     return;
@@ -322,6 +333,26 @@ public final class SessionStateMachine {
             default:
                 break;
         }
+    }
+
+    /**
+     * Challenge types the analyzer can actually measure, judged on the passive window: head-pose challenges need
+     * reported yaw/pitch, BLINK and SMILE need eye and mouth landmarks. Offering a challenge nobody can pass (for
+     * example TURN_LEFT with an analyzer that reports no pose) would only produce timeouts.
+     */
+    static Set<ChallengeType> measurable(Set<ChallengeType> supported, List<FrameAnalysis> window) {
+        int pose = 0, expression = 0;
+        for (FrameAnalysis f : window) {
+            if (FaceGeometry.hasPose(f)) pose++;
+            if (FaceGeometry.hasExpressionLandmarks(f)) expression++;
+        }
+        Set<ChallengeType> out = EnumSet.noneOf(ChallengeType.class);
+        for (ChallengeType c : supported) {
+            boolean poseChallenge = c == ChallengeType.TURN_LEFT || c == ChallengeType.TURN_RIGHT
+                    || c == ChallengeType.LOOK_UP || c == ChallengeType.LOOK_DOWN;
+            if (poseChallenge ? pose * 2 >= window.size() : expression * 2 >= window.size()) out.add(c);
+        }
+        return out;
     }
 
     // ------------------------------------------------------------------ active
@@ -393,10 +424,27 @@ public final class SessionStateMachine {
         out.add(Effect.emit(LivenessEvent.of(Type.STARTED, attempt())));
     }
 
-    private void deviceProblem(ErrorCode code, String detail, long nowMs, List<Effect> out) {
+    /** The engine noticed the stream stopped (no frame for a while): a recoverable device problem. */
+    private void stall(ErrorCode code, String detail, long nowMs, List<Effect> out) {
         audit.deviceError(code, true, detail);
-        tracker.onAttemptFailed(code); // device errors never consume a retry
+        deviceProblem(code, true, nowMs, out);
+    }
+
+    /**
+     * A device problem during an attempt. The user can always Retry (which restarts the source), even when the
+     * source itself gave up: unplugging and replugging the camera, then pressing Retry, must work. Only after
+     * {@link EngineTuning#maxDeviceErrors} problems in one session does it end: DEVICE_ERROR(recoverable=false)
+     * then FAILED_FINAL with the device code. Device problems never consume a liveness retry.
+     */
+    private void deviceProblem(ErrorCode code, boolean sourceRecoverable, long nowMs, List<Effect> out) {
+        if (++deviceErrors > tuning.maxDeviceErrors) {
+            out.add(Effect.emit(LivenessEvent.failure(Type.DEVICE_ERROR, code, attempt(), tracker.retriesLeft(), false)));
+            finishFailed(code, code, nowMs, out);
+            return;
+        }
+        tracker.onAttemptFailed(code);
         deviceErrorAtMs = nowMs;
+        sourceNeedsRestart = !sourceRecoverable;
         state = State.DEVICE_WAIT;
         out.add(Effect.emit(LivenessEvent.failure(Type.DEVICE_ERROR, code, attempt(), tracker.retriesLeft(), true)));
     }

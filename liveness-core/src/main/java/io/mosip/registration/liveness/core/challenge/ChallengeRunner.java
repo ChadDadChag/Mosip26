@@ -282,8 +282,7 @@ public final class ChallengeRunner implements ActivePhase {
     }
 
     private void addBaselineFrame(FrameAnalysis a) {
-        boolean eligible = a.faceCount == 1 && Math.abs(FaceGeometry.userYaw(a)) <= t.baselineMaxPoseDeg
-                && Math.abs(FaceGeometry.userPitch(a)) <= t.baselineMaxPoseDeg;
+        boolean eligible = a.faceCount == 1 && FaceGeometry.withinPose(a, t.baselineMaxPoseDeg);
         if (!eligible) {
             baselineWindow.clear(); // a baseline must be consecutive stable frames
             return;
@@ -294,12 +293,19 @@ public final class ChallengeRunner implements ActivePhase {
 
     private boolean baselineStable() {
         if (baselineWindow.size() < t.baselineFrames) return false;
-        float minYaw = Float.MAX_VALUE, maxYaw = -Float.MAX_VALUE, minPitch = Float.MAX_VALUE, maxPitch = -Float.MAX_VALUE;
+        return spread(true) <= t.baselineMaxSpreadDeg && spread(false) <= t.baselineMaxSpreadDeg;
+    }
+
+    /** Max - min of the reported yaw (or pitch) in the baseline window; unknown (NaN) values are skipped. */
+    private float spread(boolean yaw) {
+        float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
         for (FrameAnalysis f : baselineWindow) {
-            minYaw = Math.min(minYaw, f.yawDeg); maxYaw = Math.max(maxYaw, f.yawDeg);
-            minPitch = Math.min(minPitch, f.pitchDeg); maxPitch = Math.max(maxPitch, f.pitchDeg);
+            float v = yaw ? f.yawDeg : f.pitchDeg;
+            if (Float.isNaN(v)) continue;
+            min = Math.min(min, v);
+            max = Math.max(max, v);
         }
-        return maxYaw - minYaw <= t.baselineMaxSpreadDeg && maxPitch - minPitch <= t.baselineMaxSpreadDeg;
+        return min > max ? 0f : max - min;
     }
 
     /** Hold frames must look like the neutral baseline: mouth back to normal, eyes open. */

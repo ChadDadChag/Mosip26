@@ -402,21 +402,35 @@ class FakeLivenessServiceTest {
     }
 
     @Test
-    void nonRecoverableDeviceErrorEndsTheSessionWithTheDeviceCode() throws Exception {
+    void sourceGivingUpStillOffersRetryAndRetryRestartsTheSource() throws Exception {
         FakeLivenessService svc = FakeLivenessService.builder(new MapConfig()).scenario(FakeScenario.PASS_PASSIVE)
                 .timeScale(0.1).build();
         LivenessSession s = svc.newSession(WorkflowType.OPERATOR);
         TestFrameSource src = new TestFrameSource();
         RecordingListener l = new RecordingListener();
+        l.session = s; // presses Retry on a recoverable DEVICE_ERROR
         s.start(src, l);
         src.fail(ErrorCode.CAMERA_UNAVAILABLE, false);
         LivenessResult r = l.await();
         assertWellFormed(l, s);
-        assertThat(r.failureCode).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
-        assertThat(r.failureCode.userMessage()).isEqualTo(ErrorCode.UserMessage.DEVICE_PROBLEM);
+        assertThat(r.passed()).isTrue();
         LivenessEvent dev = l.ofType(Type.DEVICE_ERROR).get(0);
-        assertThat(dev.recoverable).isFalse();
+        assertThat(dev.recoverable).as("same rule as the real engine").isTrue();
         assertThat(dev.error).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
+        assertThat(src.starts.get()).isEqualTo(2);
+    }
+
+    @Test
+    void corruptFrameReportsFromTheSourceAreIgnored() throws Exception {
+        FakeLivenessService svc = FakeLivenessService.builder(new MapConfig()).scenario(FakeScenario.PASS_PASSIVE)
+                .timeScale(0.1).build();
+        LivenessSession s = svc.newSession(WorkflowType.RESIDENT);
+        TestFrameSource src = new TestFrameSource();
+        RecordingListener l = new RecordingListener();
+        s.start(src, l);
+        src.fail(ErrorCode.INVALID_FRAME, true);
+        assertThat(l.await().passed()).isTrue();
+        assertThat(l.ofType(Type.DEVICE_ERROR)).isEmpty();
     }
 
     // ------------------------------------------------------------------ scenario selection and audit
@@ -492,13 +506,31 @@ class FakeLivenessServiceTest {
     }
 
     @Test
-    void deviceFailureScenarioShowsNoRetry() throws Exception {
+    void deviceFailureScenarioOffersRetryThenGivesUp() throws Exception {
         RecordingListener l = run(service(FakeScenario.DEVICE_FAILURE).newSession(WorkflowType.OPERATOR), true);
         LivenessResult r = l.await();
+        assertThat(r.failureCode).isEqualTo(ErrorCode.DEVICE_CONNECTION_FAILED);
         assertThat(r.failureCode.userMessage()).isEqualTo(ErrorCode.UserMessage.DEVICE_PROBLEM);
-        assertThat(l.types()).containsSubsequence(Type.DEVICE_ERROR, Type.FAILED_FINAL);
-        assertThat(l.ofType(Type.DEVICE_ERROR).get(0).recoverable).isFalse();
+        List<LivenessEvent> dev = l.ofType(Type.DEVICE_ERROR);
+        assertThat(dev).hasSize(FakeLivenessSession.MAX_DEVICE_ERRORS + 1);
+        for (int i = 0; i < dev.size() - 1; i++) assertThat(dev.get(i).recoverable).isTrue();
+        assertThat(dev.get(dev.size() - 1).recoverable).isFalse();
+        assertThat(l.types().get(l.types().size() - 1)).isEqualTo(Type.FAILED_FINAL);
         assertThat(l.ofType(Type.ATTEMPT_FAILED)).isEmpty();
+    }
+
+    @Test
+    void metricsCountScriptedSessions() throws Exception {
+        FakeLivenessService svc = service(FakeScenario.PASS_PASSIVE);
+        run(svc.newSession(WorkflowType.RESIDENT), true).await();
+        svc.setScenario(FakeScenario.PAD_ATTACK);
+        run(svc.newSession(WorkflowType.RESIDENT), true).await();
+        io.mosip.registration.liveness.core.metrics.LivenessMetrics.Snapshot m = svc.metrics().snapshot();
+        assertThat(m.sessions).isEqualTo(2);
+        assertThat(m.passedPassive).isEqualTo(1);
+        assertThat(m.failedFinal).isEqualTo(1);
+        assertThat(m.retries).isEqualTo(3);
+        assertThat(m.finalFailuresByCode).containsEntry(ErrorCode.MAX_RETRIES_EXCEEDED, 1L);
     }
 
     @Test

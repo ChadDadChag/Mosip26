@@ -4,6 +4,7 @@ import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.FrameAnalysis;
 import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.core.EngineTuning;
+import io.mosip.registration.liveness.core.detect.FaceGeometry;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -74,7 +75,7 @@ public final class PassiveEvaluator {
 
     boolean isEligible(FrameAnalysis a) {
         if (!a.usable() || Float.isNaN(a.livenessScore)) return false;
-        return Math.abs(a.yawDeg) <= tuning.maxPassivePoseDeg && Math.abs(a.pitchDeg) <= tuning.maxPassivePoseDeg;
+        return FaceGeometry.withinPose(a, tuning.maxPassivePoseDeg);
     }
 
     private Verdict decide() {

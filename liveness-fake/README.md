@@ -44,7 +44,7 @@ The first match wins:
 | `MULTIPLE_FACES` | GUIDANCE(MULTIPLE_FACES), then ATTEMPT_FAILED(MULTIPLE_FACES), then PASSED after Retry |
 | `POOR_LIGHTING_HINTS` | GUIDANCE(IMPROVE_LIGHTING), then GUIDANCE(MOVE_CLOSER), cleared, then challenges and PASSED |
 | `DEVICE_DISCONNECT` | DEVICE_ERROR(recoverable) mid-challenge; Retry does not use up an attempt; then PASSED |
-| `DEVICE_FAILURE` | DEVICE_ERROR(DEVICE_CONNECTION_FAILED, recoverable=false), then FAILED_FINAL with the same code (no Retry) |
+| `DEVICE_FAILURE` | The device keeps failing: DEVICE_ERROR(recoverable=true) with Retry three times, then DEVICE_ERROR(recoverable=false) and FAILED_FINAL(DEVICE_CONNECTION_FAILED) |
 | `MAX_RETRIES_EXCEEDED` | four failed attempts, then FAILED_FINAL. For OPERATOR this starts the 60 s cooldown: the next session fails immediately. |
 | `ENGINE_ERROR` | ATTEMPT_FAILED(ENGINE_ERROR) without using a retry, then FAILED_FINAL(ENGINE_ERROR) |
 | `RANDOM` | one of the above, picked for each session |

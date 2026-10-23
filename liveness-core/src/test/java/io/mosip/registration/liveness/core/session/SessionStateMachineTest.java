@@ -310,7 +310,10 @@ class SessionStateMachineTest {
 
         rebuild();
         start();
-        record(sm.onSourceError(ErrorCode.CAMERA_UNAVAILABLE, false, "x", now)); // device final
+        for (int i = 0; i <= tuning.maxDeviceErrors; i++) { // device final
+            record(sm.onSourceError(ErrorCode.CAMERA_UNAVAILABLE, false, "x", now));
+            record(sm.onRetry(now));
+        }
         assertCompleteIsLast();
 
         rebuild();
@@ -419,14 +422,66 @@ class SessionStateMachineTest {
     }
 
     @Test
-    void nonRecoverableDeviceErrorEndsWithTheDeviceCode() {
+    void sourceGivingUpStillOffersRetryWhichRestartsTheSource() {
         start();
-        record(sm.onSourceError(ErrorCode.CAMERA_UNAVAILABLE, false, "permission", now));
-        assertThat(result().failureCode).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
+        frames(3, 0.9f);
+        record(sm.onSourceError(ErrorCode.DEVICE_CONNECTION_FAILED, false, "reconnects exhausted", now));
         LivenessEvent dev = last(Type.DEVICE_ERROR);
-        assertThat(dev.recoverable).isFalse();
+        assertThat(dev.recoverable).as("the user can always Retry a device problem").isTrue();
+        assertThat(sm.state()).isEqualTo(State.DEVICE_WAIT);
+        record(sm.onRetry(now));
+        assertThat(has(Effect.Kind.RESTART_SOURCE)).isTrue();
+        seq = 0; // a restarted source starts its sequence again
+        frames(10, 0.9f);
+        assertThat(result().passed()).isTrue();
+        assertThat(result().attempts).isEqualTo(1);
+    }
+
+    @Test
+    void tooManyDeviceErrorsEndTheSessionWithTheDeviceCode() {
+        start();
+        for (int i = 0; i < tuning.maxDeviceErrors; i++) {
+            record(sm.onSourceError(ErrorCode.CAMERA_UNAVAILABLE, false, "busy", now));
+            assertThat(last(Type.DEVICE_ERROR).recoverable).isTrue();
+            record(sm.onRetry(now));
+        }
+        record(sm.onSourceError(ErrorCode.CAMERA_UNAVAILABLE, false, "busy", now));
+        assertThat(result().failureCode).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
+        assertThat(last(Type.DEVICE_ERROR).recoverable).isFalse();
         assertThat(events().subList(events().size() - 2, events().size())).containsExactly(Type.DEVICE_ERROR, Type.FAILED_FINAL);
         assertThat(last(Type.FAILED_FINAL).error).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
+    }
+
+    @Test
+    void sourceGivingUpWhileAlreadyWaitingMakesRetryRestartTheSource() {
+        start();
+        frames(3, 0.9f);
+        record(sm.onSourceError(ErrorCode.DEVICE_DISCONNECTED, true, "dropped", now)); // source reconnecting...
+        record(sm.onSourceError(ErrorCode.DEVICE_CONNECTION_FAILED, false, "gave up", now)); // ...and gave up
+        assertThat(sm.state()).isEqualTo(State.DEVICE_WAIT);
+        effects.clear();
+        record(sm.onRetry(now));
+        assertThat(has(Effect.Kind.RESTART_SOURCE)).isTrue();
+    }
+
+    @Test
+    void corruptFramesReportedByTheSourceAreNotDeviceErrors() {
+        start();
+        frames(3, 0.9f);
+        record(sm.onSourceError(ErrorCode.INVALID_FRAME, true, "bad JPEG", now));
+        record(sm.onSourceError(ErrorCode.INVALID_FRAME, true, "bad JPEG", now));
+        assertThat(events()).doesNotContain(Type.DEVICE_ERROR, Type.ATTEMPT_FAILED);
+        frames(10, 0.9f); // the passive window was not reset by the corrupt frames
+        assertThat(result().passed()).isTrue();
+
+        rebuild();
+        start();
+        frames(3, 0.9f);
+        for (int i = 0; i < tuning.invalidFrameLimit; i++) {
+            record(sm.onSourceError(ErrorCode.INVALID_FRAME, true, "bad JPEG", now));
+        }
+        assertThat(last(Type.ATTEMPT_FAILED).error).isEqualTo(ErrorCode.INVALID_FRAME);
+        assertThat(events()).doesNotContain(Type.DEVICE_ERROR);
     }
 
     @Test
@@ -552,5 +607,21 @@ class SessionStateMachineTest {
             assertThat(completes).isLessThanOrEqualTo(1);
             assertThat(completes == 1).isEqualTo(sm.isTerminal());
         }
+    }
+
+    /** Regression (found by Part 1's unplug test): a stale frame after the source gave up must not auto-resume. */
+    @Test
+    void noAutoResumeAfterTheSourceGaveUp() {
+        start();
+        frames(3, 0.9f);
+        record(sm.onSourceError(ErrorCode.DEVICE_DISCONNECTED, true, "dropped", now));
+        record(sm.onSourceError(ErrorCode.DEVICE_UNAVAILABLE, false, "not found", now));
+        frames(1, 0.9f); // a frame that was still in flight
+        assertThat(sm.state()).isEqualTo(State.DEVICE_WAIT);
+        assertThat(events().subList(events().size() - 1, events().size())).containsExactly(Type.DEVICE_ERROR);
+        effects.clear();
+        record(sm.onRetry(now));
+        assertThat(has(Effect.Kind.RESTART_SOURCE)).as("Retry restarts the source").isTrue();
+        assertThat(sm.state()).isEqualTo(State.STARTING);
     }
 }

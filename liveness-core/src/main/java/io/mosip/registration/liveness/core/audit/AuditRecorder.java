@@ -3,12 +3,17 @@ package io.mosip.registration.liveness.core.audit;
 import io.mosip.registration.liveness.api.AuditSink;
 import io.mosip.registration.liveness.api.ChallengeType;
 import io.mosip.registration.liveness.api.ErrorCode;
+import io.mosip.registration.liveness.api.FrameAnalysis;
 import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.WorkflowType;
+import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
+import io.mosip.registration.liveness.core.passive.Stats;
 import io.mosip.registration.liveness.core.util.TimeSource;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -57,6 +62,8 @@ public final class AuditRecorder {
         public static final String ENGINE = "engine";
         /** Prefix for PAD model outputs, e.g. "pad.minifas_v2". Audit/diagnostics only, never UI. */
         public static final String PAD_PREFIX = "pad.";
+        /** Prefix for diagnostic-mode details (policy.diagnosticMode): per-attempt score and frame statistics. */
+        public static final String DIAG_PREFIX = "diag.";
 
         private Keys() { }
     }
@@ -89,6 +96,17 @@ public final class AuditRecorder {
     private float passiveScore = Float.NaN;
     private int passiveFrames;
     private long passiveMs;
+    // Diagnostic mode (policy.diagnosticMode): per-attempt statistics, audit only.
+    private boolean diagnostic;
+    private final List<Float> diagScores = new ArrayList<Float>();
+    private int diagNoFace, diagMultiFace;
+    private final Map<FrameAnalysis.QualityIssue, Integer> diagIssues =
+            new EnumMap<FrameAnalysis.QualityIssue, Integer>(FrameAnalysis.QualityIssue.class);
+    static final int MAX_DIAG_SCORES = 5000;
+    // Anonymised operational metrics (optional).
+    private LivenessMetrics metrics;
+    private boolean sessionCounted;
+    private int lastCountedAttempt;
 
     /**
      * @param engine short identifier of the implementation, e.g. "core" or "fake"
@@ -113,11 +131,37 @@ public final class AuditRecorder {
         this.deviceCertification = truncate(certificationLevel);
     }
 
+    /** Diagnostic mode: adds per-attempt score and frame statistics ({@code diag.*}) to audit records. */
+    public synchronized void setDiagnostic(boolean diagnostic) {
+        this.diagnostic = diagnostic;
+    }
+
+    /** Also feed the service-wide anonymised metrics. */
+    public synchronized void setMetrics(LivenessMetrics metrics) {
+        this.metrics = metrics;
+    }
+
     // ------------------------------------------------------------------ metrics (thread-safe)
 
     public synchronized void frameAnalyzed(long processingMs) {
         framesAnalyzed++;
         processingMsTotal += Math.max(0, processingMs);
+        if (metrics != null) metrics.frameAnalyzed(processingMs);
+    }
+
+    /** Per-frame observation for diagnostic mode (scores and counts only; ignored when diagnostic mode is off). */
+    public synchronized void frameObserved(float livenessScore, int faceCount,
+                                           Collection<FrameAnalysis.QualityIssue> issues) {
+        if (!diagnostic) return;
+        if (!Float.isNaN(livenessScore) && diagScores.size() < MAX_DIAG_SCORES) diagScores.add(livenessScore);
+        if (faceCount == 0) diagNoFace++;
+        if (faceCount > 1) diagMultiFace++;
+        if (issues != null) {
+            for (FrameAnalysis.QualityIssue q : issues) {
+                Integer v = diagIssues.get(q);
+                diagIssues.put(q, v == null ? 1 : v + 1);
+            }
+        }
     }
 
     public synchronized void frameDropped() {
@@ -137,6 +181,16 @@ public final class AuditRecorder {
         challengeLog.clear();
         passiveOutcome = null;
         passiveScore = Float.NaN;
+        diagScores.clear();
+        diagNoFace = 0;
+        diagMultiFace = 0;
+        diagIssues.clear();
+        if (metrics != null) {
+            if (!sessionCounted) metrics.sessionStarted();
+            else if (attemptNumber > lastCountedAttempt) metrics.retryStarted();
+        }
+        sessionCounted = true;
+        lastCountedAttempt = Math.max(lastCountedAttempt, attemptNumber);
         write(AuditSink.Event.LIVENESS_STARTED, base());
     }
 
@@ -163,6 +217,10 @@ public final class AuditRecorder {
         String entry = type.name() + ":" + outcome.name() + ":" + Math.max(0, durationMs);
         if (i >= 0) challengeLog.set(i, entry);
         else challengeLog.add(entry);
+        if (metrics != null) {
+            if (outcome == ChallengeOutcome.DETECTED) metrics.challengeDetected(durationMs);
+            else metrics.challengeFailed();
+        }
     }
 
     public synchronized void attemptFailed(ErrorCode cause, int retriesLeft, String reason) {
@@ -171,6 +229,7 @@ public final class AuditRecorder {
         d.put(Keys.RETRIES_LEFT, Integer.toString(retriesLeft));
         if (reason != null) d.put(Keys.REASON, truncate(reason));
         write(AuditSink.Event.LIVENESS_ATTEMPT_FAILED, d);
+        if (metrics != null) metrics.attemptFailed(cause);
     }
 
     /**
@@ -199,6 +258,7 @@ public final class AuditRecorder {
         d.put(Keys.RECOVERABLE, Boolean.toString(recoverable));
         if (detailForAuditOnly != null) d.put(Keys.DEVICE_DETAIL, truncate(detailForAuditOnly));
         write(AuditSink.Event.DEVICE_ERROR, d);
+        if (metrics != null) metrics.deviceError();
     }
 
     public synchronized void passed(LivenessResult.PassPath path, float passiveMedian) {
@@ -206,6 +266,7 @@ public final class AuditRecorder {
         d.put(Keys.PASS_PATH, path.name());
         d.put(Keys.PASSIVE_SCORE, score(passiveMedian));
         write(AuditSink.Event.LIVENESS_PASSED, d);
+        if (metrics != null) metrics.passed(path);
     }
 
     public synchronized void failedFinal(ErrorCode finalCode, ErrorCode lastCause, int cooldownSecStarted) {
@@ -214,6 +275,7 @@ public final class AuditRecorder {
         if (lastCause != null) d.put(Keys.LAST_CAUSE, lastCause.name());
         if (cooldownSecStarted > 0) d.put(Keys.COOLDOWN_SEC, Integer.toString(cooldownSecStarted));
         write(AuditSink.Event.LIVENESS_FAILED_FINAL, d);
+        if (metrics != null) metrics.failedFinal(finalCode);
     }
 
     public synchronized void cancelled() {
@@ -221,6 +283,7 @@ public final class AuditRecorder {
         d.put(Keys.ERROR_CODE, ErrorCode.CANCELLED.name());
         d.put(Keys.CANCELLED, "true");
         write(AuditSink.Event.LIVENESS_FAILED_FINAL, d);
+        if (metrics != null) metrics.cancelled();
     }
 
     public synchronized void refusedByCooldown(long remainingMs) {
@@ -283,8 +346,25 @@ public final class AuditRecorder {
             d.put(Keys.PASSIVE_MS, Long.toString(passiveMs));
         }
         if (!challengeLog.isEmpty()) d.put(Keys.CHALLENGES, join(challengeLog));
+        if (diagnostic) addDiagnostics(d);
         d.put(Keys.ATTEMPT_MS, Long.toString(clock.nowMs() - attemptStartMs));
         return d;
+    }
+
+    private void addDiagnostics(Map<String, String> d) {
+        d.put(Keys.DIAG_PREFIX + "scoredFrames", Integer.toString(diagScores.size()));
+        if (!diagScores.isEmpty()) {
+            float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
+            for (float f : diagScores) { min = Math.min(min, f); max = Math.max(max, f); }
+            d.put(Keys.DIAG_PREFIX + "scoreMin", score(min));
+            d.put(Keys.DIAG_PREFIX + "scoreMedian", score(Stats.median(diagScores)));
+            d.put(Keys.DIAG_PREFIX + "scoreMax", score(max));
+        }
+        d.put(Keys.DIAG_PREFIX + "noFaceFrames", Integer.toString(diagNoFace));
+        d.put(Keys.DIAG_PREFIX + "multiFaceFrames", Integer.toString(diagMultiFace));
+        for (Map.Entry<FrameAnalysis.QualityIssue, Integer> e : diagIssues.entrySet()) {
+            d.put(Keys.DIAG_PREFIX + "issue." + e.getKey().name(), e.getValue().toString());
+        }
     }
 
     private Map<String, String> finalDetails() {

@@ -30,7 +30,10 @@ public enum FakeScenario {
     POOR_LIGHTING_HINTS,
     /** Device disconnects mid-challenge (DEVICE_ERROR, recoverable; neither a retry nor an attempt is used). Pass after Retry. */
     DEVICE_DISCONNECT,
-    /** The device fails for good after the checking phase: DEVICE_ERROR(recoverable=false), then FAILED_FINAL. */
+    /**
+     * The device keeps failing: DEVICE_ERROR(recoverable=true) with Retry each time, until the per-session device
+     * error limit (3) is exceeded, then DEVICE_ERROR(recoverable=false) and FAILED_FINAL with the device code.
+     */
     DEVICE_FAILURE,
     /** Every attempt fails (rotating causes). Ends in MAX_RETRIES_EXCEEDED; triggers operator cooldown. */
     MAX_RETRIES_EXCEEDED,

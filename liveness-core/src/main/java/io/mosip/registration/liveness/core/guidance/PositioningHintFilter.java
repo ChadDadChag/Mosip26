@@ -3,6 +3,7 @@ package io.mosip.registration.liveness.core.guidance;
 import io.mosip.registration.liveness.api.FrameAnalysis;
 import io.mosip.registration.liveness.api.LivenessEvent.Guidance;
 import io.mosip.registration.liveness.core.EngineTuning;
+import io.mosip.registration.liveness.core.detect.FaceGeometry;
 
 /**
  * Turns per-frame problems into debounced UI hints so the screen does not flicker:
@@ -87,8 +88,7 @@ public final class PositioningHintFilter {
         if (a.qualityIssues.contains(FrameAnalysis.QualityIssue.FACE_OFF_CENTER)
                 || a.qualityIssues.contains(FrameAnalysis.QualityIssue.FACE_CUT_OFF)) return Guidance.CENTER_FACE;
         if (a.qualityIssues.contains(FrameAnalysis.QualityIssue.BLURRY)) return Guidance.HOLD_STEADY;
-        if (Math.abs(a.yawDeg) > tuning.maxPassivePoseDeg || Math.abs(a.pitchDeg) > tuning.maxPassivePoseDeg)
-            return Guidance.LOOK_AT_CAMERA;
+        if (!FaceGeometry.withinPose(a, tuning.maxPassivePoseDeg)) return Guidance.LOOK_AT_CAMERA;
         return null;
     }
 }

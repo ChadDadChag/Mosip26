@@ -6,6 +6,7 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessService;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
+import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
 import io.mosip.registration.liveness.core.policy.ServicePolicies;
 import io.mosip.registration.liveness.core.session.CooldownRefusedSession;
 import io.mosip.registration.liveness.core.session.DefaultLivenessSession;
@@ -32,6 +33,7 @@ public final class DefaultLivenessService implements LivenessService {
     private final EngineTuning tuning;
     private final TimeSource clock;
     private final RandomSource random;
+    private final LivenessMetrics metrics = new LivenessMetrics();
 
     private DefaultLivenessService(Builder b) {
         this.analyzerFactory = b.analyzerFactory;
@@ -51,9 +53,20 @@ public final class DefaultLivenessService implements LivenessService {
         LivenessPolicy p = policies.snapshot(workflow);
         if (!p.enabled) return null;
         long cooldownLeft = policies.cooldown().remainingMs(workflow);
-        if (cooldownLeft > 0) return new CooldownRefusedSession(workflow, cooldownLeft, audit, null, "core");
+        if (cooldownLeft > 0) {
+            metrics.cooldownRefused();
+            return new CooldownRefusedSession(workflow, cooldownLeft, audit, null, "core");
+        }
         return SessionFactory.create(workflow, p, tuning, analyzerFactory, audit, clock, random,
-                policies.cooldown(), true);
+                policies.cooldown(), metrics, true);
+    }
+
+    /**
+     * Anonymised operational metrics since this service was created: pass/failure/retry rates, average analysis
+     * time and challenge completion time (counts and averages only). Apps may log {@code metrics().snapshot().toMap()}.
+     */
+    public LivenessMetrics metrics() {
+        return metrics;
     }
 
     @Override

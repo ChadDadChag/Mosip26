@@ -12,6 +12,8 @@ public final class EngineTuning {
     public long startTimeoutMs = 5000;
     /** TUNE: a recoverable device error auto-recovers if frames resume within this. */
     public long deviceGraceMs = 3000;
+    /** TUNE: device problems per session that still offer Retry; the next one ends the session. */
+    public int maxDeviceErrors = 3;
     /** TUNE: frames stop arriving mid-attempt for this long → treated as DEVICE_DISCONNECTED (recoverable). */
     public long frameStallMs = 2000;
     /** TUNE: this many non-increasing/implausible frames in one attempt → INVALID_FRAME. */
@@ -44,6 +46,8 @@ public final class EngineTuning {
     public float bestFrameMaxPoseDeg = 10f;
     /** TUNE: absolute EAR below this = eyes not open enough for the capture frame. */
     public float bestFrameMinEar = 0.18f;
+    /** TUNE: Laplacian variance that counts as "half sharp" when ranking best-frame candidates. */
+    public float bestFrameSharpnessHalfPoint = 100f;
 
     // ---- challenge flow
     /** TUNE: random delay before each prompt, 0..this (makes replayed video timing harder). */

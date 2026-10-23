@@ -321,8 +321,8 @@ class Part3RequirementsAuditTest {
     /** R17: FrameSource.onError -> DEVICE_ERROR carrying the source's recoverable flag, then FAILED_FINAL. */
     @Test
     void r17_nonRecoverableDeviceErrorEmitsDeviceErrorFalse() {
-        ScenarioDriver d = ScenarioDriver.resident();
-        d.frames(3, d.score(0.6f)).deviceError(ErrorCode.CAMERA_UNAVAILABLE, false);
+        ScenarioDriver d = ScenarioDriver.resident(); // Retry is offered until the per-session device error limit
+        for (int i = 0; i < 10 && !d.done(); i++) d.frames(3, d.score(0.6f)).deviceError(ErrorCode.CAMERA_UNAVAILABLE, false);
         LivenessEvent e = d.lastEvent(Type.DEVICE_ERROR);
         assertThat(e).isNotNull();
         assertThat(e.recoverable).isFalse();
@@ -340,9 +340,10 @@ class Part3RequirementsAuditTest {
         rec.frames(3, rec.score(0.6f)).deviceError(ErrorCode.DEVICE_DISCONNECTED, true);
         assertThat(rec.lastEvent(Type.DEVICE_ERROR).recoverable).isTrue();
         ScenarioDriver non = ScenarioDriver.resident();
+        non.autoRetry = false;
         non.frames(3, non.score(0.6f)).deviceError(ErrorCode.CAMERA_UNAVAILABLE, false);
-        assertThat(non.result.failureCode).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
-        assertThat(non.lastEvent(Type.FAILED_FINAL).error).isEqualTo(ErrorCode.CAMERA_UNAVAILABLE);
+        assertThat(non.lastEvent(Type.DEVICE_ERROR).recoverable).as("source gave up, user may still Retry").isTrue();
+        assertThat(non.done()).isFalse();
     }
 
     /** R17: a single FaceAnalyzer exception is tolerated; 3 in a row -> ENGINE_ERROR (design D7). */

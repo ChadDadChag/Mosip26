@@ -18,6 +18,7 @@ import io.mosip.registration.liveness.core.EngineTuning;
 import io.mosip.registration.liveness.core.audit.AuditRecorder;
 import io.mosip.registration.liveness.core.challenge.ChallengeRunner;
 import io.mosip.registration.liveness.core.challenge.ChallengeSelector;
+import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
 import io.mosip.registration.liveness.core.policy.CooldownTracker;
 import io.mosip.registration.liveness.core.util.RandomSource;
 import io.mosip.registration.liveness.core.util.TimeSource;
@@ -111,6 +112,12 @@ public final class DefaultLivenessSession implements LivenessSession {
         this.workflow = workflow; this.policy = policy; this.tuning = tuning; this.analyzerFactory = analyzerFactory;
         this.clock = clock; this.random = random; this.cooldown = cooldown; this.ownThread = ownThread;
         this.recorder = new AuditRecorder(audit, workflow, sessionId, null, clock, "core");
+        this.recorder.setDiagnostic(policy.diagnosticMode);
+    }
+
+    /** Feed the service-wide anonymised metrics (set before start). */
+    void setMetrics(LivenessMetrics metrics) {
+        recorder.setMetrics(metrics);
     }
 
     // ------------------------------------------------------------------ LivenessSession
@@ -306,6 +313,10 @@ public final class DefaultLivenessSession implements LivenessSession {
             switch (e.kind) {
                 case EMIT:
                     dispatcher.emit(e.event);
+                    if (e.event.type == LivenessEvent.Type.DEVICE_ERROR) {
+                        // A frame captured before the device problem must not look like the device coming back.
+                        pump.discard();
+                    }
                     break;
                 case COMPLETE:
                     dispatcher.complete(e.result);

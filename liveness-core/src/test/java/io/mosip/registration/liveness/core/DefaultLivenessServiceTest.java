@@ -94,12 +94,18 @@ class DefaultLivenessServiceTest {
     @Test
     void passivePassEndToEndOnRealThreads() throws Exception {
         SimpleAnalyzer analyzer = new SimpleAnalyzer();
-        LivenessSession s = service(analyzer, new MapConfig()).newSession(WorkflowType.RESIDENT);
+        DefaultLivenessService svc = service(analyzer, new MapConfig());
+        LivenessSession s = svc.newSession(WorkflowType.RESIDENT);
         ScriptedFrameSource source = new ScriptedFrameSource();
         Recorder rec = new Recorder();
         s.start(source, rec);
         stream(source);
         assertThat(rec.done.await(10, TimeUnit.SECONDS)).isTrue();
+        io.mosip.registration.liveness.core.metrics.LivenessMetrics.Snapshot m = svc.metrics().snapshot();
+        assertThat(m.sessions).isEqualTo(1);
+        assertThat(m.passedPassive).isEqualTo(1);
+        assertThat(m.framesAnalyzed).isGreaterThanOrEqualTo(10);
+        assertThat(m.avgProcessingMs()).isEqualTo(5.0);
         LivenessResult r = rec.result;
         assertThat(r.passed()).isTrue();
         assertThat(r.passPath).isEqualTo(LivenessResult.PassPath.PASSIVE_ONLY);

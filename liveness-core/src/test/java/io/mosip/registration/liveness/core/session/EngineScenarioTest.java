@@ -297,12 +297,62 @@ class EngineScenarioTest {
     }
 
     @Test
-    void connectionFailureAndCameraUnavailableAreFinalWhenNotRecoverable() {
+    void connectionFailureAndCameraUnavailableEndTheSessionOnlyAfterRepeatedRetries() {
         for (ErrorCode code : Arrays.asList(ErrorCode.DEVICE_CONNECTION_FAILED, ErrorCode.CAMERA_UNAVAILABLE)) {
-            ScenarioDriver d = ScenarioDriver.resident();
-            d.frames(3, d.score(0.6f)).deviceError(code, false);
+            ScenarioDriver d = ScenarioDriver.resident(); // autoRetry presses Retry on every DEVICE_ERROR
+            for (int i = 0; i < 10 && !d.done(); i++) d.frames(3, d.score(0.6f)).deviceError(code, false);
             wellFormed(d);
             assertThat(d.result.failureCode).isEqualTo(code);
+            assertThat(d.count(Type.DEVICE_ERROR)).isEqualTo(d.tuning.maxDeviceErrors + 1);
+            assertThat(d.lastEvent(Type.DEVICE_ERROR).recoverable).isFalse();
+            assertThat(d.source.starts.get()).as("each Retry restarted the source").isEqualTo(1 + d.tuning.maxDeviceErrors);
+        }
+    }
+
+    /**
+     * Part 1's "done when", at engine level: unplugging the camera mid-capture shows a clean DEVICE_ERROR with Retry,
+     * and replugging plus Retry works. Mirrors SbiStreamFrameSource: DEVICE_DISCONNECTED (recoverable) while it
+     * reconnects, then recoverable=false once its reconnect attempts are exhausted.
+     */
+    @Test
+    void unplugMidCaptureThenReplugAndRetryPasses() {
+        ScenarioDriver d = ScenarioDriver.resident();
+        d.autoRetry = false;
+        d.frames(45, d.score(0.6f)).untilPrompt();
+        d.deviceError(ErrorCode.DEVICE_DISCONNECTED, true);     // cable pulled: source starts reconnecting
+        d.noFramesFor(1500);
+        d.deviceError(ErrorCode.DEVICE_CONNECTION_FAILED, false); // source gives up
+        d.noFramesFor(5000);
+        LivenessEvent e = d.lastEvent(Type.DEVICE_ERROR);
+        assertThat(e.recoverable).as("UI shows Retry").isTrue();
+        assertThat(d.done()).isFalse();
+        d.retry(); // camera plugged back in, user presses Retry
+        assertThat(d.source.starts.get()).isEqualTo(2);
+        d.frames(45, d.score(0.6f)).performAll();
+        wellFormed(d);
+        assertThat(d.result.passed()).isTrue();
+        assertThat(d.attemptErrors()).as("no liveness retry used").isEmpty();
+    }
+
+    /** Part 3's "done when", second half: a replayed video of the person just blinking never passes. */
+    @Test
+    void replayedVideoOfNaturalBlinkingNeverPasses() {
+        for (long seed = 0; seed < 30; seed++) {
+            for (WorkflowType wf : WorkflowType.values()) {
+                ScenarioDriver d = new ScenarioDriver(wf, null, null, seed);
+                // ~3 s between blinks, mid passive score (a good screen replay that PAD does not catch outright).
+                for (int i = 0; i < 1500 && !d.done(); i++) {
+                    boolean blinking = i % 90 == 0 || i % 90 == 1;
+                    d.frame(blinking ? new Shape() { @Override public Fa apply(Fa f) { return f.score(0.6f).eyesClosed(); } }
+                            : d.score(0.6f));
+                }
+                assertThat(d.count(Type.PASSED)).as(wf + " seed " + seed).isZero();
+                for (LivenessEvent p : d.events) {
+                    if (p.type == Type.CHALLENGE_PROMPT && p.challengeCount == 1) {
+                        assertThat(p.challenge).as("BLINK is never the only challenge").isNotEqualTo(ChallengeType.BLINK);
+                    }
+                }
+            }
         }
     }
 
@@ -480,5 +530,62 @@ class EngineScenarioTest {
         ScenarioDriver cancelled = ScenarioDriver.resident();
         cancelled.frames(5, cancelled.score(0.6f)).cancel().frames(5, cancelled.score(0.6f));
         assertThat(cancelled.source.stops.get()).isEqualTo(1);
+    }
+
+    /** An analyzer that cannot estimate head pose (NaN), like Part 1's HeuristicFaceAnalyzer stand-in. */
+    static final Shape NO_POSE_HIGH = new Shape() { @Override public Fa apply(Fa f) { return f.score(0.9f).yaw(Float.NaN).pitch(Float.NaN); } };
+    static final Shape NO_POSE_MID = new Shape() { @Override public Fa apply(Fa f) { return f.score(0.6f).yaw(Float.NaN).pitch(Float.NaN); } };
+
+    @Test
+    void analyzerWithoutHeadPoseCanStillPassPassively() {
+        ScenarioDriver d = ScenarioDriver.resident();
+        d.untilDone(NO_POSE_HIGH);
+        wellFormed(d);
+        assertThat(d.result.passPath).isEqualTo(PassPath.PASSIVE_ONLY);
+        assertThat(d.result.bestFrame).as("best frame chosen without pose").isNotNull();
+        assertThat(d.lastEvent(Type.GUIDANCE)).as("no LOOK_AT_CAMERA hint for unknown pose").isNull();
+    }
+
+    @Test
+    void analyzerWithoutHeadPoseIsOnlyOfferedExpressionChallenges() {
+        for (long seed = 0; seed < 20; seed++) {
+            for (WorkflowType wf : WorkflowType.values()) {
+                ScenarioDriver d = new ScenarioDriver(wf, null, null, seed);
+                d.autoRetry = false;
+                d.frames(45, NO_POSE_MID).untilPrompt(NO_POSE_MID);
+                LivenessEvent p = d.lastEvent(Type.CHALLENGE_PROMPT);
+                assertThat(p).as(wf + " seed " + seed + " " + d.types()).isNotNull();
+                assertThat(p.challenge).isIn(ChallengeType.BLINK, ChallengeType.SMILE);
+                if (p.challengeCount == 1) assertThat(p.challenge).isEqualTo(ChallengeType.SMILE);
+            }
+        }
+    }
+
+    @Test
+    void analyzerWithNeitherPoseNorLandmarksCannotRunChallenges() {
+        ScenarioDriver d = ScenarioDriver.resident();
+        d.autoRetry = false;
+        d.frames(45, new Shape() { @Override public Fa apply(Fa f) { return f.score(0.6f).yaw(Float.NaN).pitch(Float.NaN).noLandmarks(); } });
+        assertThat(d.lastEvent(Type.ATTEMPT_FAILED).error).isEqualTo(ErrorCode.ENGINE_ERROR);
+        assertThat(d.count(Type.CHALLENGE_PROMPT)).isZero();
+    }
+
+    /** Regression (found by Part 1's unplug test): the frame waiting in the slot when the device fails is stale. */
+    @Test
+    void frameWaitingAtTheMomentOfADeviceErrorDoesNotResumeTheAttempt() {
+        ScenarioDriver d = ScenarioDriver.resident();
+        d.autoRetry = false;
+        d.frames(10, d.score(0.6f));
+        d.pushOnly(d.score(0.6f));                                // captured just before the cable came out
+        d.deviceError(ErrorCode.DEVICE_DISCONNECTED, true);
+        d.deviceError(ErrorCode.DEVICE_UNAVAILABLE, false);       // the source gave up
+        d.noFramesFor(500);
+        assertThat(d.session.stateForTest()).isEqualTo(SessionStateMachine.State.DEVICE_WAIT);
+        assertThat(d.count(Type.STARTED)).as("no automatic restart from a stale frame").isEqualTo(1);
+        d.retry();
+        assertThat(d.source.starts.get()).isEqualTo(2);
+        d.untilDone(d.score(0.9f));
+        wellFormed(d);
+        assertThat(d.result.passed()).isTrue();
     }
 }

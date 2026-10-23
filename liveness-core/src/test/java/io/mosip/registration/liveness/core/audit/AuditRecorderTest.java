@@ -173,4 +173,59 @@ class AuditRecorderTest {
         assertThat(sink.last(AuditSink.Event.LIVENESS_FAILED_FINAL))
                 .containsEntry(Keys.REASON, "cooldown").containsEntry(Keys.COOLDOWN_REMAINING_MS, "42000");
     }
+
+    @Test
+    void diagnosticModeAddsPerAttemptStatisticsAndNothingElse() {
+        rec.attemptStarted(1);
+        rec.frameObserved(0.4f, 1, java.util.EnumSet.noneOf(io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue.class));
+        rec.attemptFailed(ErrorCode.CHALLENGE_TIMEOUT, 3, null);
+        assertThat(sink.last(AuditSink.Event.LIVENESS_ATTEMPT_FAILED).keySet())
+                .noneMatch(k -> k.startsWith(Keys.DIAG_PREFIX)); // off by default
+
+        rec.setDiagnostic(true);
+        rec.attemptStarted(2);
+        rec.frameObserved(0.2f, 1, java.util.EnumSet.of(io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue.BLURRY));
+        rec.frameObserved(0.6f, 1, java.util.EnumSet.noneOf(io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue.class));
+        rec.frameObserved(0.9f, 1, java.util.EnumSet.of(io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue.BLURRY));
+        rec.frameObserved(Float.NaN, 0, java.util.EnumSet.noneOf(io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue.class));
+        rec.frameObserved(Float.NaN, 2, java.util.EnumSet.noneOf(io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue.class));
+        rec.attemptFailed(ErrorCode.CHALLENGE_TIMEOUT, 2, null);
+        Map<String, String> d = sink.last(AuditSink.Event.LIVENESS_ATTEMPT_FAILED);
+        assertThat(d).containsEntry("diag.scoredFrames", "3").containsEntry("diag.scoreMin", "0.200")
+                .containsEntry("diag.scoreMedian", "0.600").containsEntry("diag.scoreMax", "0.900")
+                .containsEntry("diag.noFaceFrames", "1").containsEntry("diag.multiFaceFrames", "1")
+                .containsEntry("diag.issue.BLURRY", "2");
+    }
+
+    @Test
+    void metricsAreAnonymousCountsAndAverages() {
+        io.mosip.registration.liveness.core.metrics.LivenessMetrics m = new io.mosip.registration.liveness.core.metrics.LivenessMetrics();
+        rec.setMetrics(m);
+        rec.attemptStarted(1);
+        rec.frameAnalyzed(40);
+        rec.frameAnalyzed(60);
+        rec.challengeIssued(ChallengeType.SMILE);
+        rec.challengeResolved(ChallengeType.SMILE, ChallengeOutcome.TIMEOUT, 6000);
+        rec.attemptFailed(ErrorCode.CHALLENGE_TIMEOUT, 3, null);
+        rec.attemptStarted(1); // same attempt restarted after a device blip: not a retry
+        rec.deviceError(ErrorCode.DEVICE_DISCONNECTED, true, "usb");
+        rec.attemptStarted(2); // user pressed Retry
+        rec.challengeIssued(ChallengeType.BLINK);
+        rec.challengeResolved(ChallengeType.BLINK, ChallengeOutcome.DETECTED, 1200);
+        rec.passed(io.mosip.registration.liveness.api.LivenessResult.PassPath.ACTIVE_CHALLENGE, 0.6f);
+
+        io.mosip.registration.liveness.core.metrics.LivenessMetrics.Snapshot snap = m.snapshot();
+        assertThat(snap.sessions).isEqualTo(1);
+        assertThat(snap.retries).isEqualTo(1);
+        assertThat(snap.passedActive).isEqualTo(1);
+        assertThat(snap.deviceErrors).isEqualTo(1);
+        assertThat(snap.attemptFailuresByCode).containsEntry(ErrorCode.CHALLENGE_TIMEOUT, 1L);
+        assertThat(snap.avgProcessingMs()).isEqualTo(50.0);
+        assertThat(snap.avgChallengeCompletionMs()).isEqualTo(1200.0);
+        assertThat(snap.retryRate()).isEqualTo(1.0);
+        assertThat(snap.failureRate()).isEqualTo(0.0);
+        Map<String, String> flat = snap.toMap();
+        assertThat(flat).containsEntry("sessions", "1").containsEntry("avgChallengeCompletionMs", "1200.000");
+        assertThat(flat.keySet()).noneMatch(k -> k.toLowerCase().contains("session") && k.toLowerCase().contains("id"));
+    }
 }
