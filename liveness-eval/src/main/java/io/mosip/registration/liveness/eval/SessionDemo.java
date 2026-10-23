@@ -77,10 +77,12 @@ final class SessionDemo {
     static Case scripted(char c) {
         switch (c) {
             case 'a': return new Case("a", WorkflowType.RESIDENT, false, "REAL FACE: just look at the camera");
-            case 'b': return new Case("b", WorkflowType.RESIDENT, true, "REAL FACE: follow the instructions on screen");
+            case 'b': return new Case("b", WorkflowType.RESIDENT, true,
+                    "REAL FACE: follow the instructions (turn MODERATELY, ~30 deg, hold 1 s, come back)");
             case 'c': return new Case("c", WorkflowType.OPERATOR, true, "REAL FACE (operator): follow the instruction");
             case 'd': return new Case("d", WorkflowType.RESIDENT, false, "PRINTED PHOTO in front of the camera, your face out of view");
-            case 'e': return new Case("e", WorkflowType.RESIDENT, false, "PHONE PHOTO in front of the camera, your face out of view");
+            case 'e': return new Case("e", WorkflowType.RESIDENT, false,
+                    "PHONE PHOTO in front of the camera, your face out of view, until the run says FINISHED");
             case 'f': return new Case("f", WorkflowType.RESIDENT, false, "PHONE VIDEO playing in front of the camera, your face out of view");
             case 'g': return new Case("g", WorkflowType.RESIDENT, true, "PHONE PHOTO, forced challenges: hold it still, do NOTHING when asked");
             default: throw new IllegalArgumentException("unknown case '" + c + "' (a..g)");
@@ -91,11 +93,12 @@ final class SessionDemo {
     static final class Sample {
         final long t;
         final int faces;
-        final float score, yaw, pitch, ear, mouthWidth, mouthOpen, cornerLift;
+        final float score, yaw, pitch, ear, mouthWidth, mouthOpen, cornerLift, boxWidth;
 
         Sample(long t, FrameAnalysis a) {
             this.t = t;
             this.faces = a.faceCount;
+            this.boxWidth = a.faceBox == null ? Float.NaN : a.faceBox[2];
             this.score = a.livenessScore;
             this.yaw = a.yawDeg;
             this.pitch = a.pitchDeg;
@@ -165,7 +168,7 @@ final class SessionDemo {
             String d = e.type.name();
             if (e.type == LivenessEvent.Type.GUIDANCE) d += "(" + e.guidance + ")";
             if (e.type == LivenessEvent.Type.CHALLENGE_PROMPT) {
-                d += "(" + e.challenge + " " + (e.challengeIndex + 1) + "/" + e.challengeCount + ")";
+                d += "(" + e.challenge + " " + e.challengeIndex + "/" + e.challengeCount + ")"; // index is 1-based
                 closeChallenge(t, false);
                 challenges.add(e.challenge);
                 challengeTimes.add(new long[] {t, -1, 0});
@@ -184,7 +187,7 @@ final class SessionDemo {
             if (e.type == LivenessEvent.Type.CHALLENGE_PROMPT) Toolkit.getDefaultToolkit().beep();
             if (e.type == LivenessEvent.Type.ATTEMPT_FAILED) {
                 w.info("Attempt failed: " + e.error + "\nretries left: " + e.retriesLeft
-                        + (autoRetry ? "\n(retrying automatically)" : "\nPress Retry"));
+                        + (autoRetry ? "\n\nRETRYING IN 2 s:\nkeep presenting the same thing\nuntil the run says FINISHED" : "\nPress Retry"));
                 if (autoRetry) {
                     timer.schedule(new TimerTask() {
                         @Override public void run() {
@@ -211,7 +214,7 @@ final class SessionDemo {
         public void onComplete(LivenessResult r) {
             closeChallenge(now(), false);
             result = r;
-            w.message(r.passed() ? "Good, face captured successfully" : UiTexts.failure(r.failureCode),
+            w.message((r.passed() ? "Good, face captured successfully" : UiTexts.failure(r.failureCode)) + "  (run FINISHED)",
                     r.passed() ? new Color(0, 130, 0) : Color.RED);
             done.countDown();
             timer.cancel();
@@ -233,6 +236,7 @@ final class SessionDemo {
         final OnnxFaceAnalyzerFactory real = new OnnxFaceAnalyzerFactory();
         real.preload();
         final DemoWindow w = new DemoWindow("Part 3 session with the Part 2 analyzer (" + real.modelVersion() + ")");
+        w.mirrored(true); // selfie view, so "turn left" matches what the person sees
         final WebcamFrameSource source = new WebcamFrameSource(camera, 640, 480, 15);
         source.setPreviewListener(new WebcamFrameSource.PreviewListener() {
             @Override public void onPreview(Frame f) {
@@ -352,6 +356,10 @@ final class SessionDemo {
                 fmt(pitch), fmt(mw), fmt(lift), fmt(score));
     }
 
+    private static String num(float v) {
+        return Float.isNaN(v) ? "null" : String.format(Locale.ROOT, "%.3f", v);
+    }
+
     private static float[] range() {
         return new float[] {Float.NaN, Float.NaN};
     }
@@ -381,7 +389,17 @@ final class SessionDemo {
         sb.append(",\"events\":[");
         List<String> ev = new ArrayList<String>(r.events);
         for (int i = 0; i < ev.size(); i++) sb.append(i > 0 ? "," : "").append('"').append(ev.get(i)).append('"');
-        sb.append("],\"samples\":").append(rf.samples.size()).append('}');
+        // Every frame the engine analysed: [t ms, faces, yaw, pitch, mean EAR, score, box width px] (numbers only).
+        sb.append("],\"frames\":[");
+        synchronized (rf.samples) {
+            for (int i = 0; i < rf.samples.size(); i++) {
+                Sample s = rf.samples.get(i);
+                sb.append(i > 0 ? "," : "").append('[').append(s.t).append(',').append(s.faces).append(',')
+                        .append(num(s.yaw)).append(',').append(num(s.pitch)).append(',').append(num(s.ear)).append(',')
+                        .append(num(s.score)).append(',').append(num(s.boxWidth)).append(']');
+            }
+        }
+        sb.append("]}");
         return sb.toString();
     }
 }

@@ -72,6 +72,11 @@ final class DemoWindow {
         return !frame.isDisplayable();
     }
 
+    /** Shows the video like a selfie (display only; the engine still analyses the unmirrored frames). */
+    void mirrored(boolean mirror) {
+        video.mirror = mirror;
+    }
+
     void onClose(final Runnable r) {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override public void windowClosed(java.awt.event.WindowEvent e) {
@@ -154,6 +159,7 @@ final class DemoWindow {
         private static final long serialVersionUID = 1L;
         volatile BufferedImage image;
         volatile Overlay overlay;
+        volatile boolean mirror;
 
         VideoPanel() {
             setPreferredSize(new Dimension(800, 600));
@@ -167,8 +173,13 @@ final class DemoWindow {
             if (img != null) {
                 double s = Math.min(getWidth() / (double) img.getWidth(), getHeight() / (double) img.getHeight());
                 int w = (int) (img.getWidth() * s), h = (int) (img.getHeight() * s);
-                g.translate((getWidth() - w) / 2, (getHeight() - h) / 2);
-                g.scale(s, s);
+                if (mirror) {
+                    g.translate((getWidth() - w) / 2 + w, (getHeight() - h) / 2);
+                    g.scale(-s, s);
+                } else {
+                    g.translate((getWidth() - w) / 2, (getHeight() - h) / 2);
+                    g.scale(s, s);
+                }
                 g.drawImage(img, 0, 0, null);
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 Overlay o = overlay;
