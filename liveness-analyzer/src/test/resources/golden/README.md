@@ -46,6 +46,8 @@ Main fields (frame pixels, continuous coordinates with pixel centre = i + 0.5, y
 | `earLeft`, `earRight` | eye aspect ratio of each eye |
 | `yawDeg`, `pitchDeg`, `rollDeg` | head pose; + yaw = subject's left, + pitch = up, + roll = subject's left eye higher. `pitchDeg = pitchRaw − PITCH_BIAS_DEG` (−9.5) |
 | `pitchRaw` | pitch before the bias correction |
+| `quality` | primary face: `lumaMean`, `lapVar`, `areaFrac`, `faceWidthPx`, `centreDx`, `centreDy`, `cutOff`, `issues` (see `reference_pipeline.quality`). The crew primary face is correctly `FACE_TOO_SMALL` (~51 px wide). |
+| `replay` | primary face: `moire`, `glare` (see `reference_pipeline.replay_cues`) |
 | `pad.intBox` | integer box fed to the crop |
 | `pad.v2`, `pad.v1se` | `cropBox` (inclusive ltx, lty, rbx, rby), `logits`, `softmax` |
 | `livenessScore` | (softmax_v2[1] + softmax_v1se[1]) / 2 |

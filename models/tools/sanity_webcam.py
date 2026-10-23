@@ -174,10 +174,48 @@ def record(cap, pipe, label, what, how, seconds):
     return rows, False
 
 
+def quality_frames(cap, pipe, n):
+    """Quality metrics of n frames with exactly one face (for the blur-threshold study). Waits for SPACE."""
+    if not wait_for_start(cap, pipe, "Q", "YOUR REAL FACE", f"look at the camera normally for {n} frames"):
+        return
+    beep(880, 150)
+    lap, lap15, lap3 = [], [], []
+    while len(lap) < n:
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        res = pipe.analyze(frame)
+        if res["faceCount"] != 1:
+            continue
+        q = res["quality"]
+        box = res["faceBox"]
+        # the same frame Gaussian-blurred in memory (blur study); nothing is stored
+        b15 = rp.quality(cv2.GaussianBlur(frame, (0, 0), 1.5), box)["lapVar"]
+        b3 = rp.quality(cv2.GaussianBlur(frame, (0, 0), 3.0), box)["lapVar"]
+        lap.append(q["lapVar"])
+        lap15.append(b15)
+        lap3.append(b3)
+        print(f"Q {len(lap):2d} lapVar {q['lapVar']:8.2f} sigma1.5 {b15:7.2f} sigma3 {b3:6.2f} luma {q['lumaMean']:6.1f} "
+              f"faceW {q['faceWidthPx']:6.1f}px area {q['areaFrac']:.3f} issues {q['issues']} "
+              f"moire {res['replay']['moire']:.3f} glare {res['replay']['glare']:.4f}", flush=True)
+        img = draw(frame, res, None)
+        put(img, f"RECORDING quality frame {len(lap)}/{n}", 5, (0, 0, 255))
+        cv2.imshow(WINDOW, img)
+        cv2.waitKey(1)
+    beep(660, 300)
+    cap.release()
+    cv2.destroyAllWindows()
+    for label, values in (("sharp", lap), ("sigma1.5", lap15), ("sigma3", lap3)):
+        print(f"QUALITY lapVar {label:<8} over {n} frames: min {min(values):.2f} median {median(values):.2f} "
+              f"max {max(values):.2f}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--camera", type=int, default=0)
     ap.add_argument("--seconds", type=float, default=10.0, help="recording length for B, C and D")
+    ap.add_argument("--quality-frames", type=int, default=0,
+                    help="instead of the guided steps: print the quality metrics of N one-face frames, then exit")
     args = ap.parse_args()
 
     cap = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW) if sys.platform == "win32" else cv2.VideoCapture(args.camera)
@@ -189,6 +227,9 @@ def main():
     print(f"camera {args.camera}: {frame.shape[1]}x{frame.shape[0]}", flush=True)
     pipe = rp.Pipeline()
     cv2.namedWindow(WINDOW, cv2.WINDOW_AUTOSIZE)
+    if args.quality_frames > 0:
+        quality_frames(cap, pipe, args.quality_frames)
+        return
 
     summaries, quit_all = [], False
     for label, what, how, seconds in STEPS:

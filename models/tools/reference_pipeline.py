@@ -46,6 +46,22 @@ PAD_V2_SCALE = 2.7
 PAD_V1SE_SCALE = 4.0
 PAD_REAL_CLASS = 1
 
+# Quality (initial thresholds; Phase 5 calibrates live).
+QUALITY_SIZE = 112
+Q_TOO_DARK_LUMA = 40.0        # lumaMean below -> TOO_DARK
+Q_TOO_BRIGHT_LUMA = 220.0     # lumaMean above -> TOO_BRIGHT
+Q_BLUR_LAP_VAR = 15.0         # lapVar below -> BLURRY (blur study in models/README.md)
+Q_MIN_AREA_FRAC = 0.04        # areaFrac below -> FACE_TOO_SMALL
+Q_MIN_FACE_WIDTH_PX = 80.0    # face width below -> FACE_TOO_SMALL
+Q_MAX_AREA_FRAC = 0.60        # areaFrac above -> FACE_TOO_LARGE
+Q_MAX_CENTRE_OFFSET = 0.25    # centreDx or centreDy above -> FACE_OFF_CENTER
+
+# Replay cues (audit only; fusion weight 0 until the evaluation shows they help).
+MOIRE_SIZE = 64
+MOIRE_R_MIN, MOIRE_R_MAX = 8, 31
+MOIRE_EPS = 1e-6
+GLARE_LEVEL = 250.0
+
 # Mesh indices, subject's point of view. Eye order is the contract's p1..p6:
 # [outer corner, upper-outer, upper-inner, inner corner, lower-inner, lower-outer].
 LEFT_EYE = (263, 387, 385, 362, 380, 373)
@@ -434,6 +450,98 @@ class MiniFasNet:
 
 
 # ---------------------------------------------------------------------------------------------
+# Quality and replay cues (primary face)
+# ---------------------------------------------------------------------------------------------
+
+def box_matrix(box, size):
+    """Axis-aligned (unrotated) crop of the float face box [x, y, w, h] to size x size:
+    M = [[w/N, 0, x], [0, h/N, y]] (continuous coordinates, so dst [0, N] spans the box)."""
+    x, y, w, h = box
+    return [[w / size, 0.0, x], [0.0, h / size, y]]
+
+
+def to_gray(crop):
+    """BT.601 luma of a bilinear-sampled float32 BGR crop, per output pixel AFTER sampling:
+    gray = 0.299 R + 0.587 G + 0.114 B, in float64 from the float32 channel values, stored as float32."""
+    c = crop.astype(np.float64)
+    return (0.299 * c[:, :, 2] + 0.587 * c[:, :, 1] + 0.114 * c[:, :, 0]).astype(np.float32)
+
+
+def laplacian_variance(gray):
+    """Population variance of the 4-neighbour Laplacian [[0,1,0],[1,-4,1],[0,1,0]] over the interior
+    (N-2) x (N-2) pixels: L = up + down + left + right - 4 centre, in float64."""
+    g = gray.astype(np.float64)
+    lap = g[:-2, 1:-1] + g[2:, 1:-1] + g[1:-1, :-2] + g[1:-1, 2:] - 4.0 * g[1:-1, 1:-1]
+    return float(np.var(lap))
+
+
+def quality(bgr, box):
+    """Quality metrics and issues for the primary face.
+
+    crop      = sample_affine(frame, box_matrix(box, 112), 112, 112); gray = to_gray(crop)
+    lumaMean  = mean(gray)                  lapVar = laplacian_variance(gray)
+    areaFrac  = w h / (W H)                 faceWidthPx = w
+    centreDx  = |x + w/2 - W/2| / W         centreDy = |y + h/2 - H/2| / H
+    cutOff    = x < 0 or y < 0 or x + w > W or y + h > H
+    Issues (in this order): TOO_DARK lumaMean < 40; TOO_BRIGHT lumaMean > 220; BLURRY lapVar < Q_BLUR_LAP_VAR;
+    FACE_TOO_SMALL areaFrac < 0.04 or w < 80; FACE_TOO_LARGE areaFrac > 0.60;
+    FACE_OFF_CENTER centreDx > 0.25 or centreDy > 0.25; FACE_CUT_OFF cutOff.
+    """
+    H, W = bgr.shape[:2]
+    x, y, w, h = box
+    g = to_gray(sample_affine(bgr, box_matrix(box, QUALITY_SIZE), QUALITY_SIZE, QUALITY_SIZE))
+    m = {"lumaMean": float(g.astype(np.float64).mean()), "lapVar": laplacian_variance(g),
+         "areaFrac": float((w * h) / (W * H)), "faceWidthPx": float(w),
+         "centreDx": float(abs(x + w / 2 - W / 2) / W), "centreDy": float(abs(y + h / 2 - H / 2) / H),
+         "cutOff": bool(x < 0 or y < 0 or x + w > W or y + h > H)}
+    issues = []
+    if m["lumaMean"] < Q_TOO_DARK_LUMA:
+        issues.append("TOO_DARK")
+    if m["lumaMean"] > Q_TOO_BRIGHT_LUMA:
+        issues.append("TOO_BRIGHT")
+    if m["lapVar"] < Q_BLUR_LAP_VAR:
+        issues.append("BLURRY")
+    if m["areaFrac"] < Q_MIN_AREA_FRAC or w < Q_MIN_FACE_WIDTH_PX:
+        issues.append("FACE_TOO_SMALL")
+    if m["areaFrac"] > Q_MAX_AREA_FRAC:
+        issues.append("FACE_TOO_LARGE")
+    if m["centreDx"] > Q_MAX_CENTRE_OFFSET or m["centreDy"] > Q_MAX_CENTRE_OFFSET:
+        issues.append("FACE_OFF_CENTER")
+    if m["cutOff"]:
+        issues.append("FACE_CUT_OFF")
+    m["issues"] = issues
+    return m
+
+
+def hann(n):
+    """Symmetric Hann window (numpy.hanning): w[k] = 0.5 - 0.5 cos(2 pi k / (n - 1))."""
+    return np.hanning(n)
+
+
+def replay_cues(bgr, box):
+    """Replay/print cues for the audit trail (not fused into the score).
+
+    moire: g = to_gray(64 x 64 box crop) in float64, minus its mean, times outer(hann(64), hann(64));
+           F = |fftshift(fft2(g))| (DC at index [32, 32]); S = F over frequencies with
+           8 <= sqrt(u^2 + v^2) <= 31 (u = col - 32, v = row - 32);
+           moire = log10((max(S) + 1e-6) / (median(S) + 1e-6))   (median of an even count = mean of the two middle values)
+    glare: fraction of pixels of the 112 x 112 float BGR box crop whose R, G and B are all >= 250.
+    """
+    g = to_gray(sample_affine(bgr, box_matrix(box, MOIRE_SIZE), MOIRE_SIZE, MOIRE_SIZE)).astype(np.float64)
+    g -= g.mean()
+    win = hann(MOIRE_SIZE)
+    g *= np.outer(win, win)
+    mag = np.abs(np.fft.fftshift(np.fft.fft2(g)))
+    v, u = np.mgrid[0:MOIRE_SIZE, 0:MOIRE_SIZE] - MOIRE_SIZE // 2
+    r = np.sqrt(u.astype(np.float64) ** 2 + v.astype(np.float64) ** 2)
+    sel = mag[(r >= MOIRE_R_MIN) & (r <= MOIRE_R_MAX)]
+    moire = math.log10((float(sel.max()) + MOIRE_EPS) / (float(np.median(sel)) + MOIRE_EPS))
+    crop = sample_affine(bgr, box_matrix(box, QUALITY_SIZE), QUALITY_SIZE, QUALITY_SIZE)
+    glare = float(np.mean(np.all(crop >= GLARE_LEVEL, axis=2)))
+    return {"moire": moire, "glare": glare}
+
+
+# ---------------------------------------------------------------------------------------------
 # Whole pipeline
 # ---------------------------------------------------------------------------------------------
 
@@ -468,12 +576,19 @@ class Pipeline:
         res["faceCount"] = face_count
         res["primary"] = primary
         res["faceBox"] = primary["box"] if primary else None
-        for key in ("meshRoi", "meshFlag", "meshPoints", "landmarks", "earLeft", "earRight",
+        for key in ("quality", "replay", "meshRoi", "meshFlag", "meshPoints", "landmarks", "earLeft", "earRight",
                     "yawDeg", "pitchDeg", "pitchRaw", "rollDeg", "pad", "livenessScore"):
             res[key] = None
         if primary is None:
             res["timingsMs"]["total"] = _ms(t_all)
             return res
+
+        t0 = time.perf_counter()
+        res["quality"] = quality(bgr, primary["box"])
+        res["timingsMs"]["quality"] = _ms(t0)
+        t0 = time.perf_counter()
+        res["replay"] = replay_cues(bgr, primary["box"])
+        res["timingsMs"]["cues"] = _ms(t0)
 
         t0 = time.perf_counter()
         roi = mesh_roi(primary)

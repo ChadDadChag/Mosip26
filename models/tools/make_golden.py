@@ -17,7 +17,9 @@ works (PD-USGov-NASA) from Wikimedia Commons; never put team faces here.
      portrait: faceCount == 1, |yaw| < 10, |pitch| < 10 (bias-corrected), EAR of each eye in
                [0.18, 0.40], meshFlag >= 0.5
      portrait mirrored: |yaw + yaw'| <= 3, |roll + roll'| <= 3, |pitch - pitch'| <= 3
-     crew (and its mirror): faceCount >= 2
+     portrait (and its mirror): no quality issues
+     crew (and its mirror): faceCount >= 2; primary-face quality issues exactly [FACE_TOO_SMALL]
+                            (a ~51 px face in a 640 px group photo is correctly too small)
    livenessScore is printed, never asserted: a digital photo may legitimately score as a spoof.
 """
 import argparse
@@ -91,6 +93,24 @@ def analyze(pipe, bgr, fx, flipped, models):
     return {"meta": meta, **res}
 
 
+def blur_study():
+    """lapVar of the primary face box, on the sharp frame and on the frame Gaussian-blurred with sigma 1.5
+    and 3 (cv2.GaussianBlur, kernel size derived from sigma). The box always comes from the sharp frame."""
+    import cv2
+
+    pipe = rp.Pipeline()
+    for fx in FIXTURES:
+        bgr = rp.imread_bgr(GOLDEN / (fx["name"] + ".png"))
+        for flipped in (False, True):
+            img = np.ascontiguousarray(bgr[:, ::-1]) if flipped else bgr
+            box = rp.count_faces(pipe.yunet.detect(img))[1]["box"]
+            values = [rp.quality(img, box)["lapVar"]]
+            for sigma in (1.5, 3.0):
+                values.append(rp.quality(cv2.GaussianBlur(img, (0, 0), sigma), box)["lapVar"])
+            print(f"{fx['name'] + (' (mirrored)' if flipped else ''):<30} face w {box[2]:6.1f}px  "
+                  f"lapVar sharp {values[0]:8.2f}  sigma1.5 {values[1]:7.2f}  sigma3 {values[2]:7.2f}")
+
+
 def check(cond, msg, failures):
     print(("  ok    " if cond else "  FAIL  ") + msg)
     if not cond:
@@ -101,7 +121,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rebuild-images", action="store_true", help="re-create the fixture PNGs from the originals")
     ap.add_argument("--images-only", action="store_true", help="stop after creating missing fixture images")
+    ap.add_argument("--blur-study", action="store_true",
+                    help="print lapVar of each primary face, sharp and Gaussian-blurred (sigma 1.5 and 3), then exit")
     args = ap.parse_args()
+    if args.blur_study:
+        blur_study()
+        return
     GOLDEN.mkdir(parents=True, exist_ok=True)
     for fx in FIXTURES:
         if args.rebuild_images or not (GOLDEN / (fx["name"] + ".png")).exists():
@@ -142,8 +167,14 @@ def main():
     else:
         check(False, "portrait pose available for the mirror check", failures)
     for flipped in (False, True):
+        tag = " mirrored" if flipped else ""
+        p_q = results[("portrait_frontal", flipped)]["quality"]
+        check(p_q is not None and p_q["issues"] == [], f"portrait{tag} has no quality issues (got {p_q and p_q['issues']})", failures)
         c = results[("crew_multi", flipped)]
-        check(c["faceCount"] >= 2, f"crew{' mirrored' if flipped else ''} faceCount >= 2 (got {c['faceCount']})", failures)
+        check(c["faceCount"] >= 2, f"crew{tag} faceCount >= 2 (got {c['faceCount']})", failures)
+        # The crew primary face is ~51 px wide in a 640 px group photo: FACE_TOO_SMALL is correct and the only issue.
+        check(c["quality"]["issues"] == ["FACE_TOO_SMALL"],
+              f"crew{tag} primary quality issues == ['FACE_TOO_SMALL'] (got {c['quality']['issues']})", failures)
     for (name, flipped), res in results.items():
         print(f"  info  {name}{' mirrored' if flipped else ''} livenessScore = {res['livenessScore']}")
     if failures:

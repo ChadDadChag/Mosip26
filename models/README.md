@@ -59,6 +59,45 @@ median is −9.45° and the IQR 6.26° (Q1 −12.36°, Q3 −6.10°).
 The analyzer therefore reports `pitch = raw − PITCH_BIAS_DEG` with `PITCH_BIAS_DEG = −9.5`.
 The golden JSON keeps the raw value as `pitchRaw`.
 
+## Quality thresholds
+
+`reference_pipeline.quality()` measures the primary face on a 112 × 112 axis-aligned crop of its
+box, converted to BT.601 luma after bilinear sampling. These are initial values; Phase 5
+calibrates them live.
+
+| Issue | Rule |
+|---|---|
+| TOO_DARK / TOO_BRIGHT | mean luma < 40 / > 220 |
+| BLURRY | variance of the 4-neighbour Laplacian over the 110 × 110 interior (`lapVar`) < **15** |
+| FACE_TOO_SMALL | face area < 4 % of the frame, or face width < 80 px |
+| FACE_TOO_LARGE | face area > 60 % of the frame |
+| FACE_OFF_CENTER | face-centre offset > 0.25 of the frame width or height |
+| FACE_CUT_OFF | the box leaves the frame |
+
+**Blur study (`lapVar`).** Each row was also measured after a Gaussian blur of the whole frame,
+keeping the box from the sharp frame.
+
+| Source | Face width | Sharp | σ = 1.5 | σ = 3 |
+|---|---|---|---|---|
+| golden portrait / mirrored (554 × 640) | 164 / 156 px | 425.0 / 386.2 | 53.7 / 49.4 | 9.4 / 8.7 |
+| golden crew primary / mirrored (640 × 512) | 51 / 52 px | 84.8 / 87.8 | 3.2 / 3.1 | 0.33 / 0.34 |
+| webcam, 30 frames, dim room (luma 59–82) | 131–138 px | 41.0–61.2 (median 52.8) | not measured | not measured |
+| webcam, 30 frames (luma 114–121) | 111–114 px | 34.4–65.3 (median 51.8) | 4.3–6.1 | 0.9–1.3 |
+
+`T_blur` is the geometric mean of the lowest sharp value (34.4, webcam) and the highest
+same-camera σ = 1.5 value (6.1): √(34.4 × 6.1) = 14.5, rounded to **15**. That leaves about
+2.3× margin on each side.
+
+`lapVar` is an absolute measure of detail at the 112-px scale. A σ = 1.5 blur of a high-resolution
+face (the portrait, 53.7) therefore still reads sharper than a raw webcam frame. The threshold is
+set for the capture domain that matters: live webcam frames.
+
+`replay_cues()` adds two audit-only signals to `padDetails`, with fusion weight 0 until the
+evaluation shows they help:
+- **moire:** log10(max / median) of the Hann-windowed 64 × 64 DFT magnitude over radii 8–31.
+  The golden faces read 1.25–1.70; a live webcam reads 1.02–1.29.
+- **glare:** the fraction of 112 × 112 crop pixels with R, G and B all ≥ 250.
+
 ## Conversion checks
 
 - **MiniFASNet.** The networks are built from the unmodified upstream `MiniFASNet.py` with
