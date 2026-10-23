@@ -257,3 +257,79 @@ session.start(frameSource, listener);  // callbacks arrive on a background threa
 - [docs/person3-design.md](docs/person3-design.md): architecture, decision flow, challenges, config, errors, security, ISO/IEC 30107
 - [PART3_STATUS.md](PART3_STATUS.md): requirement-by-requirement status
 - [docs/contract-change-proposals.md](docs/contract-change-proposals.md): contract changes, both accepted and proposed
+
+---
+
+# Part 2: Passive liveness and PAD
+
+Part 2 is the face analyzer behind Part 3's engine. For each frame it detects the face, measures quality, fits 478 landmarks, estimates head pose, and scores passive liveness (presentation attack detection). It returns one `FrameAnalysis` per frame. It runs pre-trained models on ONNX Runtime with the same `ai.onnxruntime` API on Desktop and Android, and it loads models only from a signed, verified bundle.
+
+| Module | What | Ships in the apps |
+|---|---|---|
+| `liveness-analyzer/` | `OnnxFaceAnalyzerFactory` / `OnnxFaceAnalyzer`. YuNet detection, FaceMesh V2 landmarks and pose, quality checks, MiniFASNet V2 + V1SE passive PAD, and the session moiré cap. Also signed-bundle verification (`VerifiedBundle`, `TrustedKeys`) and offline updates (`ModelStore`). Java 8 / Android API 21 clean. | yes |
+| `models/` | The four ONNX models (8.2 MiB), the signed `manifest.json` / `manifest.sig`, provenance and licences. `models/tools/` holds the Python reference pipeline (the executable spec), the conversion scripts and the golden-fixture scripts. | bundled into the analyzer jar |
+| `liveness-eval/` | Dev tools: `ModelBundleTool` (keygen, sign, verify, install, rollback), the live webcam demo, `AnalyzerBenchmark`, `DatasetRecorder`, `PadEvaluation` (ISO/IEC 30107-3 metrics) | no |
+
+## Build and test (Part 2)
+
+This builds standalone from this repository with JDK 11. PowerShell, from the repository root:
+
+    mvn -N install -Dgpg.skip
+    mvn -f liveness-api/pom.xml install -Dgpg.skip
+    mvn -f liveness-core/pom.xml install -Dgpg.skip
+    mvn -f liveness-fake/pom.xml install -Dgpg.skip
+    mvn -f liveness-tools/pom.xml install -Dgpg.skip
+    mvn -f liveness-analyzer/pom.xml install -Dgpg.skip
+    mvn -f liveness-eval/pom.xml verify -Dgpg.skip
+
+`liveness-analyzer` runs about 190 tests:
+- Java vs Python parity on public-domain golden images, stage by stage.
+- Bundle tampering cases.
+- The session moiré cap.
+- A Part 3 integration test.
+
+It enforces 80% coverage and the Java 8 and Android API 21 signatures.
+
+## Use (Parts 4 and 5)
+
+```java
+OnnxFaceAnalyzerFactory analyzers = new OnnxFaceAnalyzerFactory(
+        new ClasspathBundleSource(), modelStoreOrNull, TrustedKeys.builtIn(),
+        AnalyzerConfig.fromConfig(configProvider));   // optional mosip.registration.liveness.face.analyzer.* keys
+analyzers.preload();                                   // at start-up: verifies the bundle, builds the sessions
+LivenessService liveness = DefaultLivenessService.builder()
+        .config(configProvider).analyzerFactory(analyzers).auditSink(auditSink).build();
+```
+
+- **Desktop:** add `com.microsoft.onnxruntime:onnxruntime:1.31.0` to the app; the analyzer declares it `provided`.
+- **Android:** use `onnxruntime-android:1.31.0` and a `BundleSource` over the app's assets.
+
+A tampered or unsigned bundle fails with `MODEL_INTEGRITY_FAILED`; there is no fallback to unverified models.
+
+## Model bundle: verify and sign
+
+    mvn -f liveness-eval/pom.xml dependency:build-classpath "-Dmdep.outputFile=liveness-eval/target/eval-cp.txt"
+    $cp = "liveness-eval\target\classes;" + (Get-Content liveness-eval\target\eval-cp.txt -Raw).Trim()
+    java -cp $cp io.mosip.registration.liveness.eval.ModelBundleTool verify --dir models
+    # after changing a model (the private key never lives inside a git tree; the tool refuses that):
+    java -cp $cp io.mosip.registration.liveness.eval.ModelBundleTool manifest --dir models --version pad-YYYY.MM.N --key-id <id> --param pitchBiasDeg=-9.5
+    java -cp $cp io.mosip.registration.liveness.eval.ModelBundleTool sign --dir models --key <path-to.p8> --key-id <id>
+
+The built-in key is a **development key**. Replace it before release; the steps are in [docs/part2-pad-architecture.md](docs/part2-pad-architecture.md) §8.
+
+## Demo, benchmark and evaluation (with the `$cp` above)
+
+    java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode analyze     # live overlay: box, landmarks, pose, scores
+    java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode session     # a full Part 3 session on the webcam
+    java -cp $cp io.mosip.registration.liveness.eval.AnalyzerBenchmark                   # latency report -> liveness-eval/reports/
+    java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode dataset --consent --subject s01   # PAD dataset takes
+    java -cp $cp io.mosip.registration.liveness.eval.PadEvaluation --data eval-data      # ISO/IEC 30107-3 report
+
+Recordings of people go only to `eval-data/`, which is gitignored, and only with the person's consent. See [docs/part2-dataset-protocol.md](docs/part2-dataset-protocol.md).
+
+**Documentation:**
+- [docs/part2-model-selection.md](docs/part2-model-selection.md): candidates, evidence and the choice for each model; why ONNX Runtime; rejected options
+- [docs/part2-pad-architecture.md](docs/part2-pad-architecture.md): pipeline, Part 3 integration, conventions, padDetails, the model bundle and keys, config keys, performance, Android notes, limitations
+- [docs/part2-iso30107-evaluation.md](docs/part2-iso30107-evaluation.md): ISO/IEC 30107-3 method and results (single subject, provisional), thresholds, next steps
+- [docs/part2-findings-for-other-parts.md](docs/part2-findings-for-other-parts.md): changes made in Part 3 and recommendations for Parts 1, 4 and 5
+- [models/README.md](models/README.md): model provenance, conversion checks and the reference pipeline
