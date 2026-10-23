@@ -10,8 +10,9 @@ mono/NIR cameras), width, height, timestamp, sequence number and device ID.
 `FrameSource` has `start(listener)`, `stop()`, `isRunning()` and `info()`. `info()`
 includes `DeviceCapabilities`: the formats, resolutions and frame rates the device supports.
 
-The package also contains a Part 2 reference analyzer (`liveness/engine`). It is
-not part of Part 1 and is documented separately in its own delivery notes.
+The Part 2 reference analyzer that used to live here (`liveness/engine`) has moved to
+the `liveness-analyzer` module (package `io.mosip.registration.liveness.analyzer.heuristic`).
+It is not part of Part 1 and is documented separately in its own delivery notes.
 
 ## Part 1 checklist
 

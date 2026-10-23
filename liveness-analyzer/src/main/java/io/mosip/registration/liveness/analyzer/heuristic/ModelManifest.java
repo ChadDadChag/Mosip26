@@ -1,11 +1,11 @@
-package io.mosip.registration.liveness.engine;
+package io.mosip.registration.liveness.analyzer.heuristic;
 
 import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.LivenessEngineException;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -89,11 +89,22 @@ final class ModelManifest {
                 throw new LivenessEngineException(ErrorCode.MODEL_INTEGRITY_FAILED,
                         "Missing required resource: " + resourcePath);
             }
-            return in.readAllBytes();
+            return readFully(in);
         } catch (IOException e) {
             throw new LivenessEngineException(ErrorCode.MODEL_INTEGRITY_FAILED,
                     "Failed reading resource: " + resourcePath, e);
         }
+    }
+
+    /** Java 8 / Android API 21 replacement for {@code InputStream.readAllBytes()} (Java 9). */
+    private static byte[] readFully(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int n;
+        while ((n = in.read(buffer)) != -1) {
+            out.write(buffer, 0, n);
+        }
+        return out.toByteArray();
     }
 
     private static String extractSha256(String manifestText) throws LivenessEngineException {
@@ -118,7 +129,8 @@ final class ModelManifest {
             return sb.toString();
         } catch (NoSuchAlgorithmException e) {
             // SHA-256 is guaranteed present on every standard JVM (JLS platform requirement).
-            throw new UncheckedIOException(new IOException("SHA-256 unavailable", e));
+            // IllegalStateException rather than UncheckedIOException, which Android only has from API 24.
+            throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
 }

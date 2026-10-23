@@ -170,6 +170,7 @@
 		<module>liveness-core</module>
 		<module>liveness-fake</module>
 		<module>liveness-tools</module>
+		<module>liveness-analyzer</module>
 		<module>registration-api-stub-impl</module>
 		<module>registration-services</module>
 		<module>registration-client</module>

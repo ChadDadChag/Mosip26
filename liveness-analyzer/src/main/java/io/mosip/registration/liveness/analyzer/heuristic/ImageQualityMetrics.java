@@ -1,4 +1,4 @@
-package io.mosip.registration.liveness.engine;
+package io.mosip.registration.liveness.analyzer.heuristic;
 
 /**
  * Pure, stateless image-quality and texture signals computed directly from a packed

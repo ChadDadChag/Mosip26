@@ -1,4 +1,4 @@
-package io.mosip.registration.liveness.engine;
+package io.mosip.registration.liveness.analyzer.heuristic;
 
 import io.mosip.registration.liveness.api.FaceLandmarks;
 

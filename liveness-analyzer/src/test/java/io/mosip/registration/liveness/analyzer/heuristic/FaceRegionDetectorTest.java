@@ -1,4 +1,4 @@
-package io.mosip.registration.liveness.engine;
+package io.mosip.registration.liveness.analyzer.heuristic;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;

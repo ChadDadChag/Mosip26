@@ -1,4 +1,4 @@
-package io.mosip.registration.liveness.engine;
+package io.mosip.registration.liveness.analyzer.heuristic;
 
 /**
  * Coarse, classical (non-ML) face-region locator, used only as a working baseline
