@@ -19,6 +19,13 @@
 			<artifactId>liveness-api</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<!-- Liveness engine (Part 3): used by the liveness harness and integration tests, and by the
+		     Registration Client when it wires DefaultLivenessService into the capture/auth flows. -->
+		<dependency>
+			<groupId>io.mosip.registration</groupId>
+			<artifactId>liveness-core</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 		<!-- Real webcam capture for MockFrameSource.ofWebcam(): same library/version
 		     already used by the sibling ref-document-scanner module's own webcam
 		     integration (io.mosip.registration.ref.sarxos.WebCamSarxosImpl). -->

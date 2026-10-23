@@ -23,7 +23,8 @@ import java.io.InputStream;
 final class FakeBioService {
 
     interface StreamFactory {
-        InputStream open() throws IOException;
+        /** May throw IOException, or RegBaseCheckedException like the real BioService when the device is gone. */
+        InputStream open() throws Exception;
     }
 
     private FakeBioService() {
