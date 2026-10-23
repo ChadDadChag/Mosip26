@@ -58,6 +58,29 @@ class BlinkDetectorTest {
     }
 
     @Test
+    void aSlowDeliberateBlinkWithinTheClosureWindowCounts() {
+        // Part 2 traces: blinks on request take 400-600 ms to reopen; about 550 ms here.
+        long max = EngineTuning.defaults().blinkMaxClosedMs;
+        assertThat(max).isEqualTo(600);
+        DetectorHarness h = h();
+        h.frames(4, NEUTRAL);
+        h.frames(8, CLOSED); // closed at t0, reopened 8 frames = 536 ms later
+        assertThat(8 * DetectorHarness.FRAME_MS).isLessThanOrEqualTo(max);
+        assertThat(h.frame(NEUTRAL)).isEqualTo(DetectorStatus.DETECTED);
+    }
+
+    @Test
+    void aClosureLongerThanTheWindowIsNotABlink() {
+        long max = EngineTuning.defaults().blinkMaxClosedMs;
+        DetectorHarness h = h();
+        h.frames(4, NEUTRAL);
+        h.frames(11, CLOSED); // reopened 737 ms (about 700) after closing
+        assertThat(11 * DetectorHarness.FRAME_MS).isGreaterThan(max);
+        h.frame(NEUTRAL);
+        assertThat(h.detected()).isFalse();
+    }
+
+    @Test
     void closedEyePhotoNeverBlinks() {
         DetectorHarness h = h();
         h.frames(100, CLOSED);

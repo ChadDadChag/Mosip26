@@ -104,8 +104,12 @@ public final class EngineTuning {
     public float blinkClosedRatio = 0.6f;
     /** TUNE: eyes count as reopened above this fraction of the baseline EAR. */
     public float blinkReopenRatio = 0.85f;
-    /** TUNE: closures longer than this are not blinks (eyes shut, closed-eye photo). */
-    public long blinkMaxClosedMs = 400;
+    /**
+     * TUNE: closures longer than this are not blinks (eyes shut, closed-eye photo). Was 400 ms. Part 2 traces (single
+     * subject) showed deliberate blinks on request take 400-600 ms to reopen to blinkReopenRatio; replay at 600 ms
+     * detected 3/3 with the fewest extra firings.
+     */
+    public long blinkMaxClosedMs = 600;
 
     // ---- smile
     /** TUNE: mouth width / IOD must rise this much over baseline... */

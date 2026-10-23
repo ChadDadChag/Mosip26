@@ -293,7 +293,7 @@ stateDiagram-v2
 
 | Challenge | Signal | Detected when | Wrong action |
 |---|---|---|---|
-| BLINK | mean EAR (p1..p6) | < 0.6× baseline, then ≥ 0.85× within 400 ms (one closed frame at 15 fps is enough). Longer closures (eyes shut, closed-eye photo) restart detection. | — |
+| BLINK | mean EAR (p1..p6) | < 0.6× baseline, then ≥ 0.85× within 600 ms (`blinkMaxClosedMs`; was 400 ms until Part 2's traces showed deliberate blinks on request take 400–600 ms to reopen). One closed frame at 15 fps is enough. Longer closures (eyes shut, closed-eye photo) restart detection. | — |
 | SMILE | mouth width ÷ IOD, and corner lift ÷ IOD | +18% width, or +10% width with +0.03 corner lift, held ≥ 200 ms over ≥ 3 frames | — |
 | TURN_LEFT / TURN_RIGHT | `userYaw` (+ = the user's left) | ≥ 20° in the requested direction, held ≥ 200 ms over ≥ 3 frames. Then `GUIDANCE(LOOK_AT_CAMERA)` asks the user to face the camera again. With `axisRequireReturn` the head must also come back within 10° (the original rule). | ≥ 20° the opposite way at any time (wiggles fail) |
 | LOOK_UP / LOOK_DOWN | `userPitch` (+ = up; confirmed by Part 2, P2) | ≥ 13°, held, then `LOOK_AT_CAMERA` (with `axisRequireReturn`: back within 8°) | ≥ 13° the opposite way |
