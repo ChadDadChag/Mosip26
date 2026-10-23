@@ -236,7 +236,7 @@ Use the same setup as above (JDK 11, Registration Client v1.2.0.2 checkout, patc
 
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip
 
-This runs about 260 tests, enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
+This runs about 270 tests, enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
 
 ## Use (Parts 4 and 5)
 

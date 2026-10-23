@@ -15,6 +15,7 @@ import io.mosip.registration.liveness.core.detect.FaceGeometry;
 import io.mosip.registration.liveness.core.guidance.PositioningHintFilter;
 import io.mosip.registration.liveness.core.passive.PassiveEvaluator;
 import io.mosip.registration.liveness.core.quality.BestFrameSelector;
+import io.mosip.registration.liveness.core.quality.Iso19794Check;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -302,11 +303,9 @@ public final class SessionStateMachine {
         lastWindowFrame = window.isEmpty() ? null : window.get(window.size() - 1);
         audit.passiveDecided(v.name(), passiveMedian, passive.windowSize(), passive.elapsedMs(nowMs));
         switch (v) {
-            case PASS: {
-                Frame bestFrame = best.hasBest() ? best.bestFrame() : lastWindowFrame.frame;
-                finishPassed(LivenessResult.PassPath.PASSIVE_ONLY, bestFrame, nowMs, out);
+            case PASS:
+                passWithSessionBest(LivenessResult.PassPath.PASSIVE_ONLY, nowMs, out);
                 break;
-            }
             case ATTACK:
                 audit.padSuspected(passiveMedian, passive.padDetailMedians(), "passive median below padRejectThreshold");
                 failAttempt(ErrorCode.PAD_FAILURE, null, out);
@@ -383,8 +382,12 @@ public final class SessionStateMachine {
                     out.add(Effect.emit(LivenessEvent.of(Type.HOLD_STILL, attempt())));
                     break;
                 case PASSED:
-                    finishPassed(LivenessResult.PassPath.ACTIVE_CHALLENGE,
-                            s.bestFrame != null ? s.bestFrame : fallbackFrame(), nowMs, out);
+                    if (s.bestFrame != null) {
+                        finishPassed(LivenessResult.PassPath.ACTIVE_CHALLENGE, s.bestFrame, s.bestFrameCheck,
+                                s.bestFrameFallback, nowMs, out);
+                    } else {
+                        passWithSessionBest(LivenessResult.PassPath.ACTIVE_CHALLENGE, nowMs, out);
+                    }
                     return;
                 case FAILED:
                     if (s.challenge != null && s.outcome != null) {
@@ -401,9 +404,14 @@ public final class SessionStateMachine {
         }
     }
 
-    private Frame fallbackFrame() {
-        if (best.hasBest()) return best.bestFrame();
-        return lastWindowFrame != null ? lastWindowFrame.frame : null;
+    /** Passes with the best passive-window frame, else (flagged as a fallback) the last window frame. */
+    private void passWithSessionBest(LivenessResult.PassPath path, long nowMs, List<Effect> out) {
+        if (best.hasBest()) {
+            finishPassed(path, best.bestFrame(), best.bestCheck(), false, nowMs, out);
+        } else {
+            finishPassed(path, lastWindowFrame != null ? lastWindowFrame.frame : null,
+                    lastWindowFrame != null ? Iso19794Check.of(lastWindowFrame, tuning, true) : null, true, nowMs, out);
+        }
     }
 
     // ------------------------------------------------------------------ attempt lifecycle
@@ -460,11 +468,12 @@ public final class SessionStateMachine {
         out.add(Effect.emit(LivenessEvent.failure(Type.ATTEMPT_FAILED, d.code, attempt(), d.retriesLeft, true)));
     }
 
-    private void finishPassed(LivenessResult.PassPath path, Frame bestFrame, long nowMs, List<Effect> out) {
+    private void finishPassed(LivenessResult.PassPath path, Frame bestFrame, Iso19794Check bestFrameCheck,
+                              boolean bestFrameFallback, long nowMs, List<Effect> out) {
         state = State.PASSED;
         out.add(Effect.emit(LivenessEvent.of(Type.PASSED, attempt())));
         out.add(Effect.of(Effect.Kind.STOP_SOURCE));
-        audit.passed(path, passiveMedian);
+        audit.passed(path, passiveMedian, bestFrameCheck, bestFrameFallback);
         out.add(Effect.complete(result(LivenessResult.Decision.PASSED, path, null, bestFrame, nowMs, true)));
     }
 

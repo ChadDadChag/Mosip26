@@ -10,6 +10,7 @@ Owner and approver: Part 3. **None of these have been applied.** `liveness-api` 
 | P4 | Extend `LivenessPolicy.validate()`: reject `passiveWindowFrames < 1`, `passiveTimeoutMs <= 0`, `cooldownSec < 0`, empty or `null` pool entries, and `minChallenges` greater than the number of **distinct** pool entries. | `BLINK,BLINK` with `minChallenges=2` passes today but cannot be satisfied. | All (config) | `PolicyResolver.validateExtra` runs the same checks. An invalid config falls back to the bundled defaults and audits `CONFIG_LOADED{error}`. |
 | P5 | Add `activeAnalyzeFps` (default 15) next to `analyzeFps`. | At 8 fps a 100–150 ms blink is often never seen closed. | P2 (latency budget), P5 (low-end phones) | Core analyses every delivered frame, up to 15 fps (TUNE), during a challenge. |
 | P6 | `LivenessSession.retry()` javadoc: "valid after ATTEMPT_FAILED or a recoverable DEVICE_ERROR". | `DEVICE_ERROR.recoverable` already tells the UI to show Retry. | P4, P5 | Core already accepts it (no retry consumed). |
+| P7 | Add `LivenessEvent.Guidance.STRAIGHTEN_HEAD` ("Keep your head straight"). | ISO/IEC 19794-5 limits roll to ±8°. A tilted head now gets LOOK_AT_CAMERA, which does not tell the user what to fix. | P4, P5 (hint text) | Core shows LOOK_AT_CAMERA when the head is tilted more than 20° sideways (`EngineTuning.maxPassiveRollDeg`), and the best-frame ranking prefers frames within ±8°. |
 
 ## Accepted contract changes
 

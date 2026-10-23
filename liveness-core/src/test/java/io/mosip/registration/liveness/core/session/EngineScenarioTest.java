@@ -11,6 +11,7 @@ import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.LivenessResult.Decision;
 import io.mosip.registration.liveness.api.LivenessResult.PassPath;
 import io.mosip.registration.liveness.api.WorkflowType;
+import io.mosip.registration.liveness.core.audit.AuditRecorder.Keys;
 import io.mosip.registration.liveness.core.scenario.ScriptedFaceAnalyzer.Shape;
 import io.mosip.registration.liveness.core.testing.Fa;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
@@ -587,5 +589,50 @@ class EngineScenarioTest {
         d.untilDone(d.score(0.9f));
         wellFormed(d);
         assertThat(d.result.passed()).isTrue();
+    }
+
+    private static Map<String, String> passAudit(ScenarioDriver d) {
+        int i = d.audit.lastIndexOf(AuditSink.Event.LIVENESS_PASSED);
+        assertThat(i).as("LIVENESS_PASSED audited").isNotNegative();
+        return d.auditDetails.get(i);
+    }
+
+    @Test
+    void passAuditRecordsHowTheBestFrameMeetsIso19794_5() {
+        ScenarioDriver passive = ScenarioDriver.resident();
+        passive.untilDone(passive.score(0.9f));
+        wellFormed(passive);
+        assertThat(passive.result.passPath).isEqualTo(PassPath.PASSIVE_ONLY);
+        assertThat(passAudit(passive)).containsEntry(Keys.BEST_FRAME_ISO, "COMPLIANT")
+                .containsEntry(Keys.BEST_FRAME_FALLBACK, "false")
+                .containsEntry(Keys.BEST_FRAME_YAW, "0")
+                .containsEntry(Keys.BEST_FRAME_ROLL, "0")
+                .containsEntry(Keys.BEST_FRAME_EYE_DISTANCE, "100")
+                .doesNotContainKey(Keys.BEST_FRAME_ISO_ISSUES);
+
+        ScenarioDriver active = ScenarioDriver.resident();
+        active.frames(45, active.score(0.6f)).performAll();
+        wellFormed(active);
+        assertThat(active.result.passPath).isEqualTo(PassPath.ACTIVE_CHALLENGE);
+        assertThat(passAudit(active)).containsEntry(Keys.BEST_FRAME_ISO, "COMPLIANT")
+                .containsEntry(Keys.BEST_FRAME_FALLBACK, "false");
+
+        ScenarioDriver noPose = ScenarioDriver.resident();
+        noPose.untilDone(NO_POSE_HIGH);
+        assertThat(noPose.result.passed()).as("unknown pose never blocks a pass").isTrue();
+        assertThat(passAudit(noPose)).containsEntry(Keys.BEST_FRAME_ISO, "UNKNOWN")
+                .containsEntry(Keys.BEST_FRAME_EYE_DISTANCE, "100")
+                .doesNotContainKey(Keys.BEST_FRAME_YAW);
+    }
+
+    @Test
+    void aTiltedHeadGetsAHintButStillPasses() {
+        ScenarioDriver d = ScenarioDriver.resident();
+        d.untilDone(new Shape() { @Override public Fa apply(Fa f) { return f.score(0.9f).roll(25); } });
+        wellFormed(d);
+        assertThat(d.result.passed()).as("roll is a hint and a best-frame rank, never a failure").isTrue();
+        assertThat(d.lastEvent(Type.GUIDANCE).guidance).isEqualTo(LivenessEvent.Guidance.LOOK_AT_CAMERA);
+        assertThat(passAudit(d)).containsEntry(Keys.BEST_FRAME_ISO, "NOT_COMPLIANT")
+                .containsEntry(Keys.BEST_FRAME_ISO_ISSUES, "ROLL");
     }
 }

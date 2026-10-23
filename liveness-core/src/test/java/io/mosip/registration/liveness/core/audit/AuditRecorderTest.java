@@ -10,7 +10,10 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.audit.AuditRecorder.ChallengeOutcome;
+import io.mosip.registration.liveness.core.EngineTuning;
 import io.mosip.registration.liveness.core.audit.AuditRecorder.Keys;
+import io.mosip.registration.liveness.core.quality.Iso19794Check;
+import io.mosip.registration.liveness.core.testing.Fa;
 import io.mosip.registration.liveness.core.util.ManualTimeSource;
 import org.junit.jupiter.api.Test;
 
@@ -227,5 +230,43 @@ class AuditRecorderTest {
         Map<String, String> flat = snap.toMap();
         assertThat(flat).containsEntry("sessions", "1").containsEntry("avgChallengeCompletionMs", "1200.000");
         assertThat(flat.keySet()).noneMatch(k -> k.toLowerCase().contains("session") && k.toLowerCase().contains("id"));
+    }
+
+    @Test
+    void passRecordsHowTheBestFrameMeetsIso19794_5() {
+        rec.attemptStarted(1);
+        Iso19794Check check = Iso19794Check.of(Fa.at(0, 0).yaw(6.4f).roll(-2.6f).build(), EngineTuning.defaults(), false);
+        rec.passed(LivenessResult.PassPath.ACTIVE_CHALLENGE, 0.6f, check, true);
+        assertThat(sink.last(AuditSink.Event.LIVENESS_PASSED))
+                .containsEntry(Keys.BEST_FRAME_ISO, "NOT_COMPLIANT")
+                .containsEntry(Keys.BEST_FRAME_ISO_ISSUES, "POSE,EXPRESSION")
+                .containsEntry(Keys.BEST_FRAME_FALLBACK, "true")
+                .containsEntry(Keys.BEST_FRAME_YAW, "6")
+                .containsEntry(Keys.BEST_FRAME_PITCH, "0")
+                .containsEntry(Keys.BEST_FRAME_ROLL, "-3")
+                .containsEntry(Keys.BEST_FRAME_EYE_DISTANCE, "100");
+
+        Sink other = new Sink();
+        AuditRecorder unknown = new AuditRecorder(other, WorkflowType.OPERATOR, "sid-2", "m", clock, "core");
+        unknown.attemptStarted(1);
+        unknown.passed(LivenessResult.PassPath.PASSIVE_ONLY, 0.9f,
+                Iso19794Check.of(Fa.at(0, 0).yaw(Float.NaN).pitch(Float.NaN).noLandmarks().build(),
+                        EngineTuning.defaults(), true), false);
+        assertThat(other.last(AuditSink.Event.LIVENESS_PASSED))
+                .containsEntry(Keys.BEST_FRAME_ISO, "UNKNOWN")
+                .containsEntry(Keys.BEST_FRAME_FALLBACK, "false")
+                .containsEntry(Keys.BEST_FRAME_ROLL, "0")
+                .doesNotContainKeys(Keys.BEST_FRAME_ISO_ISSUES, Keys.BEST_FRAME_YAW, Keys.BEST_FRAME_PITCH,
+                        Keys.BEST_FRAME_EYE_DISTANCE);
+    }
+
+    @Test
+    void passWithoutFrameAnalysisRecordsUnknown() {
+        rec.attemptStarted(1);
+        rec.passed(LivenessResult.PassPath.PASSIVE_ONLY, 0.9f);
+        assertThat(sink.last(AuditSink.Event.LIVENESS_PASSED))
+                .containsEntry(Keys.BEST_FRAME_ISO, "UNKNOWN")
+                .containsEntry(Keys.BEST_FRAME_FALLBACK, "false")
+                .doesNotContainKeys(Keys.BEST_FRAME_YAW, Keys.BEST_FRAME_EYE_DISTANCE);
     }
 }

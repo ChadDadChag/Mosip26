@@ -298,7 +298,7 @@ stateDiagram-v2
 | TURN_LEFT / TURN_RIGHT | `userYaw` (+ = the user's left) | ≥ 20° in the requested direction, held ≥ 200 ms over ≥ 3 frames, then back within 10° | ≥ 20° the opposite way at any time (wiggles fail) |
 | LOOK_UP / LOOK_DOWN | `userPitch` (+ = up, assumed, P2) | ≥ 13°, held, then back within 8° | ≥ 13° the opposite way |
 
-- **Final hold and best frame:** a frame qualifies when it has one face, no quality issue, |yaw| and |pitch| ≤ 10°, eyes open, and the mouth within 8% of baseline. It is chosen from the passive window plus the post-challenge hold. Mid-action frames are never offered, and tests assert this. Among qualifying frames the best is the highest of 0.45·sharpness + 0.35·frontal + 0.2·size. Sharpness is the Laplacian variance on the face box (at most 96 samples per side), mapped as v/(v+100). Without pose, frontal is 0.5 (D22).
+- **Final hold and best frame:** a frame qualifies when it has one face, no quality issue, |yaw| and |pitch| ≤ 10°, eyes open, and the mouth within 8% of baseline. It is chosen from the passive window plus the post-challenge hold. Mid-action frames are never offered, and tests assert this. Among qualifying frames the best is the highest of 0.45·sharpness + 0.35·frontal + 0.2·size. Sharpness is the Laplacian variance on the face box (at most 96 samples per side), mapped as v/(v+100). Without pose, frontal is 0.5 (D22). Before that score, frames are ranked by ISO/IEC 19794-5 tier (D26, §12b): compliant frames first, then frames with nothing measurably wrong, then the rest. If nothing qualifies by the end of the hold, the latest single-face frame is handed back and flagged as a fallback; the hold is never extended for photo quality.
 
 ## 8. Conflicts between the brief and the contract (the contract wins)
 
@@ -345,6 +345,7 @@ The owner (Part 3) asked me to settle these using the problem statement. Items t
 | D23 | Analyzers without pose | NaN pose is tolerated, and only measurable challenge types are offered. | Part 1's stand-in analyzer, and some PAD models, give no pose. Without this, every frame failed the pose check and no session could pass. |
 | D24 | Diagnostic mode and metrics | `diagnosticMode` adds `diag.*` per-attempt statistics to audit. `LivenessMetrics` counts sessions, passes, retries and failures and gives average processing time, average challenge completion time, retry rate and failure rate. It is anonymised: counts and averages only. | Good-to-have: "diagnostic mode", "anonymized operational metrics" and the four named performance metrics. |
 | D25 | Stale frame after a device error | On DEVICE_ERROR the session discards the frame waiting for analysis. DEVICE_WAIT never auto-resumes after the source gave up. | Found by Part 1's `UnplugReplugIntegrationTest`: a frame from before the unplug resumed the attempt and swallowed the user's Retry. |
+| D26 | ISO/IEC 19794-5 best frame (2026-10-23) | Best-frame candidates are ranked by a 19794-5 tier before the quality score: yaw and pitch within ±5°, roll within ±8°, at least 90 px between the eye centres, eyes open, neutral expression and no analyzer quality issue. These limits are `EngineTuning.iso*` and can be changed. A frame that breaks a limit is still a candidate, just ranked lower. The result is recorded in the pass audit, and a fallback frame is flagged. A head tilted more than 20° sideways gets the existing LOOK_AT_CAMERA hint (proposal P7 adds a dedicated hint). Pass/fail, passive eligibility and the hold timing are unchanged. | The best frame is the face that goes into the capture or authentication flow, and the problem statement lists ISO/IEC 19794-5 as the face-image standard. Liveness must never fail because of photo quality, so this only ranks and records. |
 | D15 | Fake depends on core | `liveness-fake` reuses core's `EventDispatcher`, `AttemptTracker`, `PolicyResolver`, `CooldownTracker` and `ChallengeSelector`, so retry, cancel, events and policy behave **identically**. Core has no ML or native dependencies, so this costs the apps nothing. | Brief: "make retry()/cancel() behave exactly as the real engine will". |
 
 ### Config naming vs. the team split
@@ -473,6 +474,7 @@ The table of ErrorCode, trigger, user message and retry accounting is in section
 | `PAD_ATTACK_SUSPECTED` | median score, per-model PAD output medians (`pad.*`, max 8), reason |
 | `DEVICE_ERROR` | errorCode, recoverable, device detail (truncated to 120 chars) |
 | `LIVENESS_PASSED` / `LIVENESS_FAILED_FINAL` | pass path or errorCode and lastCause, cooldownSec, total duration, frames analysed and dropped, average processing ms |
+| `LIVENESS_PASSED` only | the best frame against ISO/IEC 19794-5: `bestFrame.iso19794_5` (COMPLIANT, NOT_COMPLIANT or UNKNOWN), `bestFrame.isoIssues` (POSE, ROLL, EYE_DISTANCE, EYES_CLOSED, EXPRESSION, QUALITY), `bestFrame.fallback`, and the rounded `bestFrame.yawDeg`, `pitchDeg`, `rollDeg` and `eyeDistancePx` (numbers only, no coordinates) |
 | any attempt-level event, with `diagnosticMode=true` | `diag.scoredFrames`, `diag.scoreMin`, `diag.scoreMedian`, `diag.scoreMax`, `diag.noFaceFrames`, `diag.multiFaceFrames`, `diag.issue.<QUALITY_ISSUE>` |
 
 **Metrics.** `DefaultLivenessService.metrics()` (and `FakeLivenessService.metrics()`) returns a `LivenessMetrics` for that service instance. It holds:
@@ -524,6 +526,25 @@ The problem statement asks that "network availability does not determine whether
 
 The engine has no network code and no dependency beyond `liveness-api`. "Online or offline" is a property of the host, not of the engine. The tests run with no network.
 
+## 12b. ISO/IEC 19794-5 alignment (face image quality)
+
+ISO/IEC 19794-5 defines the face image record and what a good frontal face image looks like. Part 3's share is choosing the best frame, recording how it measures up, and the positioning hints. Each requirement and the part that owns it:
+
+| Requirement (frontal image) | Owner | What happens today |
+|---|---|---|
+| Pose: yaw and pitch within ±5° | Part 3 ranks and audits; Part 2 estimates the pose | `Iso19794Check` issue POSE. Frames up to 10° can still be the best frame, ranked below compliant ones. Over 25° in passive shows LOOK_AT_CAMERA. |
+| Roll (head tilted sideways) within ±8° | Part 3 ranks, audits and hints; Part 2 reports `rollDeg` | Issue ROLL. Over 20° in passive shows LOOK_AT_CAMERA until P7 adds STRAIGHTEN_HEAD. |
+| Resolution: at least 90 px between the eye centres | Part 3 ranks and audits; Part 2 landmarks; Part 1 camera resolution (`DeviceCapabilities`) | Issue EYE_DISTANCE. Moving closer to the camera fixes it. The analyzer's FACE_TOO_SMALL drives the MOVE_CLOSER hint. |
+| Eyes open | Part 3 | Eye aspect ratio ≥ 0.18 to qualify; issue EYES_CLOSED on a fallback frame. |
+| Neutral expression, mouth closed | Part 3 | Hold frames must be within 8% of the user's own baseline mouth width; a fallback frame that is not gets EXPRESSION. "Neutral" is relative to the user's baseline: an absolute closed-mouth check needs Part 2. |
+| Even lighting, correct exposure, in focus | Part 2 (TOO_DARK, TOO_BRIGHT, BLURRY); Part 3 ranks by sharpness and hints | Any analyzer quality issue is QUALITY. Uneven lighting and shadows are not detected by any part today. |
+| Face centred, head size in the image | Part 2 (FACE_OFF_CENTER, FACE_TOO_SMALL, FACE_TOO_LARGE, FACE_CUT_OFF) | Part 3 turns them into CENTER_FACE, MOVE_CLOSER and MOVE_BACK. The exact 19794-5 ratios are Part 2's thresholds. |
+| Background, glasses glare, red eye | none yet | Not measured. |
+| The ISO 19794-5 record itself (format, cropping, JPEG or JPEG 2000) | the device; Part 4 | The SBI `/capture` call returns the face as an ISO 19794-5 record in `bioValue`. `bestFrame` is raw RGB, not a record. Part 4 decides between encoding `bestFrame` and running the normal `/capture` after liveness passes. |
+| The hint texts on screen | Parts 4 and 5 | The engine only sends `Guidance` values. |
+
+UNKNOWN means nothing measured is wrong, but something could not be measured (no pose, roll or landmarks from the analyzer). Part 1's stand-in analyzer always gives UNKNOWN because it reports no pose. The limits come from the standard's full-frontal requirements as commonly applied. Check them against the standard text before relying on COMPLIANT for anything beyond ranking.
+
 ---
 
 ## 13. ISO/IEC 30107 alignment notes
@@ -564,7 +585,7 @@ LivenessService liveness = DefaultLivenessService.builder()
 ```
 
 **Verification** (`mvn verify`):
-- **Tests:** 260 (core 201, fake 44, tools 10, api 5). They cover units, the state machine, detectors, the runner, scenarios, threading, fuzzing, the tools and the requirement-by-requirement audit (`core/statusaudit/Part3RequirementsAuditTest`, see PART3_STATUS.md). In the full Registration Client build, Part 1's 96 tests also run the real engine (device path, unplug and replug, recorded clips).
+- **Tests:** 273 (core 214, fake 44, tools 10, api 5). They cover units, the state machine, detectors, the runner, scenarios, threading, fuzzing, the tools and the requirement-by-requirement audit (`core/statusaudit/Part3RequirementsAuditTest`, see PART3_STATUS.md). In the full Registration Client build, Part 1's 96 tests also run the real engine (device path, unplug and replug, recorded clips).
 - **Coverage:** JaCoCo line coverage on `liveness-core` is 96.8%, gated at 85%.
 - **Toolchain:** the team build (`registration-client-parent`) needs JDK 11 and Maven 3.6+. Build from `registration-client/registration` with `mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip`.
 - **API gates:** animal-sniffer checks the shipped modules (`liveness-core`, `liveness-fake`) against the **Java 8 and Android API 21** signatures. Bytecode is Java 11, following the parent (D18).

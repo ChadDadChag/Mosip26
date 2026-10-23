@@ -6,7 +6,9 @@ Audit date: 2026-09-23. Scope: Part 3 only. Parts 1, 2, 4 and 5 are not built; t
 
 **Current result (after fixes):** 29 DONE · 0 PARTIAL · 0 MISSING · 0 BROKEN.
 
-> **Round 3 (2026-10-23): checked against the problem statement and run with Part 1's real device path.** See §7. This round changed the device-error behaviour (D19, D20, D25), challenge selection (D21), best-frame choice (D22) and analyzers without pose (D23), and added diagnostic mode and metrics (D24). Tests now: core 201, fake 44, tools 10, api 5.
+> **Round 3 (2026-10-23): checked against the problem statement and run with Part 1's real device path.** See §7. This round changed the device-error behaviour (D19, D20, D25), challenge selection (D21), best-frame choice (D22) and analyzers without pose (D23), and added diagnostic mode and metrics (D24).
+
+> **Round 4 (2026-10-23): ISO/IEC 19794-5 best frame.** See §8 (D26). Tests now: core 214, fake 44, tools 10, api 5.
 
 - **Audit:** 26 DONE and 3 PARTIAL, with no production code changed.
 - **Fixes:** all code and documentation findings were then fixed (§4a). `liveness-api` is still unchanged.
@@ -217,4 +219,25 @@ The §4a rows about `DEVICE_ERROR(recoverable=false)` still hold, but that event
 - A device error now always comes with Retry (`recoverable=true`). Only the 4th device error in a session is `recoverable=false`, followed by FAILED_FINAL.
 - The fake's `DEVICE_FAILURE` scenario now behaves this way too.
 - `metrics()` is available for their counters and the Part 5 benchmark.
+
+---
+
+## 8. Round 4 (2026-10-23): ISO/IEC 19794-5 best frame
+
+The four gaps found against ISO/IEC 19794-5 (the face-image standard) are closed. Pass/fail, passive eligibility and the hold timing are unchanged: this only changes which frame is handed back and what is recorded.
+
+| Gap | Fix | Where | Guarded by |
+|---|---|---|---|
+| Head angle looser than the standard (10°), roll never checked | Candidates are ranked by a 19794-5 tier first: yaw and pitch ±5°, roll ±8° (`EngineTuning.iso*`, tunable). Frames up to 10° remain candidates, ranked lower | `quality/Iso19794Check`, `BestFrameSelector` | `Iso19794CheckTest`, `BestFrameSelectorTest.anIsoCompliantFrameAlwaysBeatsAHigherScoringNonCompliantOne` (mutation-checked) |
+| No minimum resolution | At least 90 px between the eye centres for the compliant tier | `Iso19794Check`, `FaceGeometry.interOcular` | `Iso19794CheckTest`, `BestFrameSelectorTest.withinATierTheScoreDecidesAndUnknownRanksBetween` |
+| Silent fallback | The fallback frame is still handed back (liveness never fails on photo quality) but checked and flagged | `ChallengeRunner.hold`, `SessionStateMachine.passWithSessionBest`, `ActiveStep` | `ChallengeRunnerTest.whenNothingQualifiesTheFallbackFrameIsFlaggedAndChecked` (mutation-checked) |
+| No record of compliance | LIVENESS_PASSED audit: `bestFrame.iso19794_5`, `bestFrame.isoIssues`, `bestFrame.fallback`, rounded yaw, pitch, roll and eye distance. The fake records UNKNOWN | `AuditRecorder.passed` | `AuditRecorderTest`, `EngineScenarioTest.passAuditRecordsHowTheBestFrameMeetsIso19794_5`, the image-free reflection test |
+| (hint) Tilted head | LOOK_AT_CAMERA when roll exceeds 20° in passive; proposal P7 for a dedicated STRAIGHTEN_HEAD hint | `PositioningHintFilter` | `PositioningHintFilterTest`, `EngineScenarioTest.aTiltedHeadGetsAHintButStillPasses` |
+
+**Not covered by Part 3** (see design §12b):
+- uneven lighting, background and glare: no part measures them yet
+- the ISO 19794-5 record itself: the device's `/capture` produces it, and Part 4 decides whether `bestFrame` or a normal capture goes into the packet
+- the limits come from the standard's full-frontal requirements as commonly applied, and should be checked against the standard text
+
+**Tell Parts 4 and 5:** the LIVENESS_PASSED audit has new `bestFrame.*` keys, and proposal P7 needs a hint text if approved.
 

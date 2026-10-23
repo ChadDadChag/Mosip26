@@ -5,6 +5,7 @@ import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.Frame;
 import io.mosip.registration.liveness.api.LivenessEvent.Guidance;
 import io.mosip.registration.liveness.core.audit.AuditRecorder.ChallengeOutcome;
+import io.mosip.registration.liveness.core.quality.Iso19794Check;
 
 /** Something the active phase wants the session to do or report. Immutable. */
 public final class ActiveStep {
@@ -21,12 +22,22 @@ public final class ActiveStep {
     public final ErrorCode error;        // FAILED
     public final ChallengeOutcome outcome; // FAILED (audit detail)
     public final float padMedian;        // FAILED with PAD_FAILURE
+    public final Iso19794Check bestFrameCheck; // PASSED: the best frame against ISO/IEC 19794-5 (null if no frame)
+    public final boolean bestFrameFallback;    // PASSED: nothing qualified, so the latest single-face frame was used
 
     private ActiveStep(Kind kind, ChallengeType challenge, int index, int count, float progress, long durationMs,
                        Guidance guidance, Frame bestFrame, ErrorCode error, ChallengeOutcome outcome, float padMedian) {
+        this(kind, challenge, index, count, progress, durationMs, guidance, bestFrame, error, outcome, padMedian,
+                null, false);
+    }
+
+    private ActiveStep(Kind kind, ChallengeType challenge, int index, int count, float progress, long durationMs,
+                       Guidance guidance, Frame bestFrame, ErrorCode error, ChallengeOutcome outcome, float padMedian,
+                       Iso19794Check bestFrameCheck, boolean bestFrameFallback) {
         this.kind = kind; this.challenge = challenge; this.index = index; this.count = count;
         this.progress = progress; this.durationMs = durationMs; this.guidance = guidance; this.bestFrame = bestFrame;
         this.error = error; this.outcome = outcome; this.padMedian = padMedian;
+        this.bestFrameCheck = bestFrameCheck; this.bestFrameFallback = bestFrameFallback;
     }
 
     public static ActiveStep prompt(ChallengeType c, int index, int count) {
@@ -55,6 +66,10 @@ public final class ActiveStep {
 
     public static ActiveStep passed(Frame bestFrame) {
         return new ActiveStep(Kind.PASSED, null, 0, 0, 0f, 0, null, bestFrame, null, null, Float.NaN);
+    }
+
+    public static ActiveStep passed(Frame bestFrame, Iso19794Check check, boolean fallback) {
+        return new ActiveStep(Kind.PASSED, null, 0, 0, 0f, 0, null, bestFrame, null, null, Float.NaN, check, fallback);
     }
 
     public static ActiveStep failed(ErrorCode code, ChallengeType c, ChallengeOutcome outcome, long durationMs,

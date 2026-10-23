@@ -31,7 +31,7 @@ public final class Fa {
     private long seq;
     private int faces = 1;
     private float score = 0.9f;
-    private float yaw, pitch;
+    private float yaw, pitch, roll;
     private float ear = OPEN_EAR;
     private float mouth = NEUTRAL_MOUTH;
     private float cornerLift;
@@ -53,6 +53,7 @@ public final class Fa {
     public Fa score(float s) { score = s; return this; }
     public Fa yaw(float d) { yaw = d; return this; }
     public Fa pitch(float d) { pitch = d; return this; }
+    public Fa roll(float d) { roll = d; return this; }
     public Fa ear(float e) { ear = e; return this; }
     public Fa eyesClosed() { ear = 0.08f; return this; }
     public Fa mouth(float widthOverIod) { mouth = widthOverIod; return this; }
@@ -77,7 +78,7 @@ public final class Fa {
         float cx = W / 2f + dx, cy = H / 2f + dy;
         float bw = 220 * boxScale, bh = 280 * boxScale;
         float[] box = {cx - bw / 2, cy - bh / 2, bw, bh};
-        return new FrameAnalysis(frame, faces, box, landmarks ? landmarks(cx, cy) : null, yaw, pitch, 0f, issues,
+        return new FrameAnalysis(frame, faces, box, landmarks ? landmarks(cx, cy) : null, yaw, pitch, roll, issues,
                 score, pad, processingMs);
     }
 
