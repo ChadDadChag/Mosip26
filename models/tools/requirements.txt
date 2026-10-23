@@ -1,0 +1,23 @@
+# Main env for models/tools (Python 3.11): fetch, export, inspect, reference pipeline, golden, webcam.
+#   uv venv --python 3.11 %USERPROFILE%\.venvs\mosip-liveness
+#   uv pip install --python %USERPROFILE%\.venvs\mosip-liveness\Scripts\python.exe --index-strategy unsafe-best-match -r models/tools/requirements.txt
+# torch comes from the PyTorch CPU index. opencv-python (not -headless) because sanity_webcam.py needs imshow.
+--extra-index-url https://download.pytorch.org/whl/cpu
+filelock==3.32.3
+flatbuffers==25.12.19
+fsspec==2026.7.0
+jinja2==3.1.6
+markupsafe==3.0.3
+ml-dtypes==0.6.0
+mpmath==1.3.0
+networkx==3.6.1
+numpy==2.4.6
+onnx==1.23.2
+onnxruntime==1.31.0
+opencv-python==5.0.0.93
+packaging==26.3
+protobuf==7.36.2
+setuptools==78.1.0
+sympy==1.14.0
+torch==2.14.1+cpu
+typing-extensions==4.16.0

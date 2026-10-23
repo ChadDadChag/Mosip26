@@ -1,0 +1,540 @@
+"""Part 2 reference pipeline: the EXECUTABLE SPEC that the Java analyzer must match.
+
+    python -I models/tools/reference_pipeline.py IMAGE [--flip] [--json OUT]
+
+All math is numpy. cv2 is used only by imread_bgr (decoding) and by the webcam script for
+capture and display. Each step's docstring is the formula the Java port mirrors.
+
+Coordinate conventions used everywhere below
+  * Frame coordinates are CONTINUOUS: pixel (col i, row j) covers [i, i+1) x [j, j+1), so its
+    centre is (i + 0.5, j + 0.5). Image y points DOWN. Boxes are [x, y, w, h].
+  * "round" means round half up: floor(v + 0.5). Integer casts of non-negative values truncate.
+  * Geometry is computed in float64 (Java: double); model tensors are float32.
+"""
+import argparse
+import json
+import math
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import onnxruntime as ort
+
+MODELS = Path(__file__).resolve().parent.parent
+YUNET_FILE = "yunet_2026may.onnx"
+MESH_FILE = "face_landmark_468.onnx"
+PAD_V2_FILE = "minifasnet_v2_s2.7.onnx"
+PAD_V1SE_FILE = "minifasnet_v1se_s4.0.onnx"
+
+YUNET_TARGET_WIDTH = 320
+YUNET_STRIDES = (8, 16, 32)
+YUNET_SCORE_THRESHOLD = 0.7
+YUNET_NMS_IOU = 0.3
+FACE_COUNT_AREA_RATIO = 0.2
+MESH_SIZE = 192
+MESH_ROI_SCALE = 1.5
+MESH_FLAG_THRESHOLD = 0.5
+PAD_SIZE = 80
+PAD_V2_SCALE = 2.7
+PAD_V1SE_SCALE = 4.0
+PAD_REAL_CLASS = 1
+
+# Mesh indices, subject's point of view. Eye order is the contract's p1..p6:
+# [outer corner, upper-outer, upper-inner, inner corner, lower-inner, lower-outer].
+LEFT_EYE = (263, 387, 385, 362, 380, 373)
+RIGHT_EYE = (33, 160, 158, 133, 153, 144)
+MOUTH_LEFT, MOUTH_RIGHT = 291, 61
+MOUTH_UPPER_INNER, MOUTH_LOWER_INNER = 13, 14
+NOSE_TIP, CHIN, FOREHEAD = 1, 152, 10
+LEFT_EYE_OUTER, RIGHT_EYE_OUTER = 263, 33
+
+
+# ---------------------------------------------------------------------------------------------
+# Image helpers
+# ---------------------------------------------------------------------------------------------
+
+def imread_bgr(path):
+    """Decode an image file to uint8 HxWx3 BGR (cv2 is used for decoding only)."""
+    import cv2
+    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(path)
+    return img
+
+
+def round_half_up(v):
+    return int(math.floor(v + 0.5))
+
+
+def sample_affine(img, M, out_w, out_h):
+    """Bilinear resampling through an affine map. Resize, crop and rotated crop are special cases.
+
+    M is 2x3 and maps DESTINATION continuous coords to SOURCE continuous coords. For each
+    destination pixel (i, j):
+        p      = (i + 0.5, j + 0.5)
+        (qx, qy) = M . (p.x, p.y, 1)
+        x  = clamp(qx - 0.5, 0, W - 1)          y  = clamp(qy - 0.5, 0, H - 1)   (replicate border)
+        x0 = floor(x)  x1 = min(x0 + 1, W - 1)  y0 = floor(y)  y1 = min(y0 + 1, H - 1)
+        fx = x - x0    fy = y - y0
+        out = (1-fy)*((1-fx)*I[y0,x0] + fx*I[y0,x1]) + fy*((1-fx)*I[y1,x0] + fx*I[y1,x1])
+    A plain resize W x H -> w x h is M = [[W/w, 0, 0], [0, H/h, 0]], which gives the usual
+    half-pixel rule src = (dst + 0.5) * scale - 0.5. Coordinates and weights are float64; the
+    result is float32 with the same channel count as img.
+    """
+    h_src, w_src = img.shape[:2]
+    src = img[:, :, None] if img.ndim == 2 else img
+    px = np.arange(out_w, dtype=np.float64) + 0.5
+    py = np.arange(out_h, dtype=np.float64) + 0.5
+    gx, gy = np.meshgrid(px, py)
+    qx = M[0][0] * gx + M[0][1] * gy + M[0][2]
+    qy = M[1][0] * gx + M[1][1] * gy + M[1][2]
+    x = np.clip(qx - 0.5, 0.0, w_src - 1)
+    y = np.clip(qy - 0.5, 0.0, h_src - 1)
+    x0 = np.floor(x).astype(np.int64)
+    y0 = np.floor(y).astype(np.int64)
+    x1 = np.minimum(x0 + 1, w_src - 1)
+    y1 = np.minimum(y0 + 1, h_src - 1)
+    fx = (x - x0)[:, :, None]
+    fy = (y - y0)[:, :, None]
+    px = lambda yy, xx: src[yy, xx].astype(np.float64)  # noqa: E731  (gather, then widen)
+    top = (1 - fx) * px(y0, x0) + fx * px(y0, x1)
+    bottom = (1 - fx) * px(y1, x0) + fx * px(y1, x1)
+    out = (1 - fy) * top + fy * bottom
+    if img.ndim == 2:
+        out = out[:, :, 0]
+    return out.astype(np.float32)
+
+
+def resize_matrix(src_w, src_h, out_w, out_h):
+    return [[src_w / out_w, 0.0, 0.0], [0.0, src_h / out_h, 0.0]]
+
+
+def crop_matrix(left, top, crop_w, crop_h, out_w, out_h):
+    """Inclusive pixel crop cols left..left+crop_w-1, rows top..top+crop_h-1, resized to out_w x out_h."""
+    return [[crop_w / out_w, 0.0, float(left)], [0.0, crop_h / out_h, float(top)]]
+
+
+def apply_affine(M, x, y):
+    return (M[0][0] * x + M[0][1] * y + M[0][2], M[1][0] * x + M[1][1] * y + M[1][2])
+
+
+def tensor_stats(t):
+    """mean, std (population) and the first 8 values in memory order, for tracing parity bugs."""
+    flat = np.asarray(t, dtype=np.float64).ravel()
+    return {"shape": list(np.shape(t)), "mean": float(flat.mean()), "std": float(flat.std()),
+            "first8": [float(v) for v in flat[:8]]}
+
+
+def softmax(v):
+    v = np.asarray(v, dtype=np.float64)
+    e = np.exp(v - v.max())
+    return e / e.sum()
+
+
+def sigmoid(v):
+    return 1.0 / (1.0 + math.exp(-v))
+
+
+def iou(a, b):
+    """IoU of two [x, y, w, h] boxes (same formula as FaceGeometry.iou)."""
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+    x2, y2 = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    union = a[2] * a[3] + b[2] * b[3] - inter
+    return inter / union if union > 0 else 0.0
+
+
+def new_session(path, threads=2):
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = threads
+    return ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
+
+
+# ---------------------------------------------------------------------------------------------
+# YuNet face detector
+# ---------------------------------------------------------------------------------------------
+
+class YuNet:
+    """YuNet 2026may: symbolic H/W, input "input" NCHW float32 BGR raw 0..255."""
+
+    def __init__(self, path, threads=2):
+        self.session = new_session(path, threads)
+
+    @staticmethod
+    def prepare(bgr):
+        """Downscale and pad the frame for YuNet.
+
+        s  = min(1, 320 / W);  rw = round(W * s);  rh = round(H * s)
+        resized = sample_affine(frame, resize_matrix(W, H, rw, rh), rw, rh)   (s == 1: exact copy)
+        padW = ceil(rw / 32) * 32;  padH = ceil(rh / 32) * 32; zero-pad bottom and right.
+        tensor = [1, 3, padH, padW] float32, channels B, G, R, raw 0..255.
+        """
+        h, w = bgr.shape[:2]
+        s = min(1.0, YUNET_TARGET_WIDTH / w)
+        rw, rh = round_half_up(w * s), round_half_up(h * s)
+        resized = sample_affine(bgr, resize_matrix(w, h, rw, rh), rw, rh)
+        pad_w, pad_h = -(-rw // 32) * 32, -(-rh // 32) * 32
+        tensor = np.zeros((1, 3, pad_h, pad_w), dtype=np.float32)
+        tensor[0, :, :rh, :rw] = resized.transpose(2, 0, 1)
+        info = {"scale": s, "resizedW": rw, "resizedH": rh, "paddedW": pad_w, "paddedH": pad_h}
+        return tensor, info
+
+    @staticmethod
+    def decode(outputs, pad_w, pad_h):
+        """Decode as OpenCV FaceDetectorYN::postProcess, then greedy NMS.
+
+        For stride in (8, 16, 32): cols = padW / stride, rows = padH / stride; anchor
+        idx = r * cols + c (r = row, c = col).
+            score = sqrt(clamp(cls[idx], 0, 1) * clamp(obj[idx], 0, 1)); keep if score >= 0.7
+            cx = (c + b0) * stride      cy = (r + b1) * stride
+            w  = exp(b2) * stride       h  = exp(b3) * stride
+            box = [cx - w/2, cy - h/2, w, h]
+            kp n (0..4) = ((k[2n] + c) * stride, (k[2n+1] + r) * stride)
+              0 = subject's right eye, 1 = subject's left eye, 2 = nose tip,
+              3 = subject's right mouth corner, 4 = subject's left mouth corner
+        NMS: stable sort by score descending (ties keep stride-then-idx order); walk the list and
+        keep a face unless its IoU with an already-kept face is > 0.3.
+        Coordinates are in YuNet-input pixels here.
+        """
+        faces = []
+        for stride in YUNET_STRIDES:
+            cols, rows = pad_w // stride, pad_h // stride
+            cls = outputs[f"cls_{stride}"][0, :, 0]
+            obj = outputs[f"obj_{stride}"][0, :, 0]
+            bbox = outputs[f"bbox_{stride}"][0]
+            kps = outputs[f"kps_{stride}"][0]
+            scores = np.sqrt(np.clip(cls.astype(np.float64), 0, 1) * np.clip(obj.astype(np.float64), 0, 1))
+            for idx in np.flatnonzero(scores >= YUNET_SCORE_THRESHOLD):  # ascending idx, as a plain loop would
+                score = float(scores[idx])
+                r, c = divmod(int(idx), cols)
+                b = bbox[idx].astype(np.float64)
+                cx, cy = (c + b[0]) * stride, (r + b[1]) * stride
+                bw, bh = math.exp(b[2]) * stride, math.exp(b[3]) * stride
+                k = kps[idx].astype(np.float64)
+                faces.append({"box": [cx - bw / 2, cy - bh / 2, bw, bh], "score": score,
+                              "kps": [[(k[2 * n] + c) * stride, (k[2 * n + 1] + r) * stride] for n in range(5)]})
+        faces.sort(key=lambda f: -f["score"])  # Python's sort is stable
+        kept = []
+        for f in faces:
+            if all(iou(f["box"], k["box"]) <= YUNET_NMS_IOU for k in kept):
+                kept.append(f)
+        return kept
+
+    def detect(self, bgr, debug=None):
+        """Faces in frame coordinates (every YuNet-input coordinate divided by s)."""
+        tensor, info = self.prepare(bgr)
+        names = [o.name for o in self.session.get_outputs()]
+        outputs = dict(zip(names, self.session.run(names, {"input": tensor})))
+        faces = self.decode(outputs, info["paddedW"], info["paddedH"])
+        s = info["scale"]
+        for f in faces:
+            f["box"] = [v / s for v in f["box"]]
+            f["kps"] = [[x / s, y / s] for x, y in f["kps"]]
+        if debug is not None:
+            debug["yunet"] = info
+            debug["yunetTensor"] = tensor_stats(tensor)
+        return faces
+
+
+def count_faces(faces):
+    """faceCount = faces whose box area >= 0.2 x the largest area; primary = the largest
+    (first in NMS order on an exact tie). Returns (faceCount, primary or None)."""
+    if not faces:
+        return 0, None
+    areas = [f["box"][2] * f["box"][3] for f in faces]
+    largest = max(areas)
+    primary = faces[areas.index(largest)]
+    return sum(1 for a in areas if a >= FACE_COUNT_AREA_RATIO * largest), primary
+
+
+# ---------------------------------------------------------------------------------------------
+# Face mesh (MediaPipe legacy face_landmark, 468 points)
+# ---------------------------------------------------------------------------------------------
+
+def mesh_roi(face):
+    """Rotated square ROI from the YuNet box and eye keypoints.
+
+    R = kp0 (subject's right eye), L = kp1 (subject's left eye)
+    theta = atan2(L.y - R.y, L.x - R.x)
+    (cx, cy) = box centre = (x + w/2, y + h/2);   S = 1.5 * max(w, h)
+    """
+    x, y, w, h = face["box"]
+    (rx, ry), (lx, ly) = face["kps"][0], face["kps"][1]
+    return {"cx": x + w / 2, "cy": y + h / 2, "S": MESH_ROI_SCALE * max(w, h),
+            "theta": math.atan2(ly - ry, lx - rx)}
+
+
+def mesh_matrix(roi):
+    """Mesh-input continuous coords (u, v) in [0, 192] -> frame continuous coords (X, Y):
+        dx = (u/192 - 0.5) * S        dy = (v/192 - 0.5) * S
+        X  = cx + cos(theta)*dx - sin(theta)*dy
+        Y  = cy + sin(theta)*dx + cos(theta)*dy
+    Used both to sample the crop and to project landmarks back."""
+    c, s, S = math.cos(roi["theta"]), math.sin(roi["theta"]), roi["S"]
+    k = S / MESH_SIZE
+    return [[c * k, -s * k, roi["cx"] - c * S / 2 + s * S / 2],
+            [s * k, c * k, roi["cy"] - s * S / 2 - c * S / 2]]
+
+
+def mesh_input(bgr, roi):
+    """[1, 192, 192, 3] float32 NHWC, channels R, G, B, values in [0, 1]:
+    sample_affine(frame, mesh_matrix(roi), 192, 192), reorder BGR -> RGB, divide by 255."""
+    crop = sample_affine(bgr, mesh_matrix(roi), MESH_SIZE, MESH_SIZE)
+    return (crop[:, :, ::-1] / np.float32(255.0))[None].astype(np.float32)
+
+
+class FaceMesh:
+    """Input "input_1" [1,192,192,3]; outputs "conv2d_21" (1404 = 468 x (x, y, z) in 192-px
+    units) and "conv2d_31" (face-presence logit)."""
+
+    def __init__(self, path, threads=2):
+        self.session = new_session(path, threads)
+
+    def run(self, tensor):
+        """Returns (raw points (468, 3) in mesh-input units, flag = sigmoid(logit))."""
+        lm, logit = self.session.run(["conv2d_21", "conv2d_31"], {"input_1": tensor})
+        return lm.reshape(468, 3).astype(np.float64), sigmoid(float(logit.ravel()[0]))
+
+
+def back_project(raw, roi):
+    """Raw mesh points -> frame coords: (X, Y) = mesh_matrix(roi) . (x, y, 1);  Z = (z / 192) * S."""
+    M = mesh_matrix(roi)
+    out = np.empty_like(raw)
+    for n, (x, y, z) in enumerate(raw):
+        out[n, 0], out[n, 1] = apply_affine(M, x, y)
+        out[n, 2] = z / MESH_SIZE * roi["S"]
+    return out
+
+
+def named_points(pts):
+    """Contract FaceLandmarks from the 468 frame-space points ({x, y} only). Irises are null:
+    the legacy mesh has no iris points."""
+    p = lambda i: [float(pts[i, 0]), float(pts[i, 1])]  # noqa: E731
+    return {"leftEye": [p(i) for i in LEFT_EYE], "rightEye": [p(i) for i in RIGHT_EYE],
+            "mouthLeft": p(MOUTH_LEFT), "mouthRight": p(MOUTH_RIGHT),
+            "mouthUpperInner": p(MOUTH_UPPER_INNER), "mouthLowerInner": p(MOUTH_LOWER_INNER),
+            "noseTip": p(NOSE_TIP), "chin": p(CHIN), "leftIris": None, "rightIris": None}
+
+
+def eye_aspect_ratio(eye):
+    """EAR = (|p2 - p6| + |p3 - p5|) / (2 |p1 - p4|) on 2-D points (as FaceGeometry.eyeAspectRatio)."""
+    d = lambda a, b: math.hypot(a[0] - b[0], a[1] - b[1])  # noqa: E731
+    width = d(eye[0], eye[3])
+    return (d(eye[1], eye[5]) + d(eye[2], eye[4])) / (2 * width) if width > 0 else float("nan")
+
+
+def head_pose(pts):
+    """Yaw, pitch, roll in degrees from the 3-D mesh.
+
+    u_n = (X_n, -Y_n, -Z_n)                 x right, y up, z toward the camera
+    ex  = normalize(u[263] - u[33])         subject's right outer eye corner -> left outer corner
+    t   = u[10] - u[152]                    chin -> forehead
+    ey  = normalize(t - (t . ex) ex)
+    ez  = ex x ey
+    yaw   = deg(atan2(ez.x, ez.z))                      + = subject turned to THEIR left
+    pitch = deg(atan2(ez.y, sqrt(ez.x^2 + ez.z^2)))     + = subject looks UP
+    roll  = deg(atan2(ex.y, ex.x))                      + = subject's left eye higher
+    """
+    u = np.stack([pts[:, 0], -pts[:, 1], -pts[:, 2]], axis=1)
+    ex = u[LEFT_EYE_OUTER] - u[RIGHT_EYE_OUTER]
+    ex /= np.linalg.norm(ex)
+    t = u[FOREHEAD] - u[CHIN]
+    ey = t - np.dot(t, ex) * ex
+    ey /= np.linalg.norm(ey)
+    ez = np.cross(ex, ey)
+    yaw = math.degrees(math.atan2(ez[0], ez[2]))
+    pitch = math.degrees(math.atan2(ez[1], math.hypot(ez[0], ez[2])))
+    roll = math.degrees(math.atan2(ex[1], ex[0]))
+    return yaw, pitch, roll
+
+
+# ---------------------------------------------------------------------------------------------
+# Silent-Face PAD (MiniFASNet V2 @ 2.7, V1SE @ 4.0)
+# ---------------------------------------------------------------------------------------------
+
+def get_new_box(src_w, src_h, bbox, scale):
+    """Silent-Face CropImage._get_new_box, verbatim. bbox = [x, y, w, h] integers.
+    Returns inclusive (left_top_x, left_top_y, right_bottom_x, right_bottom_y)."""
+    x = bbox[0]
+    y = bbox[1]
+    box_w = bbox[2]
+    box_h = bbox[3]
+
+    scale = min((src_h - 1) / box_h, min((src_w - 1) / box_w, scale))
+
+    new_width = box_w * scale
+    new_height = box_h * scale
+    center_x, center_y = box_w / 2 + x, box_h / 2 + y
+
+    left_top_x = center_x - new_width / 2
+    left_top_y = center_y - new_height / 2
+    right_bottom_x = center_x + new_width / 2
+    right_bottom_y = center_y + new_height / 2
+
+    if left_top_x < 0:
+        right_bottom_x -= left_top_x
+        left_top_x = 0
+
+    if left_top_y < 0:
+        right_bottom_y -= left_top_y
+        left_top_y = 0
+
+    if right_bottom_x > src_w - 1:
+        left_top_x -= right_bottom_x - src_w + 1
+        right_bottom_x = src_w - 1
+
+    if right_bottom_y > src_h - 1:
+        left_top_y -= right_bottom_y - src_h + 1
+        right_bottom_y = src_h - 1
+
+    return int(left_top_x), int(left_top_y), int(right_bottom_x), int(right_bottom_y)
+
+
+def pad_box(face_box):
+    """Integer box fed to get_new_box: [floor(x), floor(y), round(w), round(h)]."""
+    x, y, w, h = face_box
+    return [int(math.floor(x)), int(math.floor(y)), round_half_up(w), round_half_up(h)]
+
+
+def pad_input(bgr, crop_box):
+    """[1, 3, 80, 80] float32 NCHW, channels B, G, R, raw 0..255 (no /255, no mean/std):
+    inclusive crop (ltx..rbx, lty..rby) resized to 80 x 80 with sample_affine."""
+    ltx, lty, rbx, rby = crop_box
+    M = crop_matrix(ltx, lty, rbx - ltx + 1, rby - lty + 1, PAD_SIZE, PAD_SIZE)
+    crop = sample_affine(bgr, M, PAD_SIZE, PAD_SIZE)
+    return crop.transpose(2, 0, 1)[None].astype(np.float32)
+
+
+class MiniFasNet:
+    """Input "input" [1,3,80,80]; output "output" [1,3] logits; softmax index 1 = real."""
+
+    def __init__(self, path, scale, threads=2):
+        self.session = new_session(path, threads)
+        self.scale = scale
+
+    def run(self, tensor):
+        logits = self.session.run(["output"], {"input": tensor})[0][0].astype(np.float64)
+        return logits, softmax(logits)
+
+
+# ---------------------------------------------------------------------------------------------
+# Whole pipeline
+# ---------------------------------------------------------------------------------------------
+
+def _ms(t0):
+    return (time.perf_counter() - t0) * 1000.0
+
+
+class Pipeline:
+    def __init__(self, models_dir=MODELS, threads=2):
+        models_dir = Path(models_dir)
+        self.yunet = YuNet(models_dir / YUNET_FILE, threads)
+        self.mesh = FaceMesh(models_dir / MESH_FILE, threads)
+        self.pad_v2 = MiniFasNet(models_dir / PAD_V2_FILE, PAD_V2_SCALE, threads)
+        self.pad_v1se = MiniFasNet(models_dir / PAD_V1SE_FILE, PAD_V1SE_SCALE, threads)
+
+    def analyze(self, bgr):
+        """Full reference analysis of one BGR frame. Mesh, pose and PAD run on the primary face
+        even when faceCount > 1 (the production analyzer skips them then; see plan D8 step 3) so
+        the fixtures cover every stage. Missing values are None (NaN in Java)."""
+        t_all = time.perf_counter()
+        h, w = bgr.shape[:2]
+        res = {"image": {"width": w, "height": h}, "timingsMs": {}, "tensorStats": {}}
+        dbg = {}
+
+        t0 = time.perf_counter()
+        faces = self.yunet.detect(bgr, dbg)
+        res["timingsMs"]["detect"] = _ms(t0)
+        res["yunet"] = dbg["yunet"]
+        res["tensorStats"]["yunet"] = dbg["yunetTensor"]
+        res["detections"] = faces
+        face_count, primary = count_faces(faces)
+        res["faceCount"] = face_count
+        res["primary"] = primary
+        res["faceBox"] = primary["box"] if primary else None
+        for key in ("meshRoi", "meshFlag", "meshPoints", "landmarks", "earLeft", "earRight",
+                    "yawDeg", "pitchDeg", "rollDeg", "pad", "livenessScore"):
+            res[key] = None
+        if primary is None:
+            res["timingsMs"]["total"] = _ms(t_all)
+            return res
+
+        t0 = time.perf_counter()
+        roi = mesh_roi(primary)
+        mesh_tensor = mesh_input(bgr, roi)
+        raw, flag = self.mesh.run(mesh_tensor)
+        res["timingsMs"]["mesh"] = _ms(t0)
+        res["tensorStats"]["mesh"] = tensor_stats(mesh_tensor)
+        res["meshRoi"] = roi
+        res["meshFlag"] = flag
+        if flag >= MESH_FLAG_THRESHOLD:
+            pts = back_project(raw, roi)
+            res["meshPoints"] = pts.tolist()
+            lms = named_points(pts)
+            res["landmarks"] = lms
+            res["earLeft"] = eye_aspect_ratio(lms["leftEye"])
+            res["earRight"] = eye_aspect_ratio(lms["rightEye"])
+            t0 = time.perf_counter()
+            res["yawDeg"], res["pitchDeg"], res["rollDeg"] = head_pose(pts)
+            res["timingsMs"]["pose"] = _ms(t0)
+
+        ibox = pad_box(primary["box"])
+        pad = {"intBox": ibox}
+        probs = []
+        for key, model in (("v2", self.pad_v2), ("v1se", self.pad_v1se)):
+            t0 = time.perf_counter()
+            crop_box = get_new_box(w, h, ibox, model.scale)
+            tensor = pad_input(bgr, crop_box)
+            logits, sm = model.run(tensor)
+            res["timingsMs"]["pad_" + key] = _ms(t0)
+            res["tensorStats"]["pad_" + key] = tensor_stats(tensor)
+            pad[key] = {"scale": model.scale, "cropBox": list(crop_box), "logits": logits.tolist(),
+                        "softmax": sm.tolist()}
+            probs.append(sm[PAD_REAL_CLASS])
+        res["pad"] = pad
+        res["livenessScore"] = float(sum(probs) / 2.0)
+        res["timingsMs"]["total"] = _ms(t_all)
+        return res
+
+
+def to_json(res):
+    """JSON text with NaN mapped to null (JSON has no NaN)."""
+    def clean(v):
+        if isinstance(v, float):
+            return None if math.isnan(v) else v
+        if isinstance(v, dict):
+            return {k: clean(x) for k, x in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [clean(x) for x in v]
+        if isinstance(v, np.generic):
+            return clean(v.item())
+        return v
+    return json.dumps(clean(res), indent=1)
+
+
+def summary(res):
+    f = lambda v, fmt="{:.3f}": "null" if v is None else fmt.format(v)  # noqa: E731
+    return (f"faceCount={res['faceCount']} livenessScore={f(res['livenessScore'], '{:.4f}')} "
+            f"yaw={f(res['yawDeg'], '{:.2f}')} pitch={f(res['pitchDeg'], '{:.2f}')} roll={f(res['rollDeg'], '{:.2f}')} "
+            f"earL={f(res['earLeft'])} earR={f(res['earRight'])} meshFlag={f(res['meshFlag'], '{:.4f}')} "
+            f"ms={ {k: round(v, 1) for k, v in res['timingsMs'].items()} }")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("image")
+    ap.add_argument("--flip", action="store_true", help="mirror the decoded pixels horizontally first")
+    ap.add_argument("--json", help="write the full result to this file")
+    args = ap.parse_args()
+    bgr = imread_bgr(args.image)
+    if args.flip:
+        bgr = np.ascontiguousarray(bgr[:, ::-1])
+    res = Pipeline().analyze(bgr)
+    print(summary(res))
+    if args.json:
+        Path(args.json).write_text(to_json(res), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
