@@ -61,4 +61,13 @@ class PositioningHintFilterTest {
         assertThat(f.classify(Fa.at(0, 0).issue(QualityIssue.BLURRY).build(), false)).isEqualTo(Guidance.HOLD_STEADY);
         assertThat(f.classify(Fa.at(0, 0).issue(QualityIssue.FACE_TOO_LARGE).build(), false)).isEqualTo(Guidance.MOVE_BACK);
     }
+
+    @Test
+    void headTiltedSidewaysGetsLookAtCameraOnlyOutsideChallenges() {
+        assertThat(f.classify(Fa.at(0, 0).roll(25).build(), false)).isEqualTo(Guidance.LOOK_AT_CAMERA);
+        assertThat(f.classify(Fa.at(0, 0).roll(-25).build(), false)).isEqualTo(Guidance.LOOK_AT_CAMERA);
+        assertThat(f.classify(Fa.at(0, 0).roll(15).build(), false)).as("a slight tilt is fine").isNull();
+        assertThat(f.classify(Fa.at(0, 0).roll(Float.NaN).build(), false)).as("unknown roll").isNull();
+        assertThat(f.classify(Fa.at(0, 0).roll(25).build(), true)).isNull();
+    }
 }

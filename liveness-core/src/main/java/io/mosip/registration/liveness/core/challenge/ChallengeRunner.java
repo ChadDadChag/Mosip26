@@ -17,6 +17,7 @@ import io.mosip.registration.liveness.core.detect.FaceGeometry;
 import io.mosip.registration.liveness.core.guidance.PositioningHintFilter;
 import io.mosip.registration.liveness.core.passive.PadMonitor;
 import io.mosip.registration.liveness.core.quality.BestFrameSelector;
+import io.mosip.registration.liveness.core.quality.Iso19794Check;
 import io.mosip.registration.liveness.core.session.ActivePhase;
 import io.mosip.registration.liveness.core.session.ActiveStep;
 import io.mosip.registration.liveness.core.util.RandomSource;
@@ -233,16 +234,23 @@ public final class ChallengeRunner implements ActivePhase {
     private void hold(long nowMs, List<ActiveStep> out) {
         long held = nowMs - subStartMs;
         if (held >= t.holdMinMs && best.hasBest()) {
-            finish(best.bestFrame(), out);
+            finish(best.bestFrame(), best.bestCheck(), false, out);
         } else if (held >= t.holdMaxMs) {
-            // Liveness is established; hand back the best frame seen, else the latest single-face frame.
-            finish(best.hasBest() ? best.bestFrame() : lastSingleFace != null ? lastSingleFace.frame : null, out);
+            // Liveness is established; hand back the best frame seen, else the latest single-face frame. The hold is
+            // never extended for photo quality: a fallback frame is flagged (and checked) instead.
+            if (best.hasBest()) {
+                finish(best.bestFrame(), best.bestCheck(), false, out);
+            } else if (lastSingleFace != null) {
+                finish(lastSingleFace.frame, Iso19794Check.of(lastSingleFace, t, isNeutral(lastSingleFace)), true, out);
+            } else {
+                finish(null, null, true, out);
+            }
         }
     }
 
-    private void finish(Frame frame, List<ActiveStep> out) {
+    private void finish(Frame frame, Iso19794Check check, boolean fallback, List<ActiveStep> out) {
         sub = Sub.DONE;
-        out.add(ActiveStep.passed(frame));
+        out.add(ActiveStep.passed(frame, check, fallback));
     }
 
     // ------------------------------------------------------------------ checks and helpers

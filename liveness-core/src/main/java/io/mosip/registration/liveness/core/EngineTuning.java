@@ -28,6 +28,8 @@ public final class EngineTuning {
     // ---- passive
     /** TUNE: frames with |yaw| or |pitch| above this are not eligible for the passive window. */
     public float maxPassivePoseDeg = 25f;
+    /** TUNE: head tilted sideways (|roll|) more than this in passive → LOOK_AT_CAMERA hint (hint only, see P7). */
+    public float maxPassiveRollDeg = 20f;
     /** TUNE: more than one face for this long in passive → MULTIPLE_FACES. */
     public long multiFaceFailMs = 1500;
 
@@ -48,6 +50,16 @@ public final class EngineTuning {
     public float bestFrameMinEar = 0.18f;
     /** TUNE: Laplacian variance that counts as "half sharp" when ranking best-frame candidates. */
     public float bestFrameSharpnessHalfPoint = 100f;
+
+    // ---- ISO/IEC 19794-5 frontal-image limits (best-frame ranking and audit only; never pass/fail)
+    /** ISO/IEC 19794-5: |yaw| at most this for a compliant frontal image. */
+    public float isoMaxYawDeg = 5f;
+    /** ISO/IEC 19794-5: |pitch| at most this. */
+    public float isoMaxPitchDeg = 5f;
+    /** ISO/IEC 19794-5: |roll| (head tilted sideways) at most this. */
+    public float isoMaxRollDeg = 8f;
+    /** ISO/IEC 19794-5: at least this many pixels between the eye centres (resolution of the face). */
+    public float isoMinEyeDistancePx = 90f;
 
     // ---- challenge flow
     /** TUNE: random delay before each prompt, 0..this (makes replayed video timing harder). */

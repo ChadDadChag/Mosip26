@@ -37,6 +37,11 @@ public final class FaceGeometry {
                 && (Float.isNaN(a.pitchDeg) || Math.abs(a.pitchDeg) <= maxDeg);
     }
 
+    /** True unless a REPORTED roll (head tilted sideways) exceeds {@code maxDeg}; unknown roll (NaN) is tolerated. */
+    public static boolean withinRoll(FrameAnalysis a, float maxDeg) {
+        return Float.isNaN(a.rollDeg) || Math.abs(a.rollDeg) <= maxDeg;
+    }
+
     /** True when the landmarks give usable eye and mouth ratios (needed for BLINK and SMILE). */
     public static boolean hasExpressionLandmarks(FrameAnalysis a) {
         return !Float.isNaN(meanEar(a.landmarks)) && !Float.isNaN(mouthWidthRatio(a.landmarks));
@@ -88,7 +93,7 @@ public final class FaceGeometry {
         return new float[] {x / 6f, y / 6f};
     }
 
-    /** Distance between eye centres: the normaliser for all mouth ratios. */
+    /** Distance between eye centres in pixels: the normaliser for all mouth ratios, and the face resolution. */
     public static float interOcular(FaceLandmarks l) {
         if (l == null) return Float.NaN;
         return dist(eyeCentre(l.leftEye), eyeCentre(l.rightEye));

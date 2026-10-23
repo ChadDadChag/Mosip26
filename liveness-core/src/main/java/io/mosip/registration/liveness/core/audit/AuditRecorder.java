@@ -9,6 +9,7 @@ import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
 import io.mosip.registration.liveness.core.passive.Stats;
+import io.mosip.registration.liveness.core.quality.Iso19794Check;
 import io.mosip.registration.liveness.core.util.TimeSource;
 
 import java.util.ArrayList;
@@ -64,6 +65,18 @@ public final class AuditRecorder {
         public static final String PAD_PREFIX = "pad.";
         /** Prefix for diagnostic-mode details (policy.diagnosticMode): per-attempt score and frame statistics. */
         public static final String DIAG_PREFIX = "diag.";
+        /** LIVENESS_PASSED: the best frame against ISO/IEC 19794-5: COMPLIANT, NOT_COMPLIANT or UNKNOWN. */
+        public static final String BEST_FRAME_ISO = "bestFrame.iso19794_5";
+        /** LIVENESS_PASSED: comma list of {@code Iso19794Check.Issue} names; absent when there are none. */
+        public static final String BEST_FRAME_ISO_ISSUES = "bestFrame.isoIssues";
+        /** LIVENESS_PASSED: true when no frame qualified and the latest single-face frame was handed back. */
+        public static final String BEST_FRAME_FALLBACK = "bestFrame.fallback";
+        /** LIVENESS_PASSED: rounded pose of the best frame, degrees (absent when the analyzer gave none). */
+        public static final String BEST_FRAME_YAW = "bestFrame.yawDeg";
+        public static final String BEST_FRAME_PITCH = "bestFrame.pitchDeg";
+        public static final String BEST_FRAME_ROLL = "bestFrame.rollDeg";
+        /** LIVENESS_PASSED: rounded distance between the eye centres of the best frame, pixels. */
+        public static final String BEST_FRAME_EYE_DISTANCE = "bestFrame.eyeDistancePx";
 
         private Keys() { }
     }
@@ -261,12 +274,46 @@ public final class AuditRecorder {
         if (metrics != null) metrics.deviceError();
     }
 
+    /** A pass without frame analysis (the scripted fake): the best-frame ISO status is UNKNOWN. */
     public synchronized void passed(LivenessResult.PassPath path, float passiveMedian) {
+        passed(path, passiveMedian, null, false);
+    }
+
+    /**
+     * @param bestFrameCheck how the handed-back frame measures against ISO/IEC 19794-5 (null = not known); only its
+     *                       status, issue names, rounded angles and eye distance are recorded, never coordinates
+     * @param bestFrameFallback true when no frame qualified and the latest single-face frame was used
+     */
+    public synchronized void passed(LivenessResult.PassPath path, float passiveMedian, Iso19794Check bestFrameCheck,
+                                    boolean bestFrameFallback) {
         Map<String, String> d = finalDetails();
         d.put(Keys.PASS_PATH, path.name());
         d.put(Keys.PASSIVE_SCORE, score(passiveMedian));
+        d.put(Keys.BEST_FRAME_ISO, bestFrameCheck != null ? bestFrameCheck.status.name()
+                : Iso19794Check.Status.UNKNOWN.name());
+        d.put(Keys.BEST_FRAME_FALLBACK, Boolean.toString(bestFrameFallback));
+        if (bestFrameCheck != null) {
+            if (!bestFrameCheck.issues.isEmpty()) d.put(Keys.BEST_FRAME_ISO_ISSUES, names(bestFrameCheck.issues));
+            putRounded(d, Keys.BEST_FRAME_YAW, bestFrameCheck.yawDeg);
+            putRounded(d, Keys.BEST_FRAME_PITCH, bestFrameCheck.pitchDeg);
+            putRounded(d, Keys.BEST_FRAME_ROLL, bestFrameCheck.rollDeg);
+            putRounded(d, Keys.BEST_FRAME_EYE_DISTANCE, bestFrameCheck.eyeDistancePx);
+        }
         write(AuditSink.Event.LIVENESS_PASSED, d);
         if (metrics != null) metrics.passed(path);
+    }
+
+    private static String names(Collection<? extends Enum<?>> values) {
+        StringBuilder b = new StringBuilder();
+        for (Enum<?> v : values) {
+            if (b.length() > 0) b.append(',');
+            b.append(v.name());
+        }
+        return b.toString();
+    }
+
+    private static void putRounded(Map<String, String> d, String key, float value) {
+        if (!Float.isNaN(value) && !Float.isInfinite(value)) d.put(key, Integer.toString(Math.round(value)));
     }
 
     public synchronized void failedFinal(ErrorCode finalCode, ErrorCode lastCause, int cooldownSecStarted) {

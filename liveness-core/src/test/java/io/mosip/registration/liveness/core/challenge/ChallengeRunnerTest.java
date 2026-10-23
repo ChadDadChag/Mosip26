@@ -8,6 +8,7 @@ import io.mosip.registration.liveness.api.LivenessEvent.Guidance;
 import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.core.EngineTuning;
 import io.mosip.registration.liveness.core.audit.AuditRecorder.ChallengeOutcome;
+import io.mosip.registration.liveness.core.quality.Iso19794Check;
 import io.mosip.registration.liveness.core.session.ActiveStep;
 import io.mosip.registration.liveness.core.session.ActiveStep.Kind;
 import io.mosip.registration.liveness.core.testing.Fa;
@@ -112,6 +113,8 @@ class ChallengeRunnerTest {
         Frame best = last(Kind.PASSED).bestFrame;
         assertThat(best).isNotNull();
         assertThat(midActionFrames).doesNotContain(best);
+        assertThat(last(Kind.PASSED).bestFrameFallback).isFalse();
+        assertThat(last(Kind.PASSED).bestFrameCheck.status).isEqualTo(Iso19794Check.Status.COMPLIANT);
     }
 
     @Test
@@ -283,5 +286,30 @@ class ChallengeRunnerTest {
         // Hold frames are all slightly turned (not frontal enough for the best frame), passive seeds still exist.
         for (int i = 0; i < 40 && count(Kind.PASSED) == 0; i++) frame(yaw(12));
         assertThat(last(Kind.PASSED).bestFrame).isNotNull();
+    }
+
+    @Test
+    void whenNothingQualifiesTheFallbackFrameIsFlaggedAndChecked() {
+        final Shape turned = yaw(12); // beyond the best-frame limit (10°), still a stable baseline
+        Shape turnedClosed = new Shape() { @Override public Fa apply(Fa f) { return turned.apply(f).eyesClosed(); } };
+        Shape turnedSmiling = new Shape() { @Override public Fa apply(Fa f) { return turned.apply(f).smile(); } };
+        runner = new ChallengeRunner(policy, tuning, new SeededRandomSource(11));
+        List<FrameAnalysis> seeds = new ArrayList<FrameAnalysis>();
+        for (int i = 0; i < 10; i++) seeds.add(turned.apply(Fa.at(t += 125, ++seq)).build());
+        runner.start(Arrays.asList(ChallengeType.BLINK), seeds, t);
+        for (int i = 0; i < 40 && count(Kind.PROMPT) == 0; i++) frame(turned);
+        frames(4, turned);
+        frame(turnedClosed);
+        frame(turned);
+        assertThat(count(Kind.ACTION_DETECTED)).isEqualTo(1);
+
+        long holdStart = t;
+        for (int i = 0; i < 60 && count(Kind.PASSED) == 0; i++) frame(turnedSmiling);
+        ActiveStep passed = last(Kind.PASSED);
+        assertThat(t - holdStart).as("the hold is not extended past holdMaxMs").isLessThanOrEqualTo(tuning.holdMaxMs + FRAME_MS);
+        assertThat(passed.bestFrame).isNotNull();
+        assertThat(passed.bestFrameFallback).isTrue();
+        assertThat(passed.bestFrameCheck.status).isEqualTo(Iso19794Check.Status.NOT_COMPLIANT);
+        assertThat(passed.bestFrameCheck.issues).contains(Iso19794Check.Issue.POSE, Iso19794Check.Issue.EXPRESSION);
     }
 }

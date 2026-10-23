@@ -89,6 +89,8 @@ public final class PositioningHintFilter {
                 || a.qualityIssues.contains(FrameAnalysis.QualityIssue.FACE_CUT_OFF)) return Guidance.CENTER_FACE;
         if (a.qualityIssues.contains(FrameAnalysis.QualityIssue.BLURRY)) return Guidance.HOLD_STEADY;
         if (!FaceGeometry.withinPose(a, tuning.maxPassivePoseDeg)) return Guidance.LOOK_AT_CAMERA;
+        // Head tilted sideways: the contract has no "straighten your head" hint yet (proposal P7).
+        if (!FaceGeometry.withinRoll(a, tuning.maxPassiveRollDeg)) return Guidance.LOOK_AT_CAMERA;
         return null;
     }
 }
