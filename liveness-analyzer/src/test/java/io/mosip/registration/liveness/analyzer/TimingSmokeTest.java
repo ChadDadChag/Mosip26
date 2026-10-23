@@ -42,6 +42,28 @@ class TimingSmokeTest {
         }
     }
 
+    @Test
+    void printFullAnalyzeTimings() throws Exception {
+        try (OnnxFaceAnalyzer a = new OnnxFaceAnalyzer(TestModels.shared(), AnalyzerConfig.defaults(), "timing")) {
+            io.mosip.registration.liveness.api.Frame frame = GoldenFixtures.frame(GoldenFixtures.image("portrait_frontal"));
+            String[] names = {"detect", "mesh", "pose", "quality", "pad", "cues", "total"};
+            double[][] ms = new double[names.length][RUNS];
+            for (int i = -WARMUP; i < RUNS; i++) {
+                a.analyze(frame);
+                if (i < 0) continue;
+                AnalyzerStats s = a.stats();
+                long[] ns = {s.lastDetectNs(), s.lastMeshNs(), s.lastPoseNs(), s.lastQualityNs(), s.lastPadNs(),
+                        s.lastCuesNs(), s.lastTotalNs()};
+                for (int k = 0; k < names.length; k++) ms[k][i] = ns[k] / 1e6;
+            }
+            StringBuilder sb = new StringBuilder("Timing analyze() portrait 554x640 (p50/p95 ms):");
+            for (int k = 0; k < names.length; k++) {
+                sb.append(String.format("  %s %.2f/%.2f", names[k], pct(ms[k], 50), pct(ms[k], 95)));
+            }
+            System.out.println(sb);
+        }
+    }
+
     private static double pct(double[] values, int p) {
         double[] s = values.clone();
         Arrays.sort(s);

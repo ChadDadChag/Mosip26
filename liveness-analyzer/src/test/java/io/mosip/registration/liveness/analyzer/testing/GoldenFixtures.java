@@ -96,6 +96,19 @@ public final class GoldenFixtures {
         return new FaceDetection(box[0], box[1], box[2], box[3], MiniJson.getDouble(d, "score"), k);
     }
 
+    /** The fixture as a contract RGB888 Frame. */
+    public static io.mosip.registration.liveness.api.Frame frame(Image img) {
+        return new io.mosip.registration.liveness.api.Frame(img.rgb, img.width, img.height, 0L, 0L, "golden");
+    }
+
+    /** A JSON array of [x, y] (or [x, y, z]) points. */
+    @SuppressWarnings("unchecked")
+    public static double[][] points(List<Object> array) throws Exception {
+        double[][] out = new double[array.size()][];
+        for (int i = 0; i < out.length; i++) out[i] = MiniJson.toDoubles((List<Object>) array.get(i));
+        return out;
+    }
+
     /** Population mean of the first {@code n} values (tensor_stats "mean"). */
     public static double mean(float[] values, int n) {
         double sum = 0;

@@ -1,0 +1,242 @@
+package io.mosip.registration.liveness.analyzer;
+
+import io.mosip.registration.liveness.analyzer.detect.DetectorConfig;
+import io.mosip.registration.liveness.api.ConfigProvider;
+
+/**
+ * Settings of {@link OnnxFaceAnalyzer}. Immutable; build with {@link #builder()} or read from the host config with
+ * {@link #fromConfig(ConfigProvider)}. Defaults match {@code models/tools/reference_pipeline.py}.
+ *
+ * <p>Optional config keys (all prefixed {@value #KEY_PREFIX}); a missing key keeps the default. They are NOT in
+ * {@code liveness-default.properties} (owned by Part 3):
+ * <ul>
+ *   <li>{@code intraOpThreads} (2), {@code accelerator} (CPU | XNNPACK | NNAPI, default CPU)</li>
+ *   <li>{@code detectorMaxWidth} (320), {@code detectorScoreThreshold} (0.7), {@code detectorNmsIou} (0.3),
+ *       {@code detectorSecondFaceMinAreaRatio} (0.2)</li>
+ *   <li>{@code meshPresenceThreshold} (0.5), {@code meshRoiScale} (1.5), {@code pitchBiasDeg} (-9.5)</li>
+ *   <li>{@code padMaxYawDeg} (30), {@code padMaxPitchDeg} (25): outside this pose range the PAD score is NaN</li>
+ *   <li>{@code tooDarkLuma} (40), {@code tooBrightLuma} (220), {@code blurLapVar} (15), {@code minAreaFrac} (0.04),
+ *       {@code minFaceWidthPx} (80), {@code maxAreaFrac} (0.60), {@code maxCentreOffset} (0.25)</li>
+ * </ul>
+ */
+public final class AnalyzerConfig {
+
+    public static final String KEY_PREFIX = "mosip.registration.liveness.face.analyzer.";
+
+    /** ONNX Runtime execution provider. Unavailable providers fall back to CPU. */
+    public enum Accelerator { CPU, XNNPACK, NNAPI }
+
+    public final int intraOpThreads;
+    public final Accelerator accelerator;
+    public final DetectorConfig detector;
+    public final double meshPresenceThreshold;
+    public final double meshRoiScale;
+    public final double pitchBiasDeg;
+    public final double padMaxYawDeg;
+    public final double padMaxPitchDeg;
+    public final double tooDarkLuma;
+    public final double tooBrightLuma;
+    public final double blurLapVar;
+    public final double minAreaFrac;
+    public final double minFaceWidthPx;
+    public final double maxAreaFrac;
+    public final double maxCentreOffset;
+
+    private AnalyzerConfig(Builder b) {
+        intraOpThreads = b.intraOpThreads;
+        accelerator = b.accelerator;
+        detector = b.detector;
+        meshPresenceThreshold = b.meshPresenceThreshold;
+        meshRoiScale = b.meshRoiScale;
+        pitchBiasDeg = b.pitchBiasDeg;
+        padMaxYawDeg = b.padMaxYawDeg;
+        padMaxPitchDeg = b.padMaxPitchDeg;
+        tooDarkLuma = b.tooDarkLuma;
+        tooBrightLuma = b.tooBrightLuma;
+        blurLapVar = b.blurLapVar;
+        minAreaFrac = b.minAreaFrac;
+        minFaceWidthPx = b.minFaceWidthPx;
+        maxAreaFrac = b.maxAreaFrac;
+        maxCentreOffset = b.maxCentreOffset;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static AnalyzerConfig defaults() {
+        return new Builder().build();
+    }
+
+    /** A builder pre-filled with this config's values. */
+    public Builder toBuilder() {
+        Builder b = new Builder();
+        b.intraOpThreads = intraOpThreads;
+        b.accelerator = accelerator;
+        b.detector = detector;
+        b.meshPresenceThreshold = meshPresenceThreshold;
+        b.meshRoiScale = meshRoiScale;
+        b.pitchBiasDeg = pitchBiasDeg;
+        b.padMaxYawDeg = padMaxYawDeg;
+        b.padMaxPitchDeg = padMaxPitchDeg;
+        b.tooDarkLuma = tooDarkLuma;
+        b.tooBrightLuma = tooBrightLuma;
+        b.blurLapVar = blurLapVar;
+        b.minAreaFrac = minAreaFrac;
+        b.minFaceWidthPx = minFaceWidthPx;
+        b.maxAreaFrac = maxAreaFrac;
+        b.maxCentreOffset = maxCentreOffset;
+        return b;
+    }
+
+    /**
+     * Reads the optional {@value #KEY_PREFIX}* keys; missing keys keep the defaults.
+     *
+     * @throws IllegalArgumentException naming the key, for an unparseable or out-of-range value
+     */
+    public static AnalyzerConfig fromConfig(ConfigProvider cfg) {
+        Builder b = new Builder();
+        if (cfg == null) return b.build();
+        b.intraOpThreads = intValue(cfg, "intraOpThreads", b.intraOpThreads);
+        String acc = cfg.get(KEY_PREFIX + "accelerator");
+        if (acc != null && !acc.trim().isEmpty()) {
+            try {
+                b.accelerator = Accelerator.valueOf(acc.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(KEY_PREFIX + "accelerator: unknown value '" + acc + "'");
+            }
+        }
+        DetectorConfig d = b.detector;
+        int maxWidth = intValue(cfg, "detectorMaxWidth", d.maxWidth);
+        double score = doubleValue(cfg, "detectorScoreThreshold", d.scoreThreshold);
+        double iou = doubleValue(cfg, "detectorNmsIou", d.nmsIou);
+        double ratio = doubleValue(cfg, "detectorSecondFaceMinAreaRatio", d.secondFaceMinAreaRatio);
+        if (maxWidth < 32) throw new IllegalArgumentException(KEY_PREFIX + "detectorMaxWidth must be >= 32");
+        b.detector = new DetectorConfig(maxWidth, score, iou, ratio);
+        b.meshPresenceThreshold = doubleValue(cfg, "meshPresenceThreshold", b.meshPresenceThreshold);
+        b.meshRoiScale = doubleValue(cfg, "meshRoiScale", b.meshRoiScale);
+        b.pitchBiasDeg = doubleValue(cfg, "pitchBiasDeg", b.pitchBiasDeg);
+        b.padMaxYawDeg = doubleValue(cfg, "padMaxYawDeg", b.padMaxYawDeg);
+        b.padMaxPitchDeg = doubleValue(cfg, "padMaxPitchDeg", b.padMaxPitchDeg);
+        b.tooDarkLuma = doubleValue(cfg, "tooDarkLuma", b.tooDarkLuma);
+        b.tooBrightLuma = doubleValue(cfg, "tooBrightLuma", b.tooBrightLuma);
+        b.blurLapVar = doubleValue(cfg, "blurLapVar", b.blurLapVar);
+        b.minAreaFrac = doubleValue(cfg, "minAreaFrac", b.minAreaFrac);
+        b.minFaceWidthPx = doubleValue(cfg, "minFaceWidthPx", b.minFaceWidthPx);
+        b.maxAreaFrac = doubleValue(cfg, "maxAreaFrac", b.maxAreaFrac);
+        b.maxCentreOffset = doubleValue(cfg, "maxCentreOffset", b.maxCentreOffset);
+        return b.build();
+    }
+
+    /**
+     * Checks that every value is in a sane range.
+     *
+     * @throws IllegalArgumentException naming the offending key
+     */
+    public void validate() {
+        range("intraOpThreads", intraOpThreads, 1, 64);
+        if (accelerator == null) throw new IllegalArgumentException(KEY_PREFIX + "accelerator must not be null");
+        if (detector == null) throw new IllegalArgumentException(KEY_PREFIX + "detector must not be null");
+        openRange("detectorScoreThreshold", detector.scoreThreshold, 0, 1);
+        openRange("detectorNmsIou", detector.nmsIou, 0, 1);
+        range("detectorSecondFaceMinAreaRatio", detector.secondFaceMinAreaRatio, 0, 1);
+        openRange("meshPresenceThreshold", meshPresenceThreshold, 0, 1);
+        range("meshRoiScale", meshRoiScale, 1, 3);
+        range("pitchBiasDeg", pitchBiasDeg, -30, 30);
+        positiveUpTo("padMaxYawDeg", padMaxYawDeg, 90);
+        positiveUpTo("padMaxPitchDeg", padMaxPitchDeg, 90);
+        range("tooDarkLuma", tooDarkLuma, 0, 255);
+        range("tooBrightLuma", tooBrightLuma, 0, 255);
+        if (!(tooDarkLuma < tooBrightLuma)) {
+            throw new IllegalArgumentException(KEY_PREFIX + "tooDarkLuma must be below " + KEY_PREFIX + "tooBrightLuma");
+        }
+        range("blurLapVar", blurLapVar, 0, 1e6);
+        range("minAreaFrac", minAreaFrac, 0, 1);
+        positiveUpTo("maxAreaFrac", maxAreaFrac, 1);
+        if (!(minAreaFrac < maxAreaFrac)) {
+            throw new IllegalArgumentException(KEY_PREFIX + "minAreaFrac must be below " + KEY_PREFIX + "maxAreaFrac");
+        }
+        range("minFaceWidthPx", minFaceWidthPx, 0, 10000);
+        positiveUpTo("maxCentreOffset", maxCentreOffset, 0.5);
+    }
+
+    private static void range(String key, double v, double lo, double hi) {
+        if (!(v >= lo && v <= hi)) throw new IllegalArgumentException(KEY_PREFIX + key + " must be in [" + lo + ", " + hi + "], got " + v);
+    }
+
+    private static void openRange(String key, double v, double lo, double hi) {
+        if (!(v > lo && v < hi)) throw new IllegalArgumentException(KEY_PREFIX + key + " must be in (" + lo + ", " + hi + "), got " + v);
+    }
+
+    private static void positiveUpTo(String key, double v, double hi) {
+        if (!(v > 0 && v <= hi)) throw new IllegalArgumentException(KEY_PREFIX + key + " must be in (0, " + hi + "], got " + v);
+    }
+
+    private static int intValue(ConfigProvider cfg, String key, int dflt) {
+        String s = cfg.get(KEY_PREFIX + key);
+        if (s == null || s.trim().isEmpty()) return dflt;
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(KEY_PREFIX + key + ": not an integer: '" + s + "'");
+        }
+    }
+
+    private static double doubleValue(ConfigProvider cfg, String key, double dflt) {
+        String s = cfg.get(KEY_PREFIX + key);
+        if (s == null || s.trim().isEmpty()) return dflt;
+        double v;
+        try {
+            v = Double.parseDouble(s.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(KEY_PREFIX + key + ": not a number: '" + s + "'");
+        }
+        if (Double.isNaN(v) || Double.isInfinite(v)) {
+            throw new IllegalArgumentException(KEY_PREFIX + key + ": not a finite number: '" + s + "'");
+        }
+        return v;
+    }
+
+    /** Mutable builder; {@link #build()} validates. */
+    public static final class Builder {
+        private int intraOpThreads = 2;
+        private Accelerator accelerator = Accelerator.CPU;
+        private DetectorConfig detector = DetectorConfig.defaults();
+        private double meshPresenceThreshold = 0.5;
+        private double meshRoiScale = 1.5;
+        private double pitchBiasDeg = -9.5;
+        private double padMaxYawDeg = 30;
+        private double padMaxPitchDeg = 25;
+        private double tooDarkLuma = 40;
+        private double tooBrightLuma = 220;
+        private double blurLapVar = 15;
+        private double minAreaFrac = 0.04;
+        private double minFaceWidthPx = 80;
+        private double maxAreaFrac = 0.60;
+        private double maxCentreOffset = 0.25;
+
+        private Builder() { }
+
+        public Builder intraOpThreads(int v) { intraOpThreads = v; return this; }
+        public Builder accelerator(Accelerator v) { accelerator = v; return this; }
+        public Builder detector(DetectorConfig v) { detector = v; return this; }
+        public Builder meshPresenceThreshold(double v) { meshPresenceThreshold = v; return this; }
+        public Builder meshRoiScale(double v) { meshRoiScale = v; return this; }
+        public Builder pitchBiasDeg(double v) { pitchBiasDeg = v; return this; }
+        public Builder padMaxYawDeg(double v) { padMaxYawDeg = v; return this; }
+        public Builder padMaxPitchDeg(double v) { padMaxPitchDeg = v; return this; }
+        public Builder tooDarkLuma(double v) { tooDarkLuma = v; return this; }
+        public Builder tooBrightLuma(double v) { tooBrightLuma = v; return this; }
+        public Builder blurLapVar(double v) { blurLapVar = v; return this; }
+        public Builder minAreaFrac(double v) { minAreaFrac = v; return this; }
+        public Builder minFaceWidthPx(double v) { minFaceWidthPx = v; return this; }
+        public Builder maxAreaFrac(double v) { maxAreaFrac = v; return this; }
+        public Builder maxCentreOffset(double v) { maxCentreOffset = v; return this; }
+
+        public AnalyzerConfig build() {
+            AnalyzerConfig c = new AnalyzerConfig(this);
+            c.validate();
+            return c;
+        }
+    }
+}
