@@ -38,6 +38,18 @@
             <artifactId>liveness-api</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Part 3's TraceRecorder and DetectorTuningReport, driven by the guided trace capture. -->
+        <dependency>
+            <groupId>io.mosip.registration</groupId>
+            <artifactId>liveness-tools</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Webcam capture for the demo, the recorder and TraceRecorder (same library and version as Part 1). -->
+        <dependency>
+            <groupId>com.github.sarxos</groupId>
+            <artifactId>webcam-capture</artifactId>
+            <version>0.3.12</version>
+        </dependency>
         <!-- Compile scope: these tools run on the desktop JVM only and never ship. -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>

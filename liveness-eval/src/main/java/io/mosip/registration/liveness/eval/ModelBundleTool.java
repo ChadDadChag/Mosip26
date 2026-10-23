@@ -325,18 +325,21 @@ public final class ModelBundleTool {
         }
     }
 
-    /** --name value options; repeatable options keep every value; --force style flags take no value. */
+    /** --name value options; repeatable options keep every value; flags (e.g. --force) take no value. */
     static final class Args {
-        private static final List<String> FLAGS = Collections.singletonList("--force");
         private final Map<String, List<String>> values = new LinkedHashMap<String, List<String>>();
 
         static Args parse(String[] args, int from) {
+            return parse(args, from, Collections.singletonList("--force"));
+        }
+
+        static Args parse(String[] args, int from, List<String> flags) {
             Args a = new Args();
             for (int i = from; i < args.length; i++) {
                 String k = args[i];
                 if (!k.startsWith("--")) throw new IllegalArgumentException("unexpected argument '" + k + "'");
                 String v = "";
-                if (!FLAGS.contains(k)) {
+                if (!flags.contains(k)) {
                     if (i + 1 >= args.length) throw new IllegalArgumentException("missing value for " + k);
                     v = args[++i];
                 }
