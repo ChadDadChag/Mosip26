@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *   LiveAnalyzerDemo --mode session    [--workflow RESIDENT|OPERATOR|SUPERVISOR] [--force-active] [--auto-retry]
  *   LiveAnalyzerDemo --mode series     --plan a,b,c,...   scripted session runs with prompts (see {@link SessionDemo})
  *   LiveAnalyzerDemo --mode traces     --consent [--labels ...] [--takes 2]   guided Part 3 TraceRecorder takes
+ *   LiveAnalyzerDemo --mode dataset    --consent [--subject s01] [--only species,...]   guided PAD dataset takes
  * </pre>
  */
 public final class LiveAnalyzerDemo {
@@ -63,6 +64,7 @@ public final class LiveAnalyzerDemo {
             case "session":
             case "series": SessionDemo.run(a, camera); break;
             case "traces": TraceCapture.run(a, camera); break;
+            case "dataset": DatasetSession.run(a, camera); break;
             default: throw new IllegalArgumentException("unknown --mode " + mode);
         }
     }
@@ -137,7 +139,7 @@ public final class LiveAnalyzerDemo {
     private static void recordTake(final DemoWindow w, final int camera, final WebcamFrameSource[] source, final LiveLoop loop) {
         int ok = JOptionPane.showConfirmDialog(null,
                 "Record a 6-second dataset take of the person in front of the camera?\n"
-                        + "PNG frames go to eval-data/ (gitignored, never committed). Only continue with their consent.",
+                        + "JPEG frames go to eval-data/ (gitignored, never committed). Only continue with their consent.",
                 "Consent", JOptionPane.YES_NO_OPTION);
         if (ok != JOptionPane.YES_OPTION) return;
         final String label = (String) JOptionPane.showInputDialog(null, "Label", "Dataset take", JOptionPane.QUESTION_MESSAGE,
@@ -151,7 +153,8 @@ public final class LiveAnalyzerDemo {
                     source[0].stop();
                     w.message("Recording " + label + " " + subject + " take " + take + "…", Color.RED);
                     File dir = DatasetRecorder.record(new WebcamFrameSource(camera, 640, 480, 15),
-                            new DatasetRecorder.Take(label, subject, Integer.parseInt(take), 6, 15, new File("eval-data")), System.out);
+                            new DatasetRecorder.Take(label, subject, Integer.parseInt(take), 6, 10, new File("eval-data"), "jpg", null),
+                            System.out);
                     w.message("Saved " + dir, new Color(0, 120, 0));
                 } catch (Exception e) {
                     w.message("Recording failed: " + e.getMessage(), Color.RED);
