@@ -48,15 +48,18 @@ import java.util.concurrent.atomic.AtomicReference;
  *   e  phone showing a photo,     RESIDENT
  *   f  phone playing a video,     RESIDENT
  *   g  phone showing a photo,     RESIDENT, forced challenges (do nothing when asked)
+ *   h  real face,                 RESIDENT, forced challenges, coached beforehand to turn clearly and come back
  * </pre>
  * Forced challenges = a ConfigProvider override of {@code mosip.registration.liveness.face.default.passiveThreshold}
  * (default 0.9999, {@code --force-threshold}) so a real face cannot pass passively; padRejectThreshold stays 0.30.
+ * {@code --challenge-types TURN_LEFT,TURN_RIGHT,BLINK} narrows the forced runs' challenge pool (for a turn retest).
  * Each run is logged (events, result, per-challenge timing and the analyzer features seen during each challenge) to
  * {@code liveness-eval/target/sessions-<time>.jsonl}; no images are stored.
  */
 final class SessionDemo {
 
     static final String PASSIVE_KEY = "mosip.registration.liveness.face.default.passiveThreshold";
+    static final String TYPES_KEY = "mosip.registration.liveness.face.default.challengeTypes";
 
     private SessionDemo() { }
 
@@ -77,15 +80,16 @@ final class SessionDemo {
     static Case scripted(char c) {
         switch (c) {
             case 'a': return new Case("a", WorkflowType.RESIDENT, false, "REAL FACE: just look at the camera");
-            case 'b': return new Case("b", WorkflowType.RESIDENT, true,
-                    "REAL FACE: follow the instructions (turn MODERATELY, ~30 deg, hold 1 s, come back)");
+            case 'b': return new Case("b", WorkflowType.RESIDENT, true, "REAL FACE: follow the instructions on screen");
             case 'c': return new Case("c", WorkflowType.OPERATOR, true, "REAL FACE (operator): follow the instruction");
             case 'd': return new Case("d", WorkflowType.RESIDENT, false, "PRINTED PHOTO in front of the camera, your face out of view");
             case 'e': return new Case("e", WorkflowType.RESIDENT, false,
                     "PHONE PHOTO in front of the camera, your face out of view, until the run says FINISHED");
             case 'f': return new Case("f", WorkflowType.RESIDENT, false, "PHONE VIDEO playing in front of the camera, your face out of view");
             case 'g': return new Case("g", WorkflowType.RESIDENT, true, "PHONE PHOTO, forced challenges: hold it still, do NOTHING when asked");
-            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..g)");
+            case 'h': return new Case("h", WorkflowType.RESIDENT, true,
+                    "REAL FACE: when asked to turn, turn clearly (about 30 deg) and then come back to face the camera");
+            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h)");
         }
     }
 
@@ -224,6 +228,7 @@ final class SessionDemo {
     static void run(ModelBundleTool.Args a, int camera) throws Exception {
         boolean series = "series".equals(a.single("--mode"));
         final String threshold = a.has("--force-threshold") ? a.single("--force-threshold") : "0.9999";
+        final String types = a.has("--challenge-types") ? a.single("--challenge-types") : null;
         List<Case> plan = new ArrayList<Case>();
         if (series) {
             for (String p : a.required("--plan").split(",")) plan.add(scripted(p.trim().toLowerCase(Locale.ROOT).charAt(0)));
@@ -275,7 +280,7 @@ final class SessionDemo {
                 if (k == null) break;
                 if (k.equals("S")) continue;
                 RecordingFactory rf = new RecordingFactory(real);
-                ConfigProvider cfg = c.forceActive ? forcedConfig(threshold) : new ConfigProvider() {
+                ConfigProvider cfg = c.forceActive ? forcedConfig(threshold, types) : new ConfigProvider() {
                     @Override public String get(String keyName) { return null; }
                 };
                 DefaultLivenessService service = DefaultLivenessService.builder().config(cfg).analyzerFactory(rf).build();
@@ -309,10 +314,12 @@ final class SessionDemo {
         System.exit(0);
     }
 
-    static ConfigProvider forcedConfig(final String threshold) {
+    /** The passive threshold override, and the challenge pool override when types is not null. */
+    static ConfigProvider forcedConfig(final String threshold, final String types) {
         return new ConfigProvider() {
             @Override public String get(String key) {
-                return PASSIVE_KEY.equals(key) ? threshold : null;
+                if (PASSIVE_KEY.equals(key)) return threshold;
+                return TYPES_KEY.equals(key) ? types : null;
             }
         };
     }

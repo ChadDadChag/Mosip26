@@ -1,10 +1,8 @@
 package io.mosip.registration.liveness.eval;
 
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
-import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
 import io.mosip.registration.liveness.api.Frame;
-import io.mosip.registration.liveness.api.FrameSource;
 import io.mosip.registration.liveness.tools.Trace;
 import io.mosip.registration.liveness.tools.TraceRecorder;
 
@@ -26,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@link TraceRecorder#record} (Part 3's recorder: features only, nothing image-like) on the webcam with the real
  * analyzer, shows the live preview and turns its console cues into big on-screen prompts and a beep.
  * <pre>
- *   LiveAnalyzerDemo --mode traces --consent [--subject p01] [--labels blink,smile,...] [--takes 2]
+ *   LiveAnalyzerDemo --mode traces --consent [--subject p01] [--labels blink,turn_left:3,...] [--takes 2]
  *                    [--out liveness-eval/traces]
  * </pre>
  * Files are named {@code <subject>-<label>-<take>.jsonl}; subjects are codes, never names.
@@ -59,8 +57,9 @@ final class TraceCapture {
         }
         String subject = a.has("--subject") ? a.single("--subject") : "p01";
         if (!subject.matches("^p\\d{2}$")) throw new IllegalArgumentException("--subject must be a code like p01 (no names)");
-        List<String> labels = a.has("--labels") ? Arrays.asList(a.single("--labels").split(",")) : DEFAULT_LABELS;
-        int takes = Integer.parseInt(a.has("--takes") ? a.single("--takes") : "2");
+        int defaultTakes = Integer.parseInt(a.has("--takes") ? a.single("--takes") : "2");
+        Map<String, Integer> plan = plan(a.has("--labels") ? Arrays.asList(a.single("--labels").split(",")) : DEFAULT_LABELS,
+                defaultTakes);
         File out = new File(a.has("--out") ? a.single("--out") : "liveness-eval/traces");
         if (!out.isDirectory() && !out.mkdirs()) throw new IllegalStateException("cannot create " + out);
 
@@ -74,7 +73,7 @@ final class TraceCapture {
                 w.video(DemoWindow.image(f), null);
             }
         });
-        final KeptOpen warm = new KeptOpen(source);
+        final KeptOpenSource warm = new KeptOpenSource(source);
         final AtomicReference<String> key = new AtomicReference<String>();
         final LiveAnalyzerDemo.LiveLoop alive = new LiveAnalyzerDemo.LiveLoop();
         w.key("SPACE", new Runnable() { @Override public void run() { key.set("SPACE"); } });
@@ -82,11 +81,13 @@ final class TraceCapture {
         w.onClose(new Runnable() { @Override public void run() { alive.running = false; } });
         w.show();
         warm.open();
-        int done = 0, total = labels.size() * takes;
+        int done = 0, total = 0;
+        for (int n : plan.values()) total += n;
         outer:
-        for (String label : labels) {
+        for (Map.Entry<String, Integer> e : plan.entrySet()) {
+            String label = e.getKey();
             String what = INSTRUCTIONS.containsKey(label) ? INSTRUCTIONS.get(label) : label;
-            for (int take = 1; take <= takes; take++) {
+            for (int take = 1; take <= e.getValue(); take++) {
                 key.set(null);
                 w.message("NEXT: " + what + "  (SPACE = start, S = skip)", new Color(200, 100, 0));
                 w.info("take " + (done + 1) + " of " + total + "\nlabel " + label + " #" + take
@@ -112,51 +113,16 @@ final class TraceCapture {
         System.exit(0);
     }
 
-    /**
-     * Keeps the camera open across takes. TraceRecorder starts and stops its source on every take, and a cold webcam
-     * open (0.8 to 2.5 s here) ate the pre-prompt frames the detectors' baseline needs. Here start() and stop() only
-     * attach and detach the take's listener, so sequence numbers run on across takes (traces keep times, not seq).
-     */
-    static final class KeptOpen implements FrameSource {
-        private final FrameSource camera;
-        private volatile Listener current;
-        private volatile String fatal;
-
-        KeptOpen(FrameSource camera) {
-            this.camera = camera;
+    /** "blink,turn_left:3" → {blink: defaultTakes, turn_left: 3}, in the given order. */
+    static Map<String, Integer> plan(List<String> items, int defaultTakes) {
+        Map<String, Integer> plan = new LinkedHashMap<String, Integer>();
+        for (String item : items) {
+            String[] p = item.trim().split(":");
+            int n = p.length > 1 ? Integer.parseInt(p[1]) : defaultTakes;
+            if (p[0].isEmpty() || n < 1 || n > 20) throw new IllegalArgumentException("bad --labels item '" + item + "'");
+            plan.put(p[0], n);
         }
-
-        void open() {
-            camera.start(new Listener() {
-                @Override public void onFrame(Frame frame) {
-                    Listener l = current;
-                    if (l != null) l.onFrame(frame);
-                }
-
-                @Override public void onError(ErrorCode code, String detail, boolean recoverable) {
-                    if (!recoverable) fatal = code + ": " + detail;
-                    Listener l = current;
-                    if (l != null) l.onError(code, detail, recoverable);
-                }
-            });
-        }
-
-        void close() {
-            current = null;
-            camera.stop();
-        }
-
-        @Override public DeviceInfo info() { return camera.info(); }
-
-        @Override public void start(Listener listener) {
-            current = listener;
-            String f = fatal; // a camera that already failed fails the take at once
-            if (f != null) listener.onError(ErrorCode.CAMERA_UNAVAILABLE, f, false);
-        }
-
-        @Override public void stop() { current = null; }
-
-        @Override public boolean isRunning() { return current != null && camera.isRunning(); }
+        return plan;
     }
 
     /** Turns TraceRecorder's console lines into on-screen cues ("Get ready" / ">>> NOW") and a beep. */
