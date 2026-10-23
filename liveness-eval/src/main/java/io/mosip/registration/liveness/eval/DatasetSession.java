@@ -64,6 +64,11 @@ final class DatasetSession {
                 "PHONE VERY CLOSE (~10 cm): your SELFIE PHOTO, face size 20% or more" + OUT_OF_VIEW);
         add(p, "screen_photo_close", 10, 3, "nasa_fill",
                 "PHONE VERY CLOSE (~10 cm): the NASA PORTRAIT, face size 20% or more" + OUT_OF_VIEW);
+        // Prints (added later; S skips them until they exist).
+        add(p, "print_flat", 1, 3, "selfie", "PRINT held FLAT: your SELFIE printed in colour" + OUT_OF_VIEW);
+        add(p, "print_flat", 4, 3, "nasa", "PRINT held FLAT: the NASA PORTRAIT printed in colour" + OUT_OF_VIEW);
+        add(p, "print_curved", 1, 3, "selfie", "PRINT CURVED around your hand: your SELFIE print" + OUT_OF_VIEW);
+        add(p, "print_curved", 4, 3, "nasa", "PRINT CURVED around your hand: the NASA PORTRAIT print" + OUT_OF_VIEW);
         return p;
     }
 

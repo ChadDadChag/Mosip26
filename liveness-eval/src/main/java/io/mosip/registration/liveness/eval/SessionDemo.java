@@ -50,6 +50,8 @@ import java.util.concurrent.atomic.AtomicReference;
  *   g  phone showing a photo,     RESIDENT, forced challenges (do nothing when asked)
  *   h  real face,                 RESIDENT, forced challenges, coached beforehand to turn clearly and come back
  *   p  phone photo ~10 cm away,   RESIDENT (the close-up the session moire cap must send to a challenge)
+ *   q  as p, tilting the phone to fake BLINK / SMILE (the pose-drift guard must hold)
+ *   r  phone photo, normal distance, forced challenges, tilting to fake BLINK / SMILE
  * </pre>
  * Forced challenges = a ConfigProvider override of {@code mosip.registration.liveness.face.default.passiveThreshold}
  * (default 0.9999, {@code --force-threshold}) so a real face cannot pass passively; padRejectThreshold stays 0.30.
@@ -92,7 +94,11 @@ final class SessionDemo {
                     "REAL FACE: when asked to turn, turn clearly (about 30 deg) and then come back to face the camera");
             case 'p': return new Case("p", WorkflowType.RESIDENT, false,
                     "PHONE PHOTO about 10 cm from the camera (face fills the picture), your face out of view: hold still until FINISHED");
-            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h, p)");
+            case 'q': return new Case("q", WorkflowType.RESIDENT, false,
+                    "PHONE PHOTO about 10 cm away, your face out of view: when asked to BLINK or SMILE, TILT the phone to fake it");
+            case 'r': return new Case("r", WorkflowType.RESIDENT, true,
+                    "PHONE PHOTO at normal distance, forced challenges: when asked to BLINK or SMILE, TILT the phone to fake it");
+            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h, p, q, r)");
         }
     }
 

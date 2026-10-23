@@ -611,7 +611,7 @@ public final class PadEvaluation {
                 for (FrameRec f : t.onnx) if (f.faces == 1) groups.get(key).add(f);
             }
             StringBuilder b = new StringBuilder("Frames with exactly one face. Values are median [10th - 90th percentile].\n\n"
-                    + "| class | frames | face area fraction | moire | glare | MEAN score | area > 0.20 / 0.25 / 0.35 / 0.60 | "
+                    + "| class | frames | face area fraction | moire | glare | MEAN score (no cap) | area > 0.20 / 0.25 / 0.35 / 0.60 | "
                     + "moire >= 1.3 / 1.4 / 1.5 / 1.6 / 1.8 / 2.0 / 2.2 |\n|---|---|---|---|---|---|---|---|\n");
             for (Map.Entry<String, List<FrameRec>> e : groups.entrySet()) {
                 List<FrameRec> fs = e.getValue();
@@ -744,13 +744,13 @@ public final class PadEvaluation {
     // small helpers
     // ---------------------------------------------------------------------------------------------------------
 
-    /** 0 = area, 1 = moire, 2 = glare, 3 = score. */
+    /** 0 = area, 1 = moire, 2 = glare, 3 = MEAN of the model outputs without the session cap. */
     private static float field(FrameRec f, int k) {
         switch (k) {
             case 0: return f.area;
             case 1: return f.moire;
             case 2: return f.glare;
-            default: return f.score;
+            default: return Float.isNaN(f.v2) || Float.isNaN(f.v1se) ? Float.NaN : (f.v2 + f.v1se) / 2f;
         }
     }
 

@@ -113,9 +113,11 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
 - **New subject:** read the consent text again, pick the next free code (`s02`, ...), and run the same session with
   `--subject s02`. `PadEvaluation` picks up every subject under `eval-data/` and reports how many there are.
 - **Prints:** print the selfie and the NASA portrait in colour on plain A4 paper (or photo paper; record which in a
-  note kept off the repository). Record 6 takes per species with `DatasetRecorder --label print_flat` and
-  `--label print_curved`, conditions `selfie` and `nasa` (3 each), takes numbered from 1.
-- Rerun `PadEvaluation`. Species without takes stay marked "not yet evaluated".
+  note kept off the repository). The guided session has 6 takes per species, `selfie` x3 and `nasa` x3:
+  `LiveAnalyzerDemo --mode dataset --consent --subject s01 --only print_flat,print_curved`.
+  Single takes also work: `DatasetRecorder --consent --label print_flat --subject s01 --take 1 --condition selfie`.
+- Rerun `PadEvaluation`. Species without takes stay marked "not yet evaluated". The exact commands are in
+  `docs/part2-iso30107-evaluation.md`, section 7.
 
 ## 9. Evaluation
 
