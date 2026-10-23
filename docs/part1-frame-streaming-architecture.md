@@ -152,6 +152,9 @@ streaming, it plugs in as another `FrameSource`; nothing downstream changes.
 | Webcam / camera unavailable or unplugged | grabber / CameraX | `CAMERA_UNAVAILABLE` | false | session ends |
 | Exception thrown by the listener | source | none | — | logged, the stream continues; engine bugs are never reported as device errors |
 
+"Session ends" here means the source stops. The liveness session does not end: the engine offers Retry, which
+restarts the source (§9).
+
 ## 7. Capability discovery
 
 | Source | Formats | Resolutions | Frame rate | Origin |
@@ -174,3 +177,59 @@ MDS device info has no resolution or FPS fields, so for SBI devices these values
   the raw index, so skips show up as gaps.
 - **Restart safety.** All per-run state belongs to one session. A worker still blocked in a
   device call after `stop()` cannot deliver into, stop, or release resources of the next session.
+
+## 9. What the liveness engine does with device errors (Part 3)
+
+The engine (`liveness-core`) turns source errors into user-facing behaviour. The same rules apply to every source.
+
+| Source reports | Engine behaviour |
+|---|---|
+| `DEVICE_*` or `CAMERA_UNAVAILABLE`, recoverable | Shows `DEVICE_ERROR` with Retry. When frames resume within `deviceGraceMs` (the source reconnected by itself), the attempt continues. |
+| `DEVICE_*` or `CAMERA_UNAVAILABLE`, not recoverable | Shows `DEVICE_ERROR` with Retry. Retry stops and restarts the source. It never auto-resumes, even if a stale frame is still queued. |
+| Any device error, the 4th in one session | `DEVICE_ERROR(recoverable=false)`, then the session ends as FAILED with that device code. |
+| `INVALID_FRAME` | Counted with the engine's own frame checks: 3 bad frames fail the attempt as `INVALID_FRAME` (the attempt can be retried). |
+
+- A device problem is never counted as a liveness attempt or retry. An unplugged camera cannot use up the user's
+  attempts.
+- A stale frame cannot resume an attempt. When a device error arrives, the engine throws away any frame still waiting
+  for analysis.
+- Both rules are covered by `UnplugReplugIntegrationTest`. Its unplug, Retry, replug, PASSED path found the
+  stale-frame bug, which is now fixed.
+
+## 10. Live preview (`PreviewFrameSource`)
+
+The engine analyses only a few frames per second (`analyzeFps`) and always takes the newest one. A preview has to show
+every frame, so `PreviewFrameSource` wraps any `FrameSource` as a tee:
+
+    device ──► PreviewFrameSource ──► engine (LivenessSession)
+                       └──────────► PreviewListener.onPreviewFrame(frame)   (UI preview, every frame)
+
+- Errors go to the engine only, which decides what the user sees.
+- A preview listener that throws is skipped for that frame. It cannot stop delivery to the engine.
+- This closes contract proposal N1 (preview) for the Desktop without any change to `liveness-api`.
+- `LivenessHarness` uses the tee to draw the preview with the face box from the analyzer.
+
+## 11. MockMDS with real frames (`mock-mds-patch/`)
+
+The patch for MOSIP's MockMDS lets the real SBI path run without a device:
+
+- **The `/stream` lookup fix.** The client sends `serialNo`, which is not the `deviceId`. Without the fix the
+  client gets error 605 and no stream.
+- **Face stream modes.** The full-face stream can send `images` (one image = a printed-photo attack), a `video`
+  recording (the same files `MjpegRecorder` and `SbiStreamProbe --save` write) or the `webcam`.
+
+The full path then runs on one laptop:
+
+    MjpegRecorder / webcam ─► MockMDS /stream ─► SbiStreamFrameSource ─► engine
+
+Setup and the run command are in `mock-mds-patch/README.md`.
+
+## 12. Interoperability and end-to-end tests
+
+| Test | What it proves |
+|---|---|
+| `DevicePathInteropTest` | The mock device and the SBI adapter (fed the same recording over the SBI wire format) deliver identical frames in the same order, and reach the same liveness decision. |
+| `UnplugReplugIntegrationTest` | Unplug, then Retry, then replug: PASSED, with one result and no attempt used up by the device. A camera that never comes back ends cleanly at the device limit. |
+| `RecordedVideoE2ETest` | Each `*__expect-<DECISION>[-<CODE>].mjpeg` clip goes through the device path, the analyzer and the engine, and the result matches the name. Team clips are passed in with `-Dliveness.videos.dir` and are kept out of git (`docs/part1-test-data-protocol.md`). |
+| `SbiStreamProbe` (tool and test) | Any MDS answers the client's exact `/stream` request with a decodable stream. |
+

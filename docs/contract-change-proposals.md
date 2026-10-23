@@ -21,5 +21,6 @@ Owner and approver: Part 3. **None of these have been applied.** `liveness-api` 
 ## Notes for other parts (not contract changes)
 
 - **N1 → Part 1: preview.** `FrameSource.start(Listener)` takes a single listener, and the engine owns it. The live preview (§10.1) therefore needs a way to receive frames too: either the source supports several listeners, or a tee. This belongs to Part 1. Core needs nothing beyond `start`, `stop` and `onError`.
+  **Resolved on the Desktop (2026-10-23)** by Part 1's `PreviewFrameSource`. This is a tee that wraps any source and sends every frame to the preview and to the engine, with errors going to the engine only. No contract change was needed. Android (CameraX) can use the same wrapper, or CameraX's own `Preview` use case.
 - **N2 → Parts 1/2: frame rate.** The detectors assume ≥ 12 fps reaches the analyzer while a challenge runs (see P5).
 - **N3 → Parts 4/5: config key names.** The team split says `timeoutSec`. The contract key is `mosip.registration.liveness.face.<workflow>.challengeTimeoutMs`. Use the contract names.

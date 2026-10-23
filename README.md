@@ -26,6 +26,10 @@ not part of Part 1 and is documented separately in its own delivery notes.
 | Capability discovery (formats, resolutions, frame rates) | `DeviceCapabilities`, `CapabilityProbe`, per-source table in docs §7 |
 | Android frame source (CameraX; SBI-intent decision explained) | `android-liveness-frame-source/`, docs §5 |
 | Deliverables: interface, architecture diagram, mock device | docs §2–§5, `MockFrameSource` |
+| MockMDS streams real frames, and its `serialNo` bug is fixed | `mock-mds-patch/` |
+| Liveness debug window and headless runner (preview, face box, score, prompts, Retry) | `LivenessHarness`, `PreviewFrameSource` |
+| Interoperability and end-to-end tests (device path to engine, unplug and replug, recorded clips) | `DevicePathInteropTest`, `UnplugReplugIntegrationTest`, `RecordedVideoE2ETest`, `SbiStreamProbe` |
+| Test data protocol and QA checklist | `docs/part1-test-data-protocol.md`, `docs/part1-qa-checklist.md`, `scripts/record-liveness-clip.*` |
 
 ## What is in here
 
@@ -33,11 +37,15 @@ not part of Part 1 and is documented separately in its own delivery notes.
 |---|---|
 | `registration/liveness-api/` | The shared contracts (`Frame`, `FrameSource`, `DeviceCapabilities`, `ErrorCode`, ...). New Maven module. |
 | `registration/registration-services/.../liveness/device/sbi/` | `SbiStreamFrameSource` + `SbiStreamFrameSourceFactory`: reads the existing SBI `/stream` MJPEG through `BioService.getStream()`. |
-| `.../liveness/device/util/` | `MjpegFrameReader` (MJPEG parsing), `JpegToRgb888Converter` (JPEG to RGB888), `CapabilityProbe`. |
+| `.../liveness/device/util/` | `MjpegFrameReader` (MJPEG parsing), `JpegToRgb888Converter` (JPEG to RGB888), `CapabilityProbe`, `PreviewFrameSource` (sends every frame to a preview as well as to the engine). |
 | `.../liveness/device/mock/` | `MockFrameSource` (3 modes), `SarxosWebcamFrameGrabber`, `MjpegRecorder`. |
+| `.../liveness/device/demo/` | `FramePipelineDemo` (frames only), `LivenessHarness` (the whole pipeline with the real engine), `SbiStreamProbe` (checks any MDS `/stream` the way the client calls it). |
 | `android-liveness-frame-source/` | `CameraXFrameSource` for Android. Not part of the Maven build. |
+| `mock-mds-patch/` | The patch for MOSIP's MockMDS: the `serialNo` fix plus real face frames (images, video, webcam). See its README. |
+| `scripts/record-liveness-clip.sh`, `.ps1` | Record a labelled test clip from the webcam. |
 | `docs/part1-frame-streaming-architecture.md` | Existing-integration analysis, interface, architecture and sequence diagrams, error and capability tables. |
-| `registration/pom.xml`, `registration/registration-services/pom.xml` | Two small edits: the `liveness-api` module/dependency, plus `webcam-capture` 0.3.12. |
+| `docs/part1-test-data-protocol.md`, `docs/part1-qa-checklist.md` | What to film and how to keep it private; the problem-statement checklist for Part 1. |
+| `registration/pom.xml`, `registration/registration-services/pom.xml` | Small edits: the liveness modules, the `liveness-api` and `liveness-core` dependencies (the harness and end-to-end tests run the real engine), and `webcam-capture` 0.3.12. |
 
 No existing Registration Client class (Streamer, controllers, SBI provider, BioServiceImpl,
 `/capture`) is modified.
@@ -51,8 +59,9 @@ JDKs), **Maven 3.6+**, **Git**, and internet access for the first build.
 
        git clone --depth 1 --branch v1.2.0.2 https://github.com/mosip/registration-client.git
 
-2. Copy the contents of `part1_patch/registration/` over `registration-client/registration/`.
-   The two `pom.xml` files are the v1.2.0.2 originals plus only the liveness additions.
+2. Copy the contents of this repository over `registration-client/registration/`.
+   The two `pom.xml` files are the v1.2.0.2 originals plus only the liveness additions, and
+   `.gitignore` keeps all of MOSIP's entries.
 
 ## Build and test
 
@@ -62,10 +71,10 @@ PowerShell, from `registration-client\registration` (adjust the JDK/Maven paths 
     $mvn = "C:\Users\penna\tools\apache-maven-3.9.9\bin\mvn.cmd"
 
     # build + Part 1 tests only (fast)
-    & $mvn -pl liveness-api,registration-services -am test "-Dtest=**/liveness/**/*Test" "-Dsurefire.failIfNoSpecifiedTests=false"
+    & $mvn -pl liveness-api,liveness-core,registration-services -am test "-Dtest=**/liveness/**/*Test,FrameTest" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dgpg.skip"
 
     # build without tests
-    & $mvn -pl liveness-api,registration-services -am install -DskipTests
+    & $mvn -pl liveness-api,liveness-core,registration-services -am install -DskipTests "-Dgpg.skip"
 
 The first build downloads all MOSIP dependencies and takes a while; later builds are offline-fast.
 
@@ -85,8 +94,26 @@ Close the window to stop. To make a `.mjpeg` recording from your webcam or a fol
     & $mvn -q exec:java "-Dexec.mainClass=io.mosip.registration.liveness.device.mock.MjpegRecorder" "-Dexec.args=webcam 150 15 C:\path\to\clip.mjpeg"
     & $mvn -q exec:java "-Dexec.mainClass=io.mosip.registration.liveness.device.mock.MjpegRecorder" "-Dexec.args=images C:\path\to\photos C:\path\to\clip.mjpeg"
 
-The SBI path (`SbiStreamFrameSource`) needs a running MDS (a real device or MockMDS) and is used
-from inside the Registration Client (see "How to use it" below); it has no standalone demo.
+## Run the liveness harness (the whole pipeline)
+
+`LivenessHarness` connects a frame source, the Part 2 stand-in analyzer (`HeuristicFaceAnalyzer`) and the real
+Part 3 engine. The window shows:
+- the live preview, with the detected face box and the liveness score
+- the current status, the challenge prompt and its progress, and positioning guidance, using the problem-statement texts
+- the result, with Start, Retry and Cancel buttons
+
+    & $mvn -q exec:java "-Dexec.mainClass=io.mosip.registration.liveness.device.demo.LivenessHarness" "-Dexec.args=webcam"
+    & $mvn -q exec:java "-Dexec.mainClass=io.mosip.registration.liveness.device.demo.LivenessHarness" "-Dexec.args=video C:\path\to\clip.mjpeg 15 --workflow operator --diagnostic"
+
+Arguments: `webcam [fps]`, `video <file.mjpeg> [fps]`, `images <fileOrDir> [fps]`, plus `--workflow resident|operator|supervisor`,
+`--diagnostic` (prints the audit, `diag.*` per-attempt score statistics and the metrics) and `--headless` (no window).
+Headless mode presses Retry automatically and exits with 0 (PASSED), 1 (FAILED) or 2 (cancelled or timed out).
+
+The stand-in analyzer is not a real PAD model: it can pass a photo. Real PAD results need Part 2's analyzer.
+
+The SBI path (`SbiStreamFrameSource`) needs a running MDS (a real device or the patched MockMDS) and is used
+from inside the Registration Client (see "How to use it" below). To check an MDS stream on its own, use `SbiStreamProbe`
+(see `mock-mds-patch/README.md`).
 
 ## How to use it
 
@@ -133,14 +160,19 @@ Making recordings for `ofVideoFile` (same framing as SBI `/stream`):
 
 ## Trying it against the MockMDS service
 
-Start `mosip-mock-services-master/MockMDS` with its own scripts (`run_reg.bat` / `run.sh`)
-or `mvnw spring-boot:run`, then run the Registration Client's device discovery as usual.
+Unpatched MockMDS does not stream to the Registration Client. The client's `StreamSbiRequestDTO`
+sends `serialNo`, but MockMDS looks the device up by `deviceId`, finds nothing, and answers with
+error 605. This also breaks the client's existing face preview.
 
-Known blocker: the Registration Client's `StreamSbiRequestDTO` sends `serialNo`, but MockMDS's
-`StreamingRequestDetail` expects `deviceId`. MockMDS therefore looks for a non-existent
-`streamnull<subId>.jpg` and the stream fails, for the existing Streamer preview too. Neither
-side was changed. The smallest fix is `@JsonAlias("serialNo")` on `deviceId` in the MockMDS
-class. The mock modes above do not use this path.
+An alias from `serialNo` to `deviceId` is not enough. The face device's serial number (`2345678901`)
+is not its `deviceId` (`3`).
+
+`mock-mds-patch/` fixes the lookup: MockMDS accepts either `deviceId` or the DigitalId serial number. The
+patch also makes the face stream send images, a recorded video or the webcam. Apply it, then start MockMDS
+with the run command in `mock-mds-patch/README.md` and run the Registration Client's device discovery as usual.
+
+Checked live: unpatched MockMDS returned 605. Patched, it streamed 45 of 45 frames of a recording, in
+order and byte-identical through `MjpegFrameReader`.
 
 ## Behaviours worth knowing
 
@@ -154,22 +186,37 @@ class. The mock modes above do not use this path.
 - MDS device info has no resolution/FPS, so for SBI devices those capabilities are OBSERVED
   from the stream (`DeviceInfo.maxWidth` etc. are 0 until the first frame).
 - Android frames are rotated upright using CameraX's rotation and are not mirrored.
+- How the engine handles errors from a frame source:
+  - A device error (unavailable, connection failure, disconnect, camera unavailable) shows "Device error" with
+    Retry, and is never counted as a liveness attempt.
+  - Retry is offered for the first 3 device errors in a session. A 4th device error ends the session with that
+    device code.
+  - `INVALID_FRAME` from the source counts as a corrupt frame: 3 of them fail the attempt as `INVALID_FRAME`.
 
 ## Test status (be aware)
 
-- Executed: 88 tests (API, converter, MJPEG parser, mock modes, recorder, capability probe, stride,
-  reconnect, corrupt frames, restart-while-blocked, Part 2 engine) with JUnit 4.12 and Mockito 5.
-  They were compiled against small stubs of the five upstream MOSIP types (`BioService`,
-  `MdmBioDevice`, `RegBaseCheckedException`, `RegistrationExceptionConstants`,
-  `MosipDeviceSpecificationFactory`), and the suite passed three runs in a row. A full `mvn test`
-  inside the real Registration Client has not been run. Test code uses only Mockito calls that
-  exist in both 1.x and 2.x, which are on the upstream test classpath.
-- `SarxosWebcamFrameGrabber` compiles against the real `webcam-capture` 0.3.12 jar but has not
-  been run with a camera.
-- `CameraXFrameSource` type-checks against stubs of the CameraX/Android types it uses. Its
-  YUV→RGB conversion, rotation (0/90/180/270) and stride were executed on synthetic frames.
-  It has not been built with the Android SDK or run on a device.
-- Not run against real SBI hardware or the actual MockMDS process.
+- **Real build.** The suite runs inside the real Registration Client v1.2.0.2 build (JDK 11, the upstream MOSIP
+  classes, no stubs), with the "Build and test" command above. The `registration-services` liveness tests total 96,
+  all passing: the original 83, plus 13 new.
+- **New tests:**
+  - preview tee
+  - harness model and headless run
+  - `SbiStreamProbe`
+  - device-path interoperability
+  - unplug and replug through the real engine
+  - recorded-clip end-to-end
+- **Bugs found and fixed.** The unplug and replug test found an engine bug, now fixed in Part 3: a frame left over
+  from before the unplug could resume the attempt and swallow the user's Retry.
+- **MockMDS.** The patched MockMDS was run as a process. `SbiStreamProbe` and the client's own request got 45 of
+  45 frames from a recording. The patch's own `FaceStreamProviderTest` passes (7).
+- **Not run with hardware:**
+  - `SarxosWebcamFrameGrabber` and the MockMDS webcam mode compile against the real `webcam-capture` 0.3.12 jar,
+    but have not been run with a camera here.
+  - `CameraXFrameSource` type-checks against stubs of the CameraX/Android types it uses. Its YUV→RGB conversion,
+    rotation (0/90/180/270) and stride were run on synthetic frames. It has not been built with the Android SDK or
+    run on a device.
+  - Nothing has been run against real SBI hardware.
+- **Manual checks.** The checks that need hardware or people are listed in `docs/part1-qa-checklist.md`.
 
 ---
 
@@ -189,7 +236,7 @@ Use the same setup as above (JDK 11, Registration Client v1.2.0.2 checkout, patc
 
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip
 
-This runs about 230 tests, enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
+This runs about 260 tests, enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
 
 ## Use (Parts 4 and 5)
 

@@ -6,6 +6,8 @@ Audit date: 2026-09-23. Scope: Part 3 only. Parts 1, 2, 4 and 5 are not built; t
 
 **Current result (after fixes):** 29 DONE · 0 PARTIAL · 0 MISSING · 0 BROKEN.
 
+> **Round 3 (2026-10-23): checked against the problem statement and run with Part 1's real device path.** See §7. This round changed the device-error behaviour (D19, D20, D25), challenge selection (D21), best-frame choice (D22) and analyzers without pose (D23), and added diagnostic mode and metrics (D24). Tests now: core 201, fake 44, tools 10, api 5.
+
 - **Audit:** 26 DONE and 3 PARTIAL, with no production code changed.
 - **Fixes:** all code and documentation findings were then fixed (§4a). `liveness-api` is still unchanged.
 - **Still open:** two items need people or other parts, not code (§6): the contract proposals and tuning on real faces.
@@ -178,3 +180,41 @@ Everything below needs people or other parts. None of it can be finished by more
    - DEVICE_ERROR can now arrive with `recoverable=false` just before FAILED_FINAL.
    - `attempts` no longer counts device recoveries.
    - The fake has a new `DEVICE_FAILURE` scenario.
+
+---
+
+## 7. Round 3 (2026-10-23): problem-statement pass and Part 1 integration
+
+The engine was run end to end with Part 1's real code inside the MOSIP v1.2.0.2 build:
+- the SBI source, the mock device, MockMDS
+- `HeuristicFaceAnalyzer`, the Part 2 stand-in
+
+Each problem-statement item was checked again. The changes:
+
+| Change | Why | Where | Guarded by |
+|---|---|---|---|
+| **Bug: stale frame after a device error.** A frame queued before an unplug resumed the attempt in DEVICE_WAIT. That cleared "source needs restart", and the user's Retry was then ignored. | Found by Part 1's `UnplugReplugIntegrationTest` | `SessionStateMachine.onFrame` (no auto-resume once the source gave up); `DefaultLivenessSession` discards the pending frame on DEVICE_ERROR (D25) | `SessionStateMachineTest.noAutoResumeAfterTheSourceGaveUp` (mutation-checked), `EngineScenarioTest.frameWaitingAtTheMomentOfADeviceErrorDoesNotResumeTheAttempt`, `UnplugReplugIntegrationTest` |
+| Device errors always offer Retry. The session ends only after `maxDeviceErrors` (3) | §1 "connection/disconnection". Part 1's source reports an unplugged device as not recoverable, and before this change that ended the resident capture (D19) | `SessionStateMachine.onSourceError/deviceProblem`, `EngineTuning.maxDeviceErrors`, `FakeLivenessSession` | `sourceGivingUpStillOffersRetryWhichRestartsTheSource`, `tooManyDeviceErrorsEndTheSessionWithTheDeviceCode`, `unplugMidCaptureThenReplugAndRetryPasses`, fake `deviceFailureScenarioOffersRetryThenGivesUp` |
+| Corrupt frames reported by the source count as `INVALID_FRAME`, not as device errors | §9 "invalid/incomplete frame data" (D20) | `SessionStateMachine.onSourceError` | `corruptFramesReportedByTheSourceAreNotDeviceErrors`, fake `corruptFrameReportsFromTheSourceAreIgnored` |
+| BLINK is never the only challenge | A replayed video of natural blinking would pass a lone BLINK (D21) | `ChallengeSelector.NOT_ALONE` | `blinkAloneOnlyWhenItIsTheWholePool`, `replayedVideoOfNaturalBlinkingNeverPasses` |
+| The best frame is chosen by sharpness, frontality and size | The best frame is the biometric that goes into the packet (D22) | `quality/Sharpness`, `BestFrameSelector` | `SharpnessTest`, `BestFrameSelector` tests |
+| Analyzers without pose (NaN) work. Only measurable challenges are offered | With the stand-in analyzer no session could pass (D23) | `FaceGeometry.withinPose/hasPose/hasExpressionLandmarks`, `PassiveEvaluator`, `ChallengeRunner`, `PositioningHintFilter`, `SessionStateMachine.measurable` | no-pose scenario tests |
+| Diagnostic mode: `diag.*` per-attempt statistics in audit | Good-to-have "diagnostic mode" (D24) | `AuditRecorder` | `AuditRecorderTest` diagnostic tests |
+| `LivenessMetrics`: average processing time, average challenge completion time, retry rate, failure rate, and the counts behind them | Good-to-have "anonymized operational metrics" and the four named metrics (D24) | `metrics/LivenessMetrics`, `DefaultLivenessService.metrics()`, `FakeLivenessService.metrics()` | `AuditRecorderTest`, `DefaultLivenessServiceTest`, fake `metricsCountScriptedSessions` |
+| Online/offline architecture written up | Deliverable "online and offline architecture" | `docs/person3-design.md` §12a | — |
+
+The §4a rows about `DEVICE_ERROR(recoverable=false)` still hold, but that event now arrives only with the final device error. The fake test `deviceFailureScenarioShowsNoRetry` was replaced by `deviceFailureScenarioOffersRetryThenGivesUp`.
+
+**§5 items now verified with Part 1's code:**
+- **Reconnects.** Reconnect after a recoverable `onError`, and `stop()`/`start()` restarting cleanly, were run with the real `SbiStreamFrameSource` (`UnplugReplugIntegrationTest`, `DevicePathInteropTest`).
+- **Preview (note N1).** Solved on the Desktop by Part 1's `PreviewFrameSource`.
+
+**Still open:**
+- §6 items 1 and 2: the contract proposals and tuning on real faces.
+- Real hardware and the screens (Parts 4 and 5).
+
+**Tell Parts 4 and 5:**
+- A device error now always comes with Retry (`recoverable=true`). Only the 4th device error in a session is `recoverable=false`, followed by FAILED_FINAL.
+- The fake's `DEVICE_FAILURE` scenario now behaves this way too.
+- `metrics()` is available for their counters and the Part 5 benchmark.
+

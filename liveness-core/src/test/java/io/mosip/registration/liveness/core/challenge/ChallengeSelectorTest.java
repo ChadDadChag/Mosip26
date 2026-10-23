@@ -100,7 +100,7 @@ class ChallengeSelectorTest {
     }
 
     @Test
-    void singleChallengeDrawIsUniformAndNeverRepeatsBackToBack() {
+    void singleChallengeDrawIsUniformOverMotionChallengesAndNeverRepeatsBackToBack() {
         ChallengeSelector s = new ChallengeSelector(new SeededRandomSource(99));
         java.util.Map<ChallengeType, Integer> counts = new java.util.EnumMap<ChallengeType, Integer>(ChallengeType.class);
         List<ChallengeType> previous = null;
@@ -111,6 +111,22 @@ class ChallengeSelectorTest {
             counts.put(seq.get(0), c == null ? 1 : c + 1);
             previous = seq;
         }
-        for (int c : counts.values()) assertThat(c).isBetween(2250, 2750); // expected 2500
+        // BLINK is never the only challenge (natural blinking in a replay would satisfy it): 3 types left.
+        assertThat(counts).doesNotContainKey(BLINK);
+        assertThat(counts.keySet()).containsExactlyInAnyOrder(SMILE, TURN_LEFT, TURN_RIGHT);
+        for (int c : counts.values()) assertThat(c).isBetween(3000, 3667); // expected 3333
+    }
+
+    @Test
+    void blinkAloneOnlyWhenItIsTheWholePool() {
+        ChallengeSelector s = new ChallengeSelector(new SeededRandomSource(4));
+        for (int i = 0; i < 500; i++) {
+            assertThat(s.select(Arrays.asList(BLINK, SMILE), ALL, 1, null)).containsExactly(SMILE);
+            assertThat(s.select(Arrays.asList(BLINK), ALL, 1, null)).containsExactly(BLINK);
+        }
+        // With two challenges BLINK is still used, paired with a motion.
+        boolean sawBlink = false;
+        for (int i = 0; i < 500; i++) sawBlink |= s.select(DEFAULT_POOL, ALL, 2, null).contains(BLINK);
+        assertThat(sawBlink).isTrue();
     }
 }

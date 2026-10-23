@@ -6,6 +6,7 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessService;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
+import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
 import io.mosip.registration.liveness.core.policy.ServicePolicies;
 import io.mosip.registration.liveness.core.session.CooldownRefusedSession;
 import io.mosip.registration.liveness.core.util.RandomSource;
@@ -35,6 +36,7 @@ public final class FakeLivenessService implements LivenessService {
     private final RandomSource random;
     private final TimeSource clock;
     private final ServicePolicies policies;
+    private final LivenessMetrics metrics = new LivenessMetrics();
 
     private volatile FakeScenario scenarioOverride;
 
@@ -60,9 +62,19 @@ public final class FakeLivenessService implements LivenessService {
         LivenessPolicy p = policies.snapshot(workflow);
         if (!p.enabled) return null;
         long cooldownLeft = policies.cooldown().remainingMs(workflow);
-        if (cooldownLeft > 0) return new CooldownRefusedSession(workflow, cooldownLeft, audit, MODEL_VERSION, "fake");
-        return new FakeLivenessSession(workflow, p, effectiveScenario(), timeScale, random, clock, audit,
-                policies.cooldown());
+        if (cooldownLeft > 0) {
+            metrics.cooldownRefused();
+            return new CooldownRefusedSession(workflow, cooldownLeft, audit, MODEL_VERSION, "fake");
+        }
+        FakeLivenessSession s = new FakeLivenessSession(workflow, p, effectiveScenario(), timeScale, random, clock,
+                audit, policies.cooldown());
+        s.setMetrics(metrics);
+        return s;
+    }
+
+    /** Same anonymised metrics as the real service, fed by the scripted sessions (for building the UI's counters). */
+    public LivenessMetrics metrics() {
+        return metrics;
     }
 
     @Override

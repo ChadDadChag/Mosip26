@@ -80,7 +80,12 @@ final class FakeLivenessSession implements LivenessSession {
         this.workflow = workflow; this.policy = policy; this.scenario = scenario; this.timeScale = timeScale;
         this.random = random; this.clock = clock; this.cooldown = cooldown;
         this.recorder = new AuditRecorder(audit, workflow, sessionId, FakeLivenessService.MODEL_VERSION, clock, "fake");
+        this.recorder.setDiagnostic(policy.diagnosticMode);
         this.selector = new ChallengeSelector(random);
+    }
+
+    void setMetrics(io.mosip.registration.liveness.core.metrics.LivenessMetrics metrics) {
+        recorder.setMetrics(metrics);
     }
 
     FakeScenario scenario() {
@@ -162,6 +167,9 @@ final class FakeLivenessSession implements LivenessSession {
 
     private volatile int currentAttempt = 1;
     private boolean disconnectScripted; // worker-owned
+    private int deviceErrors;           // worker-owned
+    /** Same cap as the real engine's default. */
+    static final int MAX_DEVICE_ERRORS = io.mosip.registration.liveness.core.EngineTuning.defaults().maxDeviceErrors;
 
     private void runSession() {
         AttemptTracker tracker = new AttemptTracker(policy.maxRetries);
@@ -191,7 +199,9 @@ final class FakeLivenessSession implements LivenessSession {
                 }
                 if (o.device) {
                     recorder.deviceError(o.code, o.recoverable, "scripted or reported by FrameSource");
-                    if (!o.recoverable) {
+                    // Same rule as the real engine: the user can Retry (the source is restarted) even when the
+                    // source gave up, until EngineTuning.maxDeviceErrors problems in one session.
+                    if (++deviceErrors > MAX_DEVICE_ERRORS) {
                         emit(LivenessEvent.failure(LivenessEvent.Type.DEVICE_ERROR, o.code, attempt,
                                 tracker.retriesLeft(), false));
                         finishFailed(o.code, o.code, attempt, o.score);
@@ -509,6 +519,8 @@ final class FakeLivenessSession implements LivenessSession {
 
                 @Override
                 public void onError(ErrorCode code, String detailForAuditOnly, boolean recoverable) {
+                    // A corrupt frame the source skipped is not a device problem (the fake analyses nothing anyway).
+                    if (code == ErrorCode.INVALID_FRAME) return;
                     synchronized (lock) {
                         if (state == State.DONE || cancelRequested) return;
                         pendingDeviceError = code != null ? code : ErrorCode.DEVICE_UNAVAILABLE;

@@ -65,7 +65,7 @@ This gives exactly the result of merging the bundled file into the host config, 
 | `maxRetries` | int ≥ 0 | 3 | Attempts = 1 + maxRetries (device and engine errors don't count) |
 | `onRepeatedFailure` | `BLOCK` or `COOLDOWN` | BLOCK / **COOLDOWN** / BLOCK | What happens after MAX_RETRIES_EXCEEDED |
 | `cooldownSec` | int ≥ 0 | 60 | COOLDOWN only: new sessions for that workflow are refused for this long (in memory) |
-| `diagnosticMode` | boolean | false | Reserved for extra audit/diagnostic detail; never shown in the UI |
+| `diagnosticMode` | boolean | false | Adds per-attempt `diag.*` statistics to audit (score min/median/max, frames with no face or several faces, counts per quality issue). Never shown in the UI |
 | `analyzeFps` | int ≥ 1 | 8 | Analysis rate in the passive phase (challenges use at least 15, see P5) |
 
 **Validation.** `LivenessPolicy.validate()` in the contract checks the thresholds, `minChallenges`, `maxRetries`, `challengeTimeoutMs` and `analyzeFps`. `PolicyResolver.validateExtra` adds the checks the contract lacks: window ≥ 1, timeout > 0, cooldown ≥ 0, a non-empty pool, and `minChallenges` ≤ the number of *distinct* types.
@@ -177,27 +177,29 @@ stateDiagram-v2
   [*] --> IDLE : newSession()
   IDLE --> STARTING : start() / STARTED(1)
   STARTING --> PASSIVE_CHECK : first valid analysed frame / CHECKING_PASSIVE
-  STARTING --> DEVICE_WAIT : no frame in 5 s, or recoverable onError / DEVICE_ERROR
+  STARTING --> DEVICE_WAIT : no frame in 5 s, or a device onError / DEVICE_ERROR
   PASSIVE_CHECK --> PASSED : window median >= passiveThreshold
   PASSIVE_CHECK --> ACTIVE_CHALLENGE : padReject <= median < passive, activeEnabled
   PASSIVE_CHECK --> RETRY_AVAILABLE : attempt failed, retries left / ATTEMPT_FAILED
   ACTIVE_CHALLENGE --> PASSED : every challenge DETECTED + neutral hold
   ACTIVE_CHALLENGE --> RETRY_AVAILABLE : attempt failed, retries left / ATTEMPT_FAILED
-  PASSIVE_CHECK --> DEVICE_WAIT : stream stalled 2 s, or recoverable onError
-  ACTIVE_CHALLENGE --> DEVICE_WAIT : stream stalled 2 s, or recoverable onError
+  PASSIVE_CHECK --> DEVICE_WAIT : stream stalled 2 s, or a device onError
+  ACTIVE_CHALLENGE --> DEVICE_WAIT : stream stalled 2 s, or a device onError
   RETRY_AVAILABLE --> STARTING : retry() / new window, new sequence, STARTED(n+1)
-  DEVICE_WAIT --> STARTING : frames resume within 3 s (automatic) or retry() (source restarted), same attempt number
+  DEVICE_WAIT --> STARTING : frames resume within 3 s (automatic, only if the source did not give up) or retry() (source restarted), same attempt number
   PASSIVE_CHECK --> FAILED_FINAL : attempt failed, no retries left
   ACTIVE_CHALLENGE --> FAILED_FINAL : attempt failed, no retries left
-  STARTING --> FAILED_FINAL : non-recoverable device error, MODEL_INTEGRITY_FAILED, engine error cap
+  STARTING --> FAILED_FINAL : more than maxDeviceErrors (3) device errors, MODEL_INTEGRITY_FAILED, engine error cap
   PASSED --> [*] : PASSED event, onComplete(PASSED), stop source
   FAILED_FINAL --> [*] : FAILED_FINAL event, onComplete(FAILED), stop source, cooldown if configured
 ```
 
 Not drawn, to keep the diagram readable:
 - From every non-terminal state, `cancel()` goes to **CANCELLED**: `onComplete(CANCELLED)` and the source stops. There is no CANCELLED event type.
-- A non-recoverable device error or `MODEL_INTEGRITY_FAILED` goes to FAILED_FINAL from any non-terminal state.
-- Device errors never consume a retry and are not counted as attempts. A non-recoverable one emits DEVICE_ERROR(recoverable=false) and then FAILED_FINAL.
+- `MODEL_INTEGRITY_FAILED`, or a device error beyond `maxDeviceErrors` (3), goes to FAILED_FINAL from any non-terminal state.
+- Device errors never consume a retry and are not counted as attempts. Every device error offers Retry (`DEVICE_ERROR(recoverable=true)`), including when the source gave up (`recoverable=false` from the source). In that case there is no auto-resume, and Retry restarts the source. The 4th device error in one session emits DEVICE_ERROR(recoverable=false) and then FAILED_FINAL with the device code (D19).
+- A frame still waiting for analysis when a device error arrives is discarded, so it cannot resume the attempt (D25).
+- `INVALID_FRAME` from the source is not a device error. It counts towards the frame-sanity limit (D20).
 - ENGINE_ERROR never consumes a retry. It is capped at 2 attempts.
 
 **Invariants** (tested, including two fuzz tests through the real session):
@@ -213,10 +215,10 @@ Not drawn, to keep the diagram readable:
 
 | ErrorCode | Raised when | Event emitted | Retry? | UserMessage (contract) | Audit event |
 |---|---|---|---|---|---|
-| `DEVICE_UNAVAILABLE` | `FrameSource.onError(DEVICE_UNAVAILABLE)`; **or** no frame within `startTimeoutMs` (TUNE 5000) after `start()` | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
-| `DEVICE_CONNECTION_FAILED` | passed through from `onError` | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
-| `DEVICE_DISCONNECTED` | passed through from `onError` mid-stream; or no frame at all for `frameStallMs` (TUNE 2000) during an attempt. Frames resuming within `deviceGraceMs` (3000) restart the **same** attempt automatically. | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
-| `CAMERA_UNAVAILABLE` | passed through from `onError` (Android camera busy or permission) | `DEVICE_ERROR(recoverable)`, then `FAILED_FINAL` if not recoverable | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
+| `DEVICE_UNAVAILABLE` | `FrameSource.onError(DEVICE_UNAVAILABLE)`; **or** no frame within `startTimeoutMs` (TUNE 5000) after `start()` | `DEVICE_ERROR(recoverable=true)` with Retry; the 4th device error in a session: `DEVICE_ERROR(false)` + `FAILED_FINAL` | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
+| `DEVICE_CONNECTION_FAILED` | passed through from `onError` | `DEVICE_ERROR(recoverable=true)` with Retry; the 4th device error in a session: `DEVICE_ERROR(false)` + `FAILED_FINAL` | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
+| `DEVICE_DISCONNECTED` | passed through from `onError` mid-stream; or no frame at all for `frameStallMs` (TUNE 2000) during an attempt. Frames resuming within `deviceGraceMs` (3000) restart the **same** attempt automatically. | `DEVICE_ERROR(recoverable=true)` with Retry; the 4th device error in a session: `DEVICE_ERROR(false)` + `FAILED_FINAL` | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
+| `CAMERA_UNAVAILABLE` | passed through from `onError` (Android camera busy or permission) | `DEVICE_ERROR(recoverable=true)` with Retry; the 4th device error in a session: `DEVICE_ERROR(false)` + `FAILED_FINAL` | No (and not an attempt) | DEVICE_PROBLEM | DEVICE_ERROR |
 | `FACE_NOT_DETECTED` | passive timeout where most frames had `faceCount==0`; or face lost for more than `faceLostMs` (TUNE 1000) during a challenge | `ATTEMPT_FAILED` / `FAILED_FINAL` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
 | `MULTIPLE_FACES` | `faceCount>1` persists more than `multiFaceFailMs` (TUNE 1500) in passive; during a challenge, 2 consecutive frames (TUNE) | `GUIDANCE(MULTIPLE_FACES)` first, then `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
 | `POOR_QUALITY` | passive timeout where faces were present but quality issues blocked the window | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED |
@@ -225,14 +227,14 @@ Not drawn, to keep the diagram readable:
 | `CHALLENGE_FAILED` | detector `WRONG_ACTION` (clearly opposite movement); `FaceContinuityGuard` break (face swap or photo switch) | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED (`reason=WRONG_ACTION / CONTINUITY_BREAK`) |
 | `CHALLENGE_TIMEOUT` | `challengeTimeoutMs` passed since the prompt without DETECTED; or no stable neutral baseline within `baselineTimeoutMs` (4 s) before a prompt | `ATTEMPT_FAILED` | Yes | LIVENESS_NOT_VERIFIED | LIVENESS_ATTEMPT_FAILED (`reason=TIMEOUT / BASELINE_UNSTABLE`) |
 | `MAX_RETRIES_EXCEEDED` | an attempt fails when `retriesLeft == 0`; also used for a cooldown refusal (D2) | `FAILED_FINAL` | n/a | MAX_ATTEMPTS_REACHED | LIVENESS_FAILED_FINAL (`lastCause=<code>`) |
-| `INVALID_FRAME` | analysed frames whose `sequence` or `timestampMs` does not strictly increase, or that arrive < 5 ms apart (implausible), 3 times in one attempt (TUNE); or the analyzer rejects 3 frames with `INVALID_FRAME` | `ATTEMPT_FAILED` | Yes | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
+| `INVALID_FRAME` | analysed frames whose `sequence` or `timestampMs` does not strictly increase, or that arrive < 5 ms apart (implausible), 3 times in one attempt (TUNE); or the analyzer rejects frames, or the source reports corrupt frames (`onError(INVALID_FRAME)`), with the same count of 3 | `ATTEMPT_FAILED` | Yes | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
 | `ENGINE_ERROR` | analyzer throws `ENGINE_ERROR` or a `RuntimeException` on `engineErrorFrames` consecutive frames (TUNE 3). A single bad frame is skipped. | `ATTEMPT_FAILED` | **No** (D7) | VERIFICATION_NOT_COMPLETED | LIVENESS_ATTEMPT_FAILED |
 | `MODEL_INTEGRITY_FAILED` | analyzer factory or `analyze` throws with this code | `FAILED_FINAL(recoverable=false)` | Final | VERIFICATION_NOT_COMPLETED | MODEL_INTEGRITY_FAILED + LIVENESS_FAILED_FINAL |
 | `CANCELLED` | `cancel()` | none (result only) | Final | NONE | LIVENESS_FAILED_FINAL (`cancelled=true`) |
 
 Rules:
 - Once no retries are left, an attempt failure emits **`FAILED_FINAL(MAX_RETRIES_EXCEEDED)` directly**, not `ATTEMPT_FAILED(retriesLeft=0)`. `LivenessResult.failureCode` is `MAX_RETRIES_EXCEEDED`, and the underlying cause goes to audit as `lastCause`.
-- A device error that is not recoverable (`recoverable=false` from the source) ends in `FAILED_FINAL(<device code>)`, and the result carries that device code.
+- Device errors end the session only after `maxDeviceErrors` (3) Retries: the 4th ends in `FAILED_FINAL(<device code>)`, and the result carries that device code. A source that gives up (`recoverable=false`) still gets Retry, which restarts it. The camera may have been plugged back in.
 
 ## 5. LivenessEvent map
 
@@ -283,7 +285,8 @@ stateDiagram-v2
   end note
 ```
 
-- **Selection:** `minChallenges` distinct types from `policy.challengePool ∩ supported`. Opposite motions are never adjacent, and a retry never repeats the previous sequence. Over 10,000 draws the 10 valid 2-of-4 sequences are equally likely. Per type, BLINK and SMILE appear about 60% of the time and each turn about 40%, because the two turns are never paired.
+- **Selection:** `minChallenges` distinct types from `policy.challengePool ∩ supported`. Opposite motions are never adjacent, and a retry never repeats the previous sequence. Over 10,000 draws the 10 valid 2-of-4 sequences are equally likely. Per type, BLINK and SMILE appear about 60% of the time and each turn about 40%, because the two turns are never paired. **BLINK is never the only challenge** (`ChallengeSelector.NOT_ALONE`, D21). With `minChallenges=1` (the operator and supervisor defaults) the draw is from the other types, unless BLINK is the whole pool.
+- **Analyzers without head pose (D23):** if the analyzer reports NaN yaw or pitch, pose checks are skipped instead of failing every frame. A challenge type is offered only if the analyzer can measure it: TURN and LOOK need pose on at least half of the window, and BLINK and SMILE need eye and mouth landmarks. The pool is never padded with types that cannot be verified.
 - **Baseline from *before* the prompt (C9):** 5 consecutive frames with |yaw| and |pitch| ≤ 15° and a spread of ≤ 6°. For challenge 1 the passive window seeds the baseline. Later challenges use fresh frames after the previous action. If none is stable after 1 s, the user gets `GUIDANCE(LOOK_AT_CAMERA)`.
 - **"Armed" instead of "pre-prompt motion fails":** a detector only starts counting once ≥ 150 ms have passed since the prompt **and** the signal has been seen back near neutral (within 30% of its threshold). Motion that started before the prompt, or a spontaneous blink right at it, is ignored and never fails a genuine user. A pre-recorded action therefore has to be timed exactly, after a random jitter.
 - **Detectors** (all relative to the baseline and time-based):
@@ -295,7 +298,7 @@ stateDiagram-v2
 | TURN_LEFT / TURN_RIGHT | `userYaw` (+ = the user's left) | ≥ 20° in the requested direction, held ≥ 200 ms over ≥ 3 frames, then back within 10° | ≥ 20° the opposite way at any time (wiggles fail) |
 | LOOK_UP / LOOK_DOWN | `userPitch` (+ = up, assumed, P2) | ≥ 13°, held, then back within 8° | ≥ 13° the opposite way |
 
-- **Final hold and best frame:** a frame qualifies when it has one face, no quality issue, |yaw| and |pitch| ≤ 10°, eyes open, and the mouth within 8% of baseline. It is chosen from the passive window plus the post-challenge hold. Mid-action frames are never offered, and tests assert this.
+- **Final hold and best frame:** a frame qualifies when it has one face, no quality issue, |yaw| and |pitch| ≤ 10°, eyes open, and the mouth within 8% of baseline. It is chosen from the passive window plus the post-challenge hold. Mid-action frames are never offered, and tests assert this. Among qualifying frames the best is the highest of 0.45·sharpness + 0.35·frontal + 0.2·size. Sharpness is the Laplacian variance on the face box (at most 96 samples per side), mapped as v/(v+100). Without pose, frontal is 0.5 (D22).
 
 ## 8. Conflicts between the brief and the contract (the contract wins)
 
@@ -333,8 +336,15 @@ The owner (Part 3) asked me to settle these using the problem statement. Items t
 | D13 | Build | Done: `git init`, a root aggregator POM, and a build-only `liveness-api/pom.xml`. JDK 17 + Maven 3.9 via Homebrew, compiling with `--release 8`. animal-sniffer checks main code against the **Java 8 and Android API 21** signatures. | "Same jar on Desktop and Android." |
 | D18 | Integration with Part 1 (2026-10-23) | Part 3 joined the team repo `ChadDadChag/Mosip26`, which is a patch over MOSIP `registration-client` v1.2.0.2. `liveness-core`, `liveness-fake` and `liveness-tools` are now modules of `registration-client-parent`. They compile with its Java 11 settings, and their API use is still checked against the Java 8 and Android API 21 signatures. Part 1's backward-compatible contract additions are accepted (`DeviceCapabilities`, `Frame.PixelFormat`, `DeviceInfo.capabilities`), and `liveness-default.properties` is restored. | The Desktop client (MOSIP 1.2.0.x) requires Java 11. Android's D8 compiler accepts Java 11 class files. A module built with `--release 8` cannot read Part 1's Java 11 contract classes. |
 | D14 | `challengesIssued` | The **last attempt's** sequence. Every attempt's sequence is in audit. | — |
-| D16 | Device errors vs attempts | A device problem is not a liveness attempt: auto-resume and Retry after DEVICE_ERROR keep the attempt number; `result.attempts` counts liveness attempts only. A non-recoverable device error emits DEVICE_ERROR(recoverable=false) before FAILED_FINAL. | Found by the Part 3 audit (PART3_STATUS.md). |
+| D16 | Device errors vs attempts | A device problem is not a liveness attempt: auto-resume and Retry after DEVICE_ERROR keep the attempt number; `result.attempts` counts liveness attempts only. The final device error emits DEVICE_ERROR(recoverable=false) before FAILED_FINAL (see D19). | Found by the Part 3 audit (PART3_STATUS.md). |
 | D17 | Passive eligibility | Strictly `FrameAnalysis.usable()`: hint-only issues (off-centre, too large) no longer count towards the window. | Contract wording "usable frames"; found by the audit. |
+| D19 | Device retry limit (2026-10-23) | Every device error offers Retry, including when the source gives up (Part 1's SBI source reports `DEVICE_UNAVAILABLE` with `recoverable=false` when the MDS no longer lists the device). Retry restarts the source. The session ends only when the device errors pass `EngineTuning.maxDeviceErrors` (3). | §1 "handle device connection/disconnection". An unplugged camera that is plugged back in must not need a restart of the whole workflow. Before this change, an unplug during a resident capture ended the session. |
+| D20 | Corrupt frames from the source | `onError(INVALID_FRAME)` (a JPEG that does not decode) counts towards `FrameSanity`, just like implausible frames: 3 per attempt fail it as `INVALID_FRAME`. It is not a device error. | §9 "invalid/incomplete frame data" is its own case, and a stream of corrupt frames must not look like a working device. |
+| D21 | BLINK never alone | With one challenge, BLINK is left out unless it is the whole pool. With two or more it is used as before. | Natural blinking happens every few seconds, so a replayed video of the person passes a lone BLINK prompt by chance. Tested in `replayedVideoOfNaturalBlinkingNeverPasses`. |
+| D22 | Best frame quality | Among qualifying frames, pick by sharpness (Laplacian variance), frontality and size, not just the first. | The best frame is the biometric that goes into the packet (ISO/IEC 19794-5 quality). |
+| D23 | Analyzers without pose | NaN pose is tolerated, and only measurable challenge types are offered. | Part 1's stand-in analyzer, and some PAD models, give no pose. Without this, every frame failed the pose check and no session could pass. |
+| D24 | Diagnostic mode and metrics | `diagnosticMode` adds `diag.*` per-attempt statistics to audit. `LivenessMetrics` counts sessions, passes, retries and failures and gives average processing time, average challenge completion time, retry rate and failure rate. It is anonymised: counts and averages only. | Good-to-have: "diagnostic mode", "anonymized operational metrics" and the four named performance metrics. |
+| D25 | Stale frame after a device error | On DEVICE_ERROR the session discards the frame waiting for analysis. DEVICE_WAIT never auto-resumes after the source gave up. | Found by Part 1's `UnplugReplugIntegrationTest`: a frame from before the unplug resumed the attempt and swallowed the user's Retry. |
 | D15 | Fake depends on core | `liveness-fake` reuses core's `EventDispatcher`, `AttemptTracker`, `PolicyResolver`, `CooldownTracker` and `ChallengeSelector`, so retry, cancel, events and policy behave **identically**. Core has no ML or native dependencies, so this costs the apps nothing. | Brief: "make retry()/cancel() behave exactly as the real engine will". |
 
 ### Config naming vs. the team split
@@ -437,11 +447,11 @@ It is the same as 10.2 with `newSession(SUPERVISOR)`: 1 challenge, `onRepeatedFa
 
 ```mermaid
 flowchart TD
-  E{what went wrong} -->|device: unavailable, connection failed, disconnected, camera unavailable| DV{recoverable?}
-  DV -->|yes| DW[DEVICE_ERROR recoverable=true<br/>no retry consumed]
-  DW -->|frames back within 3 s| AUTO[same attempt restarts automatically]
-  DW -->|user presses Retry| RS[source restarted, new attempt]
-  DV -->|no| FF[DEVICE_ERROR recoverable=false,<br/>then FAILED_FINAL with the device code]
+  E{what went wrong} -->|device: unavailable, connection failed, disconnected, camera unavailable| DV{more than 3 device errors<br/>this session?}
+  DV -->|no| DW[DEVICE_ERROR recoverable=true<br/>no retry consumed]
+  DW -->|frames back within 3 s and the source did not give up| AUTO[same attempt restarts automatically]
+  DW -->|user presses Retry| RS[source restarted, same attempt number]
+  DV -->|yes| FF[DEVICE_ERROR recoverable=false,<br/>then FAILED_FINAL with the device code]
   E -->|model checksum/signature| MI[FAILED_FINAL MODEL_INTEGRITY_FAILED]
   E -->|analyzer crashes 3 frames in a row| EE[ATTEMPT_FAILED ENGINE_ERROR<br/>no retry consumed, 2nd time final]
   E -->|user-related: no face, multiple faces, poor quality,<br/>below threshold, PAD, challenge failed/timeout, invalid frames| UF{retries left?}
@@ -463,6 +473,14 @@ The table of ErrorCode, trigger, user message and retry accounting is in section
 | `PAD_ATTACK_SUSPECTED` | median score, per-model PAD output medians (`pad.*`, max 8), reason |
 | `DEVICE_ERROR` | errorCode, recoverable, device detail (truncated to 120 chars) |
 | `LIVENESS_PASSED` / `LIVENESS_FAILED_FINAL` | pass path or errorCode and lastCause, cooldownSec, total duration, frames analysed and dropped, average processing ms |
+| any attempt-level event, with `diagnosticMode=true` | `diag.scoredFrames`, `diag.scoreMin`, `diag.scoreMedian`, `diag.scoreMax`, `diag.noFaceFrames`, `diag.multiFaceFrames`, `diag.issue.<QUALITY_ISSUE>` |
+
+**Metrics.** `DefaultLivenessService.metrics()` (and `FakeLivenessService.metrics()`) returns a `LivenessMetrics` for that service instance. It holds:
+- counts: sessions, passes (passive or active), final failures by code, attempt failures by code, retries, device errors, cancels and cooldown refusals
+- averages: processing ms per analysed frame, and challenge completion ms (prompt to detection)
+- rates: retry rate (retries per session), failure rate (final failures per session) and passive share
+
+It contains no session ids, individual scores, images or device identity. It is in memory, so apps log `snapshot().toMap()` periodically (Parts 4/5).
 
 **Never in audit:** images, frame bytes, landmarks or coordinates. `AuditRecorder`'s public API cannot accept those types, and a reflection test enforces this.
 
@@ -488,6 +506,23 @@ Known limits:
 - The cooldown is in memory, so it resets on app restart (proposal P1).
 - Thresholds are `TUNE:` guesses until the Phase 8 report runs on real recordings.
 - The analysis rate during challenges assumes the analyzer can keep up with about 15 fps (proposal P5).
+
+---
+
+## 12a. Online and offline architecture
+
+The problem statement asks that "network availability does not determine whether liveness security is enforced". In Part 3 the engine never decides anything differently online and offline.
+
+| Concern | Online | Offline |
+|---|---|---|
+| Frame capture, passive liveness, PAD, challenge selection, action detection, retries | local | local (identical code path) |
+| Configuration | read from the host's local config (`ConfigProvider`), which the Registration Client syncs from the server when online | the last synced local config; missing keys fall back to the bundled `liveness-default.properties`; an invalid config falls back to the bundled defaults, so liveness stays on (D5) |
+| Config change takes effect | `LivenessService.reloadConfig()` after a sync, for new sessions only (a running session keeps its policy) | n/a |
+| Models | loaded by Part 2's factory from local files, verified against the manifest checksum/signature; failure is `MODEL_INTEGRITY_FAILED`, final | same; a model update only arrives with a sync and is verified before use |
+| Audit | `AuditSink` (Part 4/5) writes to the client's local audit store, which the client uploads when online | stored locally until the next sync |
+| Cooldown | in memory, per workflow | same (proposal P1 to persist it) |
+
+The engine has no network code and no dependency beyond `liveness-api`. "Online or offline" is a property of the host, not of the engine. The tests run with no network.
 
 ---
 
@@ -529,8 +564,8 @@ LivenessService liveness = DefaultLivenessService.builder()
 ```
 
 **Verification** (`mvn verify`):
-- **Tests:** 232 across unit, state-machine, detector, runner, scenario, threading, fuzz, tools and the requirement-by-requirement audit (`core/statusaudit/Part3RequirementsAuditTest`, see PART3_STATUS.md).
-- **Coverage:** JaCoCo line coverage on `liveness-core` is about 96%, gated at 85%.
+- **Tests:** 260 (core 201, fake 44, tools 10, api 5). They cover units, the state machine, detectors, the runner, scenarios, threading, fuzzing, the tools and the requirement-by-requirement audit (`core/statusaudit/Part3RequirementsAuditTest`, see PART3_STATUS.md). In the full Registration Client build, Part 1's 96 tests also run the real engine (device path, unplug and replug, recorded clips).
+- **Coverage:** JaCoCo line coverage on `liveness-core` is 96.8%, gated at 85%.
 - **Toolchain:** the team build (`registration-client-parent`) needs JDK 11 and Maven 3.6+. Build from `registration-client/registration` with `mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip`.
 - **API gates:** animal-sniffer checks the shipped modules (`liveness-core`, `liveness-fake`) against the **Java 8 and Android API 21** signatures. Bytecode is Java 11, following the parent (D18).
 - **Mutation spot-check:** disabling blink detection makes the scenario suite fail.
@@ -539,7 +574,7 @@ LivenessService liveness = DefaultLivenessService.builder()
 
 ## 15. Other parts' sections (to be stitched in by Part 3)
 
-- **Part 1: Device and frame pipeline.** Device integration interface, frame streaming architecture diagram, SBI adapter, mock L0/L1 device, device error handling. *(pending)*
+- **Part 1: Device and frame pipeline.** Delivered: see [part1-frame-streaming-architecture.md](part1-frame-streaming-architecture.md). It covers the existing integration, the device interface, the SBI and mock paths, Android, the error and capability tables, what the engine does with device errors, the preview tee, MockMDS and the interoperability tests. Also [part1-qa-checklist.md](part1-qa-checklist.md) and [part1-test-data-protocol.md](part1-test-data-protocol.md).
 - **Part 2: Passive liveness and PAD engine.** Model comparison and choice, `FaceAnalyzer` implementation, PAD architecture, ISO/IEC 30107-3 evaluation (APCER/BPCER/ACER per threshold), model packaging and signature verification. *(pending)*
 - **Part 4: Desktop Registration Client integration.** JavaFX screens, resident/operator/supervisor Desktop sequence diagrams, config wiring, audit module adapter, diagnostic mode. *(pending)*
 - **Part 5: Android Registration Client integration.** Flutter screens, platform/event channel bridge, Android sequence diagrams, performance benchmark report. *(pending)*

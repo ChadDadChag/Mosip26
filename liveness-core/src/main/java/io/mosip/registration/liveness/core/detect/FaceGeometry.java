@@ -23,6 +23,25 @@ public final class FaceGeometry {
 
     private FaceGeometry() { }
 
+    /** True when the analyzer reported head pose (it may report NaN when it cannot estimate it). */
+    public static boolean hasPose(FrameAnalysis a) {
+        return !Float.isNaN(a.yawDeg) && !Float.isNaN(a.pitchDeg);
+    }
+
+    /**
+     * True unless a REPORTED yaw or pitch exceeds {@code maxDeg}. Unknown pose (NaN) is not held against the frame:
+     * an analyzer without pose estimation must still allow passive decisions (pose challenges are then not offered).
+     */
+    public static boolean withinPose(FrameAnalysis a, float maxDeg) {
+        return (Float.isNaN(a.yawDeg) || Math.abs(a.yawDeg) <= maxDeg)
+                && (Float.isNaN(a.pitchDeg) || Math.abs(a.pitchDeg) <= maxDeg);
+    }
+
+    /** True when the landmarks give usable eye and mouth ratios (needed for BLINK and SMILE). */
+    public static boolean hasExpressionLandmarks(FrameAnalysis a) {
+        return !Float.isNaN(meanEar(a.landmarks)) && !Float.isNaN(mouthWidthRatio(a.landmarks));
+    }
+
     public static float userYaw(FrameAnalysis a) {
         return a.yawDeg;
     }

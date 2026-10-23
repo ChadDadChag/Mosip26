@@ -162,6 +162,15 @@ public final class ScenarioDriver {
         return this;
     }
 
+    /** Delivers a camera frame WITHOUT stepping the worker: it waits in the frame slot. */
+    public ScenarioDriver pushOnly(Shape shape) {
+        clock.advance(CAMERA_MS);
+        long s = ++seq;
+        analyzer.script(s, shape);
+        source.push(clock.nowMs(), s);
+        return this;
+    }
+
     public ScenarioDriver frames(int n, Shape shape) {
         for (int i = 0; i < n && !done(); i++) frame(shape);
         return this;

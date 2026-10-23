@@ -1,0 +1,516 @@
+diff --git a/MockMDS/pom.xml b/MockMDS/pom.xml
+index fd7179b..ad8eee6 100644
+--- a/MockMDS/pom.xml
++++ b/MockMDS/pom.xml
+@@ -95,6 +95,12 @@
+ 			<groupId>org.springframework.boot</groupId>
+ 			<artifactId>spring-boot-starter-web</artifactId>
+ 		</dependency>
++		<!-- Face liveness: webcam mode of the face /stream (FaceStreamProvider). -->
++		<dependency>
++			<groupId>com.github.sarxos</groupId>
++			<artifactId>webcam-capture</artifactId>
++			<version>0.3.12</version>
++		</dependency>
+ 		<dependency>
+ 			<groupId>org.projectlombok</groupId>
+ 			<artifactId>lombok</artifactId>
+diff --git a/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/SBIDeviceHelper.java b/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/SBIDeviceHelper.java
+index a074ca3..0d39ff9 100644
+--- a/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/SBIDeviceHelper.java
++++ b/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/SBIDeviceHelper.java
+@@ -572,6 +572,14 @@ public abstract class SBIDeviceHelper {
+ 			case SBIConstant.MOSIP_BIOMETRIC_TYPE_FACE:
+ 				if (deviceSubType.equalsIgnoreCase(SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_FACE)
+ 						&& getDeviceSubId() == SBIConstant.DEVICE_FACE_SUB_TYPE_ID_FULLFACE) {
++					// Face liveness: real frames (images / video / webcam) when configured.
++					io.mosip.mock.sbi.devicehelper.face.FaceStreamProvider provider =
++							io.mosip.mock.sbi.devicehelper.face.FaceStreamProvider.get();
++					if (provider.active()) {
++						byte[] frame = provider.currentJpeg();
++						if (frame != null)
++							return frame;
++					}
+ 					fileName = FileHelper.getCanonicalPath() + ApplicationPropertyHelper
+ 							.getPropertyKeyValue(SBIConstant.MOSIP_STREAM_FACE_SUBID_FULLFACE);
+ 				}
+diff --git a/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/face/FaceStreamProvider.java b/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/face/FaceStreamProvider.java
+new file mode 100644
+index 0000000..b35f03d
+--- /dev/null
++++ b/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/face/FaceStreamProvider.java
+@@ -0,0 +1,250 @@
++package io.mosip.mock.sbi.devicehelper.face;
++
++import java.awt.image.BufferedImage;
++import java.io.ByteArrayOutputStream;
++import java.io.File;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++import java.util.Locale;
++
++import javax.imageio.ImageIO;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++
++import io.mosip.mock.sbi.util.ApplicationPropertyHelper;
++
++/**
++ * Real frames for the mock face device's {@code /stream} (face liveness development and automated tests).
++ *
++ * <p>Modes, set with {@value #KEY_MODE} (system property first, then application.properties):
++ * <ul>
++ *   <li>{@code static} (default): the original behaviour, one fixed stream image.</li>
++ *   <li>{@code images}: a folder (or one file) of JPEG/PNG images, shown in name order, each for one frame period
++ *       at {@value #KEY_FPS} frames per second, looping. One image = a printed-photo attack.</li>
++ *   <li>{@code video}: a recording replayed at {@value #KEY_FPS}, looping. Accepts the Content-Length framed files
++ *       written by the liveness MjpegRecorder (the exact /stream wire format) and plain concatenated JPEGs
++ *       ({@code ffmpeg -i in.mp4 -f mjpeg out.mjpeg}).</li>
++ *   <li>{@code webcam}: the default camera of this machine (webcam-capture library), live.</li>
++ * </ul>
++ * {@value #KEY_SOURCE} is the folder/file for {@code images} and {@code video}. Frames advance by elapsed time, so
++ * playback speed does not depend on how often the stream loop asks for a frame.
++ */
++public class FaceStreamProvider {
++
++    public static final String KEY_MODE = "mosip.mock.sbi.face.stream.mode";
++    public static final String KEY_SOURCE = "mosip.mock.sbi.face.stream.source";
++    public static final String KEY_FPS = "mosip.mock.sbi.face.stream.fps";
++
++    public enum Mode { STATIC, IMAGES, VIDEO, WEBCAM }
++
++    private static final Logger logger = LoggerFactory.getLogger(FaceStreamProvider.class);
++    private static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
++
++    private static volatile FaceStreamProvider configured;
++
++    private final Mode mode;
++    private final List<byte[]> frames;
++    private final long frameIntervalMs;
++    private final long startedAtMs;
++    private final Object webcam; // com.github.sarxos.webcam.Webcam, only in WEBCAM mode
++
++    FaceStreamProvider(Mode mode, List<byte[]> frames, double fps, Object webcam, long nowMs) {
++        this.mode = mode;
++        this.frames = frames;
++        this.frameIntervalMs = Math.max(1L, Math.round(1000.0 / (fps > 0 ? fps : 15.0)));
++        this.webcam = webcam;
++        this.startedAtMs = nowMs;
++    }
++
++    /** The provider configured for this MockMDS process (created on first use). */
++    public static FaceStreamProvider get() {
++        FaceStreamProvider p = configured;
++        if (p == null) {
++            synchronized (FaceStreamProvider.class) {
++                p = configured;
++                if (p == null) {
++                    p = fromConfig(setting(KEY_MODE), setting(KEY_SOURCE), setting(KEY_FPS));
++                    configured = p;
++                }
++            }
++        }
++        return p;
++    }
++
++    /** Builds a provider; any problem falls back to STATIC (the original behaviour) and is logged. */
++    static FaceStreamProvider fromConfig(String modeValue, String source, String fpsValue) {
++        Mode mode = parseMode(modeValue);
++        double fps = 15.0;
++        try {
++            if (fpsValue != null && !fpsValue.trim().isEmpty()) fps = Double.parseDouble(fpsValue.trim());
++        } catch (NumberFormatException e) {
++            logger.warn("Invalid {}={}, using 15", KEY_FPS, fpsValue);
++        }
++        try {
++            switch (mode) {
++            case IMAGES:
++                return new FaceStreamProvider(mode, loadImages(new File(required(source))), fps, null, now());
++            case VIDEO:
++                return new FaceStreamProvider(mode, splitRecording(Files.readAllBytes(new File(required(source)).toPath())),
++                        fps, null, now());
++            case WEBCAM:
++                return new FaceStreamProvider(mode, Collections.<byte[]>emptyList(), fps, openWebcam(), now());
++            default:
++                return new FaceStreamProvider(Mode.STATIC, Collections.<byte[]>emptyList(), fps, null, now());
++            }
++        } catch (Exception | LinkageError e) {
++            logger.error("Face stream mode {} could not start ({}); using the static stream image", mode, e.toString());
++            return new FaceStreamProvider(Mode.STATIC, Collections.<byte[]>emptyList(), fps, null, now());
++        }
++    }
++
++    public Mode mode() {
++        return mode;
++    }
++
++    /** True when frames come from this provider rather than the static stream image. */
++    public boolean active() {
++        return mode != Mode.STATIC;
++    }
++
++    /** The JPEG for the current moment, or null to fall back to the static image. */
++    public byte[] currentJpeg() {
++        return currentJpeg(now());
++    }
++
++    byte[] currentJpeg(long nowMs) {
++        if (mode == Mode.WEBCAM) return grabWebcam();
++        if (frames.isEmpty()) return null;
++        long index = (nowMs - startedAtMs) / frameIntervalMs;
++        return frames.get((int) (index % frames.size()));
++    }
++
++    int frameCount() {
++        return frames.size();
++    }
++
++    // ------------------------------------------------------------------ loading
++
++    static Mode parseMode(String value) {
++        if (value == null || value.trim().isEmpty()) return Mode.STATIC;
++        try {
++            return Mode.valueOf(value.trim().toUpperCase(Locale.ROOT));
++        } catch (IllegalArgumentException e) {
++            logger.warn("Unknown {}={}, using static", KEY_MODE, value);
++            return Mode.STATIC;
++        }
++    }
++
++    /** Images in name order; JPEGs are used as-is, anything else ImageIO reads is re-encoded as JPEG. */
++    static List<byte[]> loadImages(File imageOrFolder) throws IOException {
++        File[] files = imageOrFolder.isDirectory() ? imageOrFolder.listFiles() : new File[] {imageOrFolder};
++        if (files == null) throw new IOException("Cannot list " + imageOrFolder);
++        Arrays.sort(files);
++        List<byte[]> out = new ArrayList<>();
++        for (File f : files) {
++            String name = f.getName().toLowerCase(Locale.ROOT);
++            if (!f.isFile()) continue;
++            if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
++                out.add(Files.readAllBytes(f.toPath()));
++            } else if (name.endsWith(".png") || name.endsWith(".bmp")) {
++                BufferedImage img = ImageIO.read(f);
++                if (img != null) out.add(toJpeg(img));
++            }
++        }
++        if (out.isEmpty()) throw new IOException("No JPEG/PNG images in " + imageOrFolder);
++        return out;
++    }
++
++    /**
++     * Splits a recording into JPEG frames: Content-Length framed parts (the /stream wire format the liveness
++     * MjpegRecorder writes) or, when there are no such headers, plain concatenated JPEGs (SOI..EOI).
++     */
++    static List<byte[]> splitRecording(byte[] data) throws IOException {
++        List<byte[]> frames = new ArrayList<>();
++        String ascii = new String(data, StandardCharsets.ISO_8859_1);
++        String lower = ascii.toLowerCase(Locale.ROOT);
++        int pos = 0;
++        while (true) {
++            int h = lower.indexOf("content-length:", pos);
++            if (h < 0) break;
++            int lineEnd = lower.indexOf('\n', h);
++            if (lineEnd < 0) break;
++            int length = Integer.parseInt(ascii.substring(h + "content-length:".length(), lineEnd).trim());
++            if (length <= 0 || length > MAX_FRAME_BYTES) throw new IOException("Bad Content-Length " + length);
++            int body = ascii.indexOf("\r\n\r\n", h);
++            if (body < 0) break;
++            body += 4;
++            if (body + length > data.length) break; // truncated last frame: ignore it
++            frames.add(Arrays.copyOfRange(data, body, body + length));
++            pos = body + length;
++        }
++        if (!frames.isEmpty()) return frames;
++        int i = 0;
++        while (i + 1 < data.length) {
++            if ((data[i] & 0xFF) == 0xFF && (data[i + 1] & 0xFF) == 0xD8) {
++                int j = i + 2;
++                while (j + 1 < data.length && !((data[j] & 0xFF) == 0xFF && (data[j + 1] & 0xFF) == 0xD9)) j++;
++                if (j + 1 >= data.length) break;
++                frames.add(Arrays.copyOfRange(data, i, j + 2));
++                i = j + 2;
++            } else {
++                i++;
++            }
++        }
++        if (frames.isEmpty()) throw new IOException("No JPEG frames found in the recording");
++        return frames;
++    }
++
++    static byte[] toJpeg(BufferedImage img) throws IOException {
++        BufferedImage rgb = img;
++        if (img.getType() != BufferedImage.TYPE_INT_RGB && img.getType() != BufferedImage.TYPE_3BYTE_BGR) {
++            rgb = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
++            rgb.getGraphics().drawImage(img, 0, 0, null);
++        }
++        ByteArrayOutputStream out = new ByteArrayOutputStream();
++        if (!ImageIO.write(rgb, "jpg", out)) throw new IOException("No JPEG writer");
++        return out.toByteArray();
++    }
++
++    // ------------------------------------------------------------------ webcam
++
++    private static Object openWebcam() {
++        com.github.sarxos.webcam.Webcam cam = com.github.sarxos.webcam.Webcam.getDefault();
++        if (cam == null) throw new IllegalStateException("No webcam found");
++        cam.open();
++        logger.info("Face stream: using webcam {}", cam.getName());
++        return cam;
++    }
++
++    private byte[] grabWebcam() {
++        try {
++            BufferedImage img = ((com.github.sarxos.webcam.Webcam) webcam).getImage();
++            return img == null ? null : toJpeg(img);
++        } catch (Exception e) {
++            logger.error("Webcam frame failed: {}", e.toString());
++            return null;
++        }
++    }
++
++    // ------------------------------------------------------------------ helpers
++
++    private static String setting(String key) {
++        String v = System.getProperty(key);
++        return v != null ? v : ApplicationPropertyHelper.getPropertyKeyValue(key);
++    }
++
++    private static String required(String source) {
++        if (source == null || source.trim().isEmpty()) throw new IllegalArgumentException(KEY_SOURCE + " is not set");
++        return source.trim();
++    }
++
++    private static long now() {
++        return System.nanoTime() / 1_000_000L;
++    }
++}
+diff --git a/MockMDS/src/main/java/io/mosip/mock/sbi/service/SBIServiceResponse.java b/MockMDS/src/main/java/io/mosip/mock/sbi/service/SBIServiceResponse.java
+index 2c74e46..c5ba649 100644
+--- a/MockMDS/src/main/java/io/mosip/mock/sbi/service/SBIServiceResponse.java
++++ b/MockMDS/src/main/java/io/mosip/mock/sbi/service/SBIServiceResponse.java
+@@ -632,7 +632,9 @@ public class SBIServiceResponse {
+ 				logger.error("processLiveStreamInfo :: error ::", ex);
+ 				return SBIJsonInfo.getErrorJson(lang, "123", "");
+ 			}
+-			String deviceId = requestObject.getDeviceId();
++			// The Registration Client sends serialNo (the DigitalId serial number) instead of deviceId.
++			String deviceId = requestObject.getDeviceId() != null ? requestObject.getDeviceId()
++					: requestObject.getSerialNo();
+ 			int deviceSubId = Integer.parseInt(requestObject.getDeviceSubId());
+ 			boolean isStreamTimeoutSet = false;
+ 			long timeout = 0;
+@@ -2195,6 +2197,15 @@ public class SBIServiceResponse {
+ 		return "\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
+ 	}
+ 
++	/** A device matches by its deviceId or by its DigitalId serial number (what the Registration Client sends). */
++	private static boolean isDevice(SBIDeviceHelper deviceHelper, String id) {
++		if (id == null || deviceHelper.getDeviceInfo() == null)
++			return false;
++		if (id.equals(deviceHelper.getDeviceInfo().getDeviceId()))
++			return true;
++		return deviceHelper.getDigitalId() != null && id.equals(deviceHelper.getDigitalId().getSerialNo());
++	}
++
+ 	@SuppressWarnings({ "java:S3776" })
+ 	private SBIDeviceHelper getDeviceHelperForDeviceId(SBIMockService mockService, String deviceId) {
+ 		SBIDeviceHelper deviceHelper = null;
+@@ -2202,7 +2213,7 @@ public class SBIServiceResponse {
+ 		deviceHelper = mockService.getDeviceHelper(
+ 				SBIConstant.MOSIP_BIOMETRIC_TYPE_FACE + "_" + SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_FACE);
+ 		deviceHelper.initDeviceDetails();
+-		if (deviceHelper.getDeviceInfo() != null && deviceHelper.getDeviceInfo().getDeviceId().equals(deviceId)) {
++		if (isDevice(deviceHelper, deviceId)) {
+ 			return deviceHelper;
+ 		}
+ 
+@@ -2210,28 +2221,28 @@ public class SBIServiceResponse {
+ 			deviceHelper = mockService.getDeviceHelper(
+ 					SBIConstant.MOSIP_BIOMETRIC_TYPE_FINGER + "_" + SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_FINGER_SLAP);
+ 			deviceHelper.initDeviceDetails();
+-			if (deviceHelper.getDeviceInfo() != null && deviceHelper.getDeviceInfo().getDeviceId().equals(deviceId)) {
++			if (isDevice(deviceHelper, deviceId)) {
+ 				return deviceHelper;
+ 			}
+ 
+ 			deviceHelper = mockService.getDeviceHelper(
+ 					SBIConstant.MOSIP_BIOMETRIC_TYPE_IRIS + "_" + SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_IRIS_DOUBLE);
+ 			deviceHelper.initDeviceDetails();
+-			if (deviceHelper.getDeviceInfo() != null && deviceHelper.getDeviceInfo().getDeviceId().equals(deviceId)) {
++			if (isDevice(deviceHelper, deviceId)) {
+ 				return deviceHelper;
+ 			}
+ 		} else if (mockService.getPurpose().equals(SBIConstant.PURPOSE_AUTH)) {
+ 			deviceHelper = mockService.getDeviceHelper(
+ 					SBIConstant.MOSIP_BIOMETRIC_TYPE_FINGER + "_" + SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_FINGER_SINGLE);
+ 			deviceHelper.initDeviceDetails();
+-			if (deviceHelper.getDeviceInfo() != null && deviceHelper.getDeviceInfo().getDeviceId().equals(deviceId)) {
++			if (isDevice(deviceHelper, deviceId)) {
+ 				return deviceHelper;
+ 			}
+ 
+ 			deviceHelper = mockService.getDeviceHelper(
+ 					SBIConstant.MOSIP_BIOMETRIC_TYPE_IRIS + "_" + SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_IRIS_SINGLE);
+ 			deviceHelper.initDeviceDetails();
+-			if (deviceHelper.getDeviceInfo() != null && deviceHelper.getDeviceInfo().getDeviceId().equals(deviceId)) {
++			if (isDevice(deviceHelper, deviceId)) {
+ 				return deviceHelper;
+ 			}
+ 		}
+diff --git a/MockMDS/src/main/java/io/mosip/registration/mdm/dto/StreamingRequestDetail.java b/MockMDS/src/main/java/io/mosip/registration/mdm/dto/StreamingRequestDetail.java
+index a73575d..e499c13 100644
+--- a/MockMDS/src/main/java/io/mosip/registration/mdm/dto/StreamingRequestDetail.java
++++ b/MockMDS/src/main/java/io/mosip/registration/mdm/dto/StreamingRequestDetail.java
+@@ -33,4 +33,9 @@ public class StreamingRequestDetail {
+ 	 */
+ 	@JsonDeserialize(using = IntegerCanBeNullDeserializer.class)
+ 	private String timeout;
++	/**
++	 * Serial number of the device. The Registration Client (1.2.0.x StreamSbiRequestDTO) identifies the device by
++	 * {@code serialNo} instead of {@code deviceId}; either is accepted.
++	 */
++	private String serialNo;
+ }
+\ No newline at end of file
+diff --git a/MockMDS/src/test/java/io/mosip/mock/sbi/devicehelper/face/FaceStreamProviderTest.java b/MockMDS/src/test/java/io/mosip/mock/sbi/devicehelper/face/FaceStreamProviderTest.java
+new file mode 100644
+index 0000000..a52c973
+--- /dev/null
++++ b/MockMDS/src/test/java/io/mosip/mock/sbi/devicehelper/face/FaceStreamProviderTest.java
+@@ -0,0 +1,130 @@
++package io.mosip.mock.sbi.devicehelper.face;
++
++import static org.junit.jupiter.api.Assertions.assertArrayEquals;
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++import java.awt.image.BufferedImage;
++import java.io.ByteArrayOutputStream;
++import java.io.File;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.Collections;
++import java.util.List;
++
++import javax.imageio.ImageIO;
++
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++
++class FaceStreamProviderTest {
++
++    @TempDir
++    Path dir;
++
++    static byte[] jpeg(int grey) throws IOException {
++        BufferedImage img = new BufferedImage(32, 24, BufferedImage.TYPE_INT_RGB);
++        for (int y = 0; y < 24; y++) for (int x = 0; x < 32; x++) img.setRGB(x, y, (grey << 16) | (grey << 8) | grey);
++        ByteArrayOutputStream out = new ByteArrayOutputStream();
++        ImageIO.write(img, "jpg", out);
++        return out.toByteArray();
++    }
++
++    /** Exactly what the liveness MjpegRecorder writes (the /stream wire format). */
++    static byte[] recording(byte[]... frames) throws IOException {
++        ByteArrayOutputStream out = new ByteArrayOutputStream();
++        for (byte[] f : frames) {
++            out.write(("--BoundaryString\r\nContent-type: image/jpeg\r\nContent-Length: " + f.length + "\r\n\r\n")
++                    .getBytes(StandardCharsets.US_ASCII));
++            out.write(f);
++            out.write("\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
++        }
++        return out.toByteArray();
++    }
++
++    @Test
++    void defaultIsTheOriginalStaticImage() {
++        FaceStreamProvider p = FaceStreamProvider.fromConfig(null, null, null);
++        assertEquals(FaceStreamProvider.Mode.STATIC, p.mode());
++        assertFalse(p.active());
++        assertNull(p.currentJpeg(0));
++    }
++
++    @Test
++    void videoModeReplaysRecorderFilesFrameByFrameAtTheConfiguredRate() throws IOException {
++        byte[] a = jpeg(10), b = jpeg(120), c = jpeg(240);
++        File f = dir.resolve("clip.mjpeg").toFile();
++        Files.write(f.toPath(), recording(a, b, c));
++        FaceStreamProvider p = new FaceStreamProvider(FaceStreamProvider.Mode.VIDEO,
++                FaceStreamProvider.splitRecording(Files.readAllBytes(f.toPath())), 10.0, null, 1000);
++        assertEquals(3, p.frameCount());
++        assertArrayEquals(a, p.currentJpeg(1000));
++        assertArrayEquals(a, p.currentJpeg(1099));
++        assertArrayEquals(b, p.currentJpeg(1100));
++        assertArrayEquals(c, p.currentJpeg(1250));
++        assertArrayEquals(a, p.currentJpeg(1300), "loops");
++    }
++
++    @Test
++    void videoModeAlsoAcceptsPlainConcatenatedJpegs() throws IOException {
++        byte[] a = jpeg(10), b = jpeg(200);
++        byte[] plain = new byte[a.length + b.length + 7];
++        System.arraycopy(a, 0, plain, 0, a.length);
++        System.arraycopy("garbage".getBytes(StandardCharsets.US_ASCII), 0, plain, a.length, 7);
++        System.arraycopy(b, 0, plain, a.length + 7, b.length);
++        List<byte[]> frames = FaceStreamProvider.splitRecording(plain);
++        assertEquals(2, frames.size());
++        assertArrayEquals(a, frames.get(0));
++        assertArrayEquals(b, frames.get(1));
++    }
++
++    @Test
++    void truncatedLastFrameIsIgnoredAndJunkIsRejected() throws IOException {
++        byte[] full = recording(jpeg(10), jpeg(20));
++        byte[] cut = java.util.Arrays.copyOf(full, full.length - 40);
++        assertEquals(1, FaceStreamProvider.splitRecording(cut).size());
++        assertThrows(IOException.class, () -> FaceStreamProvider.splitRecording("not a video".getBytes(StandardCharsets.US_ASCII)));
++    }
++
++    @Test
++    void imagesModeCyclesAFolderInNameOrderAndConvertsPng() throws IOException {
++        Files.write(dir.resolve("b.jpg"), jpeg(100));
++        ImageIO.write(ImageIO.read(new java.io.ByteArrayInputStream(jpeg(200))), "png", dir.resolve("c.png").toFile());
++        Files.write(dir.resolve("a.jpeg"), jpeg(50));
++        Files.write(dir.resolve("notes.txt"), "ignore me".getBytes(StandardCharsets.US_ASCII));
++        List<byte[]> imgs = FaceStreamProvider.loadImages(dir.toFile());
++        assertEquals(3, imgs.size());
++        assertArrayEquals(Files.readAllBytes(dir.resolve("a.jpeg")), imgs.get(0));
++        assertNotNull(ImageIO.read(new java.io.ByteArrayInputStream(imgs.get(2))), "PNG re-encoded as JPEG");
++
++        FaceStreamProvider p = new FaceStreamProvider(FaceStreamProvider.Mode.IMAGES, imgs, 2.0, null, 0);
++        assertArrayEquals(imgs.get(0), p.currentJpeg(0));
++        assertArrayEquals(imgs.get(1), p.currentJpeg(500));
++    }
++
++    @Test
++    void singleImageIsAStaticPhotoFeed() throws IOException {
++        Files.write(dir.resolve("photo.jpg"), jpeg(77));
++        FaceStreamProvider p = FaceStreamProvider.fromConfig("images", dir.resolve("photo.jpg").toString(), "15");
++        assertTrue(p.active());
++        assertArrayEquals(p.currentJpeg(), p.currentJpeg());
++    }
++
++    @Test
++    void badConfigurationFallsBackToTheStaticImage() {
++        assertEquals(FaceStreamProvider.Mode.STATIC, FaceStreamProvider.fromConfig("video", null, null).mode());
++        assertEquals(FaceStreamProvider.Mode.STATIC,
++                FaceStreamProvider.fromConfig("video", dir.resolve("missing.mjpeg").toString(), null).mode());
++        assertEquals(FaceStreamProvider.Mode.STATIC, FaceStreamProvider.fromConfig("hologram", null, null).mode());
++        assertEquals(FaceStreamProvider.Mode.IMAGES, FaceStreamProvider.parseMode(" Images "));
++        assertTrue(FaceStreamProvider.fromConfig(null, null, "abc").currentJpeg(0) == null);
++        assertEquals(0, new FaceStreamProvider(FaceStreamProvider.Mode.VIDEO, Collections.<byte[]>emptyList(), 15, null, 0)
++                .frameCount());
++    }
++}
