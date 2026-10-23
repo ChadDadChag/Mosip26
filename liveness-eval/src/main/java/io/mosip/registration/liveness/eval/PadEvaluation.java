@@ -1,6 +1,8 @@
 package io.mosip.registration.liveness.eval;
 
+import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzer;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+import io.mosip.registration.liveness.analyzer.pad.ReplayCues;
 import io.mosip.registration.liveness.analyzer.heuristic.HeuristicFaceAnalyzer;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
 import io.mosip.registration.liveness.api.Frame;
@@ -61,20 +63,29 @@ public final class PadEvaluation {
     static final class FrameRec {
         final int faces;
         final Set<QualityIssue> issues;
-        final float yaw, pitch, roll, score, v2, v1se, moire, glare, area;
+        final float yaw, pitch, roll, score, v2, v1se, moire, glare, area, moireMed;
+        final boolean capped;
 
         FrameRec(int faces, Set<QualityIssue> issues, float yaw, float pitch, float roll, float score, float v2,
                  float v1se, float moire, float glare, float area) {
+            this(faces, issues, yaw, pitch, roll, score, v2, v1se, moire, glare, area, Float.NaN, false);
+        }
+
+        FrameRec(int faces, Set<QualityIssue> issues, float yaw, float pitch, float roll, float score, float v2,
+                 float v1se, float moire, float glare, float area, float moireMed, boolean capped) {
             this.faces = faces;
             this.issues = issues.isEmpty() ? EnumSet.noneOf(QualityIssue.class) : EnumSet.copyOf(issues);
             this.yaw = yaw; this.pitch = pitch; this.roll = roll; this.score = score;
             this.v2 = v2; this.v1se = v1se; this.moire = moire; this.glare = glare; this.area = area;
+            this.moireMed = moireMed; this.capped = capped;
         }
 
-        static FrameRec of(FrameAnalysis a, int width, int height) {
+        /** score is the analyzer's livenessScore as delivered (after the session moire cap). */
+        static FrameRec of(FrameAnalysis a, int width, int height, float glare) {
             float area = a.faceBox == null ? Float.NaN : a.faceBox[2] * a.faceBox[3] / ((float) width * height);
             return new FrameRec(a.faceCount, a.qualityIssues, a.yawDeg, a.pitchDeg, a.rollDeg, a.livenessScore,
-                    detail(a, "minifas_v2_live"), detail(a, "minifas_v1se_live"), detail(a, "moire"), detail(a, "glare"), area);
+                    detail(a, "minifas_v2_live"), detail(a, "minifas_v1se_live"), detail(a, "moire"), glare, area,
+                    detail(a, "moire_med"), detail(a, "moire_cap") == 1f);
         }
 
         private static float detail(FrameAnalysis a, String key) {
@@ -83,8 +94,11 @@ public final class PadEvaluation {
         }
     }
 
-    /** How a candidate turns a frame into a score. */
-    enum Base { MEAN, V2, V1SE, MIN, HEURISTIC }
+    /**
+     * How a candidate turns a frame into a score: PRODUCTION = the analyzer's livenessScore as delivered (MEAN with
+     * the session moire cap); MEAN = (v2 + v1se) / 2 recomputed without the cap; HEURISTIC = the heuristic score.
+     */
+    enum Base { PRODUCTION, MEAN, V2, V1SE, MIN, HEURISTIC }
 
     /** One candidate scorer: a base score, an optional moire veto and an optional face-size gate. */
     static final class Candidate {
@@ -103,7 +117,8 @@ public final class PadEvaluation {
                 case V2: s = f.v2; break;
                 case V1SE: s = f.v1se; break;
                 case MIN: s = Float.isNaN(f.v2) || Float.isNaN(f.v1se) ? Float.NaN : Math.min(f.v2, f.v1se); break;
-                default: s = f.score; break; // MEAN = (v2 + v1se) / 2 as produced by the analyzer; HEURISTIC as is
+                case MEAN: s = Float.isNaN(f.v2) || Float.isNaN(f.v1se) ? Float.NaN : (f.v2 + f.v1se) / 2f; break;
+                default: s = f.score; break; // PRODUCTION and HEURISTIC: as the analyzer delivered it
             }
             if (!Float.isNaN(moireVeto) && !Float.isNaN(s) && f.moire >= moireVeto) s = 0f;
             return s;
@@ -122,13 +137,19 @@ public final class PadEvaluation {
     }
 
     static Candidate production() {
-        return new Candidate("1", "MEAN (production)", Base.MEAN, Float.NaN, Float.NaN);
+        return new Candidate("1", "MEAN + session moire cap (production)", Base.PRODUCTION, Float.NaN, Float.NaN);
+    }
+
+    /** Phase 6 production: MEAN without the session moire cap, the baseline the cap is measured against. */
+    static Candidate uncapped() {
+        return new Candidate("1a", "MEAN, no moire cap (before)", Base.MEAN, Float.NaN, Float.NaN);
     }
 
     /** Candidates 1 to 6; 7 is built from the best of 4 to 6 once those are scored, 8 is the heuristic analyzer. */
     static List<Candidate> fixedCandidates() {
         List<Candidate> c = new ArrayList<Candidate>();
         c.add(production());
+        c.add(uncapped());
         c.add(new Candidate("2", "V2 only", Base.V2, Float.NaN, Float.NaN));
         c.add(new Candidate("3", "V1SE only", Base.V1SE, Float.NaN, Float.NaN));
         c.add(new Candidate("4", "MIN(v2, v1se)", Base.MIN, Float.NaN, Float.NaN));
@@ -284,7 +305,9 @@ public final class PadEvaluation {
         List<File> files = t.frames();
         for (int i = 0; i < files.size(); i++) {
             Frame f = load(files.get(i), Math.round(i * 1000.0 / t.fps), i, "eval:" + t);
-            recs.add(FrameRec.of(analyzer.analyze(f), f.width(), f.height()));
+            FrameAnalysis a = analyzer.analyze(f);
+            ReplayCues.Cues cues = analyzer instanceof OnnxFaceAnalyzer ? ((OnnxFaceAnalyzer) analyzer).lastReplayCues() : null;
+            recs.add(FrameRec.of(a, f.width(), f.height(), cues == null ? Float.NaN : cues.glare));
         }
         return recs;
     }
@@ -431,6 +454,10 @@ public final class PadEvaluation {
             b.append("- A presentation is classified bona fide when score >= tau. APCER is per species; the headline is the "
                     + "maximum over evaluated species. ACER = (max APCER + BPCER) / 2 is **non-normative in the 2023 "
                     + "edition** and shown only for continuity.\n");
+            b.append("- Candidate 1 is production as shipped: the analyzer's livenessScore, which is MEAN with the session "
+                    + "moire cap (rolling median of the last 10 single-face moire values >= 1.40 over at least 3 values caps "
+                    + "the score at 0.60, forcing a challenge). Candidate 1a recomputes MEAN without the cap (Phase 6 "
+                    + "production). Candidates 2 to 7 start from the uncapped model outputs.\n");
             b.append("- Candidates are recomputed per frame from the stored model outputs and go through the same window logic. "
                     + "Moire veto: frame score 0 when moire >= M. Area gate: frames with face area fraction > A are "
                     + "ineligible, as FACE_TOO_LARGE makes them (0.60 is today's quality limit). Candidate 7 combines the "
@@ -457,8 +484,12 @@ public final class PadEvaluation {
                         num(r.passiveThreshold), num(r.padRejectThreshold)));
             }
 
-            b.append("\n## Three zones with today's settings (passive 0.85, reject 0.30), candidate 1\n\n");
+            b.append("\n## Three zones with today's settings (passive 0.85, reject 0.30), candidate 1 (production, with the moire cap)\n\n");
             b.append(zoneTable(prod));
+            Candidate before = uncapped();
+            for (Candidate c : candidates) if (c.id.equals("1a")) before = c;
+            b.append("\n### Before the moire cap (candidate 1a)\n\n").append(zoneTable(before));
+            b.append("\n").append(capEffect(prod, before));
             b.append("\nPassive pass is a security failure for an attack; PAD reject is a usability failure for bona fide. "
                     + "\"PadMonitor\" counts takes whose 3-frame rolling median ever drops below 0.30, which would end a challenge "
                     + "with PAD_FAILURE.\n");
@@ -498,6 +529,27 @@ public final class PadEvaluation {
                 }
             }
             return best;
+        }
+
+        /** What the cap changed: takes moved out of the passive zone, per class, and any newly rejected takes. */
+        String capEffect(Candidate after, Candidate before) {
+            Map<String, int[]> moved = new LinkedHashMap<String, int[]>(); // {passive -> challenge, newly rejected, responding}
+            for (int i = 0; i < runs.size(); i++) {
+                String s = runs.get(i).ref.species;
+                if (!moved.containsKey(s)) moved.put(s, new int[3]);
+                PadMetrics.Zone z0 = PadMetrics.zone(outcomes.get(before).get(i).median, PASSIVE, REJECT);
+                PadMetrics.Zone z1 = PadMetrics.zone(outcomes.get(after).get(i).median, PASSIVE, REJECT);
+                if (z0 == PadMetrics.Zone.PASSIVE_PASS && z1 != PadMetrics.Zone.PASSIVE_PASS) moved.get(s)[0]++;
+                if (z0 != PadMetrics.Zone.PAD_REJECT && z1 == PadMetrics.Zone.PAD_REJECT) moved.get(s)[1]++;
+                if (z1 != PadMetrics.Zone.NO_RESPONSE) moved.get(s)[2]++;
+            }
+            StringBuilder b = new StringBuilder("Moire cap effect (candidate 1a -> 1):\n\n| class | responding takes | moved out of passive pass | newly PAD-rejected |\n|---|---|---|---|\n");
+            for (Map.Entry<String, int[]> e : moved.entrySet()) {
+                int[] m = e.getValue();
+                b.append(String.format(Locale.ROOT, "| %s | %d | %s | %s |%n", e.getKey(), m[2], new PadMetrics.Rate(m[0], m[2]).format(),
+                        new PadMetrics.Rate(m[1], m[2]).format()));
+            }
+            return b.toString();
         }
 
         private String maxApcerCell(List<PadMetrics.Presentation> ps, float tau) {
@@ -574,15 +626,17 @@ public final class PadEvaluation {
 
         /** For candidates 4 to 7: does screen_photo_close stay out of the passive zone at no bona fide cost? */
         String closeUpCandidates() {
-            Candidate prod = candidates.get(0);
-            Map<String, int[]> base = PadMetrics.zones(presentations(prod), PASSIVE, REJECT);
+            Candidate baseline = candidates.get(0);
+            for (Candidate c : candidates) if (c.id.equals("1a")) baseline = c;
+            Map<String, int[]> base = PadMetrics.zones(presentations(baseline), PASSIVE, REJECT);
             int[] bonaBase = base.get(EvalDataset.BONA_FIDE);
             StringBuilder b = new StringBuilder("Zones at 0.85 / 0.30. \"Zero bona fide cost\" = bona fide passive passes, "
-                    + "challenges, rejects and non-responses all unchanged from candidate 1.\n\n"
+                    + "challenges, rejects and non-responses all unchanged from candidate 1a (no cap). For candidate 1 a bona "
+                    + "fide take moved to a challenge is a usability cost, never a rejection.\n\n"
                     + "| # | candidate | screen_photo_close passive pass | of which *_fill takes | screen_photo passive pass | bona fide pass / challenge / reject / no-response | zero bona fide cost |\n"
                     + "|---|---|---|---|---|---|---|\n");
             for (Candidate c : candidates) {
-                if (c.id.compareTo("4") < 0 || c.id.compareTo("7") > 0) continue;
+                if (!c.id.equals("1") && (c.id.compareTo("4") < 0 || c.id.compareTo("7") > 0)) continue;
                 Map<String, int[]> z = PadMetrics.zones(presentations(c), PASSIVE, REJECT);
                 int[] bona = z.get(EvalDataset.BONA_FIDE);
                 boolean same = bonaBase != null && bona != null && Arrays.equals(bona, bonaBase);
@@ -633,7 +687,7 @@ public final class PadEvaluation {
 
         String framesCsv() {
             StringBuilder b = new StringBuilder("subject,species,take,condition,frame,t_ms,faces,issues,yaw,pitch,roll,area,moire,"
-                    + "glare,v2,v1se,mean,min,heuristic_faces,heuristic_score\n");
+                    + "glare,v2,v1se,mean,min,moire_med,moire_cap,heuristic_faces,heuristic_score\n");
             Candidate min = new Candidate("4", "MIN", Base.MIN, Float.NaN, Float.NaN);
             for (TakeData t : runs) {
                 for (int i = 0; i < t.onnx.size(); i++) {
@@ -647,7 +701,8 @@ public final class PadEvaluation {
                             .append(',').append(num2(f.yaw)).append(',').append(num2(f.pitch)).append(',').append(num2(f.roll))
                             .append(',').append(num4(f.area)).append(',').append(num4(f.moire)).append(',').append(num4(f.glare))
                             .append(',').append(num4(f.v2)).append(',').append(num4(f.v1se)).append(',').append(num4(f.score))
-                            .append(',').append(num4(min.score(f))).append(',').append(h == null ? "" : String.valueOf(h.faces))
+                            .append(',').append(num4(min.score(f))).append(',').append(num4(f.moireMed)).append(',')
+                            .append(f.capped ? "1" : "0").append(',').append(h == null ? "" : String.valueOf(h.faces))
                             .append(',').append(h == null ? "" : num4(h.score)).append('\n');
                 }
             }

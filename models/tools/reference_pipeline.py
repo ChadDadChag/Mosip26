@@ -1,6 +1,7 @@
 """Part 2 reference pipeline: the EXECUTABLE SPEC that the Java analyzer must match.
 
     python -I models/tools/reference_pipeline.py IMAGE [--flip] [--json OUT]
+    python -I models/tools/reference_pipeline.py --session      (session moire cap self-test)
 
 All math is numpy. cv2 is used only by imread_bgr (decoding) and by the webcam script for
 capture and display. Each step's docstring is the formula the Java port mirrors.
@@ -56,11 +57,18 @@ Q_MIN_FACE_WIDTH_PX = 80.0    # face width below -> FACE_TOO_SMALL
 Q_MAX_AREA_FRAC = 0.60        # areaFrac above -> FACE_TOO_LARGE
 Q_MAX_CENTRE_OFFSET = 0.25    # centreDx or centreDy above -> FACE_OFF_CENTER
 
-# Replay cues (audit only; fusion weight 0 until the evaluation shows they help).
+# Replay cues. Glare is audit only; moire feeds the session cap below.
 MOIRE_SIZE = 64
 MOIRE_R_MIN, MOIRE_R_MAX = 8, 31
 MOIRE_EPS = 1e-6
 GLARE_LEVEL = 250.0
+
+# Session moire cap (Phase 6 decision D-PAD-3; see session_scores). None switches a threshold off.
+MOIRE_CAP_THRESHOLD = 1.40    # rolling median moire at or above -> score = min(score, MOIRE_CAP_SCORE)
+MOIRE_CAP_SCORE = 0.60        # below passiveThreshold 0.85 (forces a challenge), above padRejectThreshold 0.30
+MOIRE_WINDOW = 10             # single-face frames in the rolling median
+MOIRE_MIN_FRAMES = 3          # values needed before the cap or veto can apply
+MOIRE_VETO_THRESHOLD = None   # rolling median at or above -> score 0 (off until multi-device data exists)
 
 # Mesh indices, subject's point of view. Eye order is the contract's p1..p6:
 # [outer corner, upper-outer, upper-inner, inner corner, lower-inner, lower-outer].
@@ -629,6 +637,87 @@ class Pipeline:
         return res
 
 
+# ---------------------------------------------------------------------------------------------
+# Session moire cap (stateful: the Java analyzer is one per session)
+# ---------------------------------------------------------------------------------------------
+
+def session_cfg(cap=MOIRE_CAP_THRESHOLD, cap_score=MOIRE_CAP_SCORE, window=MOIRE_WINDOW,
+                min_frames=MOIRE_MIN_FRAMES, veto=MOIRE_VETO_THRESHOLD):
+    return {"cap": cap, "capScore": cap_score, "window": window, "minFrames": min_frames, "veto": veto}
+
+
+def session_scores(frame_results, cfg=None):
+    """Applies the session moire cap to a session's frame results, in order. Returns one dict per frame:
+    {"livenessScore", "moireMed", "moireCap"}.
+
+    A phone or monitor held close can fool MiniFASNet, but its pixel grid keeps the face crop's moire high frame
+    after frame. Per frame, with buf = the last cfg["window"] moire values:
+      * faceCount != 1: buf is cleared (no face, or a different face may have been presented); the score stays
+        None, moireMed None, moireCap False.
+      * faceCount == 1: the frame's replay moire is appended to buf, also when the frame has no score (pose-gated
+        or no mesh): a screen is a screen at any angle. moireMed = median(buf) (even count: mean of the two middle
+        values).
+      * When len(buf) >= cfg["minFrames"]:
+          - if veto is set and moireMed >= veto: score = 0, moireCap True;
+          - elif cap is set and moireMed >= cap: score = min(score, capScore), moireCap True.
+        A frame without a score keeps None (moireCap still reports the condition).
+    Java compares in float32 (the moire is a float), so the thresholds are compared after rounding to float32.
+    """
+    cfg = cfg or session_cfg()
+    f32 = lambda v: float(np.float32(v))  # noqa: E731
+    buf, out = [], []
+    for r in frame_results:
+        score = r.get("livenessScore")
+        if r.get("faceCount") != 1:
+            buf = []
+            out.append({"livenessScore": score, "moireMed": None, "moireCap": False})
+            continue
+        moire = (r.get("replay") or {}).get("moire")
+        if moire is not None:
+            buf = (buf + [f32(moire)])[-cfg["window"]:]
+        med = f32(np.median(buf)) if buf else None
+        capped = False
+        if len(buf) >= cfg["minFrames"]:
+            if cfg["veto"] is not None and med >= f32(cfg["veto"]):
+                capped, score = True, (None if score is None else 0.0)
+            elif cfg["cap"] is not None and med >= f32(cfg["cap"]):
+                capped, score = True, (None if score is None else min(score, f32(cfg["capScore"])))
+        out.append({"livenessScore": score, "moireMed": med, "moireCap": capped})
+    return out
+
+
+# The synthetic sequence the Java MoireCapTest replays: (faceCount, livenessScore, moire).
+SESSION_SELF_TEST = [
+    (1, 0.95, 1.20), (1, 0.95, 1.50), (1, 0.95, 1.50), (1, 0.40, 1.50), (1, None, 1.60),  # cap from frame 3
+    (0, None, None), (1, 0.95, 1.50), (1, 0.95, 1.50),                                     # face lost: reset
+    (2, None, None), (1, 0.95, 1.39), (1, 0.95, 1.39), (1, 0.95, 1.39),                     # two faces: reset
+    (1, 0.95, 1.40), (1, 0.95, 1.41), (1, 0.95, 1.41), (1, 0.95, 1.41),                     # median 1.39 -> 1.40
+]
+SESSION_EXPECTED = {
+    "default": [0.95, 0.95, 0.60, 0.40, None, None, 0.95, 0.95, None, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95, 0.60],
+    "veto1.45": [0.95, 0.95, 0.0, 0.0, None, None, 0.95, 0.95, None, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95, 0.60],
+    "off": [0.95, 0.95, 0.95, 0.40, None, None, 0.95, 0.95, None, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95, 0.95],
+}
+
+
+def session_self_test():
+    """Runs SESSION_SELF_TEST under three configs and checks SESSION_EXPECTED; prints the trace."""
+    frames = [{"faceCount": n, "livenessScore": s, "replay": None if m is None else {"moire": m}}
+              for n, s, m in SESSION_SELF_TEST]
+    configs = {"default": session_cfg(), "veto1.45": session_cfg(veto=1.45), "off": session_cfg(cap=None)}
+    ok = True
+    for name, cfg in configs.items():
+        got = session_scores(frames, cfg)
+        for i, (g, want) in enumerate(zip(got, SESSION_EXPECTED[name])):
+            s = g["livenessScore"]
+            match = (s is None and want is None) or (s is not None and want is not None and abs(s - want) < 1e-6)
+            ok &= match
+            print(f"{name:9s} frame {i:2d} faces {SESSION_SELF_TEST[i][0]} moire {SESSION_SELF_TEST[i][2]} -> "
+                  f"med {g['moireMed']} cap {g['moireCap']} score {s} {'ok' if match else 'MISMATCH, want ' + str(want)}")
+    print("session self-test", "PASSED" if ok else "FAILED")
+    return 0 if ok else 1
+
+
 def to_json(res):
     """JSON text with NaN mapped to null (JSON has no NaN)."""
     def clean(v):
@@ -654,10 +743,15 @@ def summary(res):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("image")
+    ap.add_argument("image", nargs="?")
     ap.add_argument("--flip", action="store_true", help="mirror the decoded pixels horizontally first")
     ap.add_argument("--json", help="write the full result to this file")
+    ap.add_argument("--session", action="store_true", help="run the session moire cap self-test and exit")
     args = ap.parse_args()
+    if args.session:
+        return session_self_test()
+    if not args.image:
+        ap.error("an image is required (or --session)")
     bgr = imread_bgr(args.image)
     if args.flip:
         bgr = np.ascontiguousarray(bgr[:, ::-1])

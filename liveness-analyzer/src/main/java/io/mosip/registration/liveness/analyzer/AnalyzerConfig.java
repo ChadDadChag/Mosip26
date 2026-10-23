@@ -18,6 +18,9 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *   <li>{@code padMaxYawDeg} (30), {@code padMaxPitchDeg} (25): outside this pose range the PAD score is NaN</li>
  *   <li>{@code tooDarkLuma} (40), {@code tooBrightLuma} (220), {@code blurLapVar} (15), {@code minAreaFrac} (0.04),
  *       {@code minFaceWidthPx} (80), {@code maxAreaFrac} (0.60), {@code maxCentreOffset} (0.25)</li>
+ *   <li>session moire cap ({@link io.mosip.registration.liveness.analyzer.pad.MoireCap}): {@code moireCapThreshold}
+ *       (1.40; {@code off} disables), {@code moireCapScore} (0.60), {@code moireWindow} (10), {@code moireMinFrames} (3),
+ *       {@code moireVetoThreshold} ({@code off}; a number enables the hard veto)</li>
  * </ul>
  */
 public final class AnalyzerConfig {
@@ -47,6 +50,16 @@ public final class AnalyzerConfig {
     public final double minFaceWidthPx;
     public final double maxAreaFrac;
     public final double maxCentreOffset;
+    /** Session moire cap: rolling median at or above this caps the score; NaN = off. */
+    public final double moireCapThreshold;
+    /** The capped score, in (0, 1): below passiveThreshold, above padRejectThreshold. */
+    public final double moireCapScore;
+    /** Single-face frames in the rolling moire median. */
+    public final int moireWindow;
+    /** Values needed in the window before the cap or veto can apply. */
+    public final int moireMinFrames;
+    /** Rolling median at or above this sets the score to 0; NaN = off (the default until multi-device data). */
+    public final double moireVetoThreshold;
 
     private AnalyzerConfig(Builder b) {
         intraOpThreads = b.intraOpThreads;
@@ -65,6 +78,11 @@ public final class AnalyzerConfig {
         minFaceWidthPx = b.minFaceWidthPx;
         maxAreaFrac = b.maxAreaFrac;
         maxCentreOffset = b.maxCentreOffset;
+        moireCapThreshold = b.moireCapThreshold;
+        moireCapScore = b.moireCapScore;
+        moireWindow = b.moireWindow;
+        moireMinFrames = b.moireMinFrames;
+        moireVetoThreshold = b.moireVetoThreshold;
     }
 
     public static Builder builder() {
@@ -94,6 +112,11 @@ public final class AnalyzerConfig {
         b.minFaceWidthPx = minFaceWidthPx;
         b.maxAreaFrac = maxAreaFrac;
         b.maxCentreOffset = maxCentreOffset;
+        b.moireCapThreshold = moireCapThreshold;
+        b.moireCapScore = moireCapScore;
+        b.moireWindow = moireWindow;
+        b.moireMinFrames = moireMinFrames;
+        b.moireVetoThreshold = moireVetoThreshold;
         return b;
     }
 
@@ -134,6 +157,11 @@ public final class AnalyzerConfig {
         b.minFaceWidthPx = doubleValue(cfg, "minFaceWidthPx", b.minFaceWidthPx);
         b.maxAreaFrac = doubleValue(cfg, "maxAreaFrac", b.maxAreaFrac);
         b.maxCentreOffset = doubleValue(cfg, "maxCentreOffset", b.maxCentreOffset);
+        b.moireCapThreshold = optionalThreshold(cfg, "moireCapThreshold", b.moireCapThreshold);
+        b.moireCapScore = doubleValue(cfg, "moireCapScore", b.moireCapScore);
+        b.moireWindow = intValue(cfg, "moireWindow", b.moireWindow);
+        b.moireMinFrames = intValue(cfg, "moireMinFrames", b.moireMinFrames);
+        b.moireVetoThreshold = optionalThreshold(cfg, "moireVetoThreshold", b.moireVetoThreshold);
         return b.build();
     }
 
@@ -167,6 +195,11 @@ public final class AnalyzerConfig {
         }
         range("minFaceWidthPx", minFaceWidthPx, 0, 10000);
         positiveUpTo("maxCentreOffset", maxCentreOffset, 0.5);
+        if (!Double.isNaN(moireCapThreshold)) positiveUpTo("moireCapThreshold", moireCapThreshold, 10);
+        openRange("moireCapScore", moireCapScore, 0, 1);
+        range("moireMinFrames", moireMinFrames, 1, 100);
+        range("moireWindow", moireWindow, moireMinFrames, 100);
+        if (!Double.isNaN(moireVetoThreshold)) positiveUpTo("moireVetoThreshold", moireVetoThreshold, 10);
     }
 
     private static void range(String key, double v, double lo, double hi) {
@@ -189,6 +222,13 @@ public final class AnalyzerConfig {
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException(KEY_PREFIX + key + ": not an integer: '" + s + "'");
         }
+    }
+
+    /** A threshold that can be switched off: "off" (or "none", "nan") gives NaN, anything else must be a number. */
+    private static double optionalThreshold(ConfigProvider cfg, String key, double dflt) {
+        String s = cfg.get(KEY_PREFIX + key);
+        if (s != null && s.trim().toLowerCase(java.util.Locale.ROOT).matches("off|none|nan")) return Double.NaN;
+        return doubleValue(cfg, key, dflt);
     }
 
     private static double doubleValue(ConfigProvider cfg, String key, double dflt) {
@@ -224,6 +264,11 @@ public final class AnalyzerConfig {
         private double minFaceWidthPx = 80;
         private double maxAreaFrac = 0.60;
         private double maxCentreOffset = 0.25;
+        private double moireCapThreshold = 1.40;
+        private double moireCapScore = 0.60;
+        private int moireWindow = 10;
+        private int moireMinFrames = 3;
+        private double moireVetoThreshold = Double.NaN;
 
         private Builder() { }
 
@@ -245,6 +290,13 @@ public final class AnalyzerConfig {
         public Builder minFaceWidthPx(double v) { minFaceWidthPx = v; return this; }
         public Builder maxAreaFrac(double v) { maxAreaFrac = v; return this; }
         public Builder maxCentreOffset(double v) { maxCentreOffset = v; return this; }
+        /** NaN switches the cap off. */
+        public Builder moireCapThreshold(double v) { moireCapThreshold = v; return this; }
+        public Builder moireCapScore(double v) { moireCapScore = v; return this; }
+        public Builder moireWindow(int v) { moireWindow = v; return this; }
+        public Builder moireMinFrames(int v) { moireMinFrames = v; return this; }
+        /** NaN (the default) switches the veto off. */
+        public Builder moireVetoThreshold(double v) { moireVetoThreshold = v; return this; }
 
         public AnalyzerConfig build() {
             AnalyzerConfig c = new AnalyzerConfig(this);

@@ -7,6 +7,7 @@ import io.mosip.registration.liveness.analyzer.mesh.FaceMeshLandmarker;
 import io.mosip.registration.liveness.analyzer.mesh.HeadPoseEstimator;
 import io.mosip.registration.liveness.analyzer.mesh.MeshIndices;
 import io.mosip.registration.liveness.analyzer.mesh.MeshResult;
+import io.mosip.registration.liveness.analyzer.pad.MoireCap;
 import io.mosip.registration.liveness.analyzer.pad.PadResult;
 import io.mosip.registration.liveness.analyzer.pad.ReplayCues;
 import io.mosip.registration.liveness.analyzer.pad.SilentFacePad;
@@ -41,18 +42,32 @@ import java.util.Map;
  * </ul>
  *
  * <p>Per frame: detect; no face: empty analysis; several faces: primary box only (no landmarks, NaN pose and
- * score); one face: quality issues and mesh. Without a mesh the pose is unknown, so the score is NaN (replay cues
- * are still reported). Outside the PAD pose range (|yaw| &gt; padMaxYawDeg or |pitch| &gt; padMaxPitchDeg) the score
- * is NaN and padDetails is {"pose_gated": 1}; otherwise livenessScore = (p_v2[1] + p_v1se[1]) / 2 and padDetails
- * holds, in order: minifas_v2_live, minifas_v1se_live, minifas_v2_c0, minifas_v2_c2, minifas_v1se_c0,
- * minifas_v1se_c2, moire, glare (audit only).
+ * score); one face: quality issues, replay cues and mesh. Without a mesh the pose is unknown, so the score is NaN.
+ * Outside the PAD pose range (|yaw| &gt; padMaxYawDeg or |pitch| &gt; padMaxPitchDeg) the score is NaN; otherwise
+ * score = (p_v2[1] + p_v1se[1]) / 2, then the session moire cap ({@link MoireCap}): every frame with exactly one face
+ * adds its moire to the session's rolling median, scored or not; any other face count clears it. When the median of
+ * at least moireMinFrames values reaches moireCapThreshold (1.40) the score becomes min(score, moireCapScore = 0.60),
+ * so the session goes to a challenge instead of passing passively (a phone held close fools the models, not the
+ * moire). livenessScore is the score after the cap.
  *
- * <p>One analyzer per session: it owns its buffers and is not thread-safe. The ONNX sessions are shared and are
- * never closed by an analyzer. Created only by the factory in this package.
+ * <p>padDetails (audit only, at most 8 keys, never shown in the UI):
+ * <ul>
+ *   <li>scored frames, in order: minifas_v2_live, minifas_v1se_live, minifas_v2_c0, minifas_v2_c2,
+ *       minifas_v1se_spoof (= v1se c0 + c2), moire, moire_med (the session's rolling median), moire_cap (1 when the
+ *       cap or veto applied, else 0);</li>
+ *   <li>pose-gated frames: pose_gated (1), moire, moire_med;</li>
+ *   <li>frames without a mesh: moire, moire_med;</li>
+ *   <li>no face or several faces: empty.</li>
+ * </ul>
+ * Glare is still computed; {@link #lastReplayCues()} exposes it with the moire for evaluation tools and demos.
+ *
+ * <p>One analyzer per session: it owns its buffers and the session moire state and is not thread-safe. The ONNX
+ * sessions are shared and are never closed by an analyzer. Created only by the factory in this package.
  */
 public final class OnnxFaceAnalyzer implements FaceAnalyzer {
 
     static final String POSE_GATED = "pose_gated";
+    static final String MOIRE_CAP = "moire_cap";
 
     private final AnalyzerConfig config;
     private final String modelVersion;
@@ -62,9 +77,13 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     private final SilentFacePad pad;
     private final QualityAssessor quality;
     private final ReplayCues cues;
+    private final MoireCap moireCap;
     private final AnalyzerStats stats = new AnalyzerStats();
     private final float[] pose = new float[3];
+    private ReplayCues.Cues lastCues;
     private volatile boolean closed;
+    /** Test seam: when not NaN, replaces every computed moire value (tests drive the cap without screen images). */
+    float moireOverride = Float.NaN;
 
     OnnxFaceAnalyzer(OnnxModels sharedModels, AnalyzerConfig config, String modelVersion) {
         if (sharedModels == null || config == null) throw new IllegalArgumentException("null argument");
@@ -77,6 +96,8 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
                 sharedModels.session(ModelRole.PAD_V1SE));
         this.quality = new QualityAssessor(config);
         this.cues = new ReplayCues();
+        this.moireCap = new MoireCap(config.moireCapThreshold, config.moireCapScore, config.moireWindow,
+                config.moireMinFrames, config.moireVetoThreshold);
     }
 
     @Override
@@ -104,6 +125,10 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         List<FaceDetection> faces = detector.detect(rgb, w, h);
         stats.detectNs = System.nanoTime() - t;
         int faceCount = YuNetDetector.countFaces(faces, config.detector.secondFaceMinAreaRatio);
+        if (faceCount != 1) {
+            moireCap.reset(); // no face, or a different face may have been presented
+            lastCues = null;
+        }
         if (faceCount == 0) {
             stats.framesNoFace++;
             return finish(frame, 0, null, null, nan3(), EnumSet.noneOf(QualityIssue.class), Float.NaN,
@@ -126,7 +151,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         stats.meshNs = System.nanoTime() - t;
         if (mesh == null) {
             Map<String, Float> details = new LinkedHashMap<String, Float>();
-            addCues(details, rgb, w, h, primary);
+            capped(Float.NaN, details, rgb, w, h, primary);
             return finish(frame, 1, primary.toBox(), null, nan3(), q.issuesCopy(), Float.NaN, details, start);
         }
 
@@ -140,6 +165,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
             stats.framesPoseGated++;
             Map<String, Float> details = new LinkedHashMap<String, Float>();
             details.put(POSE_GATED, 1f);
+            capped(Float.NaN, details, rgb, w, h, primary);
             return finish(frame, 1, primary.toBox(), landmarks, ypr, q.issuesCopy(), Float.NaN, details, start);
         }
 
@@ -151,18 +177,25 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         details.put("minifas_v1se_live", p.v1se[1]);
         details.put("minifas_v2_c0", p.v2[0]);
         details.put("minifas_v2_c2", p.v2[2]);
-        details.put("minifas_v1se_c0", p.v1se[0]);
-        details.put("minifas_v1se_c2", p.v1se[2]);
-        addCues(details, rgb, w, h, primary);
-        return finish(frame, 1, primary.toBox(), landmarks, ypr, q.issuesCopy(), p.score, details, start);
+        details.put("minifas_v1se_spoof", p.v1se[0] + p.v1se[2]);
+        float score = capped(p.score, details, rgb, w, h, primary);
+        details.put(MOIRE_CAP, moireCap.active() ? 1f : 0f);
+        return finish(frame, 1, primary.toBox(), landmarks, ypr, q.issuesCopy(), score, details, start);
     }
 
-    private void addCues(Map<String, Float> details, byte[] rgb, int w, int h, FaceDetection face) {
+    /**
+     * Computes the face's replay cues, adds its moire to the session's rolling median ({@link MoireCap}), records
+     * moire and moire_med, and returns the score after the cap or veto.
+     */
+    private float capped(float score, Map<String, Float> details, byte[] rgb, int w, int h, FaceDetection face) {
         long t = System.nanoTime();
-        ReplayCues.Cues c = cues.compute(rgb, w, h, face);
+        lastCues = cues.compute(rgb, w, h, face);
         stats.cuesNs = System.nanoTime() - t;
-        details.put("moire", c.moire);
-        details.put("glare", c.glare);
+        float moire = Float.isNaN(moireOverride) ? lastCues.moire : moireOverride;
+        float out = moireCap.apply(score, moire);
+        if (!Float.isNaN(moire)) details.put("moire", moire);
+        if (!Float.isNaN(moireCap.rollingMedian())) details.put("moire_med", moireCap.rollingMedian());
+        return out;
     }
 
     private FrameAnalysis finish(Frame frame, int faceCount, float[] box, FaceLandmarks landmarks, float[] ypr,
@@ -196,6 +229,14 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     /** The effective configuration of this analyzer. */
     public AnalyzerConfig config() {
         return config;
+    }
+
+    /**
+     * Moire and glare of the last frame's face (not part of the FaceAnalyzer contract; for evaluation tools and the
+     * demo). Null when the last frame had no face or several faces.
+     */
+    public ReplayCues.Cues lastReplayCues() {
+        return lastCues;
     }
 
     /** Statistics of this analyzer (not part of the FaceAnalyzer contract; for the benchmark and the demo). */

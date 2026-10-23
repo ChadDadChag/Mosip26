@@ -92,11 +92,15 @@ same-camera σ = 1.5 value (6.1): √(34.4 × 6.1) = 14.5, rounded to **15**. Th
 face (the portrait, 53.7) therefore still reads sharper than a raw webcam frame. The threshold is
 set for the capture domain that matters: live webcam frames.
 
-`replay_cues()` adds two audit-only signals to `padDetails`, with fusion weight 0 until the
-evaluation shows they help:
+`replay_cues()` computes two replay signals for every single-face frame:
 - **moire:** log10(max / median) of the Hann-windowed 64 × 64 DFT magnitude over radii 8–31.
   The golden faces read 1.25–1.70; a live webcam reads 1.02–1.29.
-- **glare:** the fraction of 112 × 112 crop pixels with R, G and B all ≥ 250.
+  Since Phase 6b it feeds the **session moire cap** (`session_scores()`). When the rolling median
+  of the last 10 single-face frames' moire is at least 1.40, over at least 3 values, the score is
+  capped at 0.60. That sends a phone held close to the camera to a challenge; see
+  `docs/part2-pad-architecture.md`.
+- **glare:** the fraction of 112 × 112 crop pixels with R, G and B all ≥ 250. It is audit only. It
+  is not in `padDetails`; tools read it through `OnnxFaceAnalyzer.lastReplayCues()`.
 
 ## Conversion checks
 

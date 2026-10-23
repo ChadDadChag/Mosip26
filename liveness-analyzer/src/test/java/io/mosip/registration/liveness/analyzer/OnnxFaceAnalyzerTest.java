@@ -48,7 +48,14 @@ class OnnxFaceAnalyzerTest {
             double want = MiniJson.getDouble(GoldenFixtures.json("portrait_frontal"), "livenessScore");
             assertThat((double) r.livenessScore).isCloseTo(want, within(1e-4));
             assertThat(r.padDetails.keySet()).containsExactly("minifas_v2_live", "minifas_v1se_live", "minifas_v2_c0",
-                    "minifas_v2_c2", "minifas_v1se_c0", "minifas_v1se_c2", "moire", "glare");
+                    "minifas_v2_c2", "minifas_v1se_spoof", "moire", "moire_med", "moire_cap");
+            // One golden frame: moire 1.25 is below the 1.40 cap, the window has one value, so the score is unchanged.
+            assertThat(r.padDetails.get("moire")).isLessThan(1.40f);
+            assertThat(r.padDetails.get("moire_med")).isEqualTo(r.padDetails.get("moire"));
+            assertThat(r.padDetails.get("moire_cap")).isZero();
+            assertThat(a.lastReplayCues()).isNotNull();
+            assertThat(a.lastReplayCues().moire).isEqualTo(r.padDetails.get("moire"));
+            assertThat(a.lastReplayCues().glare).isBetween(0f, 1f);
             assertThat(r.processingMs).isGreaterThanOrEqualTo(0);
             assertThat(a.modelVersion()).isEqualTo("test-version");
             AnalyzerStats s = a.stats();
@@ -111,7 +118,7 @@ class OnnxFaceAnalyzerTest {
             assertThat(r.landmarks).isNotNull();
             assertThat(r.yawDeg).isNotNaN();
             assertThat(r.livenessScore).isNaN();
-            assertThat(r.padDetails).containsOnlyKeys(OnnxFaceAnalyzer.POSE_GATED);
+            assertThat(r.padDetails).containsOnlyKeys(OnnxFaceAnalyzer.POSE_GATED, "moire", "moire_med");
             assertThat(r.padDetails.get(OnnxFaceAnalyzer.POSE_GATED)).isEqualTo(1f);
             assertThat(a.stats().framesPoseGated()).isEqualTo(1);
             assertThat(a.stats().lastPadNs()).isZero();
@@ -126,8 +133,60 @@ class OnnxFaceAnalyzerTest {
             assertThat(r.landmarks).isNull();
             assertThat(r.yawDeg).isNaN();
             assertThat(r.livenessScore).isNaN();
-            assertThat(r.padDetails).containsOnlyKeys("moire", "glare");
+            assertThat(r.padDetails).containsOnlyKeys("moire", "moire_med");
             assertThat(r.qualityIssues).isEmpty();
+        }
+    }
+
+    @Test
+    void sessionMoireCapAppliesFromTheThirdFrameAndResetsOnFaceChanges() throws Exception {
+        Frame portrait = frame("portrait_frontal");
+        byte[] grey = new byte[320 * 240 * 3];
+        Arrays.fill(grey, (byte) 128);
+        Frame empty = new Frame(grey, 320, 240, 0L, 0L, "test");
+        try (OnnxFaceAnalyzer a = analyzer(AnalyzerConfig.defaults())) {
+            float raw = a.analyze(portrait).livenessScore;
+            assertThat(raw).isGreaterThan(0.60f);
+            a.moireOverride = 1.5f; // a screen-like moire, injected: no screen image needed
+            FrameAnalysis second = a.analyze(portrait), third = a.analyze(portrait);
+            // Window: 1.25 (real), 1.5, 1.5 -> the third frame has 3 values and median 1.5 >= 1.40.
+            assertThat(second.livenessScore).isEqualTo(raw);
+            assertThat(second.padDetails.get("moire_cap")).isZero();
+            assertThat(third.livenessScore).isEqualTo(0.60f);
+            assertThat(third.padDetails.get("moire_cap")).isEqualTo(1f);
+            assertThat(third.padDetails.get("moire")).isEqualTo(1.5f);
+            assertThat(third.padDetails.get("moire_med")).isEqualTo(1.5f);
+            assertThat(third.padDetails.get("minifas_v2_live")).isGreaterThan(0.60f); // the model outputs stay raw
+
+            assertThat(a.analyze(empty).faceCount).isZero(); // face lost: the window restarts
+            assertThat(a.lastReplayCues()).isNull();
+            assertThat(a.analyze(portrait).livenessScore).isEqualTo(raw);
+            assertThat(a.analyze(portrait).livenessScore).isEqualTo(raw);
+            assertThat(a.analyze(portrait).livenessScore).isEqualTo(0.60f);
+            assertThat(a.analyze(frame("crew_multi")).faceCount).isEqualTo(4); // several faces: restarts too
+            assertThat(a.analyze(portrait).livenessScore).isEqualTo(raw);
+
+            a.moireOverride = 1.39f; // just below the threshold: never capped
+            for (int i = 0; i < 12; i++) assertThat(a.analyze(portrait).padDetails.get("moire_cap")).isZero();
+        }
+    }
+
+    @Test
+    void moireCapCanBeDisabledAndTheVetoEnabled() throws Exception {
+        Frame portrait = frame("portrait_frontal");
+        try (OnnxFaceAnalyzer off = analyzer(AnalyzerConfig.builder().moireCapThreshold(Double.NaN).build());
+             OnnxFaceAnalyzer veto = analyzer(AnalyzerConfig.builder().moireVetoThreshold(1.45).build())) {
+            off.moireOverride = 3f;
+            veto.moireOverride = 1.5f;
+            FrameAnalysis o = null, v = null;
+            for (int i = 0; i < 3; i++) {
+                o = off.analyze(portrait);
+                v = veto.analyze(portrait);
+            }
+            assertThat(o.livenessScore).isGreaterThan(0.60f);
+            assertThat(o.padDetails.get("moire_cap")).isZero();
+            assertThat(v.livenessScore).isZero();
+            assertThat(v.padDetails.get("moire_cap")).isEqualTo(1f);
         }
     }
 

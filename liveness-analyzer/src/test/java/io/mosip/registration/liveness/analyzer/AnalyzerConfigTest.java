@@ -44,6 +44,11 @@ class AnalyzerConfigTest {
         assertThat(c.minFaceWidthPx).isEqualTo(80);
         assertThat(c.maxAreaFrac).isEqualTo(0.60);
         assertThat(c.maxCentreOffset).isEqualTo(0.25);
+        assertThat(c.moireCapThreshold).isEqualTo(1.40);
+        assertThat(c.moireCapScore).isEqualTo(0.60);
+        assertThat(c.moireWindow).isEqualTo(10);
+        assertThat(c.moireMinFrames).isEqualTo(3);
+        assertThat(c.moireVetoThreshold).isNaN();
         assertThat(AnalyzerConfig.fromConfig(null).blurLapVar).isEqualTo(15);
         assertThat(AnalyzerConfig.fromConfig(provider(new HashMap<String, String>())).padMaxYawDeg).isEqualTo(30);
     }
@@ -56,7 +61,8 @@ class AnalyzerConfigTest {
                 "meshPresenceThreshold", "0.6", "meshRoiScale", "1.6", "pitchBiasDeg", "-8", "padMaxYawDeg", "35",
                 "padMaxPitchDeg", "20", "tooDarkLuma", "30", "tooBrightLuma", "230", "blurLapVar", "12",
                 "minAreaFrac", "0.03", "minFaceWidthPx", "90", "maxAreaFrac", "0.7", "maxCentreOffset", "0.3",
-                "unrelated", "x")));
+                "moireCapThreshold", "1.5", "moireCapScore", "0.5", "moireWindow", "12", "moireMinFrames", "4",
+                "moireVetoThreshold", "1.8", "unrelated", "x")));
         assertThat(c.intraOpThreads).isEqualTo(4);
         assertThat(c.accelerator).isEqualTo(Accelerator.XNNPACK);
         assertThat(c.detector.maxWidth).isEqualTo(480);
@@ -75,9 +81,27 @@ class AnalyzerConfigTest {
         assertThat(c.minFaceWidthPx).isEqualTo(90);
         assertThat(c.maxAreaFrac).isEqualTo(0.7);
         assertThat(c.maxCentreOffset).isEqualTo(0.3);
+        assertThat(c.moireCapThreshold).isEqualTo(1.5);
+        assertThat(c.moireCapScore).isEqualTo(0.5);
+        assertThat(c.moireWindow).isEqualTo(12);
+        assertThat(c.moireMinFrames).isEqualTo(4);
+        assertThat(c.moireVetoThreshold).isEqualTo(1.8);
         AnalyzerConfig copy = c.toBuilder().build();
         assertThat(copy.blurLapVar).isEqualTo(12);
         assertThat(copy.accelerator).isEqualTo(Accelerator.XNNPACK);
+        assertThat(copy.moireWindow).isEqualTo(12);
+        assertThat(copy.moireVetoThreshold).isEqualTo(1.8);
+    }
+
+    @Test
+    void moireThresholdsCanBeSwitchedOff() {
+        AnalyzerConfig off = AnalyzerConfig.fromConfig(provider(keys("moireCapThreshold", " OFF ", "moireVetoThreshold", "none")));
+        assertThat(off.moireCapThreshold).isNaN();
+        assertThat(off.moireVetoThreshold).isNaN();
+        assertThat(AnalyzerConfig.fromConfig(provider(keys("moireCapThreshold", "nan"))).moireCapThreshold).isNaN();
+        assertThat(AnalyzerConfig.builder().moireCapThreshold(Double.NaN).build().toBuilder().build().moireCapThreshold).isNaN();
+        assertThatThrownBy(() -> AnalyzerConfig.fromConfig(provider(keys("moireCapThreshold", "high"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(AnalyzerConfig.KEY_PREFIX + "moireCapThreshold");
     }
 
     @Test
@@ -119,6 +143,12 @@ class AnalyzerConfigTest {
         assertInvalid(AnalyzerConfig.builder().minAreaFrac(0.5).maxAreaFrac(0.4), "minAreaFrac");
         assertInvalid(AnalyzerConfig.builder().minFaceWidthPx(-5), "minFaceWidthPx");
         assertInvalid(AnalyzerConfig.builder().maxCentreOffset(0.6), "maxCentreOffset");
+        assertInvalid(AnalyzerConfig.builder().moireCapThreshold(0), "moireCapThreshold");
+        assertInvalid(AnalyzerConfig.builder().moireCapScore(0), "moireCapScore");
+        assertInvalid(AnalyzerConfig.builder().moireCapScore(1), "moireCapScore");
+        assertInvalid(AnalyzerConfig.builder().moireMinFrames(0), "moireMinFrames");
+        assertInvalid(AnalyzerConfig.builder().moireWindow(2), "moireWindow"); // below moireMinFrames 3
+        assertInvalid(AnalyzerConfig.builder().moireVetoThreshold(-1), "moireVetoThreshold");
     }
 
     private static void assertInvalid(AnalyzerConfig.Builder b, String key) {

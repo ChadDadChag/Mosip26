@@ -5,6 +5,7 @@ import io.mosip.registration.liveness.analyzer.AnalyzerStats;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzer;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 import io.mosip.registration.liveness.analyzer.detect.FaceDetection;
+import io.mosip.registration.liveness.analyzer.pad.ReplayCues;
 import io.mosip.registration.liveness.analyzer.quality.QualityAssessor;
 import io.mosip.registration.liveness.analyzer.quality.QualityReport;
 import io.mosip.registration.liveness.api.ErrorCode;
@@ -123,7 +124,7 @@ public final class LiveAnalyzerDemo {
                 if (last10.size() > 10) last10.removeFirst();
             }
             w.video(DemoWindow.image(f), overlay(r));
-            w.info(describe(r, analyzer.stats(), median(last10)));
+            w.info(describe(r, analyzer.stats(), median(last10), analyzer.lastReplayCues()));
             if (System.currentTimeMillis() >= nextStatus) {
                 System.out.printf("status: %d frames analysed; last: faces %d score %.3f usable %b issues %s total %.1f ms%n",
                         analysed, r.faceCount, r.livenessScore, r.usable(), r.qualityIssues, analyzer.stats().lastTotalNs() / 1e6);
@@ -192,7 +193,7 @@ public final class LiveAnalyzerDemo {
         };
     }
 
-    static String describe(FrameAnalysis r, AnalyzerStats s, float median10) {
+    static String describe(FrameAnalysis r, AnalyzerStats s, float median10, ReplayCues.Cues cues) {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("faceCount   %d%n", r.faceCount));
         if (r.landmarks != null) {
@@ -204,7 +205,9 @@ public final class LiveAnalyzerDemo {
         sb.append(String.format("livenessScore %.4f  median10 %.4f%n", r.livenessScore, median10));
         Float v2 = r.padDetails.get("minifas_v2_live"), v1 = r.padDetails.get("minifas_v1se_live");
         sb.append(String.format("v2 / v1se live %s / %s%n", fmt(v2), fmt(v1)));
-        sb.append(String.format("moire %s  glare %s%n", fmt(r.padDetails.get("moire")), fmt(r.padDetails.get("glare"))));
+        sb.append(String.format("moire %s  session median %s%s  glare %s%n", fmt(r.padDetails.get("moire")),
+                fmt(r.padDetails.get("moire_med")), Float.valueOf(1f).equals(r.padDetails.get("moire_cap")) ? " CAPPED" : "",
+                cues == null ? "--" : String.format("%.3f", cues.glare)));
         if (r.padDetails.containsKey("pose_gated")) sb.append("PAD pose-gated (outside the model's pose range)\n");
         sb.append("issues      ").append(r.qualityIssues).append('\n');
         sb.append("usable()    ").append(r.usable()).append('\n');
@@ -282,7 +285,7 @@ public final class LiveAnalyzerDemo {
                 if (f != null) {
                     FrameAnalysis r = analyzer.analyze(f);
                     w.video(DemoWindow.image(f), overlay(r));
-                    w.info(describe(r, analyzer.stats(), Float.NaN));
+                    w.info(describe(r, analyzer.stats(), Float.NaN, analyzer.lastReplayCues()));
                 } else {
                     Thread.sleep(5);
                 }
@@ -306,7 +309,7 @@ public final class LiveAnalyzerDemo {
                 st.add(r, q);
                 w.video(DemoWindow.image(f), overlay(r));
                 w.message(String.format("RECORDING: %s  %.1f s", c[1], (end - System.currentTimeMillis()) / 1000.0), Color.RED);
-                w.info(describe(r, analyzer.stats(), Float.NaN));
+                w.info(describe(r, analyzer.stats(), Float.NaN, analyzer.lastReplayCues()));
             }
             Toolkit.getDefaultToolkit().beep();
             results.put(c[0], st);

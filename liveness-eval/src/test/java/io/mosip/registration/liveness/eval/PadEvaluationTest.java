@@ -45,11 +45,17 @@ class PadEvaluationTest {
     void candidateScorers() {
         PadEvaluation.FrameRec f = frame(0.9f, 0.5f, 1.9f, 0.30f);
         List<PadEvaluation.Candidate> fixed = PadEvaluation.fixedCandidates();
-        assertThat(fixed).hasSize(15);
-        assertThat(fixed.get(0).score(f)).isCloseTo(0.7f, within(1e-6f)); // production: the analyzer's mean
-        assertThat(fixed.get(1).score(f)).isEqualTo(0.9f);
-        assertThat(fixed.get(2).score(f)).isEqualTo(0.5f);
+        assertThat(fixed).hasSize(16);
+        assertThat(fixed.get(0).score(f)).isCloseTo(0.7f, within(1e-6f)); // production: the analyzer's score as delivered
+        assertThat(fixed.get(1).score(f)).isCloseTo(0.7f, within(1e-6f)); // 1a: (v2 + v1se) / 2 recomputed, no cap
+        assertThat(fixed.get(2).score(f)).isEqualTo(0.9f);
         assertThat(fixed.get(3).score(f)).isEqualTo(0.5f);
+        assertThat(fixed.get(4).score(f)).isEqualTo(0.5f);
+        // A capped production frame: production keeps the delivered 0.60, 1a recomputes the raw mean.
+        PadEvaluation.FrameRec capped = new PadEvaluation.FrameRec(1, EnumSet.noneOf(QualityIssue.class), 0f, 0f, 0f, 0.60f,
+                0.99f, 0.97f, 1.5f, 0f, 0.3f, 1.5f, true);
+        assertThat(PadEvaluation.production().score(capped)).isEqualTo(0.60f);
+        assertThat(PadEvaluation.uncapped().score(capped)).isCloseTo(0.98f, within(1e-6f));
         assertThat(new PadEvaluation.Candidate("5", "", PadEvaluation.Base.MEAN, 1.8f, Float.NaN).score(f)).isZero();
         assertThat(new PadEvaluation.Candidate("5", "", PadEvaluation.Base.MEAN, 2.0f, Float.NaN).score(f)).isCloseTo(0.7f, within(1e-6f));
         assertThat(new PadEvaluation.Candidate("4", "", PadEvaluation.Base.MIN, Float.NaN, Float.NaN).score(frame(Float.NaN, 0.5f, 0, 0)))
@@ -114,7 +120,7 @@ class PadEvaluationTest {
         runs.add(take("screen_photo", 1, "selfie", frames(20, 0.10f, 0.20f, 2.1f, 0.08f)));
         runs.add(take("screen_photo_close", 1, "selfie", frames(20, 0.99f, 0.95f, 1.9f, 0.32f)));
         PadEvaluation.Evaluation e = PadEvaluation.Evaluation.of(runs, new LivenessPolicy(), EngineTuning.defaults());
-        assertThat(e.candidates).hasSize(19); // 1-6 (15) + 4 combinations; no heuristic run here
+        assertThat(e.candidates).hasSize(20); // 1, 1a, 2-6 (16) + 4 combinations; no heuristic run here
 
         // The close-up passes passively under production but not with a moire veto (bona fide moire <= 1.3).
         Map<String, int[]> prod = PadMetrics.zones(e.presentations(e.candidates.get(0)), 0.85f, 0.30f);
@@ -123,11 +129,12 @@ class PadEvaluationTest {
 
         String md = e.report("pad-test", "20261024", "eval-data");
         assertThat(md).contains("SINGLE SUBJECT", "Not yet evaluated", "`print_flat`", "`screen_replay`", "non-normative",
-                "| 4 | MIN(v2, v1se) |", "Close-up analysis", "bona_fide (close)", "screen_photo_close (selfie)", "Recommended thresholds");
+                "| 4 | MIN(v2, v1se) |", "Before the moire cap (candidate 1a)", "Moire cap effect", "Close-up analysis", "bona_fide (close)", "screen_photo_close (selfie)", "Recommended thresholds");
         assertThat(md).doesNotContain("s01"); // aggregates only: no per-take rows
         String scores = e.scoresCsv();
         assertThat(scores.split("\n")).hasSize(5);
-        assertThat(scores).startsWith("subject,species,take,condition,frames,eligible,\"1 MEAN (production)\"");
+        assertThat(scores).startsWith("subject,species,take,condition,frames,eligible,\"1 MEAN + session moire cap (production)\","
+                + "\"1a MEAN, no moire cap (before)\"");
         assertThat(e.framesCsv().split("\n")).hasSize(81);
         assertThat(e.scatterCsv()).contains("s01,screen_photo_close,1,selfie,0.9700,0.3200,1.9000");
     }

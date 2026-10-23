@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *   f  phone playing a video,     RESIDENT
  *   g  phone showing a photo,     RESIDENT, forced challenges (do nothing when asked)
  *   h  real face,                 RESIDENT, forced challenges, coached beforehand to turn clearly and come back
+ *   p  phone photo ~10 cm away,   RESIDENT (the close-up the session moire cap must send to a challenge)
  * </pre>
  * Forced challenges = a ConfigProvider override of {@code mosip.registration.liveness.face.default.passiveThreshold}
  * (default 0.9999, {@code --force-threshold}) so a real face cannot pass passively; padRejectThreshold stays 0.30.
@@ -89,7 +90,9 @@ final class SessionDemo {
             case 'g': return new Case("g", WorkflowType.RESIDENT, true, "PHONE PHOTO, forced challenges: hold it still, do NOTHING when asked");
             case 'h': return new Case("h", WorkflowType.RESIDENT, true,
                     "REAL FACE: when asked to turn, turn clearly (about 30 deg) and then come back to face the camera");
-            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h)");
+            case 'p': return new Case("p", WorkflowType.RESIDENT, false,
+                    "PHONE PHOTO about 10 cm from the camera (face fills the picture), your face out of view: hold still until FINISHED");
+            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h, p)");
         }
     }
 
