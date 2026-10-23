@@ -63,6 +63,31 @@ class SmileDetectorTest {
         assertThat(lifted.detected()).isTrue();
     }
 
+    private static Shape smileAtYaw(final float yaw) {
+        return new Shape() { @Override public Fa apply(Fa f) { return f.smile().yaw(yaw); } };
+    }
+
+    @Test
+    void aSmileWith20DegreesOfYawDriftIsNotASmile() {
+        // A photo turned sideways: perspective changes the mouth / inter-ocular ratio.
+        DetectorHarness h = h();
+        h.frames(4, NEUTRAL);
+        h.frames(20, smileAtYaw(20));
+        assertThat(h.detected()).isFalse();
+        h.frames(2, smileAtYaw(5)); // within the limit: the hold starts over from here
+        assertThat(h.detected()).isFalse();
+        assertThat(h.frames(2, smileAtYaw(5))).isEqualTo(DetectorStatus.DETECTED);
+    }
+
+    @Test
+    void theTiltGuardCanBeDisabledForSmiles() {
+        EngineTuning off = EngineTuning.defaults();
+        off.actionMaxPoseDriftDeg = Float.NaN;
+        DetectorHarness h = new DetectorHarness(new SmileDetector(off), DetectorHarness.neutralBaseline());
+        h.frames(4, NEUTRAL);
+        assertThat(h.frames(4, smileAtYaw(20))).isEqualTo(DetectorStatus.DETECTED);
+    }
+
     @Test
     void movingCloserToTheCameraIsNotASmile() {
         DetectorHarness h = h();

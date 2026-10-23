@@ -304,6 +304,12 @@ stateDiagram-v2
   detected 6 of 6 at 20°. Detecting at hold completion and then cueing LOOK_AT_CAMERA fixes this. The replay
   defences (hold, random prompt, arming, wrong-way failure) are unchanged. Set `EngineTuning.axisRequireReturn = true`
   to restore the old rule.
+- **Tilt-spoof guard (Part 2 review).** In Part 2's tests a close-up phone photo, tilted by hand, once passed BLINK
+  and SMILE: perspective changes the photo's eye height and mouth ratios. A real blink or smile barely moves the
+  head. During BLINK and SMILE, frames whose |yaw| or |pitch| drift more than `actionMaxPoseDriftDeg` (12°) from
+  the baseline are not counted. A closure or smile in progress is cancelled, and after a drift the eyes must be seen
+  open at a stable pose before a new closure counts. TURN and LOOK are pose changes by design, so they are not
+  guarded. Set the value to NaN to disable the guard.
 
 - **Final hold and best frame:** a frame qualifies when it has one face, no quality issue, |yaw| and |pitch| ≤ 10°, eyes open, and the mouth within 8% of baseline. It is chosen from the passive window plus the post-challenge hold. Mid-action frames are never offered, and tests assert this. Among qualifying frames the best is the highest of 0.45·sharpness + 0.35·frontal + 0.2·size. Sharpness is the Laplacian variance on the face box (at most 96 samples per side), mapped as v/(v+100). Without pose, frontal is 0.5 (D22). Before that score, frames are ranked by ISO/IEC 19794-5 tier (D26, §12b): compliant frames first, then frames with nothing measurably wrong, then the rest. If nothing qualifies by the end of the hold, the latest single-face frame is handed back and flagged as a fallback; the hold is never extended for photo quality.
 

@@ -8,6 +8,10 @@ import io.mosip.registration.liveness.core.EngineTuning;
  * Blink = EAR drops below {@code blinkClosedRatio × baseline} and comes back above
  * {@code blinkReopenRatio × baseline} within {@code blinkMaxClosedMs}. Longer closures (eyes kept shut, a
  * closed-eye photo) are not blinks: the detector waits for the eyes to reopen and starts over.
+ *
+ * <p>Tilt-spoof guard: frames whose pose drifts more than {@code actionMaxPoseDriftDeg} from the baseline are not
+ * counted, and a closure in progress is cancelled; the eyes must then be seen open again before a new closure can
+ * count (tilting a photo lowers its EAR by perspective).
  */
 public final class BlinkDetector implements ActionDetector {
 
@@ -19,6 +23,7 @@ public final class BlinkDetector implements ActionDetector {
     private Phase phase;
     private long closedAtMs;
     private boolean tooLong;
+    private boolean awaitReopen; // a closure was cancelled by pose drift: open eyes must be seen first
     private float progress;
 
     public BlinkDetector(EngineTuning tuning) {
@@ -33,6 +38,7 @@ public final class BlinkDetector implements ActionDetector {
         this.promptAtMs = promptAtMs;
         phase = Phase.ARMING;
         tooLong = false;
+        awaitReopen = false;
         progress = 0f;
     }
 
@@ -40,6 +46,16 @@ public final class BlinkDetector implements ActionDetector {
     public DetectorStatus update(FrameAnalysis a, long nowMs) {
         float ear = FaceGeometry.meanEar(a.landmarks);
         if (a.faceCount != 1 || Float.isNaN(ear) || !(baseline.ear > 0)) return status();
+        if (FaceGeometry.poseDrift(a, baseline) > t.actionMaxPoseDriftDeg) {
+            // Possibly a tilted photo: a closure in progress can never count, and neither can one that starts while
+            // the pose settles back (its EAR may still be low from the tilt) until open eyes are seen again.
+            if (phase != Phase.ARMING) awaitReopen = true;
+            if (phase == Phase.CLOSED) {
+                phase = Phase.OPEN;
+                progress = 0.1f;
+            }
+            return status();
+        }
         float closed = t.blinkClosedRatio * baseline.ear;
         float open = t.blinkReopenRatio * baseline.ear;
         switch (phase) {
@@ -50,7 +66,9 @@ public final class BlinkDetector implements ActionDetector {
                 }
                 break;
             case OPEN:
-                if (ear < closed) {
+                if (awaitReopen) {
+                    if (ear >= open) awaitReopen = false;
+                } else if (ear < closed) {
                     phase = Phase.CLOSED;
                     closedAtMs = nowMs;
                     tooLong = false;

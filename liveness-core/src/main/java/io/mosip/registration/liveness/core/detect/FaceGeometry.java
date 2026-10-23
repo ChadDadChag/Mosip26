@@ -55,6 +55,14 @@ public final class FaceGeometry {
         return PITCH_SIGN * a.pitchDeg;
     }
 
+    /** Largest |yaw| or |pitch| change from the baseline (user convention); NaN when neither is known. */
+    public static float poseDrift(FrameAnalysis a, Baseline b) {
+        float dy = Math.abs(userYaw(a) - b.yaw), dp = Math.abs(userPitch(a) - b.pitch);
+        if (Float.isNaN(dy)) return dp;
+        if (Float.isNaN(dp)) return dy;
+        return Math.max(dy, dp);
+    }
+
     public static float dist(float[] a, float[] b) {
         if (a == null || b == null || a.length < 2 || b.length < 2) return Float.NaN;
         float dx = a[0] - b[0], dy = a[1] - b[1];

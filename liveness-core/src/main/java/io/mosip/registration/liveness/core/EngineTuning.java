@@ -111,6 +111,14 @@ public final class EngineTuning {
      */
     public long blinkMaxClosedMs = 600;
 
+    /**
+     * TUNE: during BLINK/SMILE, frames whose |yaw| or |pitch| differ from baseline by more than this are not counted;
+     * a closure or smile in progress is cancelled. Tilting a photo fakes EAR and mouth changes by perspective (a
+     * phone photo passed BLINK and SMILE that way in Part 2's tests); a real blink or smile barely moves the head.
+     * NaN disables.
+     */
+    public float actionMaxPoseDriftDeg = 12f;
+
     // ---- smile
     /** TUNE: mouth width / IOD must rise this much over baseline... */
     public float smileWidthIncrease = 0.18f;

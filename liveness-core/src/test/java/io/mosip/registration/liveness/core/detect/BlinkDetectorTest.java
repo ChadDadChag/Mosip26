@@ -80,6 +80,44 @@ class BlinkDetectorTest {
         assertThat(h.detected()).isFalse();
     }
 
+    private static Shape tilted(final float pitch, final float ear) {
+        return new Shape() { @Override public Fa apply(Fa f) { return f.pitch(pitch).ear(ear); } };
+    }
+
+    @Test
+    void aBlinkWithSmallHeadMotionCounts() {
+        DetectorHarness h = h();
+        h.frames(4, NEUTRAL);
+        h.frame(tilted(3, Fa.OPEN_EAR));
+        h.frame(tilted(3, 0.08f)); // closed, 3 deg drift: well inside actionMaxPoseDriftDeg
+        assertThat(h.frame(tilted(2, Fa.OPEN_EAR))).isEqualTo(DetectorStatus.DETECTED);
+    }
+
+    @Test
+    void anEarDropDuringA30DegreeTiltIsNotABlink() {
+        // A photo tilted back: perspective shrinks its eyes' height, then it is tilted upright again.
+        DetectorHarness h = h();
+        h.frames(4, NEUTRAL);
+        h.frames(2, tilted(15, Fa.OPEN_EAR * 0.8f));
+        h.frames(3, tilted(30, 0.08f));
+        h.frame(tilted(10, 0.10f)); // back inside the drift limit but the eyes still look "closed"
+        h.frames(3, NEUTRAL);
+        assertThat(h.detected()).as("the cancelled closure never counts").isFalse();
+        h.frames(2, NEUTRAL);
+        h.frame(CLOSED);
+        assertThat(h.frame(NEUTRAL)).as("a real blink afterwards still counts").isEqualTo(DetectorStatus.DETECTED);
+    }
+
+    @Test
+    void theTiltGuardCanBeDisabled() {
+        EngineTuning off = EngineTuning.defaults();
+        off.actionMaxPoseDriftDeg = Float.NaN;
+        DetectorHarness h = new DetectorHarness(new BlinkDetector(off), DetectorHarness.neutralBaseline());
+        h.frames(4, NEUTRAL);
+        h.frames(3, tilted(30, 0.08f));
+        assertThat(h.frame(NEUTRAL)).isEqualTo(DetectorStatus.DETECTED);
+    }
+
     @Test
     void closedEyePhotoNeverBlinks() {
         DetectorHarness h = h();
