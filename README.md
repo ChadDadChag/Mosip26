@@ -170,3 +170,42 @@ class. The mock modes above do not use this path.
   YUV→RGB conversion, rotation (0/90/180/270) and stride were executed on synthetic frames.
   It has not been built with the Android SDK or run on a device.
 - Not run against real SBI hardware or the actual MockMDS process.
+
+---
+
+# Part 3: Active challenges, orchestrator and config
+
+Part 3 is the liveness engine. It takes frames from any `FrameSource` (Part 1) and per-frame results from any `FaceAnalyzer` (Part 2), and decides PASSED or FAILED for the resident, operator and supervisor workflows. It is pure Java with no runtime dependencies beyond `liveness-api`, so the same jars run in the Desktop client and in the Android native layer.
+
+| Module | What | Ships in the apps |
+|---|---|---|
+| `liveness-core/` | `DefaultLivenessService`: the session state machine, passive decision, random challenges, blink/smile/turn/look detectors, retries, timeouts, cooldown, policy and audit | yes |
+| `liveness-fake/` | `FakeLivenessService`: scripted scenarios with real timing, retry and cancel, so the UIs can be built before the real engine runs (see `liveness-fake/README.md`) | dev builds |
+| `liveness-tools/` | Trace recorder, replayer and threshold-tuning report (see `liveness-tools/README.md`) | no |
+
+## Build and test (Part 3)
+
+Use the same setup as above (JDK 11, Registration Client v1.2.0.2 checkout, patch copied over `registration/`), and also copy `liveness-core`, `liveness-fake` and `liveness-tools`. Then, from `registration-client/registration`:
+
+    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip
+
+This runs about 230 tests, enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
+
+## Use (Parts 4 and 5)
+
+```java
+LivenessService liveness = DefaultLivenessService.builder()     // or: new FakeLivenessService(configProvider)
+        .config(configProvider)          // host config; missing keys use liveness-default.properties
+        .analyzerFactory(analyzerFactory) // Part 2: one FaceAnalyzer per session
+        .auditSink(auditSink)
+        .build();
+LivenessSession session = liveness.newSession(WorkflowType.RESIDENT); // null = liveness disabled
+session.start(frameSource, listener);  // callbacks arrive on a background thread: marshal to the UI thread
+// Retry button -> session.retry();  leaving the screen -> session.cancel();
+// accept the face only if result.passed(); use result.bestFrame
+```
+
+**Documentation:**
+- [docs/person3-design.md](docs/person3-design.md): architecture, decision flow, challenges, config, errors, security, ISO/IEC 30107
+- [PART3_STATUS.md](PART3_STATUS.md): requirement-by-requirement status
+- [docs/contract-change-proposals.md](docs/contract-change-proposals.md): contract changes, both accepted and proposed
