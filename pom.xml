@@ -167,6 +167,9 @@
 	<modules>
 		<module>registration-api</module>
 		<module>liveness-api</module>
+		<module>liveness-core</module>
+		<module>liveness-fake</module>
+		<module>liveness-tools</module>
 		<module>registration-api-stub-impl</module>
 		<module>registration-services</module>
 		<module>registration-client</module>
