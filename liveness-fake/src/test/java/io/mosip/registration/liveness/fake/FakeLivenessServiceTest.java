@@ -500,4 +500,28 @@ class FakeLivenessServiceTest {
         assertThat(l.ofType(Type.DEVICE_ERROR).get(0).recoverable).isFalse();
         assertThat(l.ofType(Type.ATTEMPT_FAILED)).isEmpty();
     }
+
+    @Test
+    void insideOnCompleteTheCooldownIsActiveAndTheSourceIsReleased() throws Exception {
+        final FakeLivenessService svc = FakeLivenessService.builder(new MapConfig())
+                .scenario(FakeScenario.MAX_RETRIES_EXCEEDED).timeScale(0).build();
+        final TestFrameSource src = new TestFrameSource();
+        final LivenessSession[] next = new LivenessSession[1];
+        final boolean[] stopped = new boolean[1];
+        LivenessSession s = svc.newSession(WorkflowType.OPERATOR);
+        RecordingListener l = new RecordingListener() {
+            @Override public void onComplete(LivenessResult r) {
+                stopped[0] = !src.isRunning();
+                next[0] = svc.newSession(WorkflowType.OPERATOR); // app retries immediately
+                super.onComplete(r);
+            }
+        };
+        l.session = s;
+        s.start(src, l);
+        assertThat(l.await().failureCode).isEqualTo(ErrorCode.MAX_RETRIES_EXCEEDED);
+        assertThat(stopped[0]).as("source stopped before onComplete").isTrue();
+        assertThat(next[0]).as("cooldown already active inside onComplete")
+                .isInstanceOf(io.mosip.registration.liveness.core.session.CooldownRefusedSession.class);
+        assertThat(src.stops.get()).isEqualTo(1);
+    }
 }

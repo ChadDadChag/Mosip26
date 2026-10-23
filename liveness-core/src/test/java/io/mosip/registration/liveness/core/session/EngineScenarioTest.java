@@ -440,4 +440,45 @@ class EngineScenarioTest {
             }
         };
     }
+
+    /**
+     * Regression (found while integrating with Part 1, JDK 11): the cooldown and the source stop used to happen after
+     * onComplete was queued, so an app starting its next session from inside onComplete could bypass the cooldown,
+     * and the finished session could stop a FrameSource the app had already restarted.
+     * The "never stopped again" part is deterministic here. The effect ORDER is guarded deterministically by
+     * SessionStateMachineTest.completeIsTheLastEffectOnEveryTerminalPath: in this harness the effects usually finish
+     * before the dispatcher delivers, so the first two checks only confirm the end-to-end behaviour.
+     */
+    @Test
+    void insideOnCompleteTheCooldownIsActiveAndTheSourceIsReleased() {
+        final ScenarioDriver d = ScenarioDriver.operator();
+        final boolean[] seen = new boolean[3];
+        d.onCompleteHook = new Runnable() {
+            @Override public void run() {
+                seen[0] = d.cooldown.isActive(WorkflowType.OPERATOR);
+                seen[1] = !d.source.isRunning();
+                d.source.start(null); // the app reuses the same source for its next session
+                seen[2] = true;
+            }
+        };
+        for (int i = 0; i < 4 && !d.done(); i++) d.frames(45, d.score(0.1f));
+        assertThat(d.result.failureCode).isEqualTo(ErrorCode.MAX_RETRIES_EXCEEDED);
+        assertThat(seen[2]).isTrue();
+        assertThat(seen[0]).as("cooldown already active inside onComplete").isTrue();
+        assertThat(seen[1]).as("source already stopped inside onComplete").isTrue();
+        d.step(); // worker cleanup after the result
+        assertThat(d.source.isRunning()).as("finished session must not stop a source the app restarted").isTrue();
+        assertThat(d.source.stops.get()).isEqualTo(1);
+    }
+
+    @Test
+    void theSourceIsStoppedExactlyOncePerSession() {
+        ScenarioDriver pass = ScenarioDriver.resident();
+        pass.untilDone(pass.score(0.9f));
+        pass.step();
+        assertThat(pass.source.stops.get()).isEqualTo(1);
+        ScenarioDriver cancelled = ScenarioDriver.resident();
+        cancelled.frames(5, cancelled.score(0.6f)).cancel().frames(5, cancelled.score(0.6f));
+        assertThat(cancelled.source.stops.get()).isEqualTo(1);
+    }
 }

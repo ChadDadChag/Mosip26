@@ -58,6 +58,8 @@ public final class ScenarioDriver {
     public volatile LivenessResult result;
     public volatile int completions;
     public volatile boolean autoRetry = true;
+    /** Runs inside onComplete (on the dispatcher thread), like app code reacting to the result. */
+    public volatile Runnable onCompleteHook;
 
     final DefaultLivenessSession session;
     private final WorkflowType workflow;
@@ -108,6 +110,8 @@ public final class ScenarioDriver {
             }
 
             @Override public void onComplete(LivenessResult r) {
+                Runnable hook = onCompleteHook;
+                if (hook != null) hook.run();
                 result = r;
                 completions++;
                 timeline.add(r);

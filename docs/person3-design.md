@@ -143,6 +143,7 @@ flowchart LR
 - **Pure core:** `SessionStateMachine` takes each input with the current time and returns `Effect`s (`EMIT`, `COMPLETE`, `STOP_SOURCE`, `RESTART_SOURCE`, `TRIP_COOLDOWN`). It has no threads, clock reads or I/O. `ChallengeRunner` and the detectors are pure in the same way. Tests drive the real session step by step with a manual clock (`ScenarioDriver`), with no sleeps.
 - **Randomness:** challenge order and the prompt jitter use `SecureRandom` in production and a seeded source in tests.
 - **Safety net:** any unexpected `Throwable` on the worker still produces exactly one `FAILED(ENGINE_ERROR)`.
+- **Order at the end of a session:** the source is stopped (exactly once) and any cooldown is recorded *before* `onComplete` is queued. An app that starts its next session, or restarts the same `FrameSource`, from inside `onComplete` therefore sees the cooldown and keeps its camera.
 
 ---
 

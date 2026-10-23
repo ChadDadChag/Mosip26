@@ -287,6 +287,46 @@ class SessionStateMachineTest {
         frames(10, 0.1f);
         assertThat(result().failureCode).isEqualTo(ErrorCode.MAX_RETRIES_EXCEEDED);
         assertThat(has(Effect.Kind.TRIP_COOLDOWN)).isTrue();
+        assertCompleteIsLast();
+    }
+
+    /** COMPLETE must be the last effect: stop the source and start any cooldown before the app hears the result. */
+    private void assertCompleteIsLast() {
+        Effect last = effects.get(effects.size() - 1);
+        assertThat(last.kind).as("effects: " + effects).isEqualTo(Effect.Kind.COMPLETE);
+        int complete = effects.size() - 1;
+        for (int i = 0; i < effects.size(); i++) {
+            Effect.Kind k = effects.get(i).kind;
+            if (k == Effect.Kind.STOP_SOURCE || k == Effect.Kind.TRIP_COOLDOWN) assertThat(i).isLessThan(complete);
+        }
+        assertThat(has(Effect.Kind.STOP_SOURCE)).isTrue();
+    }
+
+    @Test
+    void completeIsTheLastEffectOnEveryTerminalPath() {
+        start();
+        frames(10, 0.93f); // passive pass
+        assertCompleteIsLast();
+
+        rebuild();
+        start();
+        record(sm.onSourceError(ErrorCode.CAMERA_UNAVAILABLE, false, "x", now)); // device final
+        assertCompleteIsLast();
+
+        rebuild();
+        start();
+        frames(3, 0.6f);
+        record(sm.onCancel(now)); // cancel
+        assertCompleteIsLast();
+
+        rebuild();
+        start();
+        frames(10, 0.6f);
+        ChallengeType c = active.started.get(0);
+        active.then(ActiveStep.passed(Fa.at(1, 1).build().frame)); // active pass
+        frames(1, 0.6f);
+        assertCompleteIsLast();
+        assertThat(c).isNotNull();
     }
 
     @Test

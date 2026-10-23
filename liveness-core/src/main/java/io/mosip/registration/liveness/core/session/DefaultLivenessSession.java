@@ -82,6 +82,8 @@ public final class DefaultLivenessSession implements LivenessSession {
 
     private final BlockingQueue<Input> inputs = new LinkedBlockingQueue<Input>();
     private final AtomicBoolean wakePending = new AtomicBoolean();
+    /** The source is released exactly once, before the final result; never stopped again afterwards. */
+    private final AtomicBoolean sourceReleased = new AtomicBoolean();
     private final Object lock = new Object();
     // Guarded by lock.
     private Phase phase = Phase.NEW;
@@ -170,10 +172,11 @@ public final class DefaultLivenessSession implements LivenessSession {
             cancelRequested = true;
             if (phase == Phase.NEW) return; // start() will deliver the result
             phase = Phase.DONE;
-            dispatcher.complete(cancelledResult()); // loses the race harmlessly if a final result was already sent
         }
+        // Release the camera first: the app may reuse the same FrameSource from inside onComplete.
+        releaseSource();
+        dispatcher.complete(cancelledResult()); // loses the race harmlessly if a final result was already sent
         inputs.offer(Input.CANCEL);
-        stopSource();
     }
 
     @Override
@@ -309,11 +312,13 @@ public final class DefaultLivenessSession implements LivenessSession {
                     synchronized (lock) { phase = Phase.DONE; }
                     break;
                 case STOP_SOURCE:
-                    stopSource();
+                    releaseSource();
                     break;
                 case RESTART_SOURCE:
-                    stopSource();
-                    startSource();
+                    if (!sourceReleased.get()) { // device recovery inside a live session only
+                        stopSource();
+                        startSource();
+                    }
                     break;
                 case TRIP_COOLDOWN:
                     cooldown.trip(workflow, policy.cooldownSec);
@@ -328,6 +333,7 @@ public final class DefaultLivenessSession implements LivenessSession {
         if (sm != null) {
             apply(sm.onFatal(code, clock.nowMs()));
         } else {
+            releaseSource();
             dispatcher.emit(LivenessEvent.failure(LivenessEvent.Type.FAILED_FINAL, code, attemptSnapshot, 0, false));
             dispatcher.complete(new LivenessResult(LivenessResult.Decision.FAILED, LivenessResult.PassPath.NONE, code,
                     null, Float.NaN, Collections.<ChallengeType>emptyList(), attemptSnapshot,
@@ -340,7 +346,7 @@ public final class DefaultLivenessSession implements LivenessSession {
         if (cleanedUp) return;
         cleanedUp = true;
         if (pump != null) pump.close();
-        stopSource();
+        releaseSource(); // no-op if already released at the end of the session
         if (analyzer != null) {
             try {
                 analyzer.close();
@@ -359,6 +365,11 @@ public final class DefaultLivenessSession implements LivenessSession {
             // Contract: start() never throws. Treat a violation as a recoverable unavailable device.
             inputs.offer(new Input(InputKind.SOURCE_ERROR, ErrorCode.DEVICE_UNAVAILABLE, "start threw", true));
         }
+    }
+
+    /** Stops the source once for this session; later calls do nothing (the app may already be reusing it). */
+    private void releaseSource() {
+        if (sourceReleased.compareAndSet(false, true)) stopSource();
     }
 
     private void stopSource() {

@@ -128,20 +128,20 @@ final class FakeLivenessSession implements LivenessSession {
 
     @Override
     public void cancel() {
-        boolean won;
         int attempts;
         synchronized (lock) {
             if (cancelRequested || state == State.DONE) return;
             cancelRequested = true;
             lock.notifyAll();
             if (state == State.NEW) return; // start() will deliver the result
-            state = State.DONE;
+            state = State.DONE; // from here only this call completes the session
             attempts = currentAttempt;
-            won = dispatcher.complete(result(LivenessResult.Decision.CANCELLED, LivenessResult.PassPath.NONE,
-                    ErrorCode.CANCELLED, null, Float.NaN, attempts));
         }
+        // Release the camera before the result: the app may reuse the same FrameSource from inside onComplete.
         stopSource();
-        if (won) recorder.cancelled();
+        recorder.cancelled();
+        dispatcher.complete(result(LivenessResult.Decision.CANCELLED, LivenessResult.PassPath.NONE,
+                ErrorCode.CANCELLED, null, Float.NaN, attempts));
     }
 
     @Override
@@ -384,33 +384,33 @@ final class FakeLivenessSession implements LivenessSession {
     // ---------------------------------------------------------------- finishing
 
     private void finishPassed(Outcome o, int attempt) throws Cancelled {
-        boolean won;
         synchronized (lock) {
             if (cancelRequested) throw new Cancelled();
-            state = State.DONE;
+            state = State.DONE; // cancel() can no longer complete the session
             emit(LivenessEvent.of(LivenessEvent.Type.PASSED, attempt));
-            won = dispatcher.complete(result(LivenessResult.Decision.PASSED, o.path, null, bestFrame(), o.score, attempt));
         }
-        stopSource();
-        if (won) recorder.passed(o.path, o.score);
+        Frame best = bestFrame();
+        stopSource(); // before the result, as in the real engine
+        recorder.passed(o.path, o.score);
+        dispatcher.complete(result(LivenessResult.Decision.PASSED, o.path, null, best, o.score, attempt));
     }
 
     private void finishFailed(ErrorCode finalCode, ErrorCode lastCause, int attempt, float score) throws Cancelled {
-        boolean won;
-        synchronized (lock) {
-            if (cancelRequested) throw new Cancelled();
-            state = State.DONE;
-            emit(LivenessEvent.failure(LivenessEvent.Type.FAILED_FINAL, finalCode, attempt, 0, false));
-            won = dispatcher.complete(result(LivenessResult.Decision.FAILED, LivenessResult.PassPath.NONE,
-                    finalCode, null, score, attempt));
-        }
-        stopSource();
-        if (!won) return;
         boolean cooldownTripped = finalCode == ErrorCode.MAX_RETRIES_EXCEEDED
                 && policy.onRepeatedFailure == LivenessPolicy.OnRepeatedFailure.COOLDOWN;
+        synchronized (lock) {
+            if (cancelRequested) throw new Cancelled();
+            state = State.DONE; // cancel() can no longer complete the session
+            emit(LivenessEvent.failure(LivenessEvent.Type.FAILED_FINAL, finalCode, attempt, 0, false));
+        }
+        // Everything happens before the app hears the result: a new session started from inside onComplete must
+        // already see the cooldown and must not have its camera stopped by this one.
         if (cooldownTripped) cooldown.trip(workflow, policy.cooldownSec);
+        stopSource();
         if (lastCause == ErrorCode.PAD_FAILURE) recorder.padSuspected(score, null, "scripted");
         recorder.failedFinal(finalCode, lastCause, cooldownTripped ? policy.cooldownSec : 0);
+        dispatcher.complete(result(LivenessResult.Decision.FAILED, LivenessResult.PassPath.NONE,
+                finalCode, null, score, attempt));
     }
 
     private LivenessResult result(LivenessResult.Decision decision, LivenessResult.PassPath path, ErrorCode code,

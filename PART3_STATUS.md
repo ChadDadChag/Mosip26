@@ -142,6 +142,7 @@ No crashes, deadlocks, lost results or duplicate `onComplete` calls were found.
 | No scripted non-recoverable device scenario | New `FakeScenario.DEVICE_FAILURE` (README updated) | `FakeScenario`, `FakeLivenessSession` | scenario table, `deviceFailureScenarioShowsNoRetry` |
 | R29: config design spread out | New single §1.3 Configuration design; decisions D16/D17 recorded | `docs/person3-design.md` | — |
 | Unpinned build tools | Maven Enforcer: JDK 17+ and Maven 3.9+ | root `pom.xml` | build |
+| Found during integration (JDK 11): `onComplete` was queued before the cooldown was recorded and before the source was stopped, and the source was stopped again during cleanup. An app retrying from inside `onComplete` could bypass the operator cooldown, or have its reused camera stopped. | `COMPLETE` is now always the last effect; the source is released exactly once, before the result; same ordering in the fake | `SessionStateMachine`, `DefaultLivenessSession`, `FakeLivenessSession` | `completeIsTheLastEffectOnEveryTerminalPath`, `insideOnCompleteTheCooldownIsActiveAndTheSourceIsReleased` (core and fake), `theSourceIsStoppedExactlyOncePerSession` (both mutation-checked) |
 
 Two mistakes of mine during the fixing, both caught before finishing:
 1. **Lost fixes:** undoing a mutation check with `git checkout` briefly reverted my uncommitted state-machine fixes. I restored them from the backup taken before mutating, and the full build confirmed they were back.

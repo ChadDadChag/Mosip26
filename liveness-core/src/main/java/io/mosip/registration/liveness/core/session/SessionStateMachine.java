@@ -28,7 +28,8 @@ import java.util.List;
  * <p>Invariants: PASSED is only reachable from a full passive window at or above {@code passiveThreshold}, or from
  * the active phase reporting that every challenge was detected. Any attack verdict (passive median or the active
  * phase's continuous PAD check) fails the attempt. Terminal states ignore every input, so exactly one COMPLETE
- * effect is ever produced.
+ * effect is ever produced, and it is always the LAST effect of its batch: the source is stopped and any cooldown is
+ * in force before the app hears the result (an app may start its next session from inside onComplete).
  */
 public final class SessionStateMachine {
 
@@ -253,12 +254,12 @@ public final class SessionStateMachine {
         if (isTerminal()) return out;
         boolean started = state != State.IDLE;
         state = State.CANCELLED;
-        out.add(Effect.complete(result(LivenessResult.Decision.CANCELLED, LivenessResult.PassPath.NONE,
-                ErrorCode.CANCELLED, null, nowMs, started)));
         if (started) {
             out.add(Effect.of(Effect.Kind.STOP_SOURCE));
             audit.cancelled();
         }
+        out.add(Effect.complete(result(LivenessResult.Decision.CANCELLED, LivenessResult.PassPath.NONE,
+                ErrorCode.CANCELLED, null, nowMs, started)));
         return out;
     }
 
@@ -414,21 +415,21 @@ public final class SessionStateMachine {
     private void finishPassed(LivenessResult.PassPath path, Frame bestFrame, long nowMs, List<Effect> out) {
         state = State.PASSED;
         out.add(Effect.emit(LivenessEvent.of(Type.PASSED, attempt())));
-        out.add(Effect.complete(result(LivenessResult.Decision.PASSED, path, null, bestFrame, nowMs, true)));
         out.add(Effect.of(Effect.Kind.STOP_SOURCE));
         audit.passed(path, passiveMedian);
+        out.add(Effect.complete(result(LivenessResult.Decision.PASSED, path, null, bestFrame, nowMs, true)));
     }
 
     private void finishFailed(ErrorCode finalCode, ErrorCode lastCause, long nowMs, List<Effect> out) {
         state = State.FAILED_FINAL;
         out.add(Effect.emit(LivenessEvent.failure(Type.FAILED_FINAL, finalCode, attempt(), 0, false)));
-        out.add(Effect.complete(result(LivenessResult.Decision.FAILED, LivenessResult.PassPath.NONE, finalCode,
-                null, nowMs, true)));
         out.add(Effect.of(Effect.Kind.STOP_SOURCE));
         boolean cooldown = finalCode == ErrorCode.MAX_RETRIES_EXCEEDED
                 && policy.onRepeatedFailure == LivenessPolicy.OnRepeatedFailure.COOLDOWN;
         if (cooldown) out.add(Effect.of(Effect.Kind.TRIP_COOLDOWN));
         audit.failedFinal(finalCode, lastCause, cooldown ? policy.cooldownSec : 0);
+        out.add(Effect.complete(result(LivenessResult.Decision.FAILED, LivenessResult.PassPath.NONE, finalCode,
+                null, nowMs, true)));
     }
 
     private LivenessResult result(LivenessResult.Decision decision, LivenessResult.PassPath path, ErrorCode code,
