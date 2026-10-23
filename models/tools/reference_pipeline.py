@@ -23,7 +23,7 @@ import onnxruntime as ort
 
 MODELS = Path(__file__).resolve().parent.parent
 YUNET_FILE = "yunet_2026may.onnx"
-MESH_FILE = "face_landmark_468.onnx"
+MESH_FILE = "face_mesh_v2.onnx"
 PAD_V2_FILE = "minifasnet_v2_s2.7.onnx"
 PAD_V1SE_FILE = "minifasnet_v1se_s4.0.onnx"
 
@@ -32,9 +32,15 @@ YUNET_STRIDES = (8, 16, 32)
 YUNET_SCORE_THRESHOLD = 0.7
 YUNET_NMS_IOU = 0.3
 FACE_COUNT_AREA_RATIO = 0.2
-MESH_SIZE = 192
+MESH_SIZE = 256
+MESH_POINTS = 478
+MESH_INPUT, MESH_LANDMARKS, MESH_FLAG = "input_12", "Identity", "Identity_1"
 MESH_ROI_SCALE = 1.5
 MESH_FLAG_THRESHOLD = 0.5
+# Calibrated constant subtracted from the raw mesh pitch: the median raw pitch of 49 frontal
+# official NASA portraits (IQR 6.3 deg), see calibrate_pitch.py and pitch_calibration_urls.txt.
+# The JSON keeps the raw value as pitchRaw.
+PITCH_BIAS_DEG = -9.5
 PAD_SIZE = 80
 PAD_V2_SCALE = 2.7
 PAD_V1SE_SCALE = 4.0
@@ -48,6 +54,7 @@ MOUTH_LEFT, MOUTH_RIGHT = 291, 61
 MOUTH_UPPER_INNER, MOUTH_LOWER_INNER = 13, 14
 NOSE_TIP, CHIN, FOREHEAD = 1, 152, 10
 LEFT_EYE_OUTER, RIGHT_EYE_OUTER = 263, 33
+LEFT_IRIS, RIGHT_IRIS = 473, 468  # V2 only (points 468..477)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -249,11 +256,12 @@ def count_faces(faces):
 
 
 # ---------------------------------------------------------------------------------------------
-# Face mesh (MediaPipe legacy face_landmark, 468 points)
+# Face mesh (MediaPipe FaceMesh V2: 478 points, 256 x 256 input)
 # ---------------------------------------------------------------------------------------------
 
 def mesh_roi(face):
-    """Rotated square ROI from the YuNet box and eye keypoints.
+    """Rotated square ROI from the YuNet box and eye keypoints (MediaPipe's tracking convention:
+    1.5x, square on the long side, rotated so the eyes are level).
 
     R = kp0 (subject's right eye), L = kp1 (subject's left eye)
     theta = atan2(L.y - R.y, L.x - R.x)
@@ -265,56 +273,62 @@ def mesh_roi(face):
             "theta": math.atan2(ly - ry, lx - rx)}
 
 
-def mesh_matrix(roi):
-    """Mesh-input continuous coords (u, v) in [0, 192] -> frame continuous coords (X, Y):
-        dx = (u/192 - 0.5) * S        dy = (v/192 - 0.5) * S
+def mesh_matrix(roi, size=MESH_SIZE):
+    """Mesh-input continuous coords (u, v) in [0, N] (N = 256) -> frame continuous coords (X, Y):
+        dx = (u/N - 0.5) * S        dy = (v/N - 0.5) * S
         X  = cx + cos(theta)*dx - sin(theta)*dy
         Y  = cy + sin(theta)*dx + cos(theta)*dy
     Used both to sample the crop and to project landmarks back."""
     c, s, S = math.cos(roi["theta"]), math.sin(roi["theta"]), roi["S"]
-    k = S / MESH_SIZE
+    k = S / size
     return [[c * k, -s * k, roi["cx"] - c * S / 2 + s * S / 2],
             [s * k, c * k, roi["cy"] - s * S / 2 - c * S / 2]]
 
 
-def mesh_input(bgr, roi):
-    """[1, 192, 192, 3] float32 NHWC, channels R, G, B, values in [0, 1]:
-    sample_affine(frame, mesh_matrix(roi), 192, 192), reorder BGR -> RGB, divide by 255."""
-    crop = sample_affine(bgr, mesh_matrix(roi), MESH_SIZE, MESH_SIZE)
+def mesh_input(bgr, roi, size=MESH_SIZE):
+    """[1, N, N, 3] float32 NHWC, channels R, G, B, values in [0, 1]:
+    sample_affine(frame, mesh_matrix(roi), N, N), reorder BGR -> RGB, divide by 255."""
+    crop = sample_affine(bgr, mesh_matrix(roi, size), size, size)
     return (crop[:, :, ::-1] / np.float32(255.0))[None].astype(np.float32)
 
 
 class FaceMesh:
-    """Input "input_1" [1,192,192,3]; outputs "conv2d_21" (1404 = 468 x (x, y, z) in 192-px
-    units) and "conv2d_31" (face-presence logit)."""
+    """FaceMesh V2: input "input_12" [1,256,256,3]; outputs "Identity" (1434 = 478 x (x, y, z)
+    in 256-px units) and "Identity_1" (face-presence logit). The third output, "Identity_2",
+    is not used (MediaPipe's graph reads only the first two)."""
 
-    def __init__(self, path, threads=2):
+    def __init__(self, path, threads=2, size=MESH_SIZE, points=MESH_POINTS,
+                 names=(MESH_INPUT, MESH_LANDMARKS, MESH_FLAG)):
         self.session = new_session(path, threads)
+        self.size, self.points, self.names = size, points, names
 
     def run(self, tensor):
-        """Returns (raw points (468, 3) in mesh-input units, flag = sigmoid(logit))."""
-        lm, logit = self.session.run(["conv2d_21", "conv2d_31"], {"input_1": tensor})
-        return lm.reshape(468, 3).astype(np.float64), sigmoid(float(logit.ravel()[0]))
+        """Returns (raw points (478, 3) in mesh-input units, flag = sigmoid(logit))."""
+        inp, lm_name, flag_name = self.names
+        lm, logit = self.session.run([lm_name, flag_name], {inp: tensor})
+        return lm.reshape(self.points, 3).astype(np.float64), sigmoid(float(logit.ravel()[0]))
 
 
-def back_project(raw, roi):
-    """Raw mesh points -> frame coords: (X, Y) = mesh_matrix(roi) . (x, y, 1);  Z = (z / 192) * S."""
-    M = mesh_matrix(roi)
+def back_project(raw, roi, size=MESH_SIZE):
+    """Raw mesh points -> frame coords: (X, Y) = mesh_matrix(roi) . (x, y, 1);  Z = (z / N) * S."""
+    M = mesh_matrix(roi, size)
     out = np.empty_like(raw)
     for n, (x, y, z) in enumerate(raw):
         out[n, 0], out[n, 1] = apply_affine(M, x, y)
-        out[n, 2] = z / MESH_SIZE * roi["S"]
+        out[n, 2] = z / size * roi["S"]
     return out
 
 
 def named_points(pts):
-    """Contract FaceLandmarks from the 468 frame-space points ({x, y} only). Irises are null:
-    the legacy mesh has no iris points."""
+    """Contract FaceLandmarks from the frame-space mesh points ({x, y} only). Iris centres are
+    points 473 (subject's left) and 468 (subject's right) when the mesh has 478 points."""
     p = lambda i: [float(pts[i, 0]), float(pts[i, 1])]  # noqa: E731
+    has_iris = len(pts) > LEFT_IRIS
     return {"leftEye": [p(i) for i in LEFT_EYE], "rightEye": [p(i) for i in RIGHT_EYE],
             "mouthLeft": p(MOUTH_LEFT), "mouthRight": p(MOUTH_RIGHT),
             "mouthUpperInner": p(MOUTH_UPPER_INNER), "mouthLowerInner": p(MOUTH_LOWER_INNER),
-            "noseTip": p(NOSE_TIP), "chin": p(CHIN), "leftIris": None, "rightIris": None}
+            "noseTip": p(NOSE_TIP), "chin": p(CHIN),
+            "leftIris": p(LEFT_IRIS) if has_iris else None, "rightIris": p(RIGHT_IRIS) if has_iris else None}
 
 
 def eye_aspect_ratio(eye):
@@ -333,7 +347,8 @@ def head_pose(pts):
     ey  = normalize(t - (t . ex) ex)
     ez  = ex x ey
     yaw   = deg(atan2(ez.x, ez.z))                      + = subject turned to THEIR left
-    pitch = deg(atan2(ez.y, sqrt(ez.x^2 + ez.z^2)))     + = subject looks UP
+    pitch = deg(atan2(ez.y, sqrt(ez.x^2 + ez.z^2)))     + = subject looks UP (raw; the analyzer
+                                                          reports pitch - PITCH_BIAS_DEG)
     roll  = deg(atan2(ex.y, ex.x))                      + = subject's left eye higher
     """
     u = np.stack([pts[:, 0], -pts[:, 1], -pts[:, 2]], axis=1)
@@ -454,7 +469,7 @@ class Pipeline:
         res["primary"] = primary
         res["faceBox"] = primary["box"] if primary else None
         for key in ("meshRoi", "meshFlag", "meshPoints", "landmarks", "earLeft", "earRight",
-                    "yawDeg", "pitchDeg", "rollDeg", "pad", "livenessScore"):
+                    "yawDeg", "pitchDeg", "pitchRaw", "rollDeg", "pad", "livenessScore"):
             res[key] = None
         if primary is None:
             res["timingsMs"]["total"] = _ms(t_all)
@@ -476,7 +491,8 @@ class Pipeline:
             res["earLeft"] = eye_aspect_ratio(lms["leftEye"])
             res["earRight"] = eye_aspect_ratio(lms["rightEye"])
             t0 = time.perf_counter()
-            res["yawDeg"], res["pitchDeg"], res["rollDeg"] = head_pose(pts)
+            res["yawDeg"], res["pitchRaw"], res["rollDeg"] = head_pose(pts)
+            res["pitchDeg"] = res["pitchRaw"] - PITCH_BIAS_DEG
             res["timingsMs"]["pose"] = _ms(t0)
 
         ibox = pad_box(primary["box"])

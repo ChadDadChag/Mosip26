@@ -4,18 +4,22 @@
 
 A window shows the camera (NOT mirrored: what the camera sees) with the face box, the 12 eye
 points, EAR, yaw/pitch/roll, p_v2[1], p_v1se[1], livenessScore, faceCount and ms per frame.
-It guides you through these presentations; press SPACE to start each, S to skip, Q to quit:
+It guides you through these presentations; press SPACE to start each, S to skip, Q to quit.
+A beep marks the start and the end of every recording.
 
-  A1  your real face, looking straight          A3  turn your head to YOUR left and hold
-  A2  your real face: a few normal blinks, then A4  turn your head to YOUR right and hold
-      two slow ones (eyes fully shut ~0.5 s)
-  B   a printed photo of a face                 C   a face photo full-screen on a phone
+  A1  your real face, eyes open, looking straight     A4  turn your head to YOUR left
+  A2  5 slow, firm blinks                             A5  turn your head to YOUR right
+  A3  eyes closed from the first beep to the second
+  B   a printed photo of a face                       C   a face photo full-screen on a phone
   D   a face video playing on a phone or laptop
 For B, C and D keep your own face out of the camera's view (the overlay should say "faces 1").
 
 Every analysed frame is printed with the running 10-frame median of livenessScore. At the end
-a per-presentation summary is printed and saved to .cache/sanity_webcam_summary.json. No
-images are stored. This is a sanity check, not the ISO 30107-3 evaluation.
+a per-presentation summary is printed and saved to .cache/sanity_webcam_summary.json, with
+checks: per eye, blink minimum / open median and closed-hold median / open median must be at
+most 0.55 (Person 3's BlinkDetector needs < 0.6 closed and > 0.85 reopened), and the turn to
+the subject's own left must give positive yaw. No images are stored. This is a sanity check,
+not the ISO 30107-3 evaluation.
 """
 import argparse
 import json
@@ -35,16 +39,24 @@ import reference_pipeline as rp  # noqa: E402
 SUMMARY = TOOLS / ".cache" / "sanity_webcam_summary.json"
 WINDOW = "MOSIP liveness sanity check (not mirrored)"
 IDLE_TIMEOUT_S = 15 * 60
+EAR_RATIO_GOAL = 0.55
 
 STEPS = [  # (label, what to present, how, seconds; None = --seconds)
-    ("A1", "YOUR REAL FACE", "look straight at the camera", 4),
-    ("A2", "YOUR REAL FACE", "blink 2-3 times, then close eyes fully ~0.5 s, twice", 6),
-    ("A3", "YOUR REAL FACE", "turn your head to YOUR LEFT and hold", 3),
-    ("A4", "YOUR REAL FACE", "turn your head to YOUR RIGHT and hold", 3),
+    ("A1", "YOUR REAL FACE", "eyes OPEN, look straight at the camera", 5),
+    ("A2", "YOUR REAL FACE", "blink 5 times, slowly and firmly (close fully each time)", 8),
+    ("A3", "YOUR REAL FACE", "close your eyes at the beep, open them at the second beep", 3),
+    ("A4", "YOUR REAL FACE", "turn your head slowly to YOUR LEFT, as far as comfortable", 4),
+    ("A5", "YOUR REAL FACE", "turn your head slowly to YOUR RIGHT, as far as comfortable", 4),
     ("B", "PRINTED PHOTO of a face", "hold the paper up; keep YOUR face out of view (S = no printer)", None),
     ("C", "PHONE showing a face PHOTO full-screen", "hold it up; keep YOUR face out of view", None),
     ("D", "PHONE/LAPTOP playing a face VIDEO", "hold it up; keep YOUR face out of view", None),
 ]
+
+
+def beep(freq, ms):
+    if sys.platform == "win32":
+        import winsound
+        winsound.Beep(freq, ms)
 
 
 def median(values):
@@ -81,25 +93,30 @@ def draw(frame, res, med10):
     return out
 
 
-def summarize(step, rows):
+def summarize(step, rows, seconds):
     face = [r for r in rows if r["faces"] == 1]
     scores = [r["score"] for r in face if r["score"] is not None]
     meds = [r["med10"] for r in rows if r["med10"] is not None and r["n10"] >= 10]
-    ears = [min(r["earL"], r["earR"]) for r in face if r["earL"] is not None]
     yaws = [r["yaw"] for r in face if r["yaw"] is not None]
-    return {
+    out = {
         "step": step, "frames": len(rows), "framesOneFace": len(face),
         "framesMultiFace": sum(1 for r in rows if r["faces"] > 1),
+        "framesWithoutLandmarks": sum(1 for r in face if r["earL"] is None),
         "scoreMedian": median(scores), "scoreMin": min(scores) if scores else None,
         "scoreMax": max(scores) if scores else None,
         "median10Min": min(meds) if meds else None, "median10Max": max(meds) if meds else None,
         "pV2Median": median([r["p2"] for r in face if r["p2"] is not None]),
         "pV1seMedian": median([r["p1"] for r in face if r["p1"] is not None]),
-        "earMin": min(ears) if ears else None, "earMedian": median(ears),
         "yawMedian": median(yaws), "yawMin": min(yaws) if yaws else None, "yawMax": max(yaws) if yaws else None,
         "pitchMedian": median([r["pitch"] for r in face if r["pitch"] is not None]),
         "msMedian": median([r["ms"] for r in rows]),
     }
+    for eye in ("earL", "earR"):
+        ears = [r[eye] for r in face if r[eye] is not None]
+        # "hold": the middle of the recording, away from the reaction time after each beep
+        hold = [r[eye] for r in face if r[eye] is not None and 0.75 <= r["t"] <= seconds - 0.25]
+        out[eye + "Median"], out[eye + "Min"], out[eye + "HoldMedian"] = median(ears), min(ears) if ears else None, median(hold)
+    return out
 
 
 def wait_for_start(cap, pipe, label, what, how):
@@ -127,6 +144,7 @@ def wait_for_start(cap, pipe, label, what, how):
 
 def record(cap, pipe, label, what, how, seconds):
     rows, window = [], deque(maxlen=10)
+    beep(880, 150)
     t0 = time.time()
     while time.time() - t0 < seconds:
         ok, frame = cap.read()
@@ -152,6 +170,7 @@ def record(cap, pipe, label, what, how, seconds):
         cv2.imshow(WINDOW, img)
         if (cv2.waitKey(1) & 0xFF) in (ord("q"), ord("Q")):
             return rows, True
+    beep(660, 300)
     return rows, False
 
 
@@ -181,20 +200,28 @@ def main():
             print(f"{label}: skipped", flush=True)
             continue
         rows, quit_all = record(cap, pipe, label, what, how, seconds or args.seconds)
-        summaries.append(summarize(label, rows))
+        summaries.append(summarize(label, rows, seconds or args.seconds))
         if quit_all:
             break
     cap.release()
     cv2.destroyAllWindows()
 
-    by = {s["step"]: s for s in summaries}
+    by = {s["step"]: s for s in summaries if not s.get("skipped")}
     checks = {}
-    if "A2" in by and not by["A2"].get("skipped") and by["A2"]["earMin"] is not None:
-        checks["blinkEarMinBelow0.15"] = by["A2"]["earMin"] < 0.15
-    if "A3" in by and not by["A3"].get("skipped") and by["A3"]["yawMedian"] is not None:
-        checks["turnToOwnLeftGivesPositiveYaw"] = by["A3"]["yawMedian"] > 0
-    if "A4" in by and not by["A4"].get("skipped") and by["A4"]["yawMedian"] is not None:
-        checks["turnToOwnRightGivesNegativeYaw"] = by["A4"]["yawMedian"] < 0
+    for eye in ("earL", "earR"):
+        open_med = by.get("A1", {}).get(eye + "Median")
+        if not open_med:
+            continue
+        blink_min = by.get("A2", {}).get(eye + "Min")
+        hold = by.get("A3", {}).get(eye + "HoldMedian")
+        if blink_min is not None:
+            checks[f"{eye} blinkMin/open = {blink_min / open_med:.2f} <= {EAR_RATIO_GOAL}"] = blink_min / open_med <= EAR_RATIO_GOAL
+        if hold is not None:
+            checks[f"{eye} closedHold/open = {hold / open_med:.2f} <= {EAR_RATIO_GOAL}"] = hold / open_med <= EAR_RATIO_GOAL
+    if by.get("A4", {}).get("yawMedian") is not None:
+        checks["turnToOwnLeftGivesPositiveYaw"] = by["A4"]["yawMedian"] > 0
+    if by.get("A5", {}).get("yawMedian") is not None:
+        checks["turnToOwnRightGivesNegativeYaw"] = by["A5"]["yawMedian"] < 0
     report = {"camera": args.camera, "frameSize": [frame.shape[1], frame.shape[0]], "steps": summaries, "checks": checks}
     SUMMARY.parent.mkdir(parents=True, exist_ok=True)
     SUMMARY.write_text(json.dumps(report, indent=1), encoding="utf-8")

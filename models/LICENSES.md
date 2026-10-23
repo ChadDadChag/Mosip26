@@ -3,7 +3,7 @@
 The four model files in `models/` are third-party works, redistributed under their original
 licences. **The weights are unmodified apart from format conversion**: there was no retraining,
 fine-tuning, pruning or quantisation.
-- `face_landmark_468.onnx` was converted from TFLite to ONNX.
+- `face_mesh_v2.onnx` was converted from TFLite to ONNX.
 - The two MiniFASNet files were exported from the PyTorch `.pth` weights to ONNX.
 - `yunet_2026may.onnx` is byte-identical to upstream.
 
@@ -13,7 +13,7 @@ statement is the notice of change required by Apache-2.0 section 4(b) for the th
 | File | Upstream work | Copyright | Licence |
 |---|---|---|---|
 | `yunet_2026may.onnx` | YuNet face detector, [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_detection_yunet) | Copyright (c) 2020 Shiqi Yu | MIT (text below) |
-| `face_landmark_468.onnx` | MediaPipe Face Mesh `face_landmark.tflite`, [Google MediaPipe](https://github.com/google-ai-edge/mediapipe) | Copyright The MediaPipe Authors (Google LLC) | Apache-2.0 (text below) |
+| `face_mesh_v2.onnx` | MediaPipe FaceMesh V2 (`face_landmarks_detector.tflite` from the Face Landmarker task bundle `face_landmarker/float16/1`), [Google MediaPipe](https://github.com/google-ai-edge/mediapipe) | Copyright The MediaPipe Authors (Google LLC) | Apache-2.0 (text below) |
 | `minifasnet_v2_s2.7.onnx`, `minifasnet_v1se_s4.0.onnx` | MiniFASNetV2 / MiniFASNetV1SE, [Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing/tree/b6d5f04ad78778917853b25c778acef6d5626d15) | Copyright 2020 Minivision | Apache-2.0 (text below) |
 | `tools/third_party/silent_face/MiniFASNet.py` | Silent-Face-Anti-Spoofing `src/model_lib/MiniFASNet.py`, unmodified | Copyright 2020 Minivision | Apache-2.0; see the `LICENSE` and `NOTICE` files in that directory |
 
@@ -23,9 +23,11 @@ statement is the notice of change required by Apache-2.0 section 4(b) for the th
   MiniFASNetV1SE anti-spoofing models and model definition from Silent-Face-Anti-Spoofing by
   Minivision (https://github.com/minivision-ai/Silent-Face-Anti-Spoofing), licensed under the
   Apache License 2.0. The upstream repository has no NOTICE file.
-- **MediaPipe (Google).** This product includes the MediaPipe Face Mesh landmark model
-  (`face_landmark.tflite`) by Google (https://github.com/google-ai-edge/mediapipe), licensed
-  under the Apache License 2.0.
+- **MediaPipe (Google).** This product includes the MediaPipe FaceMesh V2 landmark model
+  (`face_landmarks_detector.tflite` from the Face Landmarker task bundle) by Google
+  (https://github.com/google-ai-edge/mediapipe), licensed under the Apache License 2.0. The
+  other files in that bundle (face detector, blendshapes, geometry metadata) are not used or
+  redistributed.
 - **YuNet (OpenCV Zoo).** This product includes the YuNet face detection model by Shiqi Yu and
   contributors, distributed through OpenCV Zoo (https://github.com/opencv/opencv_zoo), licensed
   under the MIT License.

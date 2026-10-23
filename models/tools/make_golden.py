@@ -5,15 +5,17 @@
 Fixtures live in liveness-analyzer/src/test/resources/golden/. Both images are US-government
 works (PD-USGov-NASA) from Wikimedia Commons; never put team faces here.
 
-1. Images: only when a fixture JPEG is missing (or --rebuild-images), download the original,
-   check its Commons SHA-1, downscale so the longest side is 1280 px (cv2.INTER_AREA) and write
-   JPEG quality 95 with 4:4:4 chroma (no subsampling, so decoders agree more closely). An
-   existing JPEG is never rewritten otherwise: the committed file IS the fixture.
-2. For each image and its horizontal mirror (decoded pixels flipped in memory, not re-encoded)
-   run reference_pipeline.Pipeline and write <name>.json / <name>_flipped.json. One warm-up
-   run first, so timingsMs are steady-state.
+1. Images: only when a fixture PNG is missing (or --rebuild-images), download the original,
+   check its Commons SHA-1, downscale so the longest side is 640 px (cv2.INTER_AREA, a
+   realistic camera size) and write a lossless PNG, which cv2 and Java ImageIO decode to
+   identical pixels. An existing PNG is never rewritten otherwise: the committed file IS the
+   fixture.
+2. For each image and its horizontal mirror (decoded pixels flipped in memory; only the JSON is
+   stored, Java flips the pixels itself) run reference_pipeline.Pipeline and write
+   <name>.json / <name>_flipped.json. One warm-up run first, so timingsMs are steady-state.
 3. Assert, failing loudly:
-     portrait: faceCount == 1, |yaw| < 10, |pitch| < 12, EAR of each eye in [0.18, 0.40], meshFlag >= 0.5
+     portrait: faceCount == 1, |yaw| < 10, |pitch| < 10 (bias-corrected), EAR of each eye in
+               [0.18, 0.40], meshFlag >= 0.5
      portrait mirrored: |yaw + yaw'| <= 3, |roll + roll'| <= 3, |pitch - pitch'| <= 3
      crew (and its mirror): faceCount >= 2
    livenessScore is printed, never asserted: a digital photo may legitimately score as a spoof.
@@ -32,7 +34,7 @@ import reference_pipeline as rp  # noqa: E402
 
 GOLDEN = TOOLS.parent.parent / "liveness-analyzer" / "src" / "test" / "resources" / "golden"
 SRC_CACHE = TOOLS / ".cache" / "golden-src"
-LONGEST_SIDE = 1280
+LONGEST_SIDE = 640
 FLIP_TOLERANCE_DEG = 3.0
 
 FIXTURES = [
@@ -70,9 +72,8 @@ def build_image(fx):
     h, w = img.shape[:2]
     k = LONGEST_SIDE / max(w, h)
     small = cv2.resize(img, (rp.round_half_up(w * k), rp.round_half_up(h * k)), interpolation=cv2.INTER_AREA)
-    out = GOLDEN / (fx["name"] + ".jpg")
-    cv2.imwrite(str(out), small, [cv2.IMWRITE_JPEG_QUALITY, 95,
-                                  cv2.IMWRITE_JPEG_SAMPLING_FACTOR, cv2.IMWRITE_JPEG_SAMPLING_FACTOR_444])
+    out = GOLDEN / (fx["name"] + ".png")
+    cv2.imwrite(str(out), small, [cv2.IMWRITE_PNG_COMPRESSION, 9])
     print(f"  wrote {out.name} {small.shape[1]}x{small.shape[0]} from {w}x{h}")
 
 
@@ -84,7 +85,7 @@ def model_hashes():
 def analyze(pipe, bgr, fx, flipped, models):
     pipe.analyze(bgr)  # warm-up
     res = pipe.analyze(bgr)
-    meta = {"fixture": fx["name"] + ".jpg", "flipped": flipped, "source": fx["page"],
+    meta = {"fixture": fx["name"] + ".png", "flipped": flipped, "source": fx["page"],
             "license": "Public domain (PD-USGov-NASA)", "models": models,
             "note": "flipped = decoded pixels mirrored horizontally in memory (not re-encoded)"}
     return {"meta": meta, **res}
@@ -98,19 +99,22 @@ def check(cond, msg, failures):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--rebuild-images", action="store_true", help="re-create the fixture JPEGs from the originals")
+    ap.add_argument("--rebuild-images", action="store_true", help="re-create the fixture PNGs from the originals")
+    ap.add_argument("--images-only", action="store_true", help="stop after creating missing fixture images")
     args = ap.parse_args()
     GOLDEN.mkdir(parents=True, exist_ok=True)
     for fx in FIXTURES:
-        if args.rebuild_images or not (GOLDEN / (fx["name"] + ".jpg")).exists():
+        if args.rebuild_images or not (GOLDEN / (fx["name"] + ".png")).exists():
             build_image(fx)
+    if args.images_only:
+        return
 
     pipe = rp.Pipeline()
     models = model_hashes()
     failures = []
     results = {}
     for fx in FIXTURES:
-        bgr = rp.imread_bgr(GOLDEN / (fx["name"] + ".jpg"))
+        bgr = rp.imread_bgr(GOLDEN / (fx["name"] + ".png"))
         for flipped in (False, True):
             img = np.ascontiguousarray(bgr[:, ::-1]) if flipped else bgr
             res = analyze(pipe, img, fx, flipped, models)
@@ -125,7 +129,7 @@ def main():
     check(p["meshFlag"] is not None and p["meshFlag"] >= 0.5, f"portrait meshFlag >= 0.5 (got {p['meshFlag']})", failures)
     if p["yawDeg"] is not None:
         check(abs(p["yawDeg"]) < 10, f"portrait |yaw| < 10 (got {p['yawDeg']:.2f})", failures)
-        check(abs(p["pitchDeg"]) < 12, f"portrait |pitch| < 12 (got {p['pitchDeg']:.2f})", failures)
+        check(abs(p["pitchDeg"]) < 10, f"portrait |pitch| < 10 (got {p['pitchDeg']:.2f}, raw {p['pitchRaw']:.2f})", failures)
         for eye in ("earLeft", "earRight"):
             check(0.18 <= p[eye] <= 0.40, f"portrait {eye} in [0.18, 0.40] (got {p[eye]:.3f})", failures)
     if p["yawDeg"] is not None and pf["yawDeg"] is not None:

@@ -5,7 +5,7 @@ byte size and SHA-256. A download that fails either check is deleted and the
 script exits non-zero; files already in the cache are re-verified, not re-fetched.
 YuNet ships unmodified, so once verified it is also copied to models/yunet_2026may.onnx.
 
-    python -I models/tools/fetch_models.py            # the three model sources
+    python -I models/tools/fetch_models.py            # the model sources
     python -I models/tools/fetch_models.py --extras   # + yakhyo ONNX cross-check files
 
 Standard library only, so it runs in either venv.
@@ -15,6 +15,7 @@ import hashlib
 import shutil
 import sys
 import urllib.request
+import zipfile
 from pathlib import Path
 
 CACHE = Path(__file__).resolve().parent / ".cache"
@@ -40,10 +41,14 @@ SOURCES = [
              "/resources/anti_spoof_models/4_0_0_80x80_MiniFASNetV1SE.pth",
          size=1856130,
          sha256="84ee1d37d96894d5e82de5a57df044ef80a58be2b218b5ed7cdfd875ec2f5990"),
-    dict(name="face_landmark.tflite",
-         url="https://storage.googleapis.com/mediapipe-assets/face_landmark.tflite",
-         size=1242398,
-         sha256="1055cb9d4a9ca8b8c688902a3a5194311138ba256bcc94e336d8373a5f30c814"),
+    # MediaPipe Face Landmarker task bundle, versioned path (float16/1, not "latest"). It is a
+    # zip; only face_landmarks_detector.tflite (FaceMesh V2, 478 points) is used.
+    dict(name="face_landmarker.task",
+         url="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+         size=3758596,
+         sha256="64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+         extract=dict(member="face_landmarks_detector.tflite", size=2553590,
+                      sha256="c7d54204ce0448474c7f3fa9af494787c0965cbdd6f20fc72867e43046bd43d5")),
 ]
 
 # Optional third-party ONNX exports, used only to cross-check our own export. Never committed.
@@ -100,6 +105,16 @@ def fetch(src):
         print(f"  FAIL {src['name']}: " + "; ".join(problems))
         return False
     print(f"  ok   {src['name']}")
+    if src.get("extract"):
+        ex = src["extract"]
+        target = CACHE / ex["member"]
+        with zipfile.ZipFile(dest) as bundle:
+            data = bundle.read(ex["member"])
+        if len(data) != ex["size"] or hashlib.sha256(data).hexdigest() != ex["sha256"]:
+            print(f"  FAIL {ex['member']} inside {src['name']}: size or sha256 differs from the pins")
+            return False
+        target.write_bytes(data)
+        print(f"       extracted {ex['member']} ({len(data)} bytes)")
     if src.get("install_as"):
         target = MODELS / src["install_as"]
         if not target.exists() or sha256_of(target) != src["sha256"]:
