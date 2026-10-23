@@ -67,7 +67,7 @@ calibrates them live.
 
 | Issue | Rule |
 |---|---|
-| TOO_DARK / TOO_BRIGHT | mean luma < 40 / > 220 |
+| TOO_DARK / TOO_BRIGHT | mean luma < 40 / > 220; also TOO_BRIGHT when more than 30% of the face crop is clipped (R, G and B all ≥ 250). Webcam auto-exposure keeps the mean near 110 even when part of the face is blown out. |
 | BLURRY | variance of the 4-neighbour Laplacian over the 110 × 110 interior (`lapVar`) < **15** |
 | FACE_TOO_SMALL | face area < 4 % of the frame, or face width < 80 px |
 | FACE_TOO_LARGE | face area > 60 % of the frame |

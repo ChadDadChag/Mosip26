@@ -56,6 +56,7 @@ Q_MIN_AREA_FRAC = 0.04        # areaFrac below -> FACE_TOO_SMALL
 Q_MIN_FACE_WIDTH_PX = 80.0    # face width below -> FACE_TOO_SMALL
 Q_MAX_AREA_FRAC = 0.60        # areaFrac above -> FACE_TOO_LARGE
 Q_MAX_CENTRE_OFFSET = 0.25    # centreDx or centreDy above -> FACE_OFF_CENTER
+Q_MAX_CLIPPED_FRACTION = 0.30 # clipped_fraction above -> TOO_BRIGHT (auto-exposure keeps lumaMean near 110 even when blown out)
 
 # Replay cues. Glare is audit only; moire feeds the session cap below.
 MOIRE_SIZE = 64
@@ -491,7 +492,8 @@ def quality(bgr, box):
     areaFrac  = w h / (W H)                 faceWidthPx = w
     centreDx  = |x + w/2 - W/2| / W         centreDy = |y + h/2 - H/2| / H
     cutOff    = x < 0 or y < 0 or x + w > W or y + h > H
-    Issues (in this order): TOO_DARK lumaMean < 40; TOO_BRIGHT lumaMean > 220; BLURRY lapVar < Q_BLUR_LAP_VAR;
+    Issues (in this order): TOO_DARK lumaMean < 40; TOO_BRIGHT lumaMean > 220 or clipped_fraction(frame, box) > 0.30
+    (the replay cues' glare: same crop and rule); BLURRY lapVar < Q_BLUR_LAP_VAR;
     FACE_TOO_SMALL areaFrac < 0.04 or w < 80; FACE_TOO_LARGE areaFrac > 0.60;
     FACE_OFF_CENTER centreDx > 0.25 or centreDy > 0.25; FACE_CUT_OFF cutOff.
     """
@@ -505,7 +507,7 @@ def quality(bgr, box):
     issues = []
     if m["lumaMean"] < Q_TOO_DARK_LUMA:
         issues.append("TOO_DARK")
-    if m["lumaMean"] > Q_TOO_BRIGHT_LUMA:
+    if m["lumaMean"] > Q_TOO_BRIGHT_LUMA or clipped_fraction(bgr, box) > Q_MAX_CLIPPED_FRACTION:
         issues.append("TOO_BRIGHT")
     if m["lapVar"] < Q_BLUR_LAP_VAR:
         issues.append("BLURRY")
@@ -544,9 +546,14 @@ def replay_cues(bgr, box):
     r = np.sqrt(u.astype(np.float64) ** 2 + v.astype(np.float64) ** 2)
     sel = mag[(r >= MOIRE_R_MIN) & (r <= MOIRE_R_MAX)]
     moire = math.log10((float(sel.max()) + MOIRE_EPS) / (float(np.median(sel)) + MOIRE_EPS))
+    return {"moire": moire, "glare": clipped_fraction(bgr, box)}
+
+
+def clipped_fraction(bgr, box):
+    """Fraction of pixels of the 112 x 112 float BGR box crop whose R, G and B are all >= 250 (the replay cues'
+    glare; quality() also uses it for TOO_BRIGHT)."""
     crop = sample_affine(bgr, box_matrix(box, QUALITY_SIZE), QUALITY_SIZE, QUALITY_SIZE)
-    glare = float(np.mean(np.all(crop >= GLARE_LEVEL, axis=2)))
-    return {"moire": moire, "glare": glare}
+    return float(np.mean(np.all(crop >= GLARE_LEVEL, axis=2)))
 
 
 # ---------------------------------------------------------------------------------------------

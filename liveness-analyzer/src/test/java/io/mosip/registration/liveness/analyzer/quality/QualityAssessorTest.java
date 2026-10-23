@@ -87,6 +87,26 @@ class QualityAssessorTest {
     }
 
     @Test
+    void aBlownOutFaceIsTooBrightEvenWithAModerateMeanLuma() {
+        // The top 40% of the face saturated (a lamp or window), the rest dim texture: auto-exposure keeps the mean low.
+        byte[] rgb = noise(40, 120, 6);
+        FaceDetection face = box(220, 120, 200, 240);
+        for (int y = 120; y < 120 + 96; y++) {
+            for (int x = 220; x < 420; x++) java.util.Arrays.fill(rgb, 3 * (y * W + x), 3 * (y * W + x) + 3, (byte) 255);
+        }
+        double clipped = new io.mosip.registration.liveness.analyzer.pad.ReplayCues().compute(rgb, W, H, face).glare;
+        assertThat(clipped).isBetween(0.35, 0.45);
+        QualityReport q = new QualityAssessor(AnalyzerConfig.defaults()).assess(rgb, W, H, face, clipped);
+        assertThat(q.lumaMean).isLessThan(AnalyzerConfig.defaults().tooBrightLuma);
+        assertThat(q.issues()).containsExactly(QualityIssue.TOO_BRIGHT);
+        assertThat(new QualityAssessor(AnalyzerConfig.builder().qualityMaxClippedFraction(0.5).build())
+                .assess(rgb, W, H, face, clipped).issues()).isEmpty();
+        assertThat(assess(rgb, face).issues()).as("without the clipped fraction: mean luma only").isEmpty();
+        assertThat(new QualityAssessor(AnalyzerConfig.defaults()).assess(noise(60, 200, 7), W, H, face, 0.0).issues())
+                .isEmpty();
+    }
+
+    @Test
     void reportExposesMetricsAndCopies() {
         QualityReport q = assess(noise(60, 200, 5), box(220, 120, 200, 240));
         assertThat(q.areaFrac).isCloseTo(200.0 * 240 / (W * H), within(1e-12));

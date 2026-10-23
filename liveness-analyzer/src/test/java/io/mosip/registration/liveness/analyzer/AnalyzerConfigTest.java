@@ -44,6 +44,7 @@ class AnalyzerConfigTest {
         assertThat(c.minFaceWidthPx).isEqualTo(80);
         assertThat(c.maxAreaFrac).isEqualTo(0.60);
         assertThat(c.maxCentreOffset).isEqualTo(0.25);
+        assertThat(c.qualityMaxClippedFraction).isEqualTo(0.30);
         assertThat(c.moireCapThreshold).isEqualTo(1.40);
         assertThat(c.moireCapScore).isEqualTo(0.60);
         assertThat(c.moireWindow).isEqualTo(10);
@@ -62,7 +63,7 @@ class AnalyzerConfigTest {
                 "padMaxPitchDeg", "20", "tooDarkLuma", "30", "tooBrightLuma", "230", "blurLapVar", "12",
                 "minAreaFrac", "0.03", "minFaceWidthPx", "90", "maxAreaFrac", "0.7", "maxCentreOffset", "0.3",
                 "moireCapThreshold", "1.5", "moireCapScore", "0.5", "moireWindow", "12", "moireMinFrames", "4",
-                "moireVetoThreshold", "1.8", "unrelated", "x")));
+                "moireVetoThreshold", "1.8", "qualityMaxClippedFraction", "0.4", "unrelated", "x")));
         assertThat(c.intraOpThreads).isEqualTo(4);
         assertThat(c.accelerator).isEqualTo(Accelerator.XNNPACK);
         assertThat(c.detector.maxWidth).isEqualTo(480);
@@ -86,7 +87,9 @@ class AnalyzerConfigTest {
         assertThat(c.moireWindow).isEqualTo(12);
         assertThat(c.moireMinFrames).isEqualTo(4);
         assertThat(c.moireVetoThreshold).isEqualTo(1.8);
+        assertThat(c.qualityMaxClippedFraction).isEqualTo(0.4);
         AnalyzerConfig copy = c.toBuilder().build();
+        assertThat(copy.qualityMaxClippedFraction).isEqualTo(0.4);
         assertThat(copy.blurLapVar).isEqualTo(12);
         assertThat(copy.accelerator).isEqualTo(Accelerator.XNNPACK);
         assertThat(copy.moireWindow).isEqualTo(12);
@@ -143,6 +146,8 @@ class AnalyzerConfigTest {
         assertInvalid(AnalyzerConfig.builder().minAreaFrac(0.5).maxAreaFrac(0.4), "minAreaFrac");
         assertInvalid(AnalyzerConfig.builder().minFaceWidthPx(-5), "minFaceWidthPx");
         assertInvalid(AnalyzerConfig.builder().maxCentreOffset(0.6), "maxCentreOffset");
+        assertInvalid(AnalyzerConfig.builder().qualityMaxClippedFraction(0), "qualityMaxClippedFraction");
+        assertInvalid(AnalyzerConfig.builder().qualityMaxClippedFraction(1.5), "qualityMaxClippedFraction");
         assertInvalid(AnalyzerConfig.builder().moireCapThreshold(0), "moireCapThreshold");
         assertInvalid(AnalyzerConfig.builder().moireCapScore(0), "moireCapScore");
         assertInvalid(AnalyzerConfig.builder().moireCapScore(1), "moireCapScore");

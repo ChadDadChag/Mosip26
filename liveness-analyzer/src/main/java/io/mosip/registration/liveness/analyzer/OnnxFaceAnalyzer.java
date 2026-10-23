@@ -143,7 +143,11 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         stats.framesOneFace++;
 
         t = System.nanoTime();
-        QualityReport q = quality.assess(rgb, w, h, primary);
+        lastCues = cues.compute(rgb, w, h, primary); // glare feeds the TOO_BRIGHT check, moire the session cap
+        stats.cuesNs = System.nanoTime() - t;
+
+        t = System.nanoTime();
+        QualityReport q = quality.assess(rgb, w, h, primary, lastCues.glare);
         stats.qualityNs = System.nanoTime() - t;
 
         t = System.nanoTime();
@@ -151,7 +155,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         stats.meshNs = System.nanoTime() - t;
         if (mesh == null) {
             Map<String, Float> details = new LinkedHashMap<String, Float>();
-            capped(Float.NaN, details, rgb, w, h, primary);
+            capped(Float.NaN, details);
             return finish(frame, 1, primary.toBox(), null, nan3(), q.issuesCopy(), Float.NaN, details, start);
         }
 
@@ -165,7 +169,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
             stats.framesPoseGated++;
             Map<String, Float> details = new LinkedHashMap<String, Float>();
             details.put(POSE_GATED, 1f);
-            capped(Float.NaN, details, rgb, w, h, primary);
+            capped(Float.NaN, details);
             return finish(frame, 1, primary.toBox(), landmarks, ypr, q.issuesCopy(), Float.NaN, details, start);
         }
 
@@ -178,19 +182,16 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         details.put("minifas_v2_c0", p.v2[0]);
         details.put("minifas_v2_c2", p.v2[2]);
         details.put("minifas_v1se_spoof", p.v1se[0] + p.v1se[2]);
-        float score = capped(p.score, details, rgb, w, h, primary);
+        float score = capped(p.score, details);
         details.put(MOIRE_CAP, moireCap.active() ? 1f : 0f);
         return finish(frame, 1, primary.toBox(), landmarks, ypr, q.issuesCopy(), score, details, start);
     }
 
     /**
-     * Computes the face's replay cues, adds its moire to the session's rolling median ({@link MoireCap}), records
-     * moire and moire_med, and returns the score after the cap or veto.
+     * Adds this frame's moire (from the replay cues computed before quality) to the session's rolling median
+     * ({@link MoireCap}), records moire and moire_med, and returns the score after the cap or veto.
      */
-    private float capped(float score, Map<String, Float> details, byte[] rgb, int w, int h, FaceDetection face) {
-        long t = System.nanoTime();
-        lastCues = cues.compute(rgb, w, h, face);
-        stats.cuesNs = System.nanoTime() - t;
+    private float capped(float score, Map<String, Float> details) {
         float moire = Float.isNaN(moireOverride) ? lastCues.moire : moireOverride;
         float out = moireCap.apply(score, moire);
         if (!Float.isNaN(moire)) details.put("moire", moire);

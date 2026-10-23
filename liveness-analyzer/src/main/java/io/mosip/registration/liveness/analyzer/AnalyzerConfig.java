@@ -17,7 +17,8 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *       absent the model bundle's signed param wins, see {@link #pitchBiasExplicit})</li>
  *   <li>{@code padMaxYawDeg} (30), {@code padMaxPitchDeg} (25): outside this pose range the PAD score is NaN</li>
  *   <li>{@code tooDarkLuma} (40), {@code tooBrightLuma} (220), {@code blurLapVar} (15), {@code minAreaFrac} (0.04),
- *       {@code minFaceWidthPx} (80), {@code maxAreaFrac} (0.60), {@code maxCentreOffset} (0.25)</li>
+ *       {@code minFaceWidthPx} (80), {@code maxAreaFrac} (0.60), {@code maxCentreOffset} (0.25),
+ *       {@code qualityMaxClippedFraction} (0.30: a larger share of blown-out face pixels is TOO_BRIGHT)</li>
  *   <li>session moire cap ({@link io.mosip.registration.liveness.analyzer.pad.MoireCap}): {@code moireCapThreshold}
  *       (1.40; {@code off} disables), {@code moireCapScore} (0.60), {@code moireWindow} (10), {@code moireMinFrames} (3),
  *       {@code moireVetoThreshold} ({@code off}; a number enables the hard veto)</li>
@@ -50,6 +51,8 @@ public final class AnalyzerConfig {
     public final double minFaceWidthPx;
     public final double maxAreaFrac;
     public final double maxCentreOffset;
+    /** Share of the face crop with R, G and B all >= 250 above which the face is TOO_BRIGHT. */
+    public final double qualityMaxClippedFraction;
     /** Session moire cap: rolling median at or above this caps the score; NaN = off. */
     public final double moireCapThreshold;
     /** The capped score, in (0, 1): below passiveThreshold, above padRejectThreshold. */
@@ -78,6 +81,7 @@ public final class AnalyzerConfig {
         minFaceWidthPx = b.minFaceWidthPx;
         maxAreaFrac = b.maxAreaFrac;
         maxCentreOffset = b.maxCentreOffset;
+        qualityMaxClippedFraction = b.qualityMaxClippedFraction;
         moireCapThreshold = b.moireCapThreshold;
         moireCapScore = b.moireCapScore;
         moireWindow = b.moireWindow;
@@ -112,6 +116,7 @@ public final class AnalyzerConfig {
         b.minFaceWidthPx = minFaceWidthPx;
         b.maxAreaFrac = maxAreaFrac;
         b.maxCentreOffset = maxCentreOffset;
+        b.qualityMaxClippedFraction = qualityMaxClippedFraction;
         b.moireCapThreshold = moireCapThreshold;
         b.moireCapScore = moireCapScore;
         b.moireWindow = moireWindow;
@@ -157,6 +162,7 @@ public final class AnalyzerConfig {
         b.minFaceWidthPx = doubleValue(cfg, "minFaceWidthPx", b.minFaceWidthPx);
         b.maxAreaFrac = doubleValue(cfg, "maxAreaFrac", b.maxAreaFrac);
         b.maxCentreOffset = doubleValue(cfg, "maxCentreOffset", b.maxCentreOffset);
+        b.qualityMaxClippedFraction = doubleValue(cfg, "qualityMaxClippedFraction", b.qualityMaxClippedFraction);
         b.moireCapThreshold = optionalThreshold(cfg, "moireCapThreshold", b.moireCapThreshold);
         b.moireCapScore = doubleValue(cfg, "moireCapScore", b.moireCapScore);
         b.moireWindow = intValue(cfg, "moireWindow", b.moireWindow);
@@ -195,6 +201,7 @@ public final class AnalyzerConfig {
         }
         range("minFaceWidthPx", minFaceWidthPx, 0, 10000);
         positiveUpTo("maxCentreOffset", maxCentreOffset, 0.5);
+        positiveUpTo("qualityMaxClippedFraction", qualityMaxClippedFraction, 1);
         if (!Double.isNaN(moireCapThreshold)) positiveUpTo("moireCapThreshold", moireCapThreshold, 10);
         openRange("moireCapScore", moireCapScore, 0, 1);
         range("moireMinFrames", moireMinFrames, 1, 100);
@@ -264,6 +271,7 @@ public final class AnalyzerConfig {
         private double minFaceWidthPx = 80;
         private double maxAreaFrac = 0.60;
         private double maxCentreOffset = 0.25;
+        private double qualityMaxClippedFraction = 0.30;
         private double moireCapThreshold = 1.40;
         private double moireCapScore = 0.60;
         private int moireWindow = 10;
@@ -290,6 +298,7 @@ public final class AnalyzerConfig {
         public Builder minFaceWidthPx(double v) { minFaceWidthPx = v; return this; }
         public Builder maxAreaFrac(double v) { maxAreaFrac = v; return this; }
         public Builder maxCentreOffset(double v) { maxCentreOffset = v; return this; }
+        public Builder qualityMaxClippedFraction(double v) { qualityMaxClippedFraction = v; return this; }
         /** NaN switches the cap off. */
         public Builder moireCapThreshold(double v) { moireCapThreshold = v; return this; }
         public Builder moireCapScore(double v) { moireCapScore = v; return this; }

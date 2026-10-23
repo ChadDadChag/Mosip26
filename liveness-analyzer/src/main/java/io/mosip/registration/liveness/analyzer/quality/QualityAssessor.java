@@ -18,8 +18,10 @@ import java.util.EnumSet;
  *   centreDx = |x + w/2 - W/2| / W       centreDy = |y + h/2 - H/2| / H
  *   cutOff   = x &lt; 0 or y &lt; 0 or x + w &gt; W or y + h &gt; H
  * </pre>
- * Issues: TOO_DARK, TOO_BRIGHT, BLURRY, FACE_TOO_SMALL (area or width), FACE_TOO_LARGE, FACE_OFF_CENTER,
- * FACE_CUT_OFF, with the thresholds of {@link AnalyzerConfig}.
+ * Issues: TOO_DARK, TOO_BRIGHT (mean luma, or clipped highlights: more than {@code qualityMaxClippedFraction} of
+ * the 112 x 112 crop with R, G and B all &gt;= 250, the replay cues' glare; webcam auto-exposure keeps the mean near
+ * 110 even when part of the face is blown out), BLURRY, FACE_TOO_SMALL (area or width), FACE_TOO_LARGE,
+ * FACE_OFF_CENTER, FACE_CUT_OFF, with the thresholds of {@link AnalyzerConfig}.
  *
  * <p>One instance per analyzer: buffers are reused; not thread-safe.
  */
@@ -41,7 +43,16 @@ public final class QualityAssessor {
         return new Affine(face.w / size, 0, face.x, 0, face.h / size, face.y);
     }
 
+    /** As {@link #assess(byte[], int, int, FaceDetection, double)} without the clipped-highlights check. */
     public QualityReport assess(byte[] rgb, int width, int height, FaceDetection face) {
+        return assess(rgb, width, height, face, Double.NaN);
+    }
+
+    /**
+     * @param clippedFraction share of the face crop with R, G and B all &gt;= 250 (the replay cues' glare, same crop
+     *                        and rule); NaN skips that part of the TOO_BRIGHT check
+     */
+    public QualityReport assess(byte[] rgb, int width, int height, FaceDetection face, double clippedFraction) {
         ImageOps.sample(rgb, width, height, boxAffine(face, SIZE), SIZE, SIZE, ImageOps.Layout.GRAY_0_255, gray);
         double sum = 0;
         for (float g : gray) sum += g;
@@ -56,7 +67,9 @@ public final class QualityAssessor {
 
         EnumSet<QualityIssue> issues = EnumSet.noneOf(QualityIssue.class);
         if (lumaMean < config.tooDarkLuma) issues.add(QualityIssue.TOO_DARK);
-        if (lumaMean > config.tooBrightLuma) issues.add(QualityIssue.TOO_BRIGHT);
+        if (lumaMean > config.tooBrightLuma || clippedFraction > config.qualityMaxClippedFraction) {
+            issues.add(QualityIssue.TOO_BRIGHT);
+        }
         if (lapVar < config.blurLapVar) issues.add(QualityIssue.BLURRY);
         if (areaFrac < config.minAreaFrac || w < config.minFaceWidthPx) issues.add(QualityIssue.FACE_TOO_SMALL);
         if (areaFrac > config.maxAreaFrac) issues.add(QualityIssue.FACE_TOO_LARGE);
