@@ -1,13 +1,20 @@
 package io.mosip.registration.liveness.device.android;
 
 import android.content.Context;
+import android.util.Log;
 import android.util.Size;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.camera.core.AspectRatio;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.core.resolutionselector.AspectRatioStrategy;
+import androidx.camera.core.resolutionselector.ResolutionSelector;
+import androidx.camera.core.resolutionselector.ResolutionStrategy;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
@@ -16,6 +23,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,17 +38,10 @@ import io.mosip.registration.liveness.api.FrameSource;
 /**
  * CameraX-backed {@link FrameSource} for the Android Registration Client.
  *
- * <p><b>Build/test status - stated plainly, not glossed over:</b> this file was
- * written and manually reviewed against the CameraX API shape (
- * {@code ImageAnalysis.Analyzer}, {@code ImageProxy}, YUV_420_888 plane layout),
- * but this sandbox has no Android SDK, no Gradle, and no network access to fetch
- * the {@code androidx.camera:*} artifacts, so it has <b>not been compiled and not
- * been runtime-tested</b>, on an emulator or otherwise. It is delivered as a
- * complete, reviewed source file plus the Gradle dependency notes in this module's
- * {@code README.md}, ready for a real Android build environment to compile and
- * test. Do not treat this as verified working code the way the Desktop
- * {@code SbiStreamFrameSource} and {@code MockFrameSource} are (those were
- * actually compiled and exercised with real, executed tests).</p>
+ * <p><b>Build/test status:</b> written against the CameraX API shape without an Android SDK, then
+ * compiled (AGP 8.3.2, CameraX 1.3.4, compileSdk 34) in the Android Registration Client's
+ * {@code liveness} module, which copies this file in with {@code android-integration/scripts/sync-engine.ps1}.
+ * Runtime results on a phone are recorded with the Person 5 Android integration, not here.</p>
  *
  * <p><b>Why CameraX over the SBI-intent path:</b> the task explicitly allows
  * preferring "CameraX fallback if that is cleaner than implementing the SBI-intent
@@ -51,6 +52,11 @@ import io.mosip.registration.liveness.api.FrameSource;
  * feed. CameraX is also already the Android-recommended path for exactly this use
  * case (continuous frame analysis), keeping the dependency footprint to one
  * well-maintained Jetpack library rather than a bespoke IPC layer.</p>
+ *
+ * <p><b>Preview:</b> with a {@link Preview.SurfaceProvider} (for example a {@code PreviewView}'s), a
+ * {@link Preview} is bound together with the {@link ImageAnalysis} in one {@code bindToLifecycle} call,
+ * so both use cases share the camera session and the same 4:3 framing. Without one, only the analysis
+ * is bound. The preview is display-only: frames come from the analysis use case.</p>
  *
  * <p><b>Orientation:</b> each frame is rotated by CameraX's
  * {@code getRotationDegrees()} so faces arrive upright, matching the Desktop sources.
@@ -68,13 +74,23 @@ import io.mosip.registration.liveness.api.FrameSource;
  */
 public final class CameraXFrameSource implements FrameSource {
 
+    private static final String TAG = "CameraXFrameSource";
     private static final int UNKNOWN_CAPABILITY = 0;
+    private static final long TIMING_WINDOW_NS = 1_000_000_000L;
+
+    // BT.601 full-range coefficients in 16.16 fixed point: 1.402, 0.344136, 0.714136, 1.772.
+    private static final int R_V = 91881;
+    private static final int G_U = 22554;
+    private static final int G_V = 46802;
+    private static final int B_U = 116130;
+    private static final int HALF = 1 << 15;
 
     private final Context context;
     private final LifecycleOwner lifecycleOwner;
     private final CameraSelector cameraSelector;
     private final Size targetResolution;
     private final int frameStride;
+    private final Preview.SurfaceProvider previewSurface;
     private final ExecutorService analysisExecutor;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -85,6 +101,18 @@ public final class CameraXFrameSource implements FrameSource {
     private volatile Camera boundCamera;
     private volatile DeviceInfo deviceInfo;
     private volatile ProcessCameraProvider cameraProvider;
+    private volatile boolean debugTiming;
+
+    // Analysis-thread only: plane copies reused across frames (the RGB output is not, see onImageAvailable)
+    // and the debug timing window.
+    private byte[] yBytes = new byte[0];
+    private byte[] uBytes = new byte[0];
+    private byte[] vBytes = new byte[0];
+    private long windowStartNs;
+    private int windowReceived;
+    private int windowConverted;
+    private long windowConvertNs;
+    private long windowConvertMaxNs;
 
     /**
      * @param context          application (not Activity) context, to avoid leaking an Activity
@@ -102,6 +130,16 @@ public final class CameraXFrameSource implements FrameSource {
      */
     public CameraXFrameSource(Context context, LifecycleOwner lifecycleOwner,
                               CameraSelector cameraSelector, Size targetResolution, int frameStride) {
+        this(context, lifecycleOwner, cameraSelector, targetResolution, frameStride, null);
+    }
+
+    /**
+     * @param previewSurface where to show the camera preview (e.g. {@code PreviewView.getSurfaceProvider()}),
+     *                       or null for analysis only
+     */
+    public CameraXFrameSource(Context context, LifecycleOwner lifecycleOwner,
+                              CameraSelector cameraSelector, Size targetResolution, int frameStride,
+                              @Nullable Preview.SurfaceProvider previewSurface) {
         if (context == null || lifecycleOwner == null || cameraSelector == null || targetResolution == null) {
             throw new IllegalArgumentException("context, lifecycleOwner, cameraSelector and targetResolution are required");
         }
@@ -113,6 +151,7 @@ public final class CameraXFrameSource implements FrameSource {
         this.cameraSelector = cameraSelector;
         this.targetResolution = targetResolution;
         this.frameStride = frameStride;
+        this.previewSurface = previewSurface;
         this.analysisExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "LIVENESS_CAMERAX_ANALYSIS_THREAD");
             t.setDaemon(true);
@@ -123,6 +162,14 @@ public final class CameraXFrameSource implements FrameSource {
         // returns null (matches the Desktop implementations' contract).
         this.deviceInfo = new DeviceInfo("android-camera:unbound", "unknown", "unknown",
                 "camerax", "NONE", UNKNOWN_CAPABILITY, UNKNOWN_CAPABILITY, UNKNOWN_CAPABILITY);
+    }
+
+    /**
+     * Logs (at debug level, once a second) the frames received and converted and the YUV conversion
+     * time. Off by default. Never logs pixels.
+     */
+    public void setDebugTiming(boolean enabled) {
+        this.debugTiming = enabled;
     }
 
     @Override
@@ -147,7 +194,7 @@ public final class CameraXFrameSource implements FrameSource {
             }
             try {
                 ProcessCameraProvider provider = providerFuture.get();
-                bindAnalysisUseCase(provider);
+                bindUseCases(provider);
             } catch (ExecutionException | InterruptedException e) {
                 if (e instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
@@ -162,17 +209,36 @@ public final class CameraXFrameSource implements FrameSource {
         }, ContextCompat.getMainExecutor(context));
     }
 
-    private void bindAnalysisUseCase(ProcessCameraProvider provider) {
+    private void bindUseCases(ProcessCameraProvider provider) {
+        int aspectRatio = aspectRatioOf(targetResolution);
         ImageAnalysis analysis = new ImageAnalysis.Builder()
-                .setTargetResolution(targetResolution)
+                .setResolutionSelector(new ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(new AspectRatioStrategy(aspectRatio, AspectRatioStrategy.FALLBACK_RULE_AUTO))
+                        // Sizes are matched in the sensor's (landscape) orientation; frames are rotated upright later.
+                        .setResolutionStrategy(new ResolutionStrategy(landscape(targetResolution),
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                        .build())
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build();
 
         analysis.setAnalyzer(analysisExecutor, this::onImageAvailable);
 
+        Preview preview = null;
+        if (previewSurface != null) {
+            // Same aspect ratio as the analysis, so the user sees what the engine analyses.
+            preview = new Preview.Builder()
+                    .setResolutionSelector(new ResolutionSelector.Builder()
+                            .setAspectRatioStrategy(new AspectRatioStrategy(aspectRatio, AspectRatioStrategy.FALLBACK_RULE_AUTO))
+                            .build())
+                    .build();
+            preview.setSurfaceProvider(previewSurface);
+        }
+
         provider.unbindAll();
-        Camera camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector, analysis);
+        Camera camera = preview == null
+                ? provider.bindToLifecycle(lifecycleOwner, cameraSelector, analysis)
+                : provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, analysis);
 
         this.cameraProvider = provider;
         this.imageAnalysis = analysis;
@@ -200,7 +266,7 @@ public final class CameraXFrameSource implements FrameSource {
         if (analysis != null) {
             analysis.clearAnalyzer();
         }
-        // Reuse the ProcessCameraProvider obtained in start()/bindAnalysisUseCase()
+        // Reuse the ProcessCameraProvider obtained in start()/bindUseCases()
         // rather than calling ProcessCameraProvider.getInstance(context).get() again
         // here: that call's Future is resolved on first use and CameraX caches the
         // provider internally, but blocking on .get() a second time is still an
@@ -235,6 +301,7 @@ public final class CameraXFrameSource implements FrameSource {
             return;
         }
         long frameIndex = sequence.getAndIncrement();
+        boolean timing = debugTiming;
         try {
             if (frameIndex % frameStride != 0) {
                 return; // skipped: no conversion cost
@@ -243,9 +310,19 @@ public final class CameraXFrameSource implements FrameSource {
             boolean swap = rotation == 90 || rotation == 270;
             int width = swap ? imageProxy.getHeight() : imageProxy.getWidth();
             int height = swap ? imageProxy.getWidth() : imageProxy.getHeight();
+            long convertStartNs = System.nanoTime();
+            // A new array per frame: Frame keeps the reference, and the engine may hold frames (best frame).
             byte[] rgb = yuv420ToRgb888(imageProxy, rotation);
+            long convertNs = System.nanoTime() - convertStartNs;
             if (frameIndex == 0) {
                 observeResolution(width, height);
+                Log.i(TAG, "analysis " + imageProxy.getWidth() + "x" + imageProxy.getHeight()
+                        + " rotation " + rotation + " -> frames " + width + "x" + height);
+            }
+            if (timing) {
+                windowConverted++;
+                windowConvertNs += convertNs;
+                windowConvertMaxNs = Math.max(windowConvertMaxNs, convertNs);
             }
             long timestampMs = System.nanoTime() / 1_000_000L;
             deliverFrame(new Frame(rgb, width, height, timestampMs, frameIndex, deviceInfo.deviceId));
@@ -253,69 +330,118 @@ public final class CameraXFrameSource implements FrameSource {
             notifyError(ErrorCode.INVALID_FRAME, safeMessage(e), true);
         } finally {
             imageProxy.close(); // must always be closed or CameraX stalls the pipeline
+            if (timing) {
+                windowReceived++;
+                logTimingWindow();
+            }
         }
+    }
+
+    private void logTimingWindow() {
+        long now = System.nanoTime();
+        if (windowStartNs == 0L) {
+            windowStartNs = now;
+            return;
+        }
+        long elapsed = now - windowStartNs;
+        if (elapsed < TIMING_WINDOW_NS) {
+            return;
+        }
+        double seconds = elapsed / 1e9;
+        Log.d(TAG, String.format(Locale.ROOT,
+                "camera %.1f fps, converted %.1f fps, yuv->rgb avg %.2f ms max %.2f ms",
+                windowReceived / seconds, windowConverted / seconds,
+                windowConverted == 0 ? 0.0 : windowConvertNs / 1e6 / windowConverted, windowConvertMaxNs / 1e6));
+        windowStartNs = now;
+        windowReceived = 0;
+        windowConverted = 0;
+        windowConvertNs = 0L;
+        windowConvertMaxNs = 0L;
     }
 
     /**
      * Standard YUV_420_888 (planar, with possible row/pixel stride padding) to
      * packed RGB888 conversion using BT.601 coefficients:
      * R = Y + 1.402*(V-128); G = Y - 0.344136*(U-128) - 0.714136*(V-128); B = Y + 1.772*(U-128),
-     * rotated clockwise by {@code rotationDegrees} (0/90/180/270) while writing.
+     * in 16.16 fixed point with rounding, rotated clockwise by {@code rotationDegrees}
+     * (0/90/180/270) while writing. Each plane is bulk-copied once into a reused array
+     * (per-pixel {@code ByteBuffer.get} was the main cost), then indexed with its row and pixel stride.
+     * Package-private for the conversion test; call it from the analysis thread only.
      */
-    private static byte[] yuv420ToRgb888(ImageProxy imageProxy, int rotationDegrees) {
+    byte[] yuv420ToRgb888(ImageProxy imageProxy, int rotationDegrees) {
         int width = imageProxy.getWidth();
         int height = imageProxy.getHeight();
         ImageProxy.PlaneProxy[] planes = imageProxy.getPlanes();
 
-        ByteBuffer yBuffer = planes[0].getBuffer();
-        ByteBuffer uBuffer = planes[1].getBuffer();
-        ByteBuffer vBuffer = planes[2].getBuffer();
+        yBytes = copyPlane(planes[0].getBuffer(), yBytes);
+        uBytes = copyPlane(planes[1].getBuffer(), uBytes);
+        vBytes = copyPlane(planes[2].getBuffer(), vBytes);
+        byte[] yPlane = yBytes;
+        byte[] uPlane = uBytes;
+        byte[] vPlane = vBytes;
 
         int yRowStride = planes[0].getRowStride();
         int uRowStride = planes[1].getRowStride();
         int vRowStride = planes[2].getRowStride();
+        int yPixelStride = planes[0].getPixelStride();
         int uPixelStride = planes[1].getPixelStride();
         int vPixelStride = planes[2].getPixelStride();
 
-        byte[] rgb = new byte[width * height * 3];
-        int outWidth = (rotationDegrees == 90 || rotationDegrees == 270) ? height : width;
+        // Output pixel index of input (row, col) = base + row * rowStep + col * colStep.
+        int base;
+        int rowStep;
+        int colStep;
+        switch (rotationDegrees) {
+            case 90:  base = height - 1;           rowStep = -1;     colStep = height;  break;
+            case 180: base = width * height - 1;   rowStep = -width; colStep = -1;      break;
+            case 270: base = (width - 1) * height; rowStep = 1;      colStep = -height; break;
+            default:  base = 0;                    rowStep = width;  colStep = 1;       break;
+        }
 
+        byte[] rgb = new byte[width * height * 3];
         for (int row = 0; row < height; row++) {
             int yRowOffset = row * yRowStride;
-            int uvRow = row / 2;
-            int uRowOffset = uvRow * uRowStride;
-            int vRowOffset = uvRow * vRowStride;
+            int uRowOffset = (row >> 1) * uRowStride;
+            int vRowOffset = (row >> 1) * vRowStride;
+            int out = base + row * rowStep;
 
-            for (int col = 0; col < width; col++) {
-                int yValue = yBuffer.get(yRowOffset + col) & 0xFF;
-                int uCol = (col / 2) * uPixelStride;
-                int vCol = (col / 2) * vPixelStride;
-                int uValue = (uBuffer.get(uRowOffset + uCol) & 0xFF) - 128;
-                int vValue = (vBuffer.get(vRowOffset + vCol) & 0xFF) - 128;
+            for (int col = 0; col < width; col++, out += colStep) {
+                int yValue = (yPlane[yRowOffset + col * yPixelStride] & 0xFF) << 16;
+                int uValue = (uPlane[uRowOffset + (col >> 1) * uPixelStride] & 0xFF) - 128;
+                int vValue = (vPlane[vRowOffset + (col >> 1) * vPixelStride] & 0xFF) - 128;
 
-                int r = (int) (yValue + 1.402 * vValue);
-                int g = (int) (yValue - 0.344136 * uValue - 0.714136 * vValue);
-                int b = (int) (yValue + 1.772 * uValue);
-
-                int outX;
-                int outY;
-                switch (rotationDegrees) {
-                    case 90:  outX = height - 1 - row; outY = col; break;
-                    case 180: outX = width - 1 - col;  outY = height - 1 - row; break;
-                    case 270: outX = row;              outY = width - 1 - col; break;
-                    default:  outX = col;              outY = row; break;
-                }
-                int outIndex = (outY * outWidth + outX) * 3;
-                rgb[outIndex] = (byte) clampByte(r);
-                rgb[outIndex + 1] = (byte) clampByte(g);
-                rgb[outIndex + 2] = (byte) clampByte(b);
+                int outIndex = out * 3;
+                rgb[outIndex] = clampByte((yValue + R_V * vValue + HALF) >> 16);
+                rgb[outIndex + 1] = clampByte((yValue - G_U * uValue - G_V * vValue + HALF) >> 16);
+                rgb[outIndex + 2] = clampByte((yValue + B_U * uValue + HALF) >> 16);
             }
         }
         return rgb;
     }
 
-    private static int clampByte(int value) {
-        return Math.max(0, Math.min(255, value));
+    /** Copies the whole plane (from index 0, as the stride arithmetic assumes) into {@code reuse} or a larger array. */
+    private static byte[] copyPlane(ByteBuffer plane, byte[] reuse) {
+        ByteBuffer buffer = plane.duplicate();
+        buffer.rewind();
+        int size = buffer.remaining();
+        byte[] out = reuse.length >= size ? reuse : new byte[size];
+        buffer.get(out, 0, size);
+        return out;
+    }
+
+    private static byte clampByte(int value) {
+        return (byte) (value < 0 ? 0 : (value > 255 ? 255 : value));
+    }
+
+    private static int aspectRatioOf(Size size) {
+        int longSide = Math.max(size.getWidth(), size.getHeight());
+        int shortSide = Math.min(size.getWidth(), size.getHeight());
+        return Math.abs(longSide * 9 - shortSide * 16) < Math.abs(longSide * 3 - shortSide * 4)
+                ? AspectRatio.RATIO_16_9 : AspectRatio.RATIO_4_3;
+    }
+
+    private static Size landscape(Size size) {
+        return size.getWidth() >= size.getHeight() ? size : new Size(size.getHeight(), size.getWidth());
     }
 
     private void deliverFrame(Frame frame) {
@@ -326,7 +452,7 @@ public final class CameraXFrameSource implements FrameSource {
         try {
             currentListener.onFrame(frame);
         } catch (Throwable listenerFailure) {
-            android.util.Log.e("CameraXFrameSource", "Listener.onFrame() threw; continuing stream", listenerFailure);
+            Log.e(TAG, "Listener.onFrame() threw; continuing stream", listenerFailure);
         }
     }
 
@@ -338,7 +464,7 @@ public final class CameraXFrameSource implements FrameSource {
         try {
             currentListener.onError(code, detail, recoverable);
         } catch (Throwable listenerFailure) {
-            android.util.Log.e("CameraXFrameSource", "Listener.onError() threw", listenerFailure);
+            Log.e(TAG, "Listener.onError() threw", listenerFailure);
         }
     }
 

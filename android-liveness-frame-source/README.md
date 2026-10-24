@@ -1,19 +1,19 @@
 # Android Liveness FrameSource (CameraX)
 
-## Status: type-checked and conversion-tested off-device; NOT built with the Android SDK, NOT run on a device
+## Status: compiled in the Android Registration Client; runtime results are in the Android integration
 
 This directory is **not part of the Desktop Maven reactor** and is never built by
 `mvn compile`/`mvn test` on `registration-services` or any other existing module.
 
-What has been checked:
-- `CameraXFrameSource.java` type-checks against hand-written stubs of exactly the
-  CameraX/Android types it uses. This catches typos and signature mismatches only.
-- The YUV_420_888 → RGB888 conversion, rotation (0/90/180/270) and every-Nth-frame
-  logic were executed against a synthetic `ImageProxy`, and the output pixels matched
-  the expected rotated grids.
+`android-integration/scripts/sync-engine.ps1` copies `CameraXFrameSource.java` into the
+Android Registration Client's `android/liveness` module, which compiles it against real
+CameraX 1.3.4 (AGP 8.3.2, compileSdk 34) and unit-tests the YUV conversion and rotation
+against a reference conversion on a synthetic `ImageProxy`. Edit the file here, then sync;
+do not edit the copy in the client.
 
-What has not been checked: compiling against real `androidx.camera.*`, and running on an
-emulator or a phone. Treat it accordingly until an Android build does both.
+Earlier checks (before an Android SDK was available): a type check against hand-written
+stubs of the CameraX/Android types, and the conversion, rotation and every-Nth-frame
+logic run against a synthetic `ImageProxy`.
 
 ## Why CameraX instead of an SBI app over intents
 
@@ -39,14 +39,21 @@ contract the Desktop `SbiStreamFrameSource` and `MockFrameSource` implement.
 
 - `start(Listener)`: obtains a `ProcessCameraProvider` asynchronously and binds an
   `ImageAnalysis` use case (YUV_420_888, keep-only-latest backpressure, so a slow
-  listener never builds a backlog).
+  listener never builds a backlog). The resolution comes from a `ResolutionSelector`:
+  the requested size (640×480 in the client) or the closest higher, then lower, at the same aspect ratio.
+- **Preview**: given a `Preview.SurfaceProvider` (for example `PreviewView.getSurfaceProvider()`),
+  a `Preview` with the same aspect ratio is bound together with the analysis in one
+  `bindToLifecycle` call (after `unbindAll`). The preview is display-only.
 - **Every Nth frame**: the `frameStride` constructor argument skips conversion of
   unselected frames. `Frame.sequence()` stays the raw index, so skips appear as gaps.
 - **Rotation**: each frame is rotated by `ImageProxy.getImageInfo().getRotationDegrees()`
   while converting, so faces arrive upright (width and height swap at 90/270). Frames are not
   mirrored: front-camera previews often are, but the analysis frames are not. Left/right
   challenge logic must use the unmirrored image.
-- YUV_420_888 → RGB888 uses BT.601 coefficients and honours row/pixel strides.
+- YUV_420_888 → RGB888 uses BT.601 coefficients in 16.16 fixed point and honours row/pixel
+  strides. Each plane is bulk-copied once into a reused array; the RGB output is a new array
+  per frame, because `Frame` keeps the reference. `setDebugTiming(true)` logs, once a second,
+  the camera and converted frame rates and the conversion time (never pixels).
 - **Capabilities**: `info().capabilities` declares `YUV_420_888` and the requested
   resolution, then switches to the resolution CameraX actually chose (OBSERVED).
 - `stop()` clears the analyzer and unbinds on the main thread. It can be called from any thread.
