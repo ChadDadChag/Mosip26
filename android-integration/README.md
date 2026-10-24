@@ -159,10 +159,15 @@ The debug page never shows camera images.
    equalled the branch's, jars included, and the consolidated diff gave the same tree as the
    series.
 
-   If the engine jars are rebuilt from changed or cleaned sources, they get new bytes, because a
-   jar embeds its build time and git information. The jars and their SHA-256 lines in
-   `engine-sync.txt` then differ, and nothing else does. Maven does not recreate an up-to-date
-   jar.
+   If the engine jars are rebuilt, they get new bytes, even from unchanged sources. Each jar holds
+   a `git.properties` with the Mosip26 commit checked out at build time and the build time, so a
+   build from a later commit recreates it. The jars and their SHA-256 lines in `engine-sync.txt`
+   then differ, and nothing else does; the `engine commit` line names the last engine change and
+   stays the same. A second run of `apply-integration.ps1`, made after a rebuild at a later
+   Mosip26 commit, showed exactly this.
+
+   For a byte-identical result, use `sync-engine.ps1 -SkipBuild` with the jars that were synced
+   into the branch.
 2. **Tests:**
    - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 73 tests, all passing.
    - `flutter test test/liveness`: 56 tests, all passing.
