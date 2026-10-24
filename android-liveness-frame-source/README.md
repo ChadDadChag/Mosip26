@@ -5,7 +5,7 @@
 This directory is **not part of the Desktop Maven reactor** and is never built by
 `mvn compile`/`mvn test` on `registration-services` or any other existing module.
 
-`android-integration/scripts/sync-engine.ps1` copies `CameraXFrameSource.java` into the
+The Person 5 Android integration (pushed separately; its `android-integration/scripts/sync-engine.ps1`) copies `CameraXFrameSource.java` into the
 Android Registration Client's `android/liveness` module, which compiles it against real
 CameraX 1.3.4 (AGP 8.3.2, compileSdk 34) and unit-tests the YUV conversion and rotation
 against a reference conversion on a synthetic `ImageProxy`. Edit the file here, then sync;

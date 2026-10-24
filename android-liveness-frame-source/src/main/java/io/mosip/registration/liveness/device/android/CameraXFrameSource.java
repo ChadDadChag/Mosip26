@@ -40,7 +40,7 @@ import io.mosip.registration.liveness.api.FrameSource;
  *
  * <p><b>Build/test status:</b> written against the CameraX API shape without an Android SDK, then
  * compiled (AGP 8.3.2, CameraX 1.3.4, compileSdk 34) in the Android Registration Client's
- * {@code liveness} module, which copies this file in with {@code android-integration/scripts/sync-engine.ps1}.
+ * {@code liveness} module, which copies this file in with Person 5's {@code android-integration/scripts/sync-engine.ps1} (pushed separately).
  * Runtime results on a phone are recorded with the Person 5 Android integration, not here.</p>
  *
  * <p><b>Why CameraX over the SBI-intent path:</b> the task explicitly allows

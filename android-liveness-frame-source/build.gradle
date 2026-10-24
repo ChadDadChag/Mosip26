@@ -1,7 +1,7 @@
 // Minimal Android library module config for CameraXFrameSource.
 // NOT part of the Desktop Maven reactor and not built from here: the Android
 // Registration Client's android/liveness module compiles the synced copy of the
-// source (android-integration/scripts/sync-engine.ps1) with these CameraX versions.
+// source (Person 5's android-integration/scripts/sync-engine.ps1, pushed separately) with these CameraX versions.
 plugins {
     id 'com.android.library'
 }
