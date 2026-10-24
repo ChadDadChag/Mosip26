@@ -1,0 +1,2293 @@
+From 94f1f06f99ebf83cd11650266b6f54a814906116 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 17:49:31 +0530
+Subject: [PATCH 03/26] Add liveness native module: engine, models, camera,
+ bridge
+
+New Android library module android/liveness
+(io.mosip.registration.liveness.android), used by the app:
+- libs/: the MOSIP liveness engine jars (liveness-api, -core, -analyzer,
+  -fake 1.2.0.2) and src/main/assets/liveness/models/: the signed model
+  bundle pad-2026.10.1, both copied byte for byte by Mosip26's
+  android-integration/scripts/sync-engine.ps1 (engine-sync.txt records the
+  engine commit and every file's SHA-256). CameraXFrameSource.java is Part
+  1's camera source, synced from the same repository: edit it there.
+  .gitattributes keeps the bundle and the jars byte-exact (no line-ending
+  conversion), as in Mosip26: manifest.sig is checked over manifest.json.
+- onnxruntime-android 1.31.0, CameraX 1.3.4 (core, camera2, lifecycle,
+  view), androidx.core 1.12.0, clientmanager.
+- AssetBundleSource: the bundle from the assets (capped reads); the engine
+  verifies the signature. AndroidConfigProvider: synced global params, empty
+  values as missing. AndroidAuditSink: engine audit records to the audit
+  table (workflow -> REGISTRATION / LOGIN / REG_PACKET_LIST, HOME without a
+  workflow; details as key=value;... cut to 2048 characters; written on a
+  background thread; failures logged, never thrown).
+- LivenessServiceHolder (Dagger singleton): the real engine (ONNX analyzer,
+  assets bundle or a newer verified bundle in files/liveness-models) and the
+  fake engine, a config override map, and preload() on a background thread
+  at app start (time logged and audited; a failure is audited as
+  MODEL_INTEGRITY_FAILED with its error code).
+- TimedAnalyzerFactory: per-stage p50/p95 analysis times per session.
+  LivenessMaps: event/result maps for Dart. BestFrameEncoder: JPEG q90.
+- packagingOptions: the analyzer jar's copy of the models
+  (liveness/models/**) is excluded from the APK in the module and the app;
+  the engine jars' git.properties are merged.
+
+Bridge (app):
+- pigeon/liveness.dart, LivenessApi: isEnabled, policy, startSession
+  (async; "" when disabled), retry, cancel, modelVersion, and
+  setConfigOverride (debug builds only). One pigeon.sh line, Android only.
+- Event channel io.mosip.registration_client/liveness/events: {kind:"event",
+  ...} and {kind:"complete", ...}; the best frame only on PASSED, never
+  logged. One session at a time (a new one cancels the old one and drops its
+  callbacks); the Activity pausing cancels the session. A missing camera
+  permission completes with FAILED / CAMERA_UNAVAILABLE.
+- Platform view io.mosip.registration_client/liveness_preview: a PreviewView
+  (FILL_CENTER, COMPATIBLE) that the next session binds its preview to.
+- Dart: lib/platform_spi/liveness_service.dart (LivenessService,
+  LivenessMessage) and lib/platform_android/liveness_service_impl.dart (asks
+  for the camera permission, then starts the session).
+- Wired through HostApiModule and MainActivity (setup, preload, onPause).
+
+Tests: :liveness:testDebugUnitTest, 35 JVM tests (maps, config provider,
+audit mapping and truncation, asset source, stage timing, YUV conversion).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/app/build.gradle                      |   4 +
+ .../registration_client/HostApiModule.java    |  15 +
+ .../registration_client/MainActivity.java     |  16 +
+ .../api_services/LivenessApi.java             | 279 ++++++++++++++++++
+ .../api_services/LivenessPreviewFactory.java  |  56 ++++
+ android/liveness/.gitattributes               |   4 +
+ android/liveness/build.gradle                 |  57 ++++
+ android/liveness/consumer-rules.pro           |   2 +
+ android/liveness/engine-sync.txt              |  13 +
+ android/liveness/src/main/AndroidManifest.xml |   3 +
+ .../liveness/android/AndroidAuditSink.java    | 125 ++++++++
+ .../android/AndroidConfigProvider.java        |  24 ++
+ .../liveness/android/AssetBundleSource.java   |  50 ++++
+ .../liveness/android/BestFrameEncoder.java    |  34 +++
+ .../liveness/android/LivenessMaps.java        |  93 ++++++
+ .../android/LivenessServiceHolder.java        | 190 ++++++++++++
+ .../android/TimedAnalyzerFactory.java         | 125 ++++++++
+ .../android/AndroidAuditSinkTest.java         | 125 ++++++++
+ .../android/AndroidConfigProviderTest.java    |  42 +++
+ .../android/AssetBundleSourceTest.java        |  91 ++++++
+ .../liveness/android/LivenessMapsTest.java    | 143 +++++++++
+ .../android/TimedAnalyzerFactoryTest.java     |  52 ++++
+ .../CameraXFrameSourceConversionTest.java     | 194 ++++++++++++
+ android/settings.gradle                       |   1 +
+ .../liveness_service_impl.dart                |  94 ++++++
+ lib/platform_spi/liveness_service.dart        |  81 +++++
+ pigeon.sh                                     |   5 +-
+ pigeon/liveness.dart                          |  43 +++
+ 28 files changed, 1960 insertions(+), 1 deletion(-)
+ create mode 100644 android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+ create mode 100644 android/app/src/main/java/io/mosip/registration_client/api_services/LivenessPreviewFactory.java
+ create mode 100644 android/liveness/.gitattributes
+ create mode 100644 android/liveness/build.gradle
+ create mode 100644 android/liveness/consumer-rules.pro
+ create mode 100644 android/liveness/engine-sync.txt
+ create mode 100644 android/liveness/src/main/AndroidManifest.xml
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidConfigProvider.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/AssetBundleSource.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/BestFrameEncoder.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMaps.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidConfigProviderTest.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/AssetBundleSourceTest.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMapsTest.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/TimedAnalyzerFactoryTest.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceConversionTest.java
+ create mode 100644 lib/platform_android/liveness_service_impl.dart
+ create mode 100644 lib/platform_spi/liveness_service.dart
+ create mode 100644 pigeon/liveness.dart
+
+diff --git a/android/app/build.gradle b/android/app/build.gradle
+index 8e17558..5ef1900 100644
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ -125,6 +125,9 @@ android {
+         resources.excludes.add("META-INF/additional-spring*")
+         resources.pickFirsts.add("mozilla/public-suffix-list.txt")
+         resources.excludes.add("META-INF/INDEX.LIST")
++        // The liveness analyzer jar carries the model bundle as Java resources for the desktop client;
++        // on Android the liveness module ships it as assets (assets/liveness/models), so drop the copy.
++        resources.excludes.add("liveness/models/**")
+     }
+ }
+ tasks.register("jacocoTestReport", JacocoReport) {
+@@ -235,6 +238,7 @@ dependencies {
+     implementation project(':keymanager')
+     implementation project(':packetmanager')
+     implementation project(':transliterationmanager')
++    implementation project(':liveness')
+ 
+     androidTestImplementation "androidx.test.ext:junit:${rootProject.ext.androidxJunitVersion}"
+     androidTestImplementation "androidx.test.espresso:espresso-core:${rootProject.ext.espressoVersion}"
+diff --git a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
+index 2b9c15b..310081c 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
++++ b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
+@@ -66,6 +66,7 @@ import io.mosip.registration_client.api_services.DocumentDetailsApi;
+ 
+ import io.mosip.registration_client.api_services.DynamicDetailsApi;
+ import io.mosip.registration_client.api_services.GlobalConfigSettingsApi;
++import io.mosip.registration_client.api_services.LivenessApi;
+ import io.mosip.registration_client.api_services.MachineDetailsApi;
+ import io.mosip.registration_client.api_services.PacketAuthenticationApi;
+ import io.mosip.registration_client.api_services.MasterDataSyncApi;
+@@ -74,6 +75,7 @@ import io.mosip.registration_client.api_services.RegistrationApi;
+ import io.mosip.registration_client.api_services.SecureScreenApi;
+ import io.mosip.registration_client.api_services.UserDetailsApi;
+ import io.mosip.registration.clientmanager.util.BioSdkProviderFactory;
++import io.mosip.registration.liveness.android.LivenessServiceHolder;
+ 
+ @Module
+ public class HostApiModule {
+@@ -286,5 +288,18 @@ public class HostApiModule {
+     SecureScreenApi getSecureScreenApi() {
+         return new SecureScreenApi();
+     }
++
++    @Provides
++    @Singleton
++    LivenessServiceHolder provideLivenessServiceHolder(GlobalParamRepository globalParamRepository,
++                                                       AuditManagerService auditManagerService) {
++        return new LivenessServiceHolder(appContext, globalParamRepository, auditManagerService);
++    }
++
++    @Provides
++    @Singleton
++    LivenessApi getLivenessApi(LivenessServiceHolder livenessServiceHolder) {
++        return new LivenessApi(livenessServiceHolder);
++    }
+ }
+ 
+diff --git a/android/app/src/main/java/io/mosip/registration_client/MainActivity.java b/android/app/src/main/java/io/mosip/registration_client/MainActivity.java
+index 27a9833..62c0d44 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/MainActivity.java
++++ b/android/app/src/main/java/io/mosip/registration_client/MainActivity.java
+@@ -79,6 +79,7 @@ import io.mosip.registration_client.api_services.DocumentCategoryApi;
+ import io.mosip.registration_client.api_services.DocumentDetailsApi;
+ import io.mosip.registration_client.api_services.DynamicDetailsApi;
+ import io.mosip.registration_client.api_services.GlobalConfigSettingsApi;
++import io.mosip.registration_client.api_services.LivenessApi;
+ import io.mosip.registration_client.api_services.MachineDetailsApi;
+ import io.mosip.registration_client.api_services.PacketAuthenticationApi;
+ import io.mosip.registration_client.api_services.MasterDataSyncApi;
+@@ -205,6 +206,9 @@ public class MainActivity extends FlutterActivity {
+     @Inject
+     SecureScreenApi secureScreenApi;
+ 
++    @Inject
++    LivenessApi livenessApi;
++
+     private BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
+         @Override
+         public void onReceive(Context context, Intent intent) {
+@@ -420,6 +424,18 @@ public class MainActivity extends FlutterActivity {
+         GlobalConfigSettingsPigeon.GlobalConfigSettingsApi.setup(flutterEngine.getDartExecutor().getBinaryMessenger(), globalConfigSettingsApi);
+         SecureScreenPigeon.SecureScreenApi.setup(flutterEngine.getDartExecutor().getBinaryMessenger(), secureScreenApi);
+         secureScreenApi.setCallbackActivity(this);
++        livenessApi.setup(flutterEngine);
++        livenessApi.setCallbackActivity(this);
++        livenessApi.preload();
++    }
++
++    @Override
++    protected void onPause() {
++        super.onPause();
++        // A liveness session needs the camera in the foreground: leaving the screen cancels it.
++        if (livenessApi != null) {
++            livenessApi.onActivityPause();
++        }
+     }
+ 
+     @Override
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+new file mode 100644
+index 0000000..e2a7eeb
+--- /dev/null
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -0,0 +1,279 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++package io.mosip.registration_client.api_services;
++
++import android.Manifest;
++import android.content.pm.PackageManager;
++import android.os.Handler;
++import android.os.Looper;
++import android.util.Log;
++import android.util.Size;
++
++import androidx.annotation.NonNull;
++import androidx.camera.core.CameraSelector;
++import androidx.camera.view.PreviewView;
++import androidx.core.content.ContextCompat;
++
++import java.lang.ref.WeakReference;
++import java.util.Locale;
++import java.util.Map;
++import java.util.UUID;
++
++import javax.inject.Inject;
++import javax.inject.Singleton;
++
++import io.flutter.embedding.engine.FlutterEngine;
++import io.flutter.plugin.common.BinaryMessenger;
++import io.flutter.plugin.common.EventChannel;
++import io.mosip.registration.liveness.android.BestFrameEncoder;
++import io.mosip.registration.liveness.android.LivenessMaps;
++import io.mosip.registration.liveness.android.LivenessServiceHolder;
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.LivenessEvent;
++import io.mosip.registration.liveness.api.LivenessListener;
++import io.mosip.registration.liveness.api.LivenessPolicy;
++import io.mosip.registration.liveness.api.LivenessResult;
++import io.mosip.registration.liveness.api.LivenessSession;
++import io.mosip.registration.liveness.api.WorkflowType;
++import io.mosip.registration.liveness.device.android.CameraXFrameSource;
++import io.mosip.registration_client.BuildConfig;
++import io.mosip.registration_client.MainActivity;
++import io.mosip.registration_client.model.LivenessPigeon;
++
++/**
++ * Face liveness for Dart: the Pigeon {@code LivenessApi} plus the event channel
++ * {@value #EVENT_CHANNEL}, which carries each session's events and its result (see {@link LivenessMaps}).
++ *
++ * <p>One session at a time: starting a session cancels the running one (whose remaining callbacks are dropped),
++ * and the Activity pausing cancels it. Session state is touched on the main thread only. The best frame is
++ * sent to Dart as a JPEG on PASSED and is never logged.</p>
++ */
++@Singleton
++public class LivenessApi implements LivenessPigeon.LivenessApi {
++
++    private static final String TAG = "LivenessApi";
++    public static final String EVENT_CHANNEL = "io.mosip.registration_client/liveness/events";
++    public static final String PREVIEW_VIEW_TYPE = "io.mosip.registration_client/liveness_preview";
++    private static final Size ANALYSIS_RESOLUTION = new Size(640, 480);
++
++    private final LivenessServiceHolder holder;
++    private final Handler main = new Handler(Looper.getMainLooper());
++    private WeakReference<MainActivity> activityRef = new WeakReference<>(null);
++
++    // Main thread only.
++    private EventChannel.EventSink events;
++    private LivenessSession session;
++    private CameraXFrameSource source;
++    private int generation;
++
++    @Inject
++    public LivenessApi(LivenessServiceHolder holder) {
++        this.holder = holder;
++    }
++
++    public void setCallbackActivity(MainActivity activity) {
++        this.activityRef = new WeakReference<>(activity);
++    }
++
++    /** Registers the Pigeon API, the event channel and the camera preview view factory. */
++    public void setup(@NonNull FlutterEngine flutterEngine) {
++        BinaryMessenger messenger = flutterEngine.getDartExecutor().getBinaryMessenger();
++        LivenessPigeon.LivenessApi.setup(messenger, this);
++        new EventChannel(messenger, EVENT_CHANNEL).setStreamHandler(new EventChannel.StreamHandler() {
++            @Override
++            public void onListen(Object arguments, EventChannel.EventSink sink) {
++                events = sink;
++            }
++
++            @Override
++            public void onCancel(Object arguments) {
++                events = null;
++            }
++        });
++        flutterEngine.getPlatformViewsController().getRegistry()
++                .registerViewFactory(PREVIEW_VIEW_TYPE, new LivenessPreviewFactory(holder));
++    }
++
++    /** Loads the models in the background so the first session does not wait for them. */
++    public void preload() {
++        holder.preload();
++    }
++
++    public void onActivityPause() {
++        if (session != null) {
++            Log.i(TAG, "activity paused: cancelling the liveness session");
++            session.cancel();
++        }
++    }
++
++    @NonNull
++    @Override
++    public Boolean isEnabled(@NonNull String workflow) {
++        return holder.policy(workflow(workflow)).enabled;
++    }
++
++    @NonNull
++    @Override
++    public LivenessPigeon.LivenessPolicyInfo policy(@NonNull String workflow) {
++        LivenessPolicy p = holder.policy(workflow(workflow));
++        return new LivenessPigeon.LivenessPolicyInfo.Builder()
++                .setEnabled(p.enabled)
++                .setMaxRetries((long) p.maxRetries)
++                .setMinChallenges((long) p.minChallenges)
++                .setChallengeTimeoutMs(p.challengeTimeoutMs)
++                .build();
++    }
++
++    @Override
++    public void startSession(@NonNull String workflow, @NonNull String camera, @NonNull Boolean useFake,
++                             @NonNull LivenessPigeon.Result<String> result) {
++        int gen = ++generation; // callbacks of the session being replaced are dropped from here on
++        stopCurrent();
++        MainActivity activity = activityRef.get();
++        if (activity == null) {
++            result.error(new IllegalStateException("Activity not set"));
++            return;
++        }
++        WorkflowType wf;
++        try {
++            wf = workflow(workflow);
++        } catch (IllegalArgumentException e) {
++            result.error(e);
++            return;
++        }
++        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
++            // Dart asks for the permission first; this covers a refusal or a revoked permission.
++            String id = UUID.randomUUID().toString();
++            Log.w(TAG, "camera permission not granted: session " + id + " failed");
++            result.success(id);
++            send(gen, LivenessMaps.failed(ErrorCode.CAMERA_UNAVAILABLE, id, holder.modelVersion()));
++            return;
++        }
++        LivenessSession s;
++        try {
++            s = holder.service(useFake).newSession(wf);
++        } catch (RuntimeException e) {
++            result.error(e);
++            return;
++        }
++        if (s == null) {
++            result.success(""); // liveness disabled for this workflow: the caller keeps its legacy flow
++            return;
++        }
++        PreviewView preview = holder.preview();
++        CameraSelector selector = "back".equalsIgnoreCase(camera)
++                ? CameraSelector.DEFAULT_BACK_CAMERA : CameraSelector.DEFAULT_FRONT_CAMERA;
++        CameraXFrameSource src = new CameraXFrameSource(activity, activity, selector, ANALYSIS_RESOLUTION, 1,
++                preview == null ? null : preview.getSurfaceProvider());
++        src.setDebugTiming(BuildConfig.DEBUG);
++        session = s;
++        source = src;
++        holder.analyzerTimes().reset();
++        Log.i(TAG, "session " + s.sessionId() + " started: " + wf + ", " + (useFake ? "fake" : "real") + " engine, "
++                + ("back".equalsIgnoreCase(camera) ? "back" : "front") + " camera, preview " + (preview != null));
++        s.start(src, new LivenessListener() {
++            @Override
++            public void onEvent(LivenessEvent event) {
++                Map<String, Object> m = LivenessMaps.event(event);
++                if (BuildConfig.DEBUG) Log.d(TAG, "event " + event.type + describe(event));
++                send(gen, m);
++            }
++
++            @Override
++            public void onComplete(LivenessResult r) {
++                complete(gen, r, src);
++            }
++        });
++        result.success(s.sessionId());
++    }
++
++    @Override
++    public void retry() {
++        if (session != null) session.retry();
++    }
++
++    @Override
++    public void cancel() {
++        if (session != null) session.cancel();
++    }
++
++    @NonNull
++    @Override
++    public String modelVersion() {
++        return holder.modelVersion();
++    }
++
++    @Override
++    public void setConfigOverride(@NonNull String key, @NonNull String value) {
++        if (!BuildConfig.DEBUG) {
++            Log.w(TAG, "config overrides are for debug builds only; ignored " + key);
++            return;
++        }
++        holder.setOverride(key, value);
++        Log.i(TAG, "config overrides now " + holder.overrides());
++    }
++
++    private void complete(int gen, LivenessResult r, CameraXFrameSource src) {
++        src.stop(); // the session stops it too; stop() is idempotent
++        if (BuildConfig.DEBUG) {
++            Log.i(TAG, "complete " + LivenessMaps.describe(r));
++            Log.i(TAG, "analyzer " + holder.analyzerTimes().summary());
++        } else {
++            Log.i(TAG, "complete " + r.decision + " " + r.failureCode + " in " + r.durationMs + " ms");
++        }
++        holder.background().execute(() -> {
++            byte[] jpeg = null;
++            if (r.passed() && r.bestFrame != null) {
++                try {
++                    jpeg = BestFrameEncoder.jpeg(r.bestFrame, BestFrameEncoder.QUALITY);
++                } catch (RuntimeException e) {
++                    Log.e(TAG, "best frame could not be encoded", e);
++                }
++            }
++            Map<String, Object> m = LivenessMaps.result(r, jpeg);
++            main.post(() -> {
++                if (gen != generation) return;
++                session = null;
++                source = null;
++                deliver(m);
++            });
++        });
++    }
++
++    private void send(int gen, Map<String, Object> m) {
++        main.post(() -> {
++            if (gen == generation) deliver(m);
++        });
++    }
++
++    private void deliver(Map<String, Object> m) {
++        if (events != null) events.success(m);
++    }
++
++    private void stopCurrent() {
++        LivenessSession s = session;
++        CameraXFrameSource src = source;
++        session = null;
++        source = null;
++        if (s != null) s.cancel();
++        if (src != null) src.stop();
++    }
++
++    private static WorkflowType workflow(String workflow) {
++        return WorkflowType.valueOf(workflow.trim().toUpperCase(Locale.ROOT));
++    }
++
++    private static String describe(LivenessEvent e) {
++        StringBuilder sb = new StringBuilder();
++        if (e.guidance != null) sb.append(' ').append(e.guidance);
++        if (e.challenge != null) sb.append(' ').append(e.challenge).append(' ').append(e.challengeIndex).append('/').append(e.challengeCount);
++        if (e.type == LivenessEvent.Type.CHALLENGE_PROGRESS) sb.append(String.format(Locale.ROOT, " %.2f", e.progress));
++        if (e.error != null) sb.append(' ').append(e.error).append(" retriesLeft=").append(e.retriesLeft);
++        return sb.toString();
++    }
++}
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessPreviewFactory.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessPreviewFactory.java
+new file mode 100644
+index 0000000..f5c4451
+--- /dev/null
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessPreviewFactory.java
+@@ -0,0 +1,56 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++package io.mosip.registration_client.api_services;
++
++import android.content.Context;
++import android.view.View;
++
++import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
++import androidx.camera.view.PreviewView;
++
++import io.flutter.plugin.common.StandardMessageCodec;
++import io.flutter.plugin.platform.PlatformView;
++import io.flutter.plugin.platform.PlatformViewFactory;
++import io.mosip.registration.liveness.android.LivenessServiceHolder;
++
++/**
++ * The camera preview for Dart's {@code AndroidView(viewType: "io.mosip.registration_client/liveness_preview")}.
++ * The holder keeps the current view; the next liveness session binds its preview to it.
++ * PreviewView mirrors the front camera on screen; the analysed frames are never mirrored.
++ */
++public final class LivenessPreviewFactory extends PlatformViewFactory {
++
++    private final LivenessServiceHolder holder;
++
++    public LivenessPreviewFactory(LivenessServiceHolder holder) {
++        super(StandardMessageCodec.INSTANCE);
++        this.holder = holder;
++    }
++
++    @NonNull
++    @Override
++    public PlatformView create(@Nullable Context context, int viewId, @Nullable Object args) {
++        PreviewView view = new PreviewView(context);
++        view.setScaleType(PreviewView.ScaleType.FILL_CENTER);
++        // A TextureView, so Flutter can compose the platform view with its own widgets.
++        view.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
++        holder.setPreview(view);
++        return new PlatformView() {
++            @Override
++            public View getView() {
++                return view;
++            }
++
++            @Override
++            public void dispose() {
++                holder.clearPreview(view);
++            }
++        };
++    }
++}
+diff --git a/android/liveness/.gitattributes b/android/liveness/.gitattributes
+new file mode 100644
+index 0000000..0b39f38
+--- /dev/null
++++ b/android/liveness/.gitattributes
+@@ -0,0 +1,4 @@
++# The signed model bundle must keep its exact bytes: the engine verifies manifest.sig over the
++# bytes of manifest.json, and each model against its SHA-256 (the same rules as in Mosip26).
++src/main/assets/liveness/models/** -text
++libs/*.jar binary
+diff --git a/android/liveness/build.gradle b/android/liveness/build.gradle
+new file mode 100644
+index 0000000..5e40a60
+--- /dev/null
++++ b/android/liveness/build.gradle
+@@ -0,0 +1,57 @@
++plugins {
++    id 'com.android.library'
++}
++
++// Face liveness for the registration client: the MOSIP liveness engine (libs/, synced from the
++// Mosip26 repository by android-integration/scripts/sync-engine.ps1), its signed model bundle
++// (src/main/assets/liveness/models/), the CameraX frame source and the Android adapters.
++android {
++    namespace 'io.mosip.registration.liveness.android'
++    lintOptions {
++        abortOnError false
++        ignoreWarnings true
++    }
++    compileSdk rootProject.ext.compileSdkVersion
++
++    defaultConfig {
++        minSdk rootProject.ext.minSdkVersion
++        targetSdk rootProject.ext.targetSdkVersion
++        consumerProguardFiles "consumer-rules.pro"
++    }
++
++    testOptions {
++        unitTests {
++            returnDefaultValues = true
++        }
++    }
++
++    packagingOptions {
++        // Each engine jar has its own git.properties (build info); merge them as the app does.
++        resources.merges.add("git.properties")
++        // The analyzer jar also carries the models as Java resources (desktop use). Android reads them
++        // from the assets; the app excludes liveness/models/** too, so they ship once.
++        resources.excludes.add("liveness/models/**")
++    }
++
++    compileOptions {
++        sourceCompatibility JavaVersion.VERSION_21
++        targetCompatibility JavaVersion.VERSION_21
++    }
++    buildToolsVersion rootProject.ext.buildToolsVersion
++}
++
++dependencies {
++    api fileTree(dir: 'libs', include: ['liveness-*.jar'])
++    implementation "com.microsoft.onnxruntime:onnxruntime-android:1.31.0"
++
++    api "androidx.camera:camera-core:1.3.4"
++    implementation "androidx.camera:camera-camera2:1.3.4"
++    implementation "androidx.camera:camera-lifecycle:1.3.4"
++    api "androidx.camera:camera-view:1.3.4"
++    implementation "androidx.core:core:1.12.0"
++
++    implementation project(':clientmanager')
++
++    testImplementation "junit:junit:${rootProject.ext.junitVersion}"
++    testImplementation "org.mockito:mockito-core:${rootProject.ext.mockitoCoreVersion}"
++}
+diff --git a/android/liveness/consumer-rules.pro b/android/liveness/consumer-rules.pro
+new file mode 100644
+index 0000000..686d49a
+--- /dev/null
++++ b/android/liveness/consumer-rules.pro
+@@ -0,0 +1,2 @@
++# ONNX Runtime finds its Java classes from native code by name.
++-keep class ai.onnxruntime.** { *; }
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+new file mode 100644
+index 0000000..156afab
+--- /dev/null
++++ b/android/liveness/engine-sync.txt
+@@ -0,0 +1,13 @@
++# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
++engine commit 33a24e2
++libs/liveness-api-1.2.0.2.jar f2d5ed4219ac2b8f699228978f0cd17d424a51a8cafb31b32868e70d2eec818c
++libs/liveness-core-1.2.0.2.jar b001c7b82d9751f2b1f07303f2d2247fe0070c8af8fb57ed4377bf4bfc49e99c
++libs/liveness-fake-1.2.0.2.jar 621f40df1d5ff7df4375a129598f861e168a46b05ba055fb600a02d49bc3461b
++libs/liveness-analyzer-1.2.0.2.jar f55aee9561542f9ea42fc2e7ff819c146b1076f8e268e9cf31ba778a4dc310c4
++assets/liveness/models/manifest.json 14c761555d23bfcc147cf772556bc22cdba16a515f3af484c95bf5b8778a4c13
++assets/liveness/models/manifest.sig c9fc221a1cb95632cdfa742b2496d50c2d8b94296794eed320f81311cb50d19a
++assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
++assets/liveness/models/face_mesh_v2.onnx 4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb
++assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
++assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
++src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java e868465c280dfaa66ee510f754a2578225308c53973e1f9ad7a911ec48940174
+diff --git a/android/liveness/src/main/AndroidManifest.xml b/android/liveness/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..624c31a
+--- /dev/null
++++ b/android/liveness/src/main/AndroidManifest.xml
+@@ -0,0 +1,3 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- The CAMERA permission is declared by the app, which asks for it before a liveness session. -->
++<manifest />
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
+new file mode 100644
+index 0000000..a1868f9
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
+@@ -0,0 +1,125 @@
++package io.mosip.registration.liveness.android;
++
++import android.util.Log;
++
++import java.util.Map;
++import java.util.concurrent.Executor;
++import java.util.concurrent.Executors;
++
++import io.mosip.registration.clientmanager.constant.AuditEvent;
++import io.mosip.registration.clientmanager.constant.Components;
++import io.mosip.registration.clientmanager.spi.AuditManagerService;
++import io.mosip.registration.liveness.api.AuditSink;
++import io.mosip.registration.liveness.api.WorkflowType;
++
++/**
++ * Writes the engine's audit records to the client's audit table through {@link AuditManagerService}.
++ *
++ * <p>Each {@link AuditSink.Event} has its own {@link AuditEvent} (REG-EVT-009..017). The workflow picks the
++ * module: RESIDENT is the registration, OPERATOR the operator's login and onboarding, SUPERVISOR the approval
++ * of packets in the packet list; records without a workflow (model loading at app start) go to HOME.
++ * The session id and the engine's details are appended to the event description as {@code key=value;...},
++ * cut to {@link #MAX_DESCRIPTION} characters (the server's audit description column).</p>
++ *
++ * <p>The engine only passes codes, scores, versions, timings and ids, never images. Records are written on a
++ * background thread; a failure is logged and never reaches the engine.</p>
++ */
++public final class AndroidAuditSink implements AuditSink {
++
++    private static final String TAG = "LivenessAudit";
++
++    /** log_desc in MOSIP's audit table is varchar(2048). */
++    public static final int MAX_DESCRIPTION = 2048;
++    static final String ELLIPSIS = "...";
++
++    private final AuditManagerService auditManager;
++    private final Executor executor;
++
++    public AndroidAuditSink(AuditManagerService auditManager) {
++        this(auditManager, Executors.newSingleThreadExecutor(r -> {
++            Thread t = new Thread(r, "liveness-audit");
++            t.setDaemon(true);
++            return t;
++        }));
++    }
++
++    AndroidAuditSink(AuditManagerService auditManager, Executor executor) {
++        if (auditManager == null || executor == null) throw new IllegalArgumentException("null argument");
++        this.auditManager = auditManager;
++        this.executor = executor;
++    }
++
++    @Override
++    public void record(Event event, WorkflowType workflow, String sessionId, Map<String, String> details) {
++        try {
++            AuditEvent auditEvent = auditEvent(event);
++            Components component = component(workflow);
++            String text = details(auditEvent, sessionId, details);
++            executor.execute(() -> write(auditEvent, component, text));
++        } catch (RuntimeException e) {
++            Log.w(TAG, "could not record " + event, e);
++        }
++    }
++
++    private void write(AuditEvent auditEvent, Components component, String text) {
++        try {
++            auditManager.audit(auditEvent, component, text);
++        } catch (RuntimeException e) {
++            Log.w(TAG, "could not write " + auditEvent.getName(), e);
++        }
++    }
++
++    static AuditEvent auditEvent(Event event) {
++        switch (event) {
++            case LIVENESS_STARTED: return AuditEvent.LIVENESS_STARTED;
++            case LIVENESS_PASSED: return AuditEvent.LIVENESS_PASSED;
++            case LIVENESS_ATTEMPT_FAILED: return AuditEvent.LIVENESS_ATTEMPT_FAILED;
++            case LIVENESS_FAILED_FINAL: return AuditEvent.LIVENESS_FAILED_FINAL;
++            case PAD_ATTACK_SUSPECTED: return AuditEvent.LIVENESS_PAD_ATTACK_SUSPECTED;
++            case DEVICE_ERROR: return AuditEvent.LIVENESS_DEVICE_ERROR;
++            case MODEL_LOADED: return AuditEvent.LIVENESS_MODEL_LOADED;
++            case MODEL_INTEGRITY_FAILED: return AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED;
++            case CONFIG_LOADED: return AuditEvent.LIVENESS_CONFIG_LOADED;
++            default: throw new IllegalArgumentException("unknown event " + event);
++        }
++    }
++
++    static Components component(WorkflowType workflow) {
++        if (workflow == null) return Components.HOME;
++        switch (workflow) {
++            case RESIDENT: return Components.REGISTRATION;
++            case OPERATOR: return Components.LOGIN;
++            case SUPERVISOR: return Components.REG_PACKET_LIST;
++            default: return Components.HOME;
++        }
++    }
++
++    /**
++     * {@code sessionId=...;key=value;...}, cut so that the stored description ("event description: details")
++     * stays within {@link #MAX_DESCRIPTION}. ';' and '=' inside values become ',' and ':' so the text stays parseable.
++     */
++    static String details(AuditEvent auditEvent, String sessionId, Map<String, String> details) {
++        StringBuilder sb = new StringBuilder();
++        if (sessionId != null) append(sb, "sessionId", sessionId);
++        if (details != null) {
++            for (Map.Entry<String, String> e : details.entrySet()) append(sb, e.getKey(), e.getValue());
++        }
++        // AuditManagerServiceImpl stores "<description>: <details>".
++        int max = MAX_DESCRIPTION - auditEvent.getDescription().length() - 2;
++        if (sb.length() > max) {
++            sb.setLength(Math.max(0, max - ELLIPSIS.length()));
++            sb.append(ELLIPSIS);
++        }
++        return sb.toString();
++    }
++
++    private static void append(StringBuilder sb, String key, String value) {
++        if (sb.length() > 0) sb.append(';');
++        sb.append(clean(key)).append('=').append(clean(value));
++    }
++
++    private static String clean(String s) {
++        if (s == null) return "";
++        return s.replace(';', ',').replace('=', ':').replace('\n', ' ').replace('\r', ' ');
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidConfigProvider.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidConfigProvider.java
+new file mode 100644
+index 0000000..91adc1a
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidConfigProvider.java
+@@ -0,0 +1,24 @@
++package io.mosip.registration.liveness.android;
++
++import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
++import io.mosip.registration.liveness.api.ConfigProvider;
++
++/**
++ * The engine's config from the client's synced global params ({@code mosip.registration.liveness.*}).
++ * A missing or empty value returns null, so the engine falls back to its bundled defaults.
++ */
++public final class AndroidConfigProvider implements ConfigProvider {
++
++    private final GlobalParamRepository globalParams;
++
++    public AndroidConfigProvider(GlobalParamRepository globalParams) {
++        if (globalParams == null) throw new IllegalArgumentException("globalParams is required");
++        this.globalParams = globalParams;
++    }
++
++    @Override
++    public String get(String key) {
++        String value = globalParams.getCachedStringGlobalParam(key);
++        return value == null || value.trim().isEmpty() ? null : value;
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AssetBundleSource.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AssetBundleSource.java
+new file mode 100644
+index 0000000..dc98d76
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AssetBundleSource.java
+@@ -0,0 +1,50 @@
++package io.mosip.registration.liveness.android;
++
++import android.content.Context;
++import android.content.res.AssetManager;
++
++import java.io.FileNotFoundException;
++import java.io.IOException;
++import java.io.InputStream;
++
++import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
++
++/**
++ * Reads the bundled, signed model bundle from the APK assets ({@code assets/liveness/models/}).
++ * The bundle is verified by the engine ({@code VerifiedBundle}) after reading; this class only reads,
++ * with the same per-file size cap as the other bundle sources.
++ */
++public final class AssetBundleSource implements BundleSource {
++
++    public static final String DEFAULT_PREFIX = "liveness/models/";
++
++    private final AssetManager assets;
++    private final String prefix;
++
++    public AssetBundleSource(Context context) {
++        this(context.getAssets(), DEFAULT_PREFIX);
++    }
++
++    public AssetBundleSource(AssetManager assets, String prefix) {
++        if (assets == null || prefix == null) throw new IllegalArgumentException("null argument");
++        this.assets = assets;
++        this.prefix = prefix;
++    }
++
++    @Override
++    public byte[] read(String name) throws IOException {
++        InputStream in;
++        try {
++            in = assets.open(prefix + name, AssetManager.ACCESS_STREAMING);
++        } catch (FileNotFoundException e) {
++            throw new FileNotFoundException("missing " + describe() + name);
++        }
++        if (in == null) throw new FileNotFoundException("missing " + describe() + name);
++        return Reader.readCapped(in, name, MAX_FILE_BYTES);
++    }
++
++    @Override
++    public String describe() {
++        return "assets:" + prefix;
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/BestFrameEncoder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/BestFrameEncoder.java
+new file mode 100644
+index 0000000..96dddad
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/BestFrameEncoder.java
+@@ -0,0 +1,34 @@
++package io.mosip.registration.liveness.android;
++
++import android.graphics.Bitmap;
++
++import java.io.ByteArrayOutputStream;
++
++import io.mosip.registration.liveness.api.Frame;
++
++/** Encodes the engine's best frame as a JPEG for the UI. In memory only; never written to disk or logged. */
++public final class BestFrameEncoder {
++
++    public static final int QUALITY = 90;
++
++    private BestFrameEncoder() { }
++
++    public static byte[] jpeg(Frame frame, int quality) {
++        if (frame == null) return null;
++        int width = frame.width();
++        int height = frame.height();
++        byte[] rgb = frame.rgb();
++        int[] argb = new int[width * height];
++        for (int i = 0, p = 0; i < argb.length; i++, p += 3) {
++            argb[i] = 0xFF000000 | ((rgb[p] & 0xFF) << 16) | ((rgb[p + 1] & 0xFF) << 8) | (rgb[p + 2] & 0xFF);
++        }
++        Bitmap bitmap = Bitmap.createBitmap(argb, width, height, Bitmap.Config.ARGB_8888);
++        try {
++            ByteArrayOutputStream out = new ByteArrayOutputStream(64 * 1024);
++            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
++            return out.toByteArray();
++        } finally {
++            bitmap.recycle();
++        }
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMaps.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMaps.java
+new file mode 100644
+index 0000000..07131e6
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMaps.java
+@@ -0,0 +1,93 @@
++package io.mosip.registration.liveness.android;
++
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++
++import io.mosip.registration.liveness.api.ChallengeType;
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.LivenessEvent;
++import io.mosip.registration.liveness.api.LivenessResult;
++
++/**
++ * The maps sent to Dart on the liveness event channel. Enums travel as their names, absent values as null.
++ *
++ * <pre>
++ * event:    {kind:"event", type, guidance, challenge, challengeIndex, challengeCount, timeoutMs, progress,
++ *            error, userMessage, attemptNumber, retriesLeft, recoverable}
++ * complete: {kind:"complete", decision, passPath, failureCode, userMessage, passiveScore, challengesIssued:[...],
++ *            attempts, durationMs, sessionId, modelVersion, bestFrameJpeg}
++ * </pre>
++ *
++ * <p>{@code bestFrameJpeg} is set only on PASSED. {@link #describe(LivenessResult)} is the log form of a result:
++ * it never contains the image.</p>
++ */
++public final class LivenessMaps {
++
++    public static final String KIND = "kind";
++    public static final String KIND_EVENT = "event";
++    public static final String KIND_COMPLETE = "complete";
++    public static final String BEST_FRAME_JPEG = "bestFrameJpeg";
++
++    private LivenessMaps() { }
++
++    public static Map<String, Object> event(LivenessEvent e) {
++        Map<String, Object> m = new HashMap<>();
++        m.put(KIND, KIND_EVENT);
++        m.put("type", name(e.type));
++        m.put("guidance", name(e.guidance));
++        m.put("challenge", name(e.challenge));
++        m.put("challengeIndex", e.challengeIndex);
++        m.put("challengeCount", e.challengeCount);
++        m.put("timeoutMs", e.timeoutMs);
++        m.put("progress", (double) e.progress);
++        m.put("error", name(e.error));
++        m.put("userMessage", e.error == null ? null : e.error.userMessage().name());
++        m.put("attemptNumber", e.attemptNumber);
++        m.put("retriesLeft", e.retriesLeft);
++        m.put("recoverable", e.recoverable);
++        return m;
++    }
++
++    /** @param bestFrameJpeg the encoded best frame; ignored unless the result PASSED */
++    public static Map<String, Object> result(LivenessResult r, byte[] bestFrameJpeg) {
++        Map<String, Object> m = new HashMap<>();
++        m.put(KIND, KIND_COMPLETE);
++        m.put("decision", name(r.decision));
++        m.put("passPath", name(r.passPath));
++        m.put("failureCode", name(r.failureCode));
++        m.put("userMessage", r.failureCode == null ? ErrorCode.UserMessage.NONE.name() : r.failureCode.userMessage().name());
++        m.put("passiveScore", (double) r.passiveScore);
++        List<String> challenges = new ArrayList<>();
++        for (ChallengeType c : r.challengesIssued == null ? Collections.<ChallengeType>emptyList() : r.challengesIssued) {
++            challenges.add(c.name());
++        }
++        m.put("challengesIssued", challenges);
++        m.put("attempts", r.attempts);
++        m.put("durationMs", r.durationMs);
++        m.put("sessionId", r.sessionId);
++        m.put("modelVersion", r.modelVersion);
++        m.put(BEST_FRAME_JPEG, r.decision == LivenessResult.Decision.PASSED ? bestFrameJpeg : null);
++        return m;
++    }
++
++    /** A completed session that never reached the engine, e.g. the camera permission was refused. */
++    public static Map<String, Object> failed(ErrorCode code, String sessionId, String modelVersion) {
++        return result(new LivenessResult(LivenessResult.Decision.FAILED, LivenessResult.PassPath.NONE, code, null,
++                Float.NaN, Collections.<ChallengeType>emptyList(), 0, 0L, sessionId, modelVersion), null);
++    }
++
++    /** One log line for a result, without the best frame. */
++    public static String describe(LivenessResult r) {
++        return String.format(Locale.ROOT, "decision=%s path=%s failure=%s score=%.4f challenges=%s attempts=%d durationMs=%d model=%s session=%s",
++                r.decision, r.passPath, r.failureCode, r.passiveScore, r.challengesIssued, r.attempts, r.durationMs,
++                r.modelVersion, r.sessionId);
++    }
++
++    private static String name(Enum<?> e) {
++        return e == null ? null : e.name();
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+new file mode 100644
+index 0000000..556bd79
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -0,0 +1,190 @@
++package io.mosip.registration.liveness.android;
++
++import android.content.Context;
++import android.os.SystemClock;
++import android.util.Log;
++
++import androidx.camera.view.PreviewView;
++
++import java.io.File;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.TreeMap;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++
++import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
++import io.mosip.registration.clientmanager.spi.AuditManagerService;
++import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.api.AuditSink;
++import io.mosip.registration.liveness.api.ConfigProvider;
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.LivenessEngineException;
++import io.mosip.registration.liveness.api.LivenessPolicy;
++import io.mosip.registration.liveness.api.LivenessService;
++import io.mosip.registration.liveness.api.WorkflowType;
++import io.mosip.registration.liveness.core.DefaultLivenessService;
++import io.mosip.registration.liveness.fake.FakeLivenessService;
++
++/**
++ * The app's single liveness engine (one instance, provided by Dagger).
++ *
++ * <ul>
++ *   <li>Real engine: the ONNX analyzer with the signed bundle from the assets, or a newer verified bundle installed
++ *       in {@code files/liveness-models}, behind {@link DefaultLivenessService}.</li>
++ *   <li>Fake engine: {@link FakeLivenessService}, scripted by {@code mosip.registration.liveness.fake.scenario}.</li>
++ *   <li>Config: the synced global params, under a map of overrides (debug screen only).</li>
++ *   <li>{@link #preload()} verifies the bundle and builds the ONNX sessions in the background at app start.</li>
++ * </ul>
++ */
++public final class LivenessServiceHolder {
++
++    private static final String TAG = "LivenessService";
++    public static final String MODEL_STORE_DIR = "liveness-models";
++
++    private final Context context;
++    private final AndroidAuditSink audit;
++    private final ConfigProvider baseConfig;
++    private final Map<String, String> overrides = new ConcurrentHashMap<>();
++    private final ConfigProvider config = this::configValue;
++    private final ExecutorService background = Executors.newSingleThreadExecutor(r -> {
++        Thread t = new Thread(r, "liveness-background");
++        t.setDaemon(true);
++        return t;
++    });
++
++    private final OnnxFaceAnalyzerFactory analyzers;
++    private final TimedAnalyzerFactory timedAnalyzers;
++    private final DefaultLivenessService real;
++    private final FakeLivenessService fake;
++
++    private volatile String modelVersion = "";
++    private volatile PreviewView preview;
++
++    public LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager) {
++        this.context = context.getApplicationContext();
++        this.audit = new AndroidAuditSink(auditManager);
++        this.baseConfig = new AndroidConfigProvider(globalParams);
++        this.analyzers = new OnnxFaceAnalyzerFactory(new AssetBundleSource(this.context),
++                new ModelStore(new File(this.context.getFilesDir(), MODEL_STORE_DIR)), TrustedKeys.builtIn(),
++                analyzerConfig(config));
++        this.timedAnalyzers = new TimedAnalyzerFactory(analyzers);
++        this.real = DefaultLivenessService.builder().config(config).analyzerFactory(timedAnalyzers).auditSink(audit).build();
++        this.fake = FakeLivenessService.builder(config).auditSink(audit).build();
++    }
++
++    /** Verifies the model bundle and builds the ONNX sessions on a background thread; logs the time taken. */
++    public void preload() {
++        background.execute(() -> {
++            long start = SystemClock.elapsedRealtime();
++            try {
++                analyzers.preload();
++                long ms = SystemClock.elapsedRealtime() - start;
++                modelVersion = analyzers.modelVersion();
++                String accelerator = String.valueOf(analyzers.activeAccelerator());
++                Log.i(TAG, "preload: bundle " + modelVersion + " verified and loaded in " + ms + " ms (" + accelerator + ")");
++                Map<String, String> d = new HashMap<>();
++                d.put("modelVersion", modelVersion);
++                d.put("loadMs", Long.toString(ms));
++                d.put("accelerator", accelerator);
++                audit.record(AuditSink.Event.MODEL_LOADED, null, null, d);
++            } catch (LivenessEngineException e) {
++                preloadFailed(e.code(), e, start);
++            } catch (RuntimeException | LinkageError e) {
++                preloadFailed(ErrorCode.ENGINE_ERROR, e, start);
++            }
++        });
++    }
++
++    private void preloadFailed(ErrorCode code, Throwable e, long start) {
++        Log.e(TAG, "preload failed after " + (SystemClock.elapsedRealtime() - start) + " ms: " + code, e);
++        Map<String, String> d = new HashMap<>();
++        d.put("errorCode", code.name());
++        d.put("phase", "preload");
++        audit.record(AuditSink.Event.MODEL_INTEGRITY_FAILED, null, null, d);
++    }
++
++    public LivenessService service(boolean useFake) {
++        return useFake ? fake : real;
++    }
++
++    public LivenessPolicy policy(WorkflowType workflow) {
++        return real.policy(workflow);
++    }
++
++    /** The loaded bundle version, or "" before the models are loaded. */
++    public String modelVersion() {
++        return modelVersion;
++    }
++
++    /** Per-stage analysis times of the session in progress. */
++    public TimedAnalyzerFactory analyzerTimes() {
++        return timedAnalyzers;
++    }
++
++    /** For short background work of the bridge (session start, best-frame encoding). */
++    public ExecutorService background() {
++        return background;
++    }
++
++    /** Sets (or, with a null or empty value, removes) a config override and reloads both engines' policies. */
++    public void setOverride(String key, String value) {
++        if (key == null || key.trim().isEmpty()) return;
++        if (value == null || value.trim().isEmpty()) {
++            overrides.remove(key.trim());
++        } else {
++            overrides.put(key.trim(), value.trim());
++        }
++        reloadConfig();
++    }
++
++    public void clearOverrides() {
++        overrides.clear();
++        reloadConfig();
++    }
++
++    public Map<String, String> overrides() {
++        return Collections.unmodifiableMap(new TreeMap<>(overrides));
++    }
++
++    /** Re-reads the policies (after a config sync or an override change). */
++    public void reloadConfig() {
++        real.reloadConfig(config);
++        fake.reloadConfig(config);
++    }
++
++    public void setPreview(PreviewView view) {
++        this.preview = view;
++    }
++
++    public void clearPreview(PreviewView view) {
++        if (preview == view) preview = null;
++    }
++
++    public PreviewView preview() {
++        return preview;
++    }
++
++    public Context context() {
++        return context;
++    }
++
++    private String configValue(String key) {
++        String v = overrides.get(key);
++        return v != null ? v : baseConfig.get(key);
++    }
++
++    private static AnalyzerConfig analyzerConfig(ConfigProvider config) {
++        try {
++            return AnalyzerConfig.fromConfig(config);
++        } catch (IllegalArgumentException e) {
++            Log.e(TAG, "invalid analyzer config, using the defaults: " + e.getMessage());
++            return AnalyzerConfig.defaults();
++        }
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java
+new file mode 100644
+index 0000000..b69c11d
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java
+@@ -0,0 +1,125 @@
++package io.mosip.registration.liveness.android;
++
++import java.util.Arrays;
++import java.util.Locale;
++
++import io.mosip.registration.liveness.analyzer.AnalyzerStats;
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzer;
++import io.mosip.registration.liveness.api.FaceAnalyzer;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameAnalysis;
++import io.mosip.registration.liveness.api.LivenessEngineException;
++import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
++
++/**
++ * Wraps the analyzer factory to collect per-stage analysis times for the session in progress (one at a time):
++ * {@link #reset()} when a session starts, {@link #summary()} when it ends. Timings only; frames are not kept.
++ */
++public final class TimedAnalyzerFactory implements FaceAnalyzerFactory {
++
++    static final String[] STAGES = {"total", "detect", "mesh", "pose", "quality", "pad", "cues"};
++
++    private final FaceAnalyzerFactory delegate;
++    private final long[][] samples = new long[STAGES.length][];
++    private final int[] counts = new int[STAGES.length];
++    private long firstNs;
++    private long lastNs;
++    private AnalyzerStats lastStats;
++
++    public TimedAnalyzerFactory(FaceAnalyzerFactory delegate) {
++        if (delegate == null) throw new IllegalArgumentException("delegate is required");
++        this.delegate = delegate;
++        reset();
++    }
++
++    @Override
++    public FaceAnalyzer create() throws LivenessEngineException {
++        return new Timed(delegate.create());
++    }
++
++    public synchronized void reset() {
++        for (int i = 0; i < STAGES.length; i++) {
++            samples[i] = new long[64];
++            counts[i] = 0;
++        }
++        firstNs = 0L;
++        lastNs = 0L;
++        lastStats = null;
++    }
++
++    /** Frames analysed since {@link #reset()}, their rate, and p50/p95 per stage in ms (stages that ran). */
++    public synchronized String summary() {
++        int frames = counts[0];
++        double seconds = frames > 1 ? (lastNs - firstNs) / 1e9 : 0.0;
++        StringBuilder sb = new StringBuilder(String.format(Locale.ROOT, "analysed %d frames in %.1f s (%.1f fps)",
++                frames, seconds, seconds > 0 ? (frames - 1) / seconds : 0.0));
++        for (int i = 0; i < STAGES.length; i++) {
++            if (counts[i] == 0) continue;
++            long[] sorted = Arrays.copyOf(samples[i], counts[i]);
++            Arrays.sort(sorted);
++            sb.append(String.format(Locale.ROOT, "; %s p50 %.1f p95 %.1f ms (n=%d)",
++                    STAGES[i], percentile(sorted, 0.50) / 1e6, percentile(sorted, 0.95) / 1e6, counts[i]));
++        }
++        AnalyzerStats s = lastStats;
++        if (s != null) {
++            sb.append(String.format(Locale.ROOT, "; faces none %d one %d multi %d, pose-gated %d",
++                    s.framesNoFace(), s.framesOneFace(), s.framesMultiFace(), s.framesPoseGated()));
++        }
++        return sb.toString();
++    }
++
++    /** Nearest-rank percentile of a sorted, non-empty array. */
++    static long percentile(long[] sorted, double p) {
++        int rank = (int) Math.ceil(p * sorted.length);
++        return sorted[Math.max(0, Math.min(sorted.length - 1, rank - 1))];
++    }
++
++    private synchronized void record(long totalNs, AnalyzerStats stats) {
++        long now = System.nanoTime();
++        if (counts[0] == 0) firstNs = now;
++        lastNs = now;
++        add(0, totalNs);
++        if (stats != null) {
++            add(1, stats.lastDetectNs());
++            add(2, stats.lastMeshNs());
++            add(3, stats.lastPoseNs());
++            add(4, stats.lastQualityNs());
++            add(5, stats.lastPadNs());
++            add(6, stats.lastCuesNs());
++            lastStats = stats;
++        }
++    }
++
++    private void add(int stage, long ns) {
++        if (ns <= 0) return; // the stage did not run on this frame
++        if (counts[stage] == samples[stage].length) samples[stage] = Arrays.copyOf(samples[stage], counts[stage] * 2);
++        samples[stage][counts[stage]++] = ns;
++    }
++
++    private final class Timed implements FaceAnalyzer {
++        private final FaceAnalyzer analyzer;
++
++        Timed(FaceAnalyzer analyzer) {
++            this.analyzer = analyzer;
++        }
++
++        @Override
++        public FrameAnalysis analyze(Frame frame) throws LivenessEngineException {
++            long start = System.nanoTime();
++            FrameAnalysis result = analyzer.analyze(frame);
++            long total = System.nanoTime() - start;
++            record(total, analyzer instanceof OnnxFaceAnalyzer ? ((OnnxFaceAnalyzer) analyzer).stats() : null);
++            return result;
++        }
++
++        @Override
++        public String modelVersion() {
++            return analyzer.modelVersion();
++        }
++
++        @Override
++        public void close() {
++            analyzer.close();
++        }
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
+new file mode 100644
+index 0000000..df7680d
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
+@@ -0,0 +1,125 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertTrue;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.Mockito.doThrow;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++
++import org.junit.Test;
++
++import java.util.EnumSet;
++import java.util.HashSet;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.Set;
++
++import io.mosip.registration.clientmanager.constant.AuditEvent;
++import io.mosip.registration.clientmanager.constant.Components;
++import io.mosip.registration.clientmanager.spi.AuditManagerService;
++import io.mosip.registration.liveness.api.AuditSink;
++import io.mosip.registration.liveness.api.WorkflowType;
++
++public class AndroidAuditSinkTest {
++
++    private final AuditManagerService audit = mock(AuditManagerService.class);
++    private final AndroidAuditSink sink = new AndroidAuditSink(audit, Runnable::run);
++
++    @Test
++    public void everyEngineEventHasItsOwnAuditEventInTheFreeBlock() {
++        Set<AuditEvent> mapped = new HashSet<>();
++        Set<String> ids = new HashSet<>();
++        for (AuditSink.Event e : AuditSink.Event.values()) {
++            AuditEvent a = AndroidAuditSink.auditEvent(e);
++            mapped.add(a);
++            ids.add(a.getId());
++            assertTrue(a.getName(), a.getName().startsWith("LIVENESS_"));
++            assertTrue(a.getName(), a.getName().endsWith(e.name().replace("LIVENESS_", "")));
++        }
++        assertEquals(AuditSink.Event.values().length, mapped.size());
++        Set<String> expected = new HashSet<>();
++        for (int i = 9; i <= 17; i++) expected.add(String.format("REG-EVT-%03d", i));
++        assertEquals(expected, ids);
++    }
++
++    @Test
++    public void auditIdsAreNotUsedByOtherEvents() {
++        Set<AuditEvent> liveness = EnumSet.noneOf(AuditEvent.class);
++        for (AuditSink.Event e : AuditSink.Event.values()) liveness.add(AndroidAuditSink.auditEvent(e));
++        for (AuditEvent a : AuditEvent.values()) {
++            if (liveness.contains(a)) continue;
++            for (AuditEvent l : liveness) assertTrue(a.name() + " reuses " + l.getId(), !a.getId().equals(l.getId()));
++        }
++    }
++
++    @Test
++    public void workflowPicksTheModule() {
++        assertEquals(Components.REGISTRATION, AndroidAuditSink.component(WorkflowType.RESIDENT));
++        assertEquals(Components.LOGIN, AndroidAuditSink.component(WorkflowType.OPERATOR));
++        assertEquals(Components.REG_PACKET_LIST, AndroidAuditSink.component(WorkflowType.SUPERVISOR));
++        assertEquals(Components.HOME, AndroidAuditSink.component(null));
++    }
++
++    @Test
++    public void detailsAreKeyValuePairsAfterTheSessionId() {
++        Map<String, String> d = new LinkedHashMap<>();
++        d.put("errorCode", "PAD_FAILURE");
++        d.put("passiveScore", "0.21");
++        sink.record(AuditSink.Event.LIVENESS_ATTEMPT_FAILED, WorkflowType.RESIDENT, "s-1", d);
++        verify(audit).audit(AuditEvent.LIVENESS_ATTEMPT_FAILED, Components.REGISTRATION,
++                "sessionId=s-1;errorCode=PAD_FAILURE;passiveScore=0.21");
++    }
++
++    @Test
++    public void separatorsInsideValuesAreReplaced() {
++        Map<String, String> d = new LinkedHashMap<>();
++        d.put("challenges", "BLINK;SMILE");
++        d.put("note", "a=b\nc");
++        assertEquals("challenges=BLINK,SMILE;note=a:b c",
++                AndroidAuditSink.details(AuditEvent.LIVENESS_PASSED, null, d));
++    }
++
++    @Test
++    public void longDetailsAreCutToTheColumn() {
++        Map<String, String> d = new LinkedHashMap<>();
++        StringBuilder big = new StringBuilder();
++        for (int i = 0; i < 3000; i++) big.append('x');
++        d.put("big", big.toString());
++        String text = AndroidAuditSink.details(AuditEvent.LIVENESS_STARTED, "s-1", d);
++        String stored = AuditEvent.LIVENESS_STARTED.getDescription() + ": " + text;
++        assertEquals(AndroidAuditSink.MAX_DESCRIPTION, stored.length());
++        assertTrue(text.endsWith(AndroidAuditSink.ELLIPSIS));
++        assertTrue(text.startsWith("sessionId=s-1;big=xxx"));
++    }
++
++    @Test
++    public void shortDetailsAreNotCut() {
++        Map<String, String> d = new LinkedHashMap<>();
++        d.put("modelVersion", "pad-2026.10.1");
++        assertEquals("modelVersion=pad-2026.10.1", AndroidAuditSink.details(AuditEvent.LIVENESS_MODEL_LOADED, null, d));
++        assertEquals("", AndroidAuditSink.details(AuditEvent.LIVENESS_MODEL_LOADED, null, null));
++    }
++
++    @Test
++    public void appStartRecordsGoToHome() {
++        sink.record(AuditSink.Event.MODEL_INTEGRITY_FAILED, null, null, null);
++        verify(audit).audit(AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED, Components.HOME, "");
++    }
++
++    @Test
++    public void auditFailuresNeverReachTheEngine() {
++        doThrow(new IllegalStateException("db closed")).when(audit).audit(any(AuditEvent.class), any(Components.class), anyString());
++        sink.record(AuditSink.Event.LIVENESS_PASSED, WorkflowType.OPERATOR, "s-1", null);
++        verify(audit).audit(AuditEvent.LIVENESS_PASSED, Components.LOGIN, "sessionId=s-1");
++    }
++
++    @Test
++    public void executorFailuresNeverReachTheEngine() {
++        AndroidAuditSink rejecting = new AndroidAuditSink(audit, r -> {
++            throw new java.util.concurrent.RejectedExecutionException("shut down");
++        });
++        rejecting.record(AuditSink.Event.CONFIG_LOADED, WorkflowType.RESIDENT, null, null);
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidConfigProviderTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidConfigProviderTest.java
+new file mode 100644
+index 0000000..1ca5e4e
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidConfigProviderTest.java
+@@ -0,0 +1,42 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertNull;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++import org.junit.Test;
++
++import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
++
++public class AndroidConfigProviderTest {
++
++    private static final String KEY = "mosip.registration.liveness.face.resident.passiveThreshold";
++
++    private final GlobalParamRepository params = mock(GlobalParamRepository.class);
++    private final AndroidConfigProvider config = new AndroidConfigProvider(params);
++
++    @Test
++    public void returnsTheCachedValue() {
++        when(params.getCachedStringGlobalParam(KEY)).thenReturn("0.9");
++        assertEquals("0.9", config.get(KEY));
++    }
++
++    @Test
++    public void missingIsNull() {
++        assertNull(config.get(KEY));
++    }
++
++    @Test
++    public void emptyOrBlankIsNull() {
++        when(params.getCachedStringGlobalParam(KEY)).thenReturn("");
++        assertNull(config.get(KEY));
++        when(params.getCachedStringGlobalParam(KEY)).thenReturn("   ");
++        assertNull(config.get(KEY));
++    }
++
++    @Test(expected = IllegalArgumentException.class)
++    public void requiresTheRepository() {
++        new AndroidConfigProvider(null);
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/AssetBundleSourceTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AssetBundleSourceTest.java
+new file mode 100644
+index 0000000..1403e5a
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AssetBundleSourceTest.java
+@@ -0,0 +1,91 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertArrayEquals;
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
++import static org.mockito.ArgumentMatchers.anyInt;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++import android.content.res.AssetManager;
++
++import org.junit.Test;
++
++import java.io.ByteArrayInputStream;
++import java.io.FileNotFoundException;
++import java.io.IOException;
++import java.io.InputStream;
++
++public class AssetBundleSourceTest {
++
++    private final AssetManager assets = mock(AssetManager.class);
++
++    @Test
++    public void readsFromTheModelsFolder() throws IOException {
++        byte[] content = {1, 2, 3, 4, 5};
++        when(assets.open("liveness/models/manifest.json", AssetManager.ACCESS_STREAMING))
++                .thenReturn(new ByteArrayInputStream(content));
++        AssetBundleSource source = new AssetBundleSource(assets, AssetBundleSource.DEFAULT_PREFIX);
++        assertArrayEquals(content, source.read("manifest.json"));
++    }
++
++    @Test
++    public void closesTheStream() throws IOException {
++        boolean[] closed = {false};
++        InputStream in = new ByteArrayInputStream(new byte[]{9}) {
++            @Override
++            public void close() throws IOException {
++                closed[0] = true;
++                super.close();
++            }
++        };
++        when(assets.open(anyString(), anyInt())).thenReturn(in);
++        new AssetBundleSource(assets, "p/").read("x");
++        assertTrue(closed[0]);
++    }
++
++    @Test
++    public void missingFileNamesTheAsset() throws IOException {
++        when(assets.open(anyString(), anyInt())).thenThrow(new FileNotFoundException("liveness/models/yunet.onnx"));
++        try {
++            new AssetBundleSource(assets, AssetBundleSource.DEFAULT_PREFIX).read("yunet.onnx");
++            fail("expected FileNotFoundException");
++        } catch (FileNotFoundException e) {
++            assertEquals("missing assets:liveness/models/yunet.onnx", e.getMessage());
++        }
++    }
++
++    @Test
++    public void readErrorsPropagate() throws IOException {
++        InputStream broken = new InputStream() {
++            @Override
++            public int read() throws IOException {
++                throw new IOException("truncated asset");
++            }
++
++            @Override
++            public int read(byte[] b) throws IOException {
++                throw new IOException("truncated asset");
++            }
++        };
++        when(assets.open(anyString(), anyInt())).thenReturn(broken);
++        try {
++            new AssetBundleSource(assets, "p/").read("x");
++            fail("expected IOException");
++        } catch (IOException e) {
++            assertEquals("truncated asset", e.getMessage());
++        }
++    }
++
++    @Test
++    public void describeNamesThePrefix() {
++        assertEquals("assets:liveness/models/", new AssetBundleSource(assets, AssetBundleSource.DEFAULT_PREFIX).describe());
++    }
++
++    @Test(expected = IllegalArgumentException.class)
++    public void requiresAssets() {
++        new AssetBundleSource(null, "p/");
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMapsTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMapsTest.java
+new file mode 100644
+index 0000000..2ee78ef
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMapsTest.java
+@@ -0,0 +1,143 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertArrayEquals;
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertTrue;
++
++import org.junit.Test;
++
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++
++import io.mosip.registration.liveness.api.ChallengeType;
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.LivenessEvent;
++import io.mosip.registration.liveness.api.LivenessResult;
++
++public class LivenessMapsTest {
++
++    private static final List<String> EVENT_KEYS = Arrays.asList("kind", "type", "guidance", "challenge",
++            "challengeIndex", "challengeCount", "timeoutMs", "progress", "error", "userMessage", "attemptNumber",
++            "retriesLeft", "recoverable");
++    private static final List<String> RESULT_KEYS = Arrays.asList("kind", "decision", "passPath", "failureCode",
++            "userMessage", "passiveScore", "challengesIssued", "attempts", "durationMs", "sessionId", "modelVersion",
++            "bestFrameJpeg");
++
++    @Test
++    public void eventHasEveryKeyAndNamesForEnums() {
++        Map<String, Object> m = LivenessMaps.event(LivenessEvent.of(LivenessEvent.Type.STARTED, 1));
++        assertEquals(new HashSet<>(EVENT_KEYS), m.keySet());
++        assertEquals("event", m.get("kind"));
++        assertEquals("STARTED", m.get("type"));
++        assertNull(m.get("guidance"));
++        assertNull(m.get("challenge"));
++        assertNull(m.get("error"));
++        assertNull(m.get("userMessage"));
++        assertEquals(1, m.get("attemptNumber"));
++        assertEquals(Boolean.TRUE, m.get("recoverable"));
++    }
++
++    @Test
++    public void guidanceEvent() {
++        Map<String, Object> m = LivenessMaps.event(LivenessEvent.guidance(LivenessEvent.Guidance.MOVE_CLOSER, 2));
++        assertEquals("GUIDANCE", m.get("type"));
++        assertEquals("MOVE_CLOSER", m.get("guidance"));
++        assertEquals(2, m.get("attemptNumber"));
++    }
++
++    @Test
++    public void challengePromptAndProgress() {
++        Map<String, Object> prompt = LivenessMaps.event(LivenessEvent.prompt(ChallengeType.TURN_LEFT, 1, 2, 6000L, 1));
++        assertEquals("CHALLENGE_PROMPT", prompt.get("type"));
++        assertEquals("TURN_LEFT", prompt.get("challenge"));
++        assertEquals(1, prompt.get("challengeIndex"));
++        assertEquals(2, prompt.get("challengeCount"));
++        assertEquals(6000L, prompt.get("timeoutMs"));
++
++        Map<String, Object> progress = LivenessMaps.event(LivenessEvent.progress(ChallengeType.BLINK, 0, 2, 0.5f, 1));
++        assertEquals("CHALLENGE_PROGRESS", progress.get("type"));
++        assertEquals(0.5, (Double) progress.get("progress"), 1e-9);
++    }
++
++    @Test
++    public void failureEventCarriesTheUserMessage() {
++        Map<String, Object> m = LivenessMaps.event(
++                LivenessEvent.failure(LivenessEvent.Type.ATTEMPT_FAILED, ErrorCode.PAD_FAILURE, 1, 2, true));
++        assertEquals("ATTEMPT_FAILED", m.get("type"));
++        assertEquals("PAD_FAILURE", m.get("error"));
++        assertEquals("VERIFICATION_NOT_COMPLETED", m.get("userMessage"));
++        assertEquals(2, m.get("retriesLeft"));
++
++        Map<String, Object> device = LivenessMaps.event(
++                LivenessEvent.failure(LivenessEvent.Type.DEVICE_ERROR, ErrorCode.CAMERA_UNAVAILABLE, 1, 0, false));
++        assertEquals("DEVICE_PROBLEM", device.get("userMessage"));
++        assertEquals(Boolean.FALSE, device.get("recoverable"));
++    }
++
++    @Test
++    public void passedResultKeepsTheBestFrame() {
++        byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, 1, 2};
++        LivenessResult r = new LivenessResult(LivenessResult.Decision.PASSED, LivenessResult.PassPath.ACTIVE_CHALLENGE,
++                null, null, 0.62f, Arrays.asList(ChallengeType.BLINK, ChallengeType.TURN_RIGHT), 1, 4200L, "s-1", "pad-2026.10.1");
++        Map<String, Object> m = LivenessMaps.result(r, jpeg);
++        assertEquals(new HashSet<>(RESULT_KEYS), m.keySet());
++        assertEquals("complete", m.get("kind"));
++        assertEquals("PASSED", m.get("decision"));
++        assertEquals("ACTIVE_CHALLENGE", m.get("passPath"));
++        assertNull(m.get("failureCode"));
++        assertEquals("NONE", m.get("userMessage"));
++        assertEquals(0.62, (Double) m.get("passiveScore"), 1e-6);
++        assertEquals(Arrays.asList("BLINK", "TURN_RIGHT"), m.get("challengesIssued"));
++        assertEquals(1, m.get("attempts"));
++        assertEquals(4200L, m.get("durationMs"));
++        assertEquals("s-1", m.get("sessionId"));
++        assertEquals("pad-2026.10.1", m.get("modelVersion"));
++        assertArrayEquals(jpeg, (byte[]) m.get("bestFrameJpeg"));
++    }
++
++    @Test
++    public void bestFrameOnlyOnPassed() {
++        LivenessResult r = new LivenessResult(LivenessResult.Decision.FAILED, LivenessResult.PassPath.NONE,
++                ErrorCode.MAX_RETRIES_EXCEEDED, null, 0.2f, Collections.<ChallengeType>emptyList(), 4, 30000L, "s-2", "v");
++        Map<String, Object> m = LivenessMaps.result(r, new byte[]{1});
++        assertNull(m.get("bestFrameJpeg"));
++        assertEquals("MAX_RETRIES_EXCEEDED", m.get("failureCode"));
++        assertEquals("MAX_ATTEMPTS_REACHED", m.get("userMessage"));
++    }
++
++    @Test
++    public void nullChallengeListBecomesEmpty() {
++        LivenessResult r = new LivenessResult(LivenessResult.Decision.CANCELLED, LivenessResult.PassPath.NONE,
++                ErrorCode.CANCELLED, null, Float.NaN, null, 1, 10L, "s-3", "v");
++        Map<String, Object> m = LivenessMaps.result(r, null);
++        assertEquals(Collections.emptyList(), m.get("challengesIssued"));
++        assertEquals("NONE", m.get("userMessage"));
++        assertTrue(Double.isNaN((Double) m.get("passiveScore")));
++    }
++
++    @Test
++    public void syntheticFailure() {
++        Map<String, Object> m = LivenessMaps.failed(ErrorCode.CAMERA_UNAVAILABLE, "s-4", "");
++        assertEquals("FAILED", m.get("decision"));
++        assertEquals("NONE", m.get("passPath"));
++        assertEquals("CAMERA_UNAVAILABLE", m.get("failureCode"));
++        assertEquals("DEVICE_PROBLEM", m.get("userMessage"));
++        assertEquals("s-4", m.get("sessionId"));
++        assertNull(m.get("bestFrameJpeg"));
++    }
++
++    @Test
++    public void describeNeverContainsTheImage() {
++        LivenessResult r = new LivenessResult(LivenessResult.Decision.PASSED, LivenessResult.PassPath.PASSIVE_ONLY,
++                null, null, 0.99f, Collections.<ChallengeType>emptyList(), 1, 2100L, "s-5", "v");
++        String s = LivenessMaps.describe(r);
++        assertTrue(s.contains("decision=PASSED"));
++        assertTrue(s.contains("session=s-5"));
++        assertFalse(s.toLowerCase().contains("frame"));
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/TimedAnalyzerFactoryTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/TimedAnalyzerFactoryTest.java
+new file mode 100644
+index 0000000..8486a9e
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/TimedAnalyzerFactoryTest.java
+@@ -0,0 +1,52 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertTrue;
++
++import org.junit.Test;
++
++import io.mosip.registration.liveness.api.FaceAnalyzer;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameAnalysis;
++
++public class TimedAnalyzerFactoryTest {
++
++    @Test
++    public void nearestRankPercentile() {
++        long[] sorted = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
++        assertEquals(5, TimedAnalyzerFactory.percentile(sorted, 0.50));
++        assertEquals(10, TimedAnalyzerFactory.percentile(sorted, 0.95));
++        assertEquals(7, TimedAnalyzerFactory.percentile(new long[]{7}, 0.95));
++    }
++
++    @Test
++    public void countsAnalysedFramesUntilReset() throws Exception {
++        int[] closed = {0};
++        TimedAnalyzerFactory timed = new TimedAnalyzerFactory(() -> new FaceAnalyzer() {
++            @Override
++            public FrameAnalysis analyze(Frame frame) {
++                return null;
++            }
++
++            @Override
++            public String modelVersion() {
++                return "test";
++            }
++
++            @Override
++            public void close() {
++                closed[0]++;
++            }
++        });
++        FaceAnalyzer analyzer = timed.create();
++        Frame frame = new Frame(new byte[3], 1, 1, 0L, 0L, "test");
++        for (int i = 0; i < 3; i++) analyzer.analyze(frame);
++        assertTrue(timed.summary(), timed.summary().startsWith("analysed 3 frames"));
++        assertEquals("test", analyzer.modelVersion());
++        analyzer.close();
++        assertEquals(1, closed[0]);
++
++        timed.reset();
++        assertTrue(timed.summary(), timed.summary().startsWith("analysed 0 frames"));
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceConversionTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceConversionTest.java
+new file mode 100644
+index 0000000..12f9157
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceConversionTest.java
+@@ -0,0 +1,194 @@
++package io.mosip.registration.liveness.device.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertNotSame;
++import static org.junit.Assert.assertTrue;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++import android.content.Context;
++import android.util.Size;
++
++import androidx.camera.core.CameraSelector;
++import androidx.camera.core.ImageProxy;
++import androidx.lifecycle.LifecycleOwner;
++
++import org.junit.Test;
++
++import java.nio.ByteBuffer;
++import java.util.Random;
++
++/**
++ * The fixed-point, bulk-copy YUV_420_888 conversion against the straightforward double-precision
++ * BT.601 conversion with per-pixel rotation (the previous implementation), on synthetic planes with
++ * row padding, for planar (pixel stride 1) and interleaved (pixel stride 2) chroma.
++ */
++public class CameraXFrameSourceConversionTest {
++
++    private static final int WIDTH = 6;
++    private static final int HEIGHT = 4;
++
++    @Test
++    public void planarChromaWithRowPaddingMatchesTheReference() {
++        Planes p = planar(new Random(1), WIDTH, HEIGHT, 8, 5);
++        for (int rotation : new int[]{0, 90, 180, 270}) {
++            assertClose(rotation, reference(p, rotation), source().yuv420ToRgb888(p.image(), rotation));
++        }
++    }
++
++    @Test
++    public void interleavedChromaMatchesTheReference() {
++        Planes p = interleaved(new Random(2), WIDTH, HEIGHT, 8, 8);
++        for (int rotation : new int[]{0, 90, 180, 270}) {
++            assertClose(rotation, reference(p, rotation), source().yuv420ToRgb888(p.image(), rotation));
++        }
++    }
++
++    @Test
++    public void saturatedColoursAreClamped() {
++        Planes p = planar(new Random(3), WIDTH, HEIGHT, WIDTH, WIDTH / 2);
++        java.util.Arrays.fill(p.y, (byte) 255);
++        java.util.Arrays.fill(p.v, (byte) 255);
++        byte[] rgb = source().yuv420ToRgb888(p.image(), 0);
++        for (int i = 0; i < rgb.length; i += 3) assertEquals(255, rgb[i] & 0xFF);
++    }
++
++    @Test
++    public void eachFrameGetsItsOwnOutputArray() {
++        Planes p = planar(new Random(4), WIDTH, HEIGHT, WIDTH, WIDTH / 2);
++        CameraXFrameSource source = source();
++        byte[] first = source.yuv420ToRgb888(p.image(), 90);
++        byte[] second = source.yuv420ToRgb888(p.image(), 90);
++        assertNotSame(first, second);
++        assertEquals(WIDTH * HEIGHT * 3, first.length);
++    }
++
++    private static CameraXFrameSource source() {
++        Context context = mock(Context.class);
++        when(context.getApplicationContext()).thenReturn(context);
++        return new CameraXFrameSource(context, mock(LifecycleOwner.class), CameraSelector.DEFAULT_FRONT_CAMERA,
++                new Size(640, 480));
++    }
++
++    private static void assertClose(int rotation, byte[] expected, byte[] actual) {
++        assertEquals(expected.length, actual.length);
++        for (int i = 0; i < expected.length; i++) {
++            int diff = Math.abs((expected[i] & 0xFF) - (actual[i] & 0xFF));
++            assertTrue("rotation " + rotation + " byte " + i + " differs by " + diff, diff <= 1);
++        }
++    }
++
++    /** Double-precision BT.601 with rounding and the per-pixel rotation mapping. */
++    private static byte[] reference(Planes p, int rotation) {
++        int w = p.width;
++        int h = p.height;
++        int outWidth = (rotation == 90 || rotation == 270) ? h : w;
++        byte[] rgb = new byte[w * h * 3];
++        for (int row = 0; row < h; row++) {
++            for (int col = 0; col < w; col++) {
++                int y = p.y[row * p.yRowStride + col] & 0xFF;
++                int u = (p.uAt(row / 2, col / 2) & 0xFF) - 128;
++                int v = (p.vAt(row / 2, col / 2) & 0xFF) - 128;
++                int r = clamp(Math.round(y + 1.402 * v));
++                int g = clamp(Math.round(y - 0.344136 * u - 0.714136 * v));
++                int b = clamp(Math.round(y + 1.772 * u));
++                int outX;
++                int outY;
++                switch (rotation) {
++                    case 90:  outX = h - 1 - row; outY = col; break;
++                    case 180: outX = w - 1 - col; outY = h - 1 - row; break;
++                    case 270: outX = row;         outY = w - 1 - col; break;
++                    default:  outX = col;         outY = row; break;
++                }
++                int i = (outY * outWidth + outX) * 3;
++                rgb[i] = (byte) r;
++                rgb[i + 1] = (byte) g;
++                rgb[i + 2] = (byte) b;
++            }
++        }
++        return rgb;
++    }
++
++    private static int clamp(long v) {
++        return (int) Math.max(0, Math.min(255, v));
++    }
++
++    private static Planes planar(Random random, int w, int h, int yRowStride, int uvRowStride) {
++        Planes p = new Planes(w, h, yRowStride, uvRowStride, 1);
++        p.y = randomBytes(random, yRowStride * h);
++        p.u = randomBytes(random, uvRowStride * (h / 2));
++        p.v = randomBytes(random, uvRowStride * (h / 2));
++        p.uBuffer = ByteBuffer.wrap(p.u);
++        p.vBuffer = ByteBuffer.wrap(p.v);
++        return p;
++    }
++
++    /** NV21-style: one VU-interleaved block; the U plane starts one byte after the V plane, as on most phones. */
++    private static Planes interleaved(Random random, int w, int h, int yRowStride, int uvRowStride) {
++        Planes p = new Planes(w, h, yRowStride, uvRowStride, 2);
++        p.y = randomBytes(random, yRowStride * h);
++        byte[] vu = randomBytes(random, uvRowStride * (h / 2));
++        p.v = vu;
++        p.u = vu;
++        p.uOffset = 1;
++        p.vBuffer = ByteBuffer.wrap(vu, 0, vu.length - 1).slice();
++        p.uBuffer = ByteBuffer.wrap(vu, 1, vu.length - 1).slice();
++        return p;
++    }
++
++    private static byte[] randomBytes(Random random, int n) {
++        byte[] b = new byte[n];
++        random.nextBytes(b);
++        return b;
++    }
++
++    private static final class Planes {
++        final int width;
++        final int height;
++        final int yRowStride;
++        final int uvRowStride;
++        final int uvPixelStride;
++        byte[] y;
++        byte[] u;
++        byte[] v;
++        int uOffset;
++        ByteBuffer uBuffer;
++        ByteBuffer vBuffer;
++
++        Planes(int width, int height, int yRowStride, int uvRowStride, int uvPixelStride) {
++            this.width = width;
++            this.height = height;
++            this.yRowStride = yRowStride;
++            this.uvRowStride = uvRowStride;
++            this.uvPixelStride = uvPixelStride;
++        }
++
++        byte uAt(int row, int col) {
++            return u[uOffset + row * uvRowStride + col * uvPixelStride];
++        }
++
++        byte vAt(int row, int col) {
++            return v[row * uvRowStride + col * uvPixelStride];
++        }
++
++        ImageProxy image() {
++            ImageProxy image = mock(ImageProxy.class);
++            when(image.getWidth()).thenReturn(width);
++            when(image.getHeight()).thenReturn(height);
++            ImageProxy.PlaneProxy[] planes = {
++                    plane(ByteBuffer.wrap(y), yRowStride, 1),
++                    plane(uBuffer, uvRowStride, uvPixelStride),
++                    plane(vBuffer, uvRowStride, uvPixelStride)};
++            when(image.getPlanes()).thenReturn(planes);
++            return image;
++        }
++
++        private static ImageProxy.PlaneProxy plane(ByteBuffer buffer, int rowStride, int pixelStride) {
++            ImageProxy.PlaneProxy plane = mock(ImageProxy.PlaneProxy.class);
++            when(plane.getBuffer()).thenReturn(buffer);
++            when(plane.getRowStride()).thenReturn(rowStride);
++            when(plane.getPixelStride()).thenReturn(pixelStride);
++            return plane;
++        }
++    }
++}
+diff --git a/android/settings.gradle b/android/settings.gradle
+index 2ec4312..3ea212e 100644
+--- a/android/settings.gradle
++++ b/android/settings.gradle
+@@ -20,3 +20,4 @@ def flutterSdkPath = properties.getProperty("flutter.sdk")
+ assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+ apply from: "$flutterSdkPath/packages/flutter_tools/gradle/app_plugin_loader.gradle"
+ include ':transliterationmanager'
++include ':liveness'
+diff --git a/lib/platform_android/liveness_service_impl.dart b/lib/platform_android/liveness_service_impl.dart
+new file mode 100644
+index 0000000..ff96137
+--- /dev/null
++++ b/lib/platform_android/liveness_service_impl.dart
+@@ -0,0 +1,94 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'dart:async';
++
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:permission_handler/permission_handler.dart';
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++
++class LivenessServiceImpl implements LivenessService {
++  LivenessServiceImpl._();
++
++  static final LivenessServiceImpl instance = LivenessServiceImpl._();
++
++  static const EventChannel _events =
++      EventChannel('io.mosip.registration_client/liveness/events');
++
++  final LivenessApi _api = LivenessApi();
++  StreamSubscription<dynamic>? _subscription;
++  late final StreamController<LivenessMessage> _controller =
++      StreamController<LivenessMessage>.broadcast(
++          onListen: _connect, onCancel: _disconnect);
++
++  void _connect() {
++    _subscription ??= _events.receiveBroadcastStream().listen(
++      (dynamic event) {
++        if (event is Map) {
++          _controller.add(LivenessMessage(Map<String, Object?>.from(event)));
++        }
++      },
++      onError: (Object e) => debugPrint('Liveness event channel error: $e'),
++    );
++  }
++
++  void _disconnect() {
++    _subscription?.cancel();
++    _subscription = null;
++  }
++
++  @override
++  Stream<LivenessMessage> get messages => _controller.stream;
++
++  @override
++  Future<bool> isEnabled(String workflow) => _api.isEnabled(workflow);
++
++  @override
++  Future<LivenessPolicyInfo> policy(String workflow) => _api.policy(workflow);
++
++  @override
++  Future<String> startSession(String workflow,
++      {String camera = 'front', bool useFake = false}) async {
++    final PermissionStatus status = await Permission.camera.request();
++    if (!status.isGranted) {
++      final String id = 'camera-denied-${DateTime.now().millisecondsSinceEpoch}';
++      _controller.add(LivenessMessage(<String, Object?>{
++        'kind': 'complete',
++        'decision': 'FAILED',
++        'passPath': 'NONE',
++        'failureCode': 'CAMERA_UNAVAILABLE',
++        'userMessage': 'DEVICE_PROBLEM',
++        'passiveScore': double.nan,
++        'challengesIssued': const <String>[],
++        'attempts': 0,
++        'durationMs': 0,
++        'sessionId': id,
++        'modelVersion': '',
++        'bestFrameJpeg': null,
++      }));
++      return id;
++    }
++    return _api.startSession(workflow, camera, useFake);
++  }
++
++  @override
++  Future<void> retry() => _api.retry();
++
++  @override
++  Future<void> cancel() => _api.cancel();
++
++  @override
++  Future<String> modelVersion() => _api.modelVersion();
++
++  @override
++  Future<void> setConfigOverride(String key, String value) =>
++      _api.setConfigOverride(key, value);
++}
++
++LivenessService getLivenessServiceImpl() => LivenessServiceImpl.instance;
+diff --git a/lib/platform_spi/liveness_service.dart b/lib/platform_spi/liveness_service.dart
+new file mode 100644
+index 0000000..67132b4
+--- /dev/null
++++ b/lib/platform_spi/liveness_service.dart
+@@ -0,0 +1,81 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'dart:typed_data';
++
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/platform_android/liveness_service_impl.dart';
++
++/// One message of a liveness session: an engine event (kind "event") or the
++/// session's result (kind "complete"). Enum values arrive as their names.
++/// The UI renders [userMessage] and [guidance] only, never [passiveScore].
++class LivenessMessage {
++  LivenessMessage(this.data);
++
++  final Map<String, Object?> data;
++
++  bool get isComplete => data['kind'] == 'complete';
++
++  // Events
++  String? get type => data['type'] as String?;
++  String? get guidance => data['guidance'] as String?;
++  String? get challenge => data['challenge'] as String?;
++  int get challengeIndex => (data['challengeIndex'] as int?) ?? 0;
++  int get challengeCount => (data['challengeCount'] as int?) ?? 0;
++  int get timeoutMs => (data['timeoutMs'] as int?) ?? 0;
++  double get progress => (data['progress'] as num?)?.toDouble() ?? 0;
++  String? get error => data['error'] as String?;
++  int get attemptNumber => (data['attemptNumber'] as int?) ?? 0;
++  int get retriesLeft => (data['retriesLeft'] as int?) ?? 0;
++  bool get recoverable => (data['recoverable'] as bool?) ?? false;
++
++  // Both: the ErrorCode.UserMessage name (NONE, LIVENESS_NOT_VERIFIED, ...).
++  String? get userMessage => data['userMessage'] as String?;
++
++  // Result
++  String? get decision => data['decision'] as String?;
++  String? get passPath => data['passPath'] as String?;
++  String? get failureCode => data['failureCode'] as String?;
++  double get passiveScore => (data['passiveScore'] as num?)?.toDouble() ?? double.nan;
++  List<String> get challengesIssued =>
++      ((data['challengesIssued'] as List?) ?? const []).cast<String>();
++  int get attempts => (data['attempts'] as int?) ?? 0;
++  int get durationMs => (data['durationMs'] as int?) ?? 0;
++  String? get sessionId => data['sessionId'] as String?;
++  String? get modelVersion => data['modelVersion'] as String?;
++
++  /// JPEG of the best frame; only on PASSED. Keep it in memory only.
++  Uint8List? get bestFrameJpeg => data['bestFrameJpeg'] as Uint8List?;
++}
++
++/// Face liveness. Workflows: RESIDENT, OPERATOR, SUPERVISOR. Cameras: front, back.
++abstract class LivenessService {
++  /// Events and results of every session, in order. Listen before starting a session.
++  Stream<LivenessMessage> get messages;
++
++  Future<bool> isEnabled(String workflow);
++
++  Future<LivenessPolicyInfo> policy(String workflow);
++
++  /// Asks for the camera permission, then starts a session (cancelling any
++  /// running one). Returns the session id, or "" when liveness is disabled for
++  /// the workflow. A refused permission completes the session with FAILED /
++  /// CAMERA_UNAVAILABLE on [messages].
++  Future<String> startSession(String workflow,
++      {String camera = 'front', bool useFake = false});
++
++  Future<void> retry();
++
++  Future<void> cancel();
++
++  Future<String> modelVersion();
++
++  /// Debug builds only: overrides a config key; an empty value removes it.
++  Future<void> setConfigOverride(String key, String value);
++
++  factory LivenessService() => getLivenessServiceImpl();
++}
+diff --git a/pigeon.sh b/pigeon.sh
+index dea5aef..5bbebee 100644
+--- a/pigeon.sh
++++ b/pigeon.sh
+@@ -62,4 +62,7 @@ dart run pigeon --input pigeon/dash_board.dart --dart_out lib/pigeon/dash_board_
+ dart run pigeon --input pigeon/global_config_settings.dart --dart_out lib/pigeon/global_config_settings_pigeon.dart --objc_header_out ios/Runner/pigeon.h --objc_source_out ios/Runner/pigeon.m --java_out ./android/app/src/main/java/io/mosip/registration_client/model/GlobalConfigSettingsPigeon.java --java_package "io.mosip.registration_client.model"
+ 
+ # Generate secure screen files
+-dart run pigeon --input pigeon/secure_screen.dart --dart_out lib/pigeon/secure_screen_pigeon.dart --objc_header_out ios/Runner/pigeon.h --objc_source_out ios/Runner/pigeon.m --java_out ./android/app/src/main/java/io/mosip/registration_client/model/SecureScreenPigeon.java --java_package "io.mosip.registration_client.model"
+\ No newline at end of file
++dart run pigeon --input pigeon/secure_screen.dart --dart_out lib/pigeon/secure_screen_pigeon.dart --objc_header_out ios/Runner/pigeon.h --objc_source_out ios/Runner/pigeon.m --java_out ./android/app/src/main/java/io/mosip/registration_client/model/SecureScreenPigeon.java --java_package "io.mosip.registration_client.model"
++
++# Generate face liveness files (Android only: no iOS output)
++dart run pigeon --input pigeon/liveness.dart --dart_out lib/pigeon/liveness_pigeon.dart --java_out ./android/app/src/main/java/io/mosip/registration_client/model/LivenessPigeon.java --java_package "io.mosip.registration_client.model"
+\ No newline at end of file
+diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
+new file mode 100644
+index 0000000..0dcac38
+--- /dev/null
++++ b/pigeon/liveness.dart
+@@ -0,0 +1,43 @@
++import 'package:pigeon/pigeon.dart';
++
++/// The parts of a workflow's liveness policy the UI needs (from the synced
++/// mosip.registration.liveness.face.* config, or the engine defaults).
++class LivenessPolicyInfo {
++  final bool enabled;
++  final int maxRetries;
++  final int minChallenges;
++  final int challengeTimeoutMs;
++
++  LivenessPolicyInfo({
++    required this.enabled,
++    required this.maxRetries,
++    required this.minChallenges,
++    required this.challengeTimeoutMs,
++  });
++}
++
++/// Face liveness. Workflows: RESIDENT, OPERATOR, SUPERVISOR. Cameras: front, back.
++/// Session events and the result arrive on the event channel
++/// io.mosip.registration_client/liveness/events.
++@HostApi()
++abstract class LivenessApi {
++  bool isEnabled(String workflow);
++
++  LivenessPolicyInfo policy(String workflow);
++
++  /// Starts a session (cancelling any running one) and returns its id,
++  /// or "" when liveness is disabled for the workflow.
++  @async
++  String startSession(String workflow, String camera, bool useFake);
++
++  void retry();
++
++  void cancel();
++
++  /// The loaded model bundle version, or "" before the models are loaded.
++  String modelVersion();
++
++  /// Debug builds only (ignored otherwise): sets a config override, or removes
++  /// it when value is empty.
++  void setConfigOverride(String key, String value);
++}

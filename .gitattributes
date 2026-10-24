@@ -7,6 +7,9 @@
 # Part 2: the signed model bundle. manifest.sig signs the exact bytes of manifest.json: no conversion at all.
 models/manifest.json -text
 models/manifest.sig  -text
+# Part 5: the Android integration patches are applied byte for byte by git am / git apply.
+android-integration/patches/*.patch -text
+android-integration/*.diff          -text
 # Binary assets: never convert.
 *.onnx   binary
 *.tflite binary

@@ -1,0 +1,452 @@
+From 019be4f842132203a77496e6efa49cf31267024b Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 21:53:42 +0530
+Subject: [PATCH 22/26] AnalyzerBenchmark: on-device analyzer benchmark
+
+For P5-5 (performance and accelerators). Runs over live frames the caller
+captured into memory (never written anywhere; the caller drops them).
+For each bundle (the bundled one, then any signed test bundle, verified
+against the built-in keys) and each setting (1, 2 and 4 intra-op threads
+x CPU, XNNPACK, NNAPI):
+- cold preload of a fresh factory (verification and session creation)
+  and the accelerator the sessions actually use;
+- the first analyze() of a new analyzer, 10 warm-up calls, then 3 timed
+  passes with per-stage p50/p95 (detect, mesh, pad, cues, quality, pose,
+  total; a stage counts on the frames where it ran);
+- parity on a fresh analyzer against the reference (first bundle, CPU,
+  1 thread): max |delta livenessScore|, max landmark distance in px and
+  frames where only one side has a score or landmarks. A setting matches
+  at <= 0.01, <= 0.5 px and no mismatch.
+report() formats a fixed-width text table (timings and parity only).
+
+Tests: the matrix order, the percentile, landmark flattening, parity
+limits and missing scores, and the report.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../liveness/android/AnalyzerBenchmark.java   | 297 ++++++++++++++++++
+ .../android/AnalyzerBenchmarkTest.java        | 111 +++++++
+ 2 files changed, 408 insertions(+)
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/AnalyzerBenchmark.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/AnalyzerBenchmarkTest.java
+
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AnalyzerBenchmark.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AnalyzerBenchmark.java
+new file mode 100644
+index 0000000..1e80ea3
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AnalyzerBenchmark.java
+@@ -0,0 +1,297 @@
++package io.mosip.registration.liveness.android;
++
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.List;
++import java.util.Locale;
++
++import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
++import io.mosip.registration.liveness.analyzer.AnalyzerConfig.Accelerator;
++import io.mosip.registration.liveness.analyzer.AnalyzerStats;
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzer;
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.api.FaceLandmarks;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameAnalysis;
++
++/**
++ * On-device benchmark of the ONNX analyzer (debug and profile builds only).
++ *
++ * <p>The frames are live camera frames the caller captured into memory; nothing here writes them anywhere, and the
++ * caller drops them after {@link #run}. For each bundle (the bundled one first, then any signed test bundle) and each
++ * config (intra-op threads x accelerator):
++ * <ul>
++ *   <li>cold preload: a fresh factory's {@code preload()} (bundle verification and ONNX session creation), and the
++ *       accelerator the sessions actually use (NNAPI is deprecated on Android 15+ and may fall back to CPU);</li>
++ *   <li>the first {@code analyze()} of a new analyzer, {@value #WARMUP} warm-up calls, then {@value #PASSES} timed
++ *       passes over the frames, with per-stage p50 / p95 ({@link AnalyzerStats}; a stage counts only on the frames
++ *       where it ran, "total" on every frame);</li>
++ *   <li>parity: one pass on a fresh analyzer, compared frame by frame with the reference (the first bundle, CPU,
++ *       1 thread): max |delta livenessScore| and max landmark distance in pixels, and frames where only one side has
++ *       a score or landmarks.</li>
++ * </ul>
++ * A config matches the reference when the score delta is at most {@value #MAX_SCORE_DELTA}, the landmark delta at
++ * most {@value #MAX_LANDMARK_DELTA_PX} px and no frame differs in presence.
++ */
++public final class AnalyzerBenchmark {
++
++    public static final int WARMUP = 10;
++    public static final int PASSES = 3;
++    public static final double MAX_SCORE_DELTA = 0.01;
++    public static final double MAX_LANDMARK_DELTA_PX = 0.5;
++    static final String[] STAGES = {"detect", "mesh", "pad", "cues", "quality", "pose", "total"};
++
++    private AnalyzerBenchmark() { }
++
++    /** A bundle to benchmark: the bundled one, or a signed test bundle (verified against the built-in keys). */
++    public static final class Bundle {
++        final String label;
++        final BundleSource source;
++
++        public Bundle(String label, BundleSource source) {
++            this.label = label;
++            this.source = source;
++        }
++    }
++
++    /** One analyzer setting. */
++    public static final class Setting {
++        final int threads;
++        final Accelerator accelerator;
++
++        public Setting(int threads, Accelerator accelerator) {
++            this.threads = threads;
++            this.accelerator = accelerator;
++        }
++
++        @Override
++        public String toString() {
++            return accelerator + "/" + threads;
++        }
++    }
++
++    /** Called before each step, from the benchmark thread. */
++    public interface Progress {
++        void step(String what);
++    }
++
++    /** One bundle and setting. Times in ms; NaN when not measured. */
++    public static final class Result {
++        public final String bundle;
++        public final Setting setting;
++        public String modelVersion = "";
++        public String activeAccelerator = "";
++        public double preloadMs = Double.NaN;
++        public double firstFrameMs = Double.NaN;
++        public final double[] p50 = nans(STAGES.length);
++        public final double[] p95 = nans(STAGES.length);
++        public int oneFaceFrames;
++        public double maxScoreDelta = Double.NaN;
++        public double maxLandmarkDeltaPx = Double.NaN;
++        public int presenceMismatches;
++        public String error;
++
++        Result(String bundle, Setting setting) {
++            this.bundle = bundle;
++            this.setting = setting;
++        }
++
++        public boolean matchesReference() {
++            return error == null && presenceMismatches == 0 && maxScoreDelta <= MAX_SCORE_DELTA
++                    && maxLandmarkDeltaPx <= MAX_LANDMARK_DELTA_PX;
++        }
++
++        public double p50(String stage) {
++            return p50[Arrays.asList(STAGES).indexOf(stage)];
++        }
++    }
++
++    /** What the parity pass keeps of each frame: the score and the landmarks as flat x, y pairs. */
++    static final class Parity {
++        final float[] scores;
++        final float[][] landmarks;
++
++        Parity(int n) {
++            scores = new float[n];
++            landmarks = new float[n][];
++        }
++    }
++
++    /** The default matrix: 1, 2 and 4 threads for CPU, XNNPACK and NNAPI, CPU with 1 thread first (the reference). */
++    public static List<Setting> defaultSettings() {
++        List<Setting> out = new ArrayList<>();
++        for (Accelerator a : new Accelerator[]{Accelerator.CPU, Accelerator.XNNPACK, Accelerator.NNAPI}) {
++            for (int t : new int[]{1, 2, 4}) out.add(new Setting(t, a));
++        }
++        return out;
++    }
++
++    public static List<Result> run(List<Frame> frames, List<Bundle> bundles, List<Setting> settings,
++                                   Progress progress) {
++        if (frames.isEmpty() || bundles.isEmpty() || settings.isEmpty()) throw new IllegalArgumentException("nothing to run");
++        List<Result> results = new ArrayList<>();
++        Parity reference = null;
++        for (Bundle b : bundles) {
++            for (Setting s : settings) {
++                progress.step(b.label + " " + s);
++                Result r = new Result(b.label, s);
++                Parity p = null;
++                try {
++                    p = runOne(frames, b.source, s, r);
++                } catch (Exception | LinkageError e) {
++                    r.error = e.getClass().getSimpleName() + ": " + e.getMessage();
++                }
++                if (reference == null && p != null) reference = p; // the first bundle, CPU, 1 thread
++                if (p != null) compare(reference, p, r);
++                results.add(r);
++            }
++        }
++        return results;
++    }
++
++    private static Parity runOne(List<Frame> frames, BundleSource source, Setting s, Result r) throws Exception {
++        AnalyzerConfig cfg = AnalyzerConfig.builder().intraOpThreads(s.threads).accelerator(s.accelerator).build();
++        OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory(source, null, TrustedKeys.builtIn(), cfg);
++        try {
++            long t0 = System.nanoTime();
++            factory.preload();
++            r.preloadMs = (System.nanoTime() - t0) / 1e6;
++            r.modelVersion = factory.modelVersion();
++            r.activeAccelerator = String.valueOf(factory.activeAccelerator());
++
++            OnnxFaceAnalyzer analyzer = (OnnxFaceAnalyzer) factory.create();
++            try {
++                t0 = System.nanoTime();
++                analyzer.analyze(frames.get(0));
++                r.firstFrameMs = (System.nanoTime() - t0) / 1e6;
++                for (int i = 0; i < WARMUP; i++) analyzer.analyze(frames.get(i % frames.size()));
++                List<List<Double>> ms = new ArrayList<>();
++                for (int k = 0; k < STAGES.length; k++) ms.add(new ArrayList<>());
++                long oneFace = analyzer.stats().framesOneFace();
++                for (int pass = 0; pass < PASSES; pass++) {
++                    for (Frame f : frames) {
++                        analyzer.analyze(f);
++                        AnalyzerStats st = analyzer.stats();
++                        long[] ns = {st.lastDetectNs(), st.lastMeshNs(), st.lastPadNs(), st.lastCuesNs(),
++                                st.lastQualityNs(), st.lastPoseNs(), st.lastTotalNs()};
++                        for (int k = 0; k < STAGES.length; k++) {
++                            if (ns[k] > 0) ms.get(k).add(ns[k] / 1e6);
++                        }
++                    }
++                }
++                r.oneFaceFrames = (int) ((analyzer.stats().framesOneFace() - oneFace) / PASSES);
++                for (int k = 0; k < STAGES.length; k++) {
++                    double[] sorted = toSortedArray(ms.get(k));
++                    r.p50[k] = percentile(sorted, 50);
++                    r.p95[k] = percentile(sorted, 95);
++                }
++            } finally {
++                analyzer.close();
++            }
++
++            OnnxFaceAnalyzer fresh = (OnnxFaceAnalyzer) factory.create();
++            try {
++                Parity p = new Parity(frames.size());
++                for (int i = 0; i < frames.size(); i++) {
++                    FrameAnalysis a = fresh.analyze(frames.get(i));
++                    p.scores[i] = a.livenessScore;
++                    p.landmarks[i] = flatten(a.landmarks);
++                }
++                return p;
++            } finally {
++                fresh.close();
++            }
++        } finally {
++            factory.close();
++        }
++    }
++
++    /** Max deltas of {@code p} against {@code ref}, frame by frame, into {@code r}. */
++    static void compare(Parity ref, Parity p, Result r) {
++        double maxScore = 0, maxPx = 0;
++        int mismatches = 0;
++        for (int i = 0; i < ref.scores.length; i++) {
++            boolean a = Float.isNaN(ref.scores[i]), b = Float.isNaN(p.scores[i]);
++            boolean mismatch = a != b;
++            if (!a && !b) maxScore = Math.max(maxScore, Math.abs(ref.scores[i] - p.scores[i]));
++            float[] la = ref.landmarks[i], lb = p.landmarks[i];
++            if ((la == null) != (lb == null) || (la != null && la.length != lb.length)) {
++                mismatch = true;
++            } else if (la != null) {
++                for (int j = 0; j < la.length; j += 2) {
++                    maxPx = Math.max(maxPx, Math.hypot(la[j] - lb[j], la[j + 1] - lb[j + 1]));
++                }
++            }
++            if (mismatch) mismatches++;
++        }
++        r.maxScoreDelta = maxScore;
++        r.maxLandmarkDeltaPx = maxPx;
++        r.presenceMismatches = mismatches;
++    }
++
++    /** The contract landmarks as x, y pairs (eyes, mouth, nose, chin, then the irises when present); null if none. */
++    static float[] flatten(FaceLandmarks l) {
++        if (l == null) return null;
++        List<float[]> pts = new ArrayList<>();
++        pts.addAll(Arrays.asList(l.leftEye));
++        pts.addAll(Arrays.asList(l.rightEye));
++        pts.addAll(Arrays.asList(l.mouthLeft, l.mouthRight, l.mouthUpperInner, l.mouthLowerInner, l.noseTip, l.chin));
++        if (l.leftIris != null) pts.add(l.leftIris);
++        if (l.rightIris != null) pts.add(l.rightIris);
++        float[] out = new float[pts.size() * 2];
++        for (int i = 0; i < pts.size(); i++) {
++            out[2 * i] = pts.get(i)[0];
++            out[2 * i + 1] = pts.get(i)[1];
++        }
++        return out;
++    }
++
++    /** Nearest-rank percentile of sorted values (p in (0, 100]); NaN when empty. */
++    static double percentile(double[] sorted, double p) {
++        if (sorted.length == 0) return Double.NaN;
++        int rank = (int) Math.ceil(p / 100.0 * sorted.length);
++        return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))];
++    }
++
++    private static double[] toSortedArray(List<Double> values) {
++        double[] a = new double[values.size()];
++        for (int i = 0; i < a.length; i++) a[i] = values.get(i);
++        Arrays.sort(a);
++        return a;
++    }
++
++    private static double[] nans(int n) {
++        double[] a = new double[n];
++        Arrays.fill(a, Double.NaN);
++        return a;
++    }
++
++    /** A fixed-width text report: one block per bundle, one row per setting (timings and parity only). */
++    public static String report(List<Result> results, int frames, String device) {
++        StringBuilder sb = new StringBuilder();
++        sb.append(String.format(Locale.ROOT, "%s, %d frames x %d passes after %d warm-up%n", device, frames, PASSES, WARMUP));
++        String bundle = null;
++        for (Result r : results) {
++            if (!r.bundle.equals(bundle)) {
++                bundle = r.bundle;
++                sb.append("\n[").append(bundle).append(' ').append(r.modelVersion).append("]\n");
++                sb.append("setting    active   preload first | p50/p95 ms: detect mesh pad cues quality pose total"
++                        + " | dScore dLmPx miss ok\n");
++            }
++            if (r.error != null) {
++                sb.append(String.format(Locale.ROOT, "%-10s ERROR %s%n", r.setting, r.error));
++                continue;
++            }
++            sb.append(String.format(Locale.ROOT, "%-10s %-8s %7.0f %5.0f |", r.setting, r.activeAccelerator,
++                    r.preloadMs, r.firstFrameMs));
++            for (int k = 0; k < STAGES.length; k++) {
++                sb.append(String.format(Locale.ROOT, " %.1f/%.1f", r.p50[k], r.p95[k]));
++            }
++            sb.append(String.format(Locale.ROOT, " | %.4f %.2f %d %s (1 face: %d)%n", r.maxScoreDelta,
++                    r.maxLandmarkDeltaPx, r.presenceMismatches, r.matchesReference() ? "yes" : "NO", r.oneFaceFrames));
++        }
++        return sb.toString();
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/AnalyzerBenchmarkTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AnalyzerBenchmarkTest.java
+new file mode 100644
+index 0000000..22fefbb
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AnalyzerBenchmarkTest.java
+@@ -0,0 +1,111 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertTrue;
++
++import org.junit.Test;
++
++import java.util.Arrays;
++import java.util.List;
++
++import io.mosip.registration.liveness.analyzer.AnalyzerConfig.Accelerator;
++import io.mosip.registration.liveness.api.FaceLandmarks;
++
++/** The benchmark's bookkeeping (the timed runs need ONNX Runtime on a device). */
++public class AnalyzerBenchmarkTest {
++
++    @Test
++    public void matrixStartsWithTheReference() {
++        List<AnalyzerBenchmark.Setting> s = AnalyzerBenchmark.defaultSettings();
++        assertEquals(9, s.size());
++        assertEquals("CPU/1", s.get(0).toString());
++        assertEquals("NNAPI/4", s.get(8).toString());
++    }
++
++    @Test
++    public void nearestRankPercentile() {
++        double[] v = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
++        assertEquals(5, AnalyzerBenchmark.percentile(v, 50), 0);
++        assertEquals(10, AnalyzerBenchmark.percentile(v, 95), 0);
++        assertTrue(Double.isNaN(AnalyzerBenchmark.percentile(new double[0], 50)));
++    }
++
++    @Test
++    public void flattensTheContractLandmarks() {
++        assertNull(AnalyzerBenchmark.flatten(null));
++        float[] flat = AnalyzerBenchmark.flatten(landmarks(0f, true));
++        assertEquals(2 * (6 + 6 + 6 + 2), flat.length);
++        assertEquals(2 * (6 + 6 + 6), AnalyzerBenchmark.flatten(landmarks(0f, false)).length);
++    }
++
++    @Test
++    public void parityWithinTheLimitsMatches() {
++        AnalyzerBenchmark.Parity ref = parity(new float[]{0.9f, Float.NaN, 0.95f}, 0f);
++        AnalyzerBenchmark.Parity p = parity(new float[]{0.905f, Float.NaN, 0.95f}, 0.3f);
++        AnalyzerBenchmark.Result r = result();
++        AnalyzerBenchmark.compare(ref, p, r);
++        assertEquals(0.005, r.maxScoreDelta, 1e-6);
++        assertEquals(0.3 * Math.sqrt(2), r.maxLandmarkDeltaPx, 1e-5);
++        assertEquals(0, r.presenceMismatches);
++        assertTrue(r.matchesReference());
++    }
++
++    @Test
++    public void largerDeltasOrAMissingScoreDoNotMatch() {
++        AnalyzerBenchmark.Parity ref = parity(new float[]{0.9f, 0.8f}, 0f);
++        AnalyzerBenchmark.Result r = result();
++        AnalyzerBenchmark.compare(ref, parity(new float[]{0.92f, 0.8f}, 0f), r);
++        assertFalse("score delta 0.02", r.matchesReference());
++
++        r = result();
++        AnalyzerBenchmark.compare(ref, parity(new float[]{0.9f, 0.8f}, 0.5f), r);
++        assertFalse("landmark delta 0.71 px", r.matchesReference());
++
++        r = result();
++        AnalyzerBenchmark.compare(ref, parity(new float[]{0.9f, Float.NaN}, 0f), r);
++        assertEquals(1, r.presenceMismatches);
++        assertFalse(r.matchesReference());
++    }
++
++    @Test
++    public void reportShowsErrorsAndRows() {
++        AnalyzerBenchmark.Result ok = result();
++        ok.modelVersion = "pad-2026.10.1";
++        ok.activeAccelerator = "CPU";
++        ok.maxScoreDelta = 0;
++        ok.maxLandmarkDeltaPx = 0;
++        AnalyzerBenchmark.Result bad = new AnalyzerBenchmark.Result("bundled", new AnalyzerBenchmark.Setting(2, Accelerator.NNAPI));
++        bad.error = "LivenessEngineException: boom";
++        String text = AnalyzerBenchmark.report(Arrays.asList(ok, bad), 60, "phone");
++        assertTrue(text, text.contains("[bundled pad-2026.10.1]"));
++        assertTrue(text, text.contains("CPU/1      CPU"));
++        assertTrue(text, text.contains("NNAPI/2    ERROR LivenessEngineException: boom"));
++        assertTrue(text, text.contains("yes"));
++    }
++
++    private static AnalyzerBenchmark.Result result() {
++        return new AnalyzerBenchmark.Result("bundled", new AnalyzerBenchmark.Setting(1, Accelerator.CPU));
++    }
++
++    private static AnalyzerBenchmark.Parity parity(float[] scores, float shift) {
++        AnalyzerBenchmark.Parity p = new AnalyzerBenchmark.Parity(scores.length);
++        for (int i = 0; i < scores.length; i++) {
++            p.scores[i] = scores[i];
++            p.landmarks[i] = Float.isNaN(scores[i]) ? null : AnalyzerBenchmark.flatten(landmarks(shift, true));
++        }
++        return p;
++    }
++
++    private static FaceLandmarks landmarks(float shift, boolean iris) {
++        float[][] eye = new float[6][];
++        float[][] other = new float[6][];
++        for (int i = 0; i < 6; i++) {
++            eye[i] = new float[]{10 + i + shift, 20 + shift};
++            other[i] = new float[]{40 + i + shift, 20 + shift};
++        }
++        float[] p = {30 + shift, 50 + shift};
++        return new FaceLandmarks(eye, other, p, p, p, p, p, p, iris ? p : null, iris ? p : null);
++    }
++}

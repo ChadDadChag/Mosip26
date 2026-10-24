@@ -1,0 +1,310 @@
+From 580c276260b1eba84ce5acf2de923dd486b64d61 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 18:46:19 +0530
+Subject: [PATCH 09/26] Update the liveness debug page: open LivenessPage,
+ preview placeholder, slower fake engine
+
+Debug builds only, as before:
+- "Open LivenessPage" opens the real page with the selected workflow,
+  camera, engine and fake scenario and shows the returned LivenessOutcome
+  in a card under the buttons (the debug page only logs that session's
+  events meanwhile).
+- "Preview placeholder": a grey silhouette instead of the camera, both on
+  the LivenessPage and on the debug page, which then creates no camera view
+  at all; the best-frame thumbnails and the page's model chip are hidden
+  too. This is the mode for documentation screenshots: no camera picture
+  appears anywhere.
+- "fake 3x slower": the override liveness.fake.timeScale, for which
+  LivenessServiceHolder rebuilds the fake engine with that time scale.
+- LivenessServiceHolder keeps the live preview views newest last, so when
+  the LivenessPage (opened over the debug page) closes, the debug page's
+  view is current again.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../android/LivenessServiceHolder.java        |  36 +++++-
+ lib/ui/liveness/liveness_debug_page.dart      | 121 +++++++++++++++++-
+ 2 files changed, 145 insertions(+), 12 deletions(-)
+
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 556bd79..044fe8c 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -7,8 +7,10 @@ import android.util.Log;
+ import androidx.camera.view.PreviewView;
+ 
+ import java.io.File;
++import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashMap;
++import java.util.List;
+ import java.util.Map;
+ import java.util.TreeMap;
+ import java.util.concurrent.ConcurrentHashMap;
+@@ -61,10 +63,11 @@ public final class LivenessServiceHolder {
+     private final OnnxFaceAnalyzerFactory analyzers;
+     private final TimedAnalyzerFactory timedAnalyzers;
+     private final DefaultLivenessService real;
+-    private final FakeLivenessService fake;
++    private volatile FakeLivenessService fake;
+ 
+     private volatile String modelVersion = "";
+-    private volatile PreviewView preview;
++    // Main thread only: the live preview views, newest last (a screen opened over another one has its own).
++    private final List<PreviewView> previews = new ArrayList<>();
+ 
+     public LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager) {
+         this.context = context.getApplicationContext();
+@@ -75,7 +78,11 @@ public final class LivenessServiceHolder {
+                 analyzerConfig(config));
+         this.timedAnalyzers = new TimedAnalyzerFactory(analyzers);
+         this.real = DefaultLivenessService.builder().config(config).analyzerFactory(timedAnalyzers).auditSink(audit).build();
+-        this.fake = FakeLivenessService.builder(config).auditSink(audit).build();
++        this.fake = fakeService(1.0);
++    }
++
++    private FakeLivenessService fakeService(double timeScale) {
++        return FakeLivenessService.builder(config).timeScale(timeScale).auditSink(audit).build();
+     }
+ 
+     /** Verifies the model bundle and builds the ONNX sessions on a background thread; logs the time taken. */
+@@ -132,7 +139,10 @@ public final class LivenessServiceHolder {
+         return background;
+     }
+ 
+-    /** Sets (or, with a null or empty value, removes) a config override and reloads both engines' policies. */
++    /**
++     * Sets (or, with a null or empty value, removes) a config override and reloads both engines' policies.
++     * {@value FakeLivenessService#TIME_SCALE_PROPERTY} rebuilds the fake engine with that speed (1 = real time).
++     */
+     public void setOverride(String key, String value) {
+         if (key == null || key.trim().isEmpty()) return;
+         if (value == null || value.trim().isEmpty()) {
+@@ -140,6 +150,15 @@ public final class LivenessServiceHolder {
+         } else {
+             overrides.put(key.trim(), value.trim());
+         }
++        if (FakeLivenessService.TIME_SCALE_PROPERTY.equals(key.trim())) {
++            double scale = 1.0;
++            try {
++                if (value != null && !value.trim().isEmpty()) scale = Math.max(0.0, Double.parseDouble(value.trim()));
++            } catch (NumberFormatException e) {
++                Log.w(TAG, "ignored fake time scale '" + value + "'");
++            }
++            fake = fakeService(scale);
++        }
+         reloadConfig();
+     }
+ 
+@@ -158,16 +177,19 @@ public final class LivenessServiceHolder {
+         fake.reloadConfig(config);
+     }
+ 
++    /** A preview view was created (main thread); the next session binds its preview to the newest one. */
+     public void setPreview(PreviewView view) {
+-        this.preview = view;
++        previews.remove(view);
++        previews.add(view);
+     }
+ 
++    /** The view was disposed: the one below it, if any, is current again. */
+     public void clearPreview(PreviewView view) {
+-        if (preview == view) preview = null;
++        previews.remove(view);
+     }
+ 
+     public PreviewView preview() {
+-        return preview;
++        return previews.isEmpty() ? null : previews.get(previews.size() - 1);
+     }
+ 
+     public Context context() {
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index b49f88f..338774f 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:registration_client/pigeon/liveness_pigeon.dart';
+ import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
+ 
+ /// Debug builds only: runs liveness sessions against the real or the fake
+ /// engine and shows the raw events and the result (including the passive
+@@ -35,6 +36,8 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+       'mosip.registration.liveness.face.default.challengeTypes';
+   static const String _minChallengesKey =
+       'mosip.registration.liveness.face.default.minChallenges';
++  // Read by LivenessServiceHolder: slows the fake engine's script down (screenshots).
++  static const String _fakeTimeScaleKey = 'liveness.fake.timeScale';
+   static const List<String> _onlyChallenges = [
+     'any',
+     'BLINK',
+@@ -92,6 +95,10 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+   String _fakeScenario = 'PASS_ACTIVE';
+   bool _forceChallenges = false;
+   String _onlyChallenge = 'any';
++  String _fakeSpeed = '1';
++  bool _placeholder = false;
++  bool _pageOpen = false;
++  LivenessOutcome? _outcome;
+   bool _running = false;
+   LivenessPolicyInfo? _policy;
+   String _modelVersion = '';
+@@ -131,6 +138,11 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+ 
+   void _onMessage(LivenessMessage m) {
+     if (!mounted) return;
++    if (_pageOpen) {
++      // LivenessPage runs this session: log it only; its outcome comes back from the route.
++      setState(() => _addLog(m.isComplete ? 'COMPLETE ${m.decision} ${m.failureCode ?? ''}' : _describe(m)));
++      return;
++    }
+     setState(() {
+       if (m.isComplete) {
+         _running = false;
+@@ -233,6 +245,41 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+     await _refreshPolicy();
+   }
+ 
++  static Widget _placeholderPreview() => const ColoredBox(
++        color: Color(0xFFBDBDBD),
++        child: Center(child: Icon(Icons.person, size: 180, color: Color(0xFF8A8A8A))),
++      );
++
++  Future<void> _openPage() async {
++    setState(() {
++      _log.clear();
++      _result = null;
++      _outcome = null;
++      _pageOpen = true;
++    });
++    _clock
++      ..reset()
++      ..start();
++    final outcome = await Navigator.push<LivenessOutcome>(
++      context,
++      MaterialPageRoute(
++        builder: (_) => LivenessPage(
++          workflow: _workflow,
++          camera: _camera,
++          useFake: _fake,
++          previewBuilder: _placeholder ? _placeholderPreview : null,
++          showDebugInfo: !_placeholder, // placeholder mode is for documentation screenshots
++        ),
++      ),
++    );
++    if (!mounted) return;
++    setState(() {
++      _pageOpen = false;
++      _outcome = outcome;
++      _addLog('LivenessPage returned $outcome');
++    });
++  }
++
+   Future<void> _start() async {
+     setState(() {
+       _log.clear();
+@@ -318,6 +365,38 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+                           _setOverride(_fakeScenarioKey, s!);
+                         },
+                 ),
++              if (_fake)
++                DropdownButton<String>(
++                  value: _fakeSpeed,
++                  items: const [
++                    DropdownMenuItem(value: '1', child: Text('fake speed 1x')),
++                    DropdownMenuItem(value: '3', child: Text('fake 3x slower')),
++                  ],
++                  onChanged: _running
++                      ? null
++                      : (v) {
++                          setState(() => _fakeSpeed = v!);
++                          _setOverride(_fakeTimeScaleKey, v == '1' ? '' : v!);
++                        },
++                ),
++            ],
++          ),
++          Row(
++            children: [
++              ElevatedButton(
++                onPressed: _running || _pageOpen ? null : _openPage,
++                child: const Text('Open LivenessPage'),
++              ),
++              const SizedBox(width: 8),
++              Expanded(
++                child: CheckboxListTile(
++                  contentPadding: EdgeInsets.zero,
++                  dense: true,
++                  title: const Text('Preview placeholder'),
++                  value: _placeholder,
++                  onChanged: (v) => setState(() => _placeholder = v ?? false),
++                ),
++              ),
+             ],
+           ),
+           SwitchListTile(
+@@ -395,10 +474,13 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+               height: 320,
+               child: ClipRRect(
+                 borderRadius: BorderRadius.circular(8),
+-                child: const AndroidView(
+-                  viewType: _previewViewType,
+-                  creationParamsCodec: StandardMessageCodec(),
+-                ),
++                // Placeholder mode creates no camera view at all, so no preview is shown anywhere.
++                child: _placeholder
++                    ? _placeholderPreview()
++                    : const AndroidView(
++                        viewType: _previewViewType,
++                        creationParamsCodec: StandardMessageCodec(),
++                      ),
+               ),
+             ),
+           ),
+@@ -418,6 +500,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+           ),
+           const SizedBox(height: 8),
+           Text(_status, style: const TextStyle(fontWeight: FontWeight.bold)),
++          if (_outcome != null) _outcomeCard(_outcome!),
+           if (result != null) _resultCard(result),
+           const SizedBox(height: 8),
+           Container(
+@@ -434,8 +517,36 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+     );
+   }
+ 
++  Widget _outcomeCard(LivenessOutcome o) {
++    // Placeholder mode shows no camera image at all, the best frame included.
++    final jpeg = _placeholder ? null : o.bestFrameJpeg;
++    return Card(
++      color: Colors.blueGrey.shade50,
++      child: Padding(
++        padding: const EdgeInsets.all(8),
++        child: Row(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            Expanded(
++              child: Text('LivenessPage returned\n'
++                  'passed: ${o.passed}  cancelled: ${o.cancelled}  disabled: ${o.disabled}\n'
++                  'passPath: ${o.passPath}\n'
++                  'failureCode: ${o.failureCode}\n'
++                  'userMessage: ${o.userMessage}\n'
++                  'attempts: ${o.attempts}, ${o.durationMs} ms\n'
++                  'model: ${o.modelVersion}\n'
++                  'session: ${o.sessionId}'),
++            ),
++            if (jpeg != null)
++              Image.memory(jpeg, width: 96, height: 128, fit: BoxFit.cover),
++          ],
++        ),
++      ),
++    );
++  }
++
+   Widget _resultCard(LivenessMessage r) {
+-    final jpeg = r.bestFrameJpeg;
++    final jpeg = _placeholder ? null : r.bestFrameJpeg;
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(8),

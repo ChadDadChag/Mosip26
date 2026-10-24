@@ -1,0 +1,114 @@
+From eb78ee1668b0b3a97beabe21902c0b285d4c9d0c Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:32:58 +0530
+Subject: [PATCH 13/26] Gate resident face capture and operator onboarding face
+ with liveness
+
+Before the SBI face capture, only for the Face tile:
+- biometric_capture_scan_block_portrait.dart (Scan): RESIDENT.
+- biometric_scan_middle_block.dart, the landscape (tablet) layout of the
+  same resident capture (Scan, and Rescan in the scan dialog): RESIDENT.
+  Leaving it ungated would let a rotated device skip liveness.
+- operator_biometric_capture_scan_block_view.dart (Scan): OPERATOR.
+Not proceeding (cancelled or blocked) returns before any capture, so no
+SBI call and no capture attempt is counted; the liveness screen already
+showed the recovery text when blocked.
+
+The exception photo is not gated: it belongs to the biometric exception
+process, the recovery path the resident recovery text points to.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../operator_biometric_capture_scan_block_view.dart  |  7 +++++++
+ .../widgets/biometric_scan_middle_block.dart         | 12 ++++++++++++
+ .../biometric_capture_scan_block_portrait.dart       |  8 ++++++++
+ 3 files changed, 27 insertions(+)
+
+diff --git a/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart b/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
+index d74d2af..f36dd38 100644
+--- a/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
++++ b/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
+@@ -13,6 +13,7 @@ import 'package:registration_client/pigeon/biometrics_pigeon.dart';
+ 
+ import 'package:registration_client/provider/biometric_capture_control_provider.dart';
+ import 'package:registration_client/provider/global_provider.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/utils/app_config.dart';
+ import 'package:registration_client/utils/biometrics_utils.dart';
+ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+@@ -380,6 +381,12 @@ class _OperatorBiometricCaptureScanBlockViewState
+         ElevatedButton.icon(
+           onPressed: () async {
+             if (biometricAttributeData.exceptions.contains(false)) {
++              // Face liveness of the operator before the onboarding face capture (docs/ui-liveness-spec.md
++              // section 6). Not proceeding means no capture.
++              if (biometricAttributeData.title == "Face") {
++                final liveness = await LivenessGate.run(context, workflow: LivenessGate.operator);
++                if (!liveness.proceed) return;
++              }
+               List<Uint8List?> tempImageList = [];
+               await BiometricsApi().invokeDiscoverSbi("operatorBiometrics",
+                   biometricAttributeData.title.replaceAll(" ", ""));
+diff --git a/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart b/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart
+index cb799d7..d1f4a0a 100644
+--- a/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart
++++ b/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart
+@@ -16,6 +16,7 @@ import 'package:registration_client/model/biometric_attribute_data.dart';
+ import 'package:registration_client/model/biometrics_dto.dart';
+ import 'package:registration_client/model/field.dart';
+ import 'package:registration_client/pigeon/biometrics_pigeon.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/utils/app_config.dart';
+ import 'package:registration_client/utils/biometrics_utils.dart';
+ 
+@@ -190,6 +191,11 @@ class _BiometricScanMiddleBlockState extends State<BiometricScanMiddleBlock> {
+                       onPressed: () async {
+                         if (widget.biometricAttributeData.attemptNo <
+                             widget.biometricAttributeData.noOfCapturesAllowed) {
++                          // Rescan of the face: liveness again before the SBI capture (as in the portrait layout).
++                          if (widget.parameterTitle == "Face") {
++                            final liveness = await LivenessGate.run(context, workflow: LivenessGate.resident);
++                            if (!liveness.proceed) return;
++                          }
+                           await BiometricsApi().invokeDiscoverSbi(
+                               widget.field.id!, widget.parameterTitle);
+                           await BiometricsApi()
+@@ -294,6 +300,12 @@ class _BiometricScanMiddleBlockState extends State<BiometricScanMiddleBlock> {
+               if (widget.biometricAttributeData.exceptions.contains(false)) {
+                 if (widget.biometricAttributeData.attemptNo <
+                     widget.biometricAttributeData.noOfCapturesAllowed) {
++                  // Landscape layout of the resident face capture: the same liveness step as the portrait one
++                  // (docs/ui-liveness-spec.md section 6). The exception photo is not gated.
++                  if (widget.parameterTitle == "Face") {
++                    final liveness = await LivenessGate.run(context, workflow: LivenessGate.resident);
++                    if (!liveness.proceed) return;
++                  }
+                   List<Uint8List?> temp = [];
+                   await BiometricsApi().invokeDiscoverSbi(
+                       widget.field.id!, widget.parameterTitle);
+diff --git a/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart b/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart
+index 7146ff4..9ea60b7 100644
+--- a/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart
++++ b/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart
+@@ -21,6 +21,7 @@ import 'package:registration_client/model/field.dart';
+ import 'package:registration_client/pigeon/biometrics_pigeon.dart';
+ import 'package:registration_client/provider/biometric_capture_control_provider.dart';
+ import 'package:registration_client/provider/global_provider.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+ 
+ import 'package:registration_client/utils/app_config.dart';
+@@ -596,6 +597,13 @@ class _BiometricCaptureScanBlockPortraitState
+             if (biometricAttributeData.exceptions.contains(false)) {
+               if (biometricAttributeData.attemptNo <
+                   biometricAttributeData.noOfCapturesAllowed) {
++                // Face liveness before the SBI face capture (docs/ui-liveness-spec.md section 6). Not proceeding
++                // means no capture and no attempt counted. The exception photo is not gated: it is the
++                // biometric exception process, the recovery path when liveness fails.
++                if (biometricAttributeData.title == "Face") {
++                  final liveness = await LivenessGate.run(context, workflow: LivenessGate.resident);
++                  if (!liveness.proceed) return;
++                }
+                 List<Uint8List?> tempImageList = [];
+                 await BiometricsApi().invokeDiscoverSbi(widget.field.id!,
+                     biometricAttributeData.title.replaceAll(" ", ""));

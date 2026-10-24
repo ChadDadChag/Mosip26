@@ -12,8 +12,10 @@ Installs the engine modules (liveness-api, -core, -fake, -analyzer) with JDK 11 
 
 The model files are copied byte for byte. Each ONNX file is checked against manifest.json
 (size and SHA-256) and every copy against its source, so a stale or modified bundle fails
-the sync instead of failing on the phone. engine-sync.txt records the engine commit and the
-SHA-256 of every copied file.
+the sync instead of failing on the phone. engine-sync.txt records the engine commit (the last
+commit that changed the engine modules, the models, the camera source or the parent pom) and
+the SHA-256 of every copied file. The jars embed build time and git info, so a rebuilt jar has
+a new SHA-256 even from the same commit; -SkipBuild copies the jars already built.
 
 Edit these files in this repository and sync again; never edit the copies in the client.
 The environment changes made for Maven are undone when the script ends.
@@ -88,8 +90,10 @@ if (-not $SkipBuild) {
 }
 
 $record = New-Object System.Collections.Generic.List[string]
-$commit = (& git -C $repo rev-parse --short HEAD).Trim()
-$dirty = (& git -C $repo status --porcelain -- $engineModules models android-liveness-frame-source)
+# The last commit that changed what is synced (not HEAD), so documentation-only commits leave the record unchanged.
+$enginePaths = $engineModules + @('models', 'android-liveness-frame-source', 'pom.xml')
+$commit = (& git -C $repo log -1 --format=%h -- $enginePaths).Trim()
+$dirty = (& git -C $repo status --porcelain -- $enginePaths)
 $record.Add("engine commit $commit" + $(if ($dirty) { ' (with uncommitted changes)' } else { '' }))
 
 # 2. Jars.

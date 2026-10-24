@@ -1,0 +1,969 @@
+From 808e4cc2f339ea95422d9ae2d1e059a78d5ddb69 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 21:54:09 +0530
+Subject: [PATCH 24/26] Liveness: benchmark, persisted metrics, model update,
+ Android defaults
+
+P5-5, wired through LivenessServiceHolder, LivenessApi (Pigeon) and the
+debug page (debug and profile builds; the diagnostics calls are refused
+when BuildConfig.LIVENESS_DIAGNOSTICS is false).
+
+Benchmark: runBenchmark(camera) captures 60 frames into memory (the debug
+page's preview shows the face), stops the camera, runs AnalyzerBenchmark
+on its own thread with the bundled models and each signed test bundle
+under files/bench-bundles/, drops the frames and returns the text report
+(also logged as "benchmark| " lines). Debug page: "Benchmark" button.
+
+Metrics: after each real-engine session the holder merges its metrics
+into LivenessMetricsStore (the fake engine's are not persisted).
+metrics() returns the persisted totals and rates as key=value lines;
+resetMetrics() clears them. Debug page: Metrics card with Refresh/Reset.
+
+Model update (plan A8): installModelBundle() installs the signed bundle
+staged in files/bundle-staging/ (adb push) through ModelStore.install
+(verified first, so a bad bundle never touches the store; anti-rollback;
+atomic switch), then swaps in a new analyzer factory so the next session
+uses it. The first install also installs the bundled models as the
+store's base, so rollbackModelBundle() can return to them.
+modelStoreStatus() lists the store. Debug page: Model bundle card.
+
+Android analyzer defaults: ANDROID_ANALYZER_DEFAULTS (CPU, 2 intra-op
+threads, from the S23 FE benchmark: fastest p50 with exact parity;
+XNNPACK is 2x slower, NNAPI 4x, 4 threads oversubscribe) apply when the
+config has no mosip.registration.liveness.face.analyzer.intraOpThreads /
+.accelerator value; any synced value or override wins, and an invalid
+analyzer config falls back to the Android defaults.
+
+Exposure assist (F8): mosip.registration.liveness.face.android.
+exposureAssist (default true; "false" turns it off) is applied to each
+session's CameraXFrameSource; the session start log shows it. Debug
+page: "Exposure assist (dim faces)" switch.
+
+Diagnostics flag: LivenessApi's overrides, detailed logs and camera
+timing use LIVENESS_DIAGNOSTICS instead of BuildConfig.DEBUG.
+
+Tests (module, JVM): Android defaults and their precedence, the invalid
+config fallback, the exposure assist key, an unsigned bundle leaves the
+store untouched, rollback of an empty store, benchmark bundle listing.
+Module 73/73, Flutter test/liveness 56/56. Run on the phone: see the
+Mosip26 docs/part5-android-benchmark.md.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../api_services/LivenessApi.java             | 177 +++++++++++++++++-
+ .../android/LivenessServiceHolder.java        | 146 ++++++++++++++-
+ .../android/LivenessServiceHolderTest.java    |  83 ++++++++
+ lib/ui/liveness/liveness_debug_page.dart      | 166 +++++++++++++++-
+ pigeon/liveness.dart                          |  33 +++-
+ 5 files changed, 584 insertions(+), 21 deletions(-)
+
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index 7e1d33c..387b5d6 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -19,7 +19,10 @@ import androidx.camera.core.CameraSelector;
+ import androidx.camera.view.PreviewView;
+ import androidx.core.content.ContextCompat;
+ 
++import java.io.File;
+ import java.lang.ref.WeakReference;
++import java.util.ArrayList;
++import java.util.List;
+ import java.util.Locale;
+ import java.util.Map;
+ import java.util.UUID;
+@@ -30,10 +33,13 @@ import javax.inject.Singleton;
+ import io.flutter.embedding.engine.FlutterEngine;
+ import io.flutter.plugin.common.BinaryMessenger;
+ import io.flutter.plugin.common.EventChannel;
++import io.mosip.registration.liveness.android.AnalyzerBenchmark;
+ import io.mosip.registration.liveness.android.BestFrameEncoder;
+ import io.mosip.registration.liveness.android.LivenessMaps;
+ import io.mosip.registration.liveness.android.LivenessServiceHolder;
+ import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameSource;
+ import io.mosip.registration.liveness.api.LivenessEvent;
+ import io.mosip.registration.liveness.api.LivenessListener;
+ import io.mosip.registration.liveness.api.LivenessPolicy;
+@@ -52,6 +58,10 @@ import io.mosip.registration_client.model.LivenessPigeon;
+  * <p>One session at a time: starting a session cancels the running one (whose remaining callbacks are dropped),
+  * and the Activity pausing cancels it. Session state is touched on the main thread only. The best frame is
+  * sent to Dart as a JPEG on PASSED and is never logged.</p>
++ *
++ * <p>Diagnostics ({@code BuildConfig.LIVENESS_DIAGNOSTICS}: debug and profile builds, never release): config
++ * overrides, detailed logs, the analyzer benchmark (frames in memory only) and model bundle install/rollback from
++ * {@value #BUNDLE_STAGING}.</p>
+  */
+ @Singleton
+ public class LivenessApi implements LivenessPigeon.LivenessApi {
+@@ -60,6 +70,12 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+     public static final String EVENT_CHANNEL = "io.mosip.registration_client/liveness/events";
+     public static final String PREVIEW_VIEW_TYPE = "io.mosip.registration_client/liveness_preview";
+     private static final Size ANALYSIS_RESOLUTION = new Size(640, 480);
++    /** Under the app's external files dir (adb push target): a signed bundle to install. */
++    static final String BUNDLE_STAGING = "bundle-staging";
++    /** Under the app's external files dir: signed test bundles the benchmark also runs. */
++    static final String BENCH_BUNDLES = "bench-bundles";
++    private static final int BENCHMARK_FRAMES = 60;
++    private static final long BENCHMARK_CAPTURE_TIMEOUT_MS = 20_000;
+ 
+     private final LivenessServiceHolder holder;
+     private final Handler main = new Handler(Looper.getMainLooper());
+@@ -70,6 +86,7 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+     private LivenessSession session;
+     private CameraXFrameSource source;
+     private int generation;
++    private boolean benchmarking;
+ 
+     @Inject
+     public LivenessApi(LivenessServiceHolder holder) {
+@@ -174,7 +191,8 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+                     ? CameraSelector.DEFAULT_BACK_CAMERA : CameraSelector.DEFAULT_FRONT_CAMERA;
+             src = new CameraXFrameSource(activity, activity, selector, ANALYSIS_RESOLUTION, 1,
+                     preview == null ? null : preview.getSurfaceProvider());
+-            src.setDebugTiming(BuildConfig.DEBUG);
++            src.setDebugTiming(BuildConfig.LIVENESS_DIAGNOSTICS);
++            src.setExposureAssist(holder.exposureAssist());
+         }
+         final CameraXFrameSource sessionSource = src;
+         session = s;
+@@ -182,12 +200,12 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         holder.analyzerTimes().reset();
+         Log.i(TAG, "session " + s.sessionId() + " started: " + wf + ", " + (useFake ? "fake engine, no camera"
+                 : "real engine, " + ("back".equalsIgnoreCase(camera) ? "back" : "front") + " camera, preview "
+-                + (preview != null)));
++                + (preview != null) + ", exposure assist " + (src.exposureAssist() ? "on" : "off")));
+         s.start(src, new LivenessListener() {
+             @Override
+             public void onEvent(LivenessEvent event) {
+                 Map<String, Object> m = LivenessMaps.event(event);
+-                if (BuildConfig.DEBUG) Log.d(TAG, "event " + event.type + describe(event));
++                if (BuildConfig.LIVENESS_DIAGNOSTICS) Log.d(TAG, "event " + event.type + describe(event));
+                 send(gen, m);
+             }
+ 
+@@ -228,18 +246,164 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+ 
+     @Override
+     public void setConfigOverride(@NonNull String key, @NonNull String value) {
+-        if (!BuildConfig.DEBUG) {
+-            Log.w(TAG, "config overrides are for debug builds only; ignored " + key);
++        if (!BuildConfig.LIVENESS_DIAGNOSTICS) {
++            Log.w(TAG, "config overrides are for diagnostics builds only; ignored " + key);
+             return;
+         }
+         holder.setOverride(key, value);
+         Log.i(TAG, "config overrides now " + holder.overrides());
+     }
+ 
++    @NonNull
++    @Override
++    public String metrics() {
++        StringBuilder sb = new StringBuilder();
++        for (Map.Entry<String, String> e : holder.persistedMetrics().entrySet()) {
++            sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
++        }
++        return sb.toString();
++    }
++
++    @Override
++    public void resetMetrics() {
++        if (!BuildConfig.LIVENESS_DIAGNOSTICS) {
++            Log.w(TAG, "metrics reset is for diagnostics builds only; ignored");
++            return;
++        }
++        holder.resetMetrics();
++        Log.i(TAG, "persisted metrics reset");
++    }
++
++    @NonNull
++    @Override
++    public String modelStoreStatus() {
++        return holder.modelStoreStatus();
++    }
++
++    @Override
++    public void installModelBundle(@NonNull LivenessPigeon.Result<String> result) {
++        if (!diagnostics(result)) return;
++        File dir = holder.context().getExternalFilesDir(BUNDLE_STAGING);
++        holder.background().execute(() -> {
++            try {
++                String v = holder.installModelBundle(dir);
++                main.post(() -> result.success(v));
++            } catch (Exception e) {
++                Log.w(TAG, "model bundle not installed: " + e);
++                main.post(() -> result.error(e));
++            }
++        });
++    }
++
++    @Override
++    public void rollbackModelBundle(@NonNull LivenessPigeon.Result<String> result) {
++        if (!diagnostics(result)) return;
++        holder.background().execute(() -> {
++            try {
++                String v = holder.rollbackModelBundle();
++                main.post(() -> result.success(v));
++            } catch (Exception e) {
++                Log.w(TAG, "model bundle not rolled back: " + e);
++                main.post(() -> result.error(e));
++            }
++        });
++    }
++
++    /**
++     * Captures {@value #BENCHMARK_FRAMES} frames into memory (never written anywhere), stops the camera, then runs
++     * {@link AnalyzerBenchmark} on its own thread and drops the frames. The report holds timings and parity only.
++     */
++    @Override
++    public void runBenchmark(@NonNull String camera, @NonNull LivenessPigeon.Result<String> result) {
++        if (!diagnostics(result)) return;
++        MainActivity activity = activityRef.get();
++        if (activity == null) {
++            result.error(new IllegalStateException("Activity not set"));
++            return;
++        }
++        if (session != null || benchmarking) {
++            result.error(new IllegalStateException("a session or a benchmark is running"));
++            return;
++        }
++        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
++            result.error(new IllegalStateException("camera permission not granted"));
++            return;
++        }
++        benchmarking = true;
++        CameraSelector selector = "back".equalsIgnoreCase(camera)
++                ? CameraSelector.DEFAULT_BACK_CAMERA : CameraSelector.DEFAULT_FRONT_CAMERA;
++        PreviewView preview = holder.preview();
++        CameraXFrameSource src = new CameraXFrameSource(activity, activity, selector, ANALYSIS_RESOLUTION, 1,
++                preview == null ? null : preview.getSurfaceProvider());
++        src.setExposureAssist(holder.exposureAssist());
++        List<Frame> frames = new ArrayList<>();
++        boolean[] done = {false};
++        Runnable finishCapture = () -> { // main thread
++            if (done[0]) return;
++            done[0] = true;
++            src.stop();
++            if (frames.size() < BENCHMARK_FRAMES) {
++                int captured = frames.size();
++                frames.clear();
++                benchmarking = false;
++                result.error(new IllegalStateException("captured only " + captured + " frames"));
++                return;
++            }
++            File benchDir = activity.getExternalFilesDir(BENCH_BUNDLES);
++            String device = android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL + ", Android "
++                    + android.os.Build.VERSION.RELEASE + " (API " + android.os.Build.VERSION.SDK_INT + "), "
++                    + BuildConfig.BUILD_TYPE + " build, " + frames.get(0).width() + "x" + frames.get(0).height();
++            List<AnalyzerBenchmark.Bundle> bundles = holder.benchmarkBundles(benchDir);
++            Thread t = new Thread(() -> {
++                String report;
++                try {
++                    List<AnalyzerBenchmark.Result> r = AnalyzerBenchmark.run(frames, bundles,
++                            AnalyzerBenchmark.defaultSettings(), step -> Log.i(TAG, "benchmark: " + step));
++                    report = AnalyzerBenchmark.report(r, frames.size(), device);
++                } catch (RuntimeException | LinkageError e) {
++                    report = "benchmark failed: " + e;
++                } finally {
++                    frames.clear(); // the frames are dropped here, whatever happened
++                }
++                for (String line : report.split("\n")) Log.i(TAG, "benchmark| " + line);
++                String text = report;
++                main.post(() -> {
++                    benchmarking = false;
++                    result.success(text);
++                });
++            }, "liveness-benchmark");
++            t.start();
++        };
++        src.start(new FrameSource.Listener() {
++            @Override
++            public void onFrame(Frame frame) {
++                main.post(() -> {
++                    if (done[0]) return;
++                    frames.add(frame);
++                    if (frames.size() >= BENCHMARK_FRAMES) finishCapture.run();
++                });
++            }
++
++            @Override
++            public void onError(ErrorCode code, String detail, boolean recoverable) {
++                Log.w(TAG, "benchmark capture: " + code + " " + detail);
++                if (!recoverable) main.post(finishCapture);
++            }
++        });
++        main.postDelayed(finishCapture, BENCHMARK_CAPTURE_TIMEOUT_MS);
++        Log.i(TAG, "benchmark: capturing " + BENCHMARK_FRAMES + " frames into memory");
++    }
++
++    private static boolean diagnostics(LivenessPigeon.Result<String> result) {
++        if (BuildConfig.LIVENESS_DIAGNOSTICS) return true;
++        result.error(new IllegalStateException("diagnostics builds only"));
++        return false;
++    }
++
+     /** {@code src} is null for the fake engine, which then has no best frame to send either. */
+     private void complete(int gen, LivenessResult r, CameraXFrameSource src) {
+         if (src != null) src.stop(); // the session stops it too; stop() is idempotent
+-        if (BuildConfig.DEBUG) {
++        if (BuildConfig.LIVENESS_DIAGNOSTICS) {
+             Log.i(TAG, "complete " + LivenessMaps.describe(r));
+             Log.i(TAG, "analyzer " + holder.analyzerTimes().summary());
+             Log.i(TAG, "metrics " + holder.metrics(src == null).toMap());
+@@ -247,6 +411,7 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+             Log.i(TAG, "complete " + r.decision + " " + r.failureCode + " in " + r.durationMs + " ms");
+         }
+         holder.background().execute(() -> {
++            if (src != null) holder.recordMetrics(); // the real engine's counts, persisted (anonymised)
+             byte[] jpeg = null;
+             // Without a camera the fake engine makes up a grey frame: not worth sending.
+             if (src != null && r.passed() && r.bestFrame != null) {
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index e34cebc..01702e2 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -7,6 +7,7 @@ import android.util.Log;
+ import androidx.camera.view.PreviewView;
+ 
+ import java.io.File;
++import java.io.IOException;
+ import java.lang.reflect.Field;
+ import java.lang.reflect.Modifier;
+ import java.util.ArrayList;
+@@ -25,8 +26,10 @@ import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
+ import io.mosip.registration.clientmanager.spi.AuditManagerService;
+ import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
+ import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
+ import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
+ import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.analyzer.integrity.VerifiedBundle;
+ import io.mosip.registration.liveness.api.AuditSink;
+ import io.mosip.registration.liveness.api.ConfigProvider;
+ import io.mosip.registration.liveness.api.ErrorCode;
+@@ -48,7 +51,11 @@ import io.mosip.registration.liveness.fake.FakeLivenessService;
+  *   <li>Config: the synced global params, under a map of overrides (debug screen only). Re-read after every global
+  *       param refresh (a sync): policies for new sessions, and the analyzer when its settings changed.</li>
+  *   <li>{@link #preload()} verifies the bundle and builds the ONNX sessions in the background at app start.</li>
+- *   <li>The camera per workflow: {@code mosip.registration.liveness.face.android.<workflow>.camera}, front or back.</li>
++ *   <li>The camera per workflow: {@code mosip.registration.liveness.face.android.<workflow>.camera}, front or back;
++ *       the dim-face exposure assist: {@code mosip.registration.liveness.face.android.exposureAssist} (default true).</li>
++ *   <li>Analyzer settings: the {@code mosip.registration.liveness.face.analyzer.*} keys, else the Android defaults
++ *       ({@link #ANDROID_ANALYZER_DEFAULTS}, from the on-device benchmark), else the analyzer's own defaults.</li>
++ *   <li>The real engine's anonymised metrics are added to {@link LivenessMetricsStore} after each session.</li>
+  * </ul>
+  */
+ public final class LivenessServiceHolder {
+@@ -56,6 +63,21 @@ public final class LivenessServiceHolder {
+     private static final String TAG = "LivenessService";
+     public static final String MODEL_STORE_DIR = "liveness-models";
+     public static final String CAMERA_KEY_PREFIX = "mosip.registration.liveness.face.android.";
++    public static final String EXPOSURE_ASSIST_KEY = CAMERA_KEY_PREFIX + "exposureAssist";
++
++    /**
++     * Analyzer settings used on Android when the config does not set them: the fastest setting of the on-device
++     * benchmark (Samsung S23 FE) whose scores and landmarks match the CPU 1-thread reference
++     * (Mosip26 docs/part5-android-benchmark.md). Any analyzer key in the synced config or an override wins.
++     */
++    static final Map<String, String> ANDROID_ANALYZER_DEFAULTS;
++
++    static {
++        Map<String, String> m = new HashMap<>();
++        m.put(AnalyzerConfig.KEY_PREFIX + "intraOpThreads", "2");
++        m.put(AnalyzerConfig.KEY_PREFIX + "accelerator", "CPU");
++        ANDROID_ANALYZER_DEFAULTS = Collections.unmodifiableMap(m);
++    }
+ 
+     private final Context context;
+     private final AndroidAuditSink audit;
+@@ -76,6 +98,7 @@ public final class LivenessServiceHolder {
+     private volatile int analyzerSwaps;
+ 
+     private volatile String modelVersion = "";
++    private LivenessMetricsStore metricsStore; // created on first use
+     // Main thread only: the live preview views, newest last (a screen opened over another one has its own).
+     private final List<PreviewView> previews = new ArrayList<>();
+ 
+@@ -94,8 +117,12 @@ public final class LivenessServiceHolder {
+     }
+ 
+     private OnnxFaceAnalyzerFactory analyzerFactory(AnalyzerConfig analyzerConfig) {
+-        return new OnnxFaceAnalyzerFactory(new AssetBundleSource(context),
+-                new ModelStore(new File(context.getFilesDir(), MODEL_STORE_DIR)), TrustedKeys.builtIn(), analyzerConfig);
++        return new OnnxFaceAnalyzerFactory(new AssetBundleSource(context), modelStore(), TrustedKeys.builtIn(),
++                analyzerConfig);
++    }
++
++    private ModelStore modelStore() {
++        return new ModelStore(new File(context.getFilesDir(), MODEL_STORE_DIR));
+     }
+ 
+     private FakeLivenessService fakeService(double timeScale) {
+@@ -150,6 +177,101 @@ public final class LivenessServiceHolder {
+         return (useFake ? fake.metrics() : real.metrics()).snapshot();
+     }
+ 
++    /**
++     * Adds the real engine's metrics since the last call to the persisted totals (after each real session). The fake
++     * engine's are not persisted: they are test runs.
++     */
++    public void recordMetrics() {
++        metricsStore().merge(real.metrics());
++    }
++
++    /** The persisted totals (since install or the last reset) and the rates derived from them. */
++    public Map<String, String> persistedMetrics() {
++        return metricsStore().derived();
++    }
++
++    public void resetMetrics() {
++        metricsStore().reset();
++    }
++
++    private synchronized LivenessMetricsStore metricsStore() {
++        if (metricsStore == null) {
++            metricsStore = new LivenessMetricsStore(
++                    context.getSharedPreferences(LivenessMetricsStore.PREFS, Context.MODE_PRIVATE));
++        }
++        return metricsStore;
++    }
++
++    /** {@value #EXPOSURE_ASSIST_KEY}: anything but "false" (or no value) keeps the dim-face exposure assist on. */
++    public boolean exposureAssist() {
++        String v = config.get(EXPOSURE_ASSIST_KEY);
++        return v == null || !"false".equalsIgnoreCase(v.trim());
++    }
++
++    /**
++     * Installs the signed bundle staged in {@code dir} into the model store ({@link ModelStore#install}: verified,
++     * strictly newer than the store's current one, atomic switch) and reloads the analyzer, so the next session uses
++     * it; a running session keeps its models. The first install also installs the bundled models (verified) as the
++     * store's base, so that {@link #rollbackModelBundle()} can return to them.
++     *
++     * @return the installed version
++     * @throws LivenessEngineException  MODEL_INTEGRITY_FAILED for a bundle that does not verify (the store is unchanged)
++     * @throws IllegalArgumentException for a bundle that is not newer than the current one
++     */
++    public synchronized String installModelBundle(File dir) throws LivenessEngineException, IOException {
++        DirectoryBundleSource staged = new DirectoryBundleSource(dir);
++        VerifiedBundle.load(staged, TrustedKeys.builtIn()); // a bad bundle fails here, before the store is touched
++        ModelStore store = modelStore();
++        if (store.installedVersions().isEmpty()) {
++            String base = store.install(new AssetBundleSource(context), TrustedKeys.builtIn());
++            Log.i(TAG, "model store: bundled " + base + " installed as the base for rollback");
++        }
++        String v = store.install(staged, TrustedKeys.builtIn());
++        Log.i(TAG, "model store: installed " + v + " from " + dir);
++        reloadModels();
++        return v;
++    }
++
++    /** Operator action: the store's previous bundle becomes current again ({@link ModelStore#rollback}), then a reload. */
++    public synchronized String rollbackModelBundle() throws LivenessEngineException, IOException {
++        String v = modelStore().rollback(TrustedKeys.builtIn());
++        Log.i(TAG, "model store: rolled back to " + v);
++        reloadModels();
++        return v;
++    }
++
++    /** The store's installed versions (oldest first) and its current one. */
++    public synchronized String modelStoreStatus() {
++        ModelStore store = modelStore();
++        String current;
++        try {
++            current = store.currentVersion();
++        } catch (LivenessEngineException e) {
++            current = "unreadable (" + e.code() + ")";
++        }
++        return "installed " + store.installedVersions() + ", current " + (current == null ? "none (bundled)" : current);
++    }
++
++    /** New sessions use the newest verified bundle (store or assets); running sessions keep theirs. */
++    private void reloadModels() {
++        modelVersion = "";
++        analyzers.swap(analyzerFactory(analyzerConfig(config)));
++        analyzerSwaps++;
++        preload();
++    }
++
++    /** The bundled models plus each signed test bundle directory under {@code dir} (benchmark only). */
++    public List<AnalyzerBenchmark.Bundle> benchmarkBundles(File dir) {
++        List<AnalyzerBenchmark.Bundle> out = new ArrayList<>();
++        out.add(new AnalyzerBenchmark.Bundle("bundled", new AssetBundleSource(context)));
++        File[] dirs = dir == null ? null : dir.listFiles(File::isDirectory);
++        if (dirs != null) {
++            Arrays.sort(dirs);
++            for (File d : dirs) out.add(new AnalyzerBenchmark.Bundle(d.getName(), new DirectoryBundleSource(d)));
++        }
++        return out;
++    }
++
+     /** "back" when {@code mosip.registration.liveness.face.android.<workflow>.camera} says so, else "front". */
+     public String cameraFor(WorkflowType workflow) {
+         String v = config.get(CAMERA_KEY_PREFIX + workflow.name().toLowerCase(Locale.ROOT) + ".camera");
+@@ -250,15 +372,25 @@ public final class LivenessServiceHolder {
+         return v != null ? v : baseConfig.get(key);
+     }
+ 
+-    private static AnalyzerConfig analyzerConfig(ConfigProvider config) {
++    /** The analyzer settings: configured keys first, then {@link #ANDROID_ANALYZER_DEFAULTS}. */
++    static AnalyzerConfig analyzerConfig(ConfigProvider config) {
++        ConfigProvider withDefaults = key -> {
++            String v = config.get(key);
++            return v != null && !v.trim().isEmpty() ? v : ANDROID_ANALYZER_DEFAULTS.get(key);
++        };
+         try {
+-            return AnalyzerConfig.fromConfig(config);
++            return AnalyzerConfig.fromConfig(withDefaults);
+         } catch (IllegalArgumentException e) {
+-            Log.e(TAG, "invalid analyzer config, using the defaults: " + e.getMessage());
+-            return AnalyzerConfig.defaults();
++            Log.e(TAG, "invalid analyzer config, using the Android defaults: " + e.getMessage());
++            return AnalyzerConfig.fromConfig(ANDROID_ANALYZER_DEFAULTS::get);
+         }
+     }
+ 
++    /** The analyzer settings new sessions get (tests and the debug log). */
++    AnalyzerConfig analyzerSettings() {
++        return analyzerConfig(config);
++    }
++
+     /** The analyzer settings as text (its public fields, and those of nested settings), to see if they changed. */
+     static String fingerprint(Object settings) {
+         StringBuilder sb = new StringBuilder();
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+index 9884b84..0ab9e6d 100644
+--- a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertFalse;
+ import static org.junit.Assert.assertNotEquals;
+ import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
+ import static org.mockito.ArgumentMatchers.anyString;
+ import static org.mockito.Mockito.mock;
+ import static org.mockito.Mockito.verify;
+@@ -18,12 +19,18 @@ import org.junit.Test;
+ import org.junit.rules.TemporaryFolder;
+ import org.mockito.ArgumentCaptor;
+ 
++import java.io.File;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
+ import java.util.HashMap;
++import java.util.List;
+ import java.util.Map;
+ 
+ import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
+ import io.mosip.registration.clientmanager.spi.AuditManagerService;
+ import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.LivenessEngineException;
+ import io.mosip.registration.liveness.api.WorkflowType;
+ 
+ /** Config handling of the holder; no models are loaded (the analyzer is created lazily). */
+@@ -98,6 +105,82 @@ public class LivenessServiceHolderTest {
+         assertEquals(1, holder.analyzerSwaps());
+     }
+ 
++    @Test
++    public void androidDefaultsApplyUnlessTheConfigSetsTheKey() {
++        String threads = AnalyzerConfig.KEY_PREFIX + "intraOpThreads";
++        String accelerator = AnalyzerConfig.KEY_PREFIX + "accelerator";
++        AnalyzerConfig android = holder.analyzerSettings();
++        assertEquals(Integer.parseInt(LivenessServiceHolder.ANDROID_ANALYZER_DEFAULTS.get(threads)), android.intraOpThreads);
++        assertEquals(LivenessServiceHolder.ANDROID_ANALYZER_DEFAULTS.get(accelerator), android.accelerator.name());
++
++        synced.put(threads, "1");
++        synced.put(accelerator, "nnapi");
++        assertEquals(1, holder.analyzerSettings().intraOpThreads);
++        assertEquals(AnalyzerConfig.Accelerator.NNAPI, holder.analyzerSettings().accelerator);
++        holder.setOverride(threads, "3");
++        assertEquals(3, holder.analyzerSettings().intraOpThreads);
++        synced.put(threads, " ");
++        holder.setOverride(threads, "");
++        assertEquals("a blank value keeps the Android default", android.intraOpThreads, holder.analyzerSettings().intraOpThreads);
++    }
++
++    @Test
++    public void anInvalidAnalyzerConfigFallsBackToTheAndroidDefaults() {
++        synced.put(AnalyzerConfig.KEY_PREFIX + "accelerator", "GPU");
++        AnalyzerConfig cfg = holder.analyzerSettings();
++        assertEquals(LivenessServiceHolder.ANDROID_ANALYZER_DEFAULTS.get(AnalyzerConfig.KEY_PREFIX + "accelerator"),
++                cfg.accelerator.name());
++    }
++
++    @Test
++    public void theExposureAssistIsOnUnlessSetToFalse() {
++        assertTrue(holder.exposureAssist());
++        synced.put(LivenessServiceHolder.EXPOSURE_ASSIST_KEY, " FALSE ");
++        assertFalse(holder.exposureAssist());
++        holder.setOverride(LivenessServiceHolder.EXPOSURE_ASSIST_KEY, "true");
++        assertTrue(holder.exposureAssist());
++    }
++
++    @Test
++    public void aBundleThatDoesNotVerifyLeavesTheStoreUntouched() throws Exception {
++        File staged = files.newFolder("staging");
++        Files.write(new File(staged, "manifest.json").toPath(), "{}".getBytes(StandardCharsets.UTF_8));
++        Files.write(new File(staged, "manifest.sig").toPath(), "mosip-liveness-dev-2026-10:00".getBytes(StandardCharsets.UTF_8));
++        try {
++            holder.installModelBundle(staged);
++            fail("installed an unsigned bundle");
++        } catch (LivenessEngineException e) {
++            assertEquals(ErrorCode.MODEL_INTEGRITY_FAILED, e.code());
++        }
++        assertFalse(new File(files.getRoot(), LivenessServiceHolder.MODEL_STORE_DIR).exists());
++        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
++        assertEquals(0, holder.analyzerSwaps());
++    }
++
++    @Test
++    public void rollbackWithNothingInstalledIsRefused() throws Exception {
++        try {
++            holder.rollbackModelBundle();
++            fail("rolled back an empty store");
++        } catch (IllegalStateException e) {
++            assertEquals("nothing installed", e.getMessage());
++        }
++    }
++
++    @Test
++    public void benchmarkBundlesAreTheBundledOneThenEachTestFolder() throws Exception {
++        File root = files.newFolder("bench-bundles");
++        assertTrue(new File(root, "pad-2026.10.3-int8").mkdir());
++        assertTrue(new File(root, "a-first").mkdir());
++        Files.write(new File(root, "notes.txt").toPath(), new byte[]{1});
++        List<AnalyzerBenchmark.Bundle> b = holder.benchmarkBundles(root);
++        assertEquals(3, b.size());
++        assertEquals("bundled", b.get(0).label);
++        assertEquals("a-first", b.get(1).label);
++        assertEquals("pad-2026.10.3-int8", b.get(2).label);
++        assertEquals(1, holder.benchmarkBundles(null).size());
++    }
++
+     @Test
+     public void theFingerprintCoversNestedSettings() {
+         Map<String, String> cfg = new HashMap<>();
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index 29cf786..a72bd9b 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -7,7 +7,7 @@
+ 
+ import 'dart:async';
+ 
+-import 'package:flutter/foundation.dart' show kDebugMode;
++import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:registration_client/pigeon/liveness_pigeon.dart';
+@@ -15,9 +15,11 @@ import 'package:registration_client/platform_spi/liveness_service.dart';
+ import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/ui/liveness/liveness_page.dart';
+ 
+-/// Debug builds only: runs liveness sessions against the real or the fake
+-/// engine and shows the raw events and the result (including the passive
+-/// score, which production screens never show). Not localised on purpose.
++/// Debug and profile builds only (never release): runs liveness sessions
++/// against the real or the fake engine and shows the raw events and the result
++/// (including the passive score, which production screens never show); the
++/// analyzer benchmark, the persisted metrics and model bundle install/rollback.
++/// Not localised on purpose.
+ class LivenessDebugPage extends StatefulWidget {
+   const LivenessDebugPage({super.key});
+ 
+@@ -39,6 +41,9 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+       'mosip.registration.liveness.face.default.minChallenges';
+   // Read by LivenessServiceHolder: slows the fake engine's script down (screenshots).
+   static const String _fakeTimeScaleKey = 'liveness.fake.timeScale';
++  // Read by LivenessServiceHolder for each new session (default on).
++  static const String _exposureAssistKey =
++      'mosip.registration.liveness.face.android.exposureAssist';
+   static const List<String> _onlyChallenges = [
+     'any',
+     'BLINK',
+@@ -85,6 +90,8 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+   };
+ 
+   final LivenessService _service = LivenessService();
++  // Diagnostics calls that are not part of the LivenessService SPI.
++  final LivenessApi _api = LivenessApi();
+   final List<String> _log = [];
+   final Stopwatch _clock = Stopwatch();
+   final TextEditingController _overrideController = TextEditingController();
+@@ -95,6 +102,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+   bool _fake = false;
+   String _fakeScenario = 'PASS_ACTIVE';
+   bool _forceChallenges = false;
++  bool _exposureAssist = true;
+   String _onlyChallenge = 'any';
+   String _fakeSpeed = '1';
+   bool _placeholder = false;
+@@ -108,12 +116,76 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+   String _banner = 'Tap Start';
+   double? _bannerProgress;
+   LivenessMessage? _result;
++  bool _benchmarking = false;
++  String? _benchmarkReport;
++  String _metrics = '';
++  String _storeStatus = '';
++  String? _bundleMessage;
++  bool _bundleBusy = false;
+ 
+   @override
+   void initState() {
+     super.initState();
+     _subscription = _service.messages.listen(_onMessage);
+     _refreshPolicy();
++    _refreshDiagnostics();
++  }
++
++  Future<void> _refreshDiagnostics() async {
++    try {
++      final metrics = await _api.metrics();
++      final store = await _api.modelStoreStatus();
++      if (!mounted) return;
++      setState(() {
++        _metrics = metrics;
++        _storeStatus = store;
++      });
++    } on PlatformException catch (e) {
++      _addLog('diagnostics failed: ${e.message}');
++    }
++  }
++
++  Future<void> _runBenchmark() async {
++    setState(() {
++      _benchmarking = true;
++      _benchmarkReport = null;
++      _addLog('benchmark: capturing 60 frames (keep your face in view), then a few minutes of analysis');
++    });
++    String report;
++    try {
++      report = await _api.runBenchmark(_camera);
++    } on PlatformException catch (e) {
++      report = 'benchmark failed: ${e.message}';
++    }
++    if (!mounted) return;
++    setState(() {
++      _benchmarking = false;
++      _benchmarkReport = report;
++      _addLog('benchmark finished');
++    });
++  }
++
++  Future<void> _bundleAction(String label, Future<String> Function() action) async {
++    setState(() {
++      _bundleBusy = true;
++      _bundleMessage = '$label…';
++    });
++    String message;
++    try {
++      message = '$label: ${await action()}';
++    } on PlatformException catch (e) {
++      message = '$label refused: ${e.message}';
++    }
++    _addLog(message);
++    if (!mounted) return;
++    setState(() {
++      _bundleBusy = false;
++      _bundleMessage = message;
++    });
++    await _refreshDiagnostics();
++    // The new analyzer loads in the background; its version shows once loaded.
++    await Future<void>.delayed(const Duration(seconds: 2));
++    if (mounted) await _refreshPolicy();
+   }
+ 
+   @override
+@@ -158,6 +230,8 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+             'message=${m.userMessage} score=${m.passiveScore.toStringAsFixed(4)} '
+             'challenges=${m.challengesIssued} attempts=${m.attempts} '
+             '${m.durationMs} ms model=${m.modelVersion}');
++        // The native side merges the session's metrics in the background.
++        Future<void>.delayed(const Duration(milliseconds: 500), _refreshDiagnostics);
+       } else {
+         _status = _describe(m);
+         _updateBanner(m);
+@@ -272,6 +346,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+         useFake: _fake,
+         previewBuilder: _placeholder ? _placeholderPreview : null);
+     if (!mounted) return;
++    Future<void>.delayed(const Duration(milliseconds: 500), _refreshDiagnostics);
+     setState(() {
+       _pageOpen = false;
+       _gateResult = '$label ($workflow): ${result.status.name}'
+@@ -305,6 +380,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+       ),
+     );
+     if (!mounted) return;
++    Future<void>.delayed(const Duration(milliseconds: 500), _refreshDiagnostics);
+     setState(() {
+       _pageOpen = false;
+       _outcome = outcome;
+@@ -345,8 +421,9 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+ 
+   @override
+   Widget build(BuildContext context) {
+-    if (!kDebugMode) return const Scaffold(body: SizedBox.shrink());
++    if (!kDebugMode && !kProfileMode) return const Scaffold(body: SizedBox.shrink());
+     final result = _result;
++    final busy = _running || _pageOpen || _benchmarking || _bundleBusy;
+     return Scaffold(
+       appBar: AppBar(title: const Text('Liveness test (debug)')),
+       body: ListView(
+@@ -458,6 +535,17 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+                     _setOverride(_passiveThresholdKey, on ? '0.9999' : '');
+                   },
+           ),
++          SwitchListTile(
++            contentPadding: EdgeInsets.zero,
++            title: const Text('Exposure assist (dim faces)'),
++            value: _exposureAssist,
++            onChanged: _running
++                ? null
++                : (on) {
++                    setState(() => _exposureAssist = on);
++                    _setOverride(_exposureAssistKey, on ? '' : 'false');
++                  },
++          ),
+           Row(
+             children: [
+               const Text('Only challenge: '),
+@@ -537,17 +625,27 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+             spacing: 8,
+             children: [
+               ElevatedButton(
+-                  onPressed: _running ? null : _start, child: const Text('Start')),
++                  onPressed: busy ? null : _start, child: const Text('Start')),
+               OutlinedButton(
+                   onPressed: _running ? () => _service.retry() : null,
+                   child: const Text('Retry')),
+               OutlinedButton(
+                   onPressed: _running ? () => _service.cancel() : null,
+                   child: const Text('Cancel')),
++              // Frames stay in memory and are dropped after the run; the report has timings and parity only.
++              OutlinedButton(
++                  onPressed: busy ? null : _runBenchmark,
++                  child: Text(_benchmarking ? 'Benchmark running…' : 'Benchmark')),
+             ],
+           ),
+           const SizedBox(height: 8),
+           Text(_status, style: const TextStyle(fontWeight: FontWeight.bold)),
++          if (_benchmarkReport != null)
++            SingleChildScrollView(
++              scrollDirection: Axis.horizontal,
++              child: SelectableText(_benchmarkReport!,
++                  style: const TextStyle(fontFamily: 'monospace', fontSize: 10)),
++            ),
+           if (_outcome != null) _outcomeCard(_outcome!),
+           if (result != null) _resultCard(result),
+           const SizedBox(height: 8),
+@@ -560,6 +658,62 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+             ),
+           ),
++          const SizedBox(height: 8),
++          Card(
++            child: Padding(
++              padding: const EdgeInsets.all(8),
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: [
++                  const Text('Metrics (real engine, persisted, anonymised)',
++                      style: TextStyle(fontWeight: FontWeight.bold)),
++                  Text(_metrics.isEmpty ? '(none)' : _metrics.trim(),
++                      style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
++                  Row(
++                    children: [
++                      TextButton(onPressed: _refreshDiagnostics, child: const Text('Refresh')),
++                      TextButton(
++                          onPressed: busy
++                              ? null
++                              : () async {
++                                  await _api.resetMetrics();
++                                  _addLog('metrics reset');
++                                  await _refreshDiagnostics();
++                                },
++                          child: const Text('Reset')),
++                    ],
++                  ),
++                ],
++              ),
++            ),
++          ),
++          Card(
++            child: Padding(
++              padding: const EdgeInsets.all(8),
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: [
++                  const Text('Model bundle', style: TextStyle(fontWeight: FontWeight.bold)),
++                  Text('loaded: ${_modelVersion.isEmpty ? '(loading)' : _modelVersion}\n'
++                      'store: $_storeStatus\n'
++                      'staging: files/bundle-staging/ (adb push a signed bundle)'),
++                  if (_bundleMessage != null)
++                    Text(_bundleMessage!, style: const TextStyle(fontWeight: FontWeight.bold)),
++                  Wrap(
++                    spacing: 8,
++                    children: [
++                      OutlinedButton(
++                          onPressed: busy ? null : () => _bundleAction('Install', _api.installModelBundle),
++                          child: const Text('Install model bundle')),
++                      OutlinedButton(
++                          onPressed: busy ? null : () => _bundleAction('Rollback', _api.rollbackModelBundle),
++                          child: const Text('Rollback')),
++                    ],
++                  ),
++                ],
++              ),
++            ),
++          ),
+         ],
+       ),
+     );
+diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
+index 709dbfa..dd1ea35 100644
+--- a/pigeon/liveness.dart
++++ b/pigeon/liveness.dart
+@@ -45,7 +45,36 @@ abstract class LivenessApi {
+   /// this after every global-param sync).
+   void reloadConfig();
+ 
+-  /// Debug builds only (ignored otherwise): sets a config override, or removes
+-  /// it when value is empty.
++  /// Diagnostics builds (debug, profile) only, ignored otherwise: sets a config
++  /// override, or removes it when value is empty.
+   void setConfigOverride(String key, String value);
++
++  /// The persisted anonymised metrics of the real engine (counts since install
++  /// or the last reset, and the rates derived from them), one key=value per line.
++  String metrics();
++
++  /// Diagnostics builds only: clears the persisted metrics.
++  void resetMetrics();
++
++  /// Diagnostics builds only: captures 60 camera frames into memory (the person
++  /// faces the camera for about 5 s), benchmarks the analyzer (1, 2 and 4
++  /// threads x CPU, XNNPACK, NNAPI) with the bundled models and each signed
++  /// test bundle under files/bench-bundles/, discards the frames and returns
++  /// the report as text. Takes a few minutes.
++  @async
++  String runBenchmark(String camera);
++
++  /// Diagnostics builds only: installs the signed bundle staged (adb push) in
++  /// files/bundle-staging/ into the model store; new sessions use it. Returns
++  /// the installed version.
++  @async
++  String installModelBundle();
++
++  /// Diagnostics builds only: the model store's previous bundle becomes current
++  /// again. Returns that version.
++  @async
++  String rollbackModelBundle();
++
++  /// The model store's installed versions and its current one.
++  String modelStoreStatus();
+ }

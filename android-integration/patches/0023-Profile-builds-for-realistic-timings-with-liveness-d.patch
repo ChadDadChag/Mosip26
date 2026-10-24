@@ -1,0 +1,83 @@
+From 8d1ce5789e3549a6e69ec5dc239e98570d52562b Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 21:54:08 +0530
+Subject: [PATCH 23/26] Profile builds for realistic timings, with liveness
+ diagnostics
+
+Flutter's profile build type starts as a copy of debug, so it was
+debuggable and coverage-instrumented. For the P5-5 measurements
+(flutter build apk --profile --target-platform android-arm64) it is now
+not debuggable and not instrumented, still signed with the debug key.
+
+BuildConfig.LIVENESS_DIAGNOSTICS: true in debug and profile, false in
+release (defaultConfig). It gates the liveness config overrides, the
+detailed logs, the benchmark and the model bundle install of the debug
+page (next commit). The profile variant's mergeProfileAssets also waits
+for :clientmanager:dexifyBiosdkAars, as debug and release do. The login
+page's "Liveness test" entry shows in debug and profile, never release.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/app/build.gradle | 12 +++++++++++-
+ lib/ui/login_page.dart   |  4 ++--
+ 2 files changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/android/app/build.gradle b/android/app/build.gradle
+index 5ef1900..2ebd645 100644
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ -36,7 +36,7 @@ apply plugin: 'jacoco'
+ 
+ // Ensure bioSdk DEX conversion runs before asset merge
+ afterEvaluate {
+-    ['mergeDebugAssets', 'mergeReleaseAssets'].each { taskName ->
++    ['mergeDebugAssets', 'mergeProfileAssets', 'mergeReleaseAssets'].each { taskName ->
+         tasks.findByName(taskName)?.dependsOn(':clientmanager:dexifyBiosdkAars')
+     }
+ }
+@@ -77,6 +77,8 @@ android {
+         buildConfigField("String", "BASE_URL", rootProject.ext.serverBaseURL)
+         buildConfigField("String", "HEALTH_CHECK_PATH", rootProject.ext.serverHealthCheckPath)
+         buildConfigField("String", "ACTUATOR_INFO_PATH", rootProject.ext.serverActuatorInfoPath)
++        // Liveness diagnostics (config overrides, detailed logs, benchmark, model bundle install): never in release.
++        buildConfigField("boolean", "LIVENESS_DIAGNOSTICS", "false")
+     }
+ 
+     signingConfigs {
+@@ -91,6 +93,14 @@ android {
+     buildTypes {
+         debug {
+             testCoverageEnabled = true  // Enable test coverage
++            buildConfigField("boolean", "LIVENESS_DIAGNOSTICS", "true")
++        }
++        // Flutter's profile build (flutter build apk --profile) starts as a copy of debug. For realistic timings it
++        // is not debuggable and not coverage-instrumented; it keeps the liveness diagnostics and the debug key.
++        profile {
++            debuggable false
++            testCoverageEnabled = false
++            buildConfigField("boolean", "LIVENESS_DIAGNOSTICS", "true")
+         }
+         release {
+             // TODO: Add your own signing config for the release build.
+diff --git a/lib/ui/login_page.dart b/lib/ui/login_page.dart
+index cca9816..12c3a63 100644
+--- a/lib/ui/login_page.dart
++++ b/lib/ui/login_page.dart
+@@ -8,7 +8,7 @@
+ import 'dart:async';
+ import 'dart:developer';
+ 
+-import 'package:flutter/foundation.dart' show kDebugMode;
++import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_screenutil/flutter_screenutil.dart';
+@@ -166,7 +166,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
+                     SizedBox(
+                       height: 20.h,
+                     ),
+-                    if (kDebugMode)
++                    if (kDebugMode || kProfileMode) // never in release
+                       Align(
+                         alignment: Alignment.centerRight,
+                         child: TextButton(

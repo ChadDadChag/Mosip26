@@ -1,0 +1,169 @@
+From d4ee6736de1ccef9e4d071de2c80e773c6fee4a4 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:32:46 +0530
+Subject: [PATCH 11/26] Fake liveness engine no longer opens the camera
+
+The fake engine (debug builds only) used the real camera, and its result
+carried a real camera frame as the best frame (found while taking the P5-3
+screenshots). Now:
+- LivenessApi starts fake sessions with no FrameSource (FakeLivenessSession
+  accepts null), skips the camera-permission check for them, and sends no
+  best frame for them (without a camera the fake makes up a grey frame).
+- LivenessPage with useFake shows LivenessPlaceholderPreview (a grey
+  silhouette, now a public widget) instead of creating a camera view, and
+  does not wait for a platform view.
+
+Checked on the S23 FE: a fake session through the Resident face gate
+showed the placeholder, logged "fake engine, no camera", and left the
+camera service's connect history unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../api_services/LivenessApi.java             | 47 +++++++++++--------
+ lib/ui/liveness/liveness_page.dart            | 16 ++++++-
+ 2 files changed, 43 insertions(+), 20 deletions(-)
+
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index f2d7157..3bd2f1a 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -146,7 +146,8 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+             result.error(e);
+             return;
+         }
+-        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
++        if (!useFake
++                && ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+             // Dart asks for the permission first; this covers a refusal or a revoked permission.
+             String id = UUID.randomUUID().toString();
+             Log.w(TAG, "camera permission not granted: session " + id + " failed");
+@@ -165,17 +166,23 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+             result.success(""); // liveness disabled for this workflow: the caller keeps its legacy flow
+             return;
+         }
+-        PreviewView preview = holder.preview();
+-        CameraSelector selector = "back".equalsIgnoreCase(camera)
+-                ? CameraSelector.DEFAULT_BACK_CAMERA : CameraSelector.DEFAULT_FRONT_CAMERA;
+-        CameraXFrameSource src = new CameraXFrameSource(activity, activity, selector, ANALYSIS_RESOLUTION, 1,
+-                preview == null ? null : preview.getSurfaceProvider());
+-        src.setDebugTiming(BuildConfig.DEBUG);
++        // The fake engine runs without a camera: nothing is captured, shown or returned from it.
++        PreviewView preview = useFake ? null : holder.preview();
++        CameraXFrameSource src = null;
++        if (!useFake) {
++            CameraSelector selector = "back".equalsIgnoreCase(camera)
++                    ? CameraSelector.DEFAULT_BACK_CAMERA : CameraSelector.DEFAULT_FRONT_CAMERA;
++            src = new CameraXFrameSource(activity, activity, selector, ANALYSIS_RESOLUTION, 1,
++                    preview == null ? null : preview.getSurfaceProvider());
++            src.setDebugTiming(BuildConfig.DEBUG);
++        }
++        final CameraXFrameSource sessionSource = src;
+         session = s;
+         source = src;
+         holder.analyzerTimes().reset();
+-        Log.i(TAG, "session " + s.sessionId() + " started: " + wf + ", " + (useFake ? "fake" : "real") + " engine, "
+-                + ("back".equalsIgnoreCase(camera) ? "back" : "front") + " camera, preview " + (preview != null));
++        Log.i(TAG, "session " + s.sessionId() + " started: " + wf + ", " + (useFake ? "fake engine, no camera"
++                : "real engine, " + ("back".equalsIgnoreCase(camera) ? "back" : "front") + " camera, preview "
++                + (preview != null)));
+         s.start(src, new LivenessListener() {
+             @Override
+             public void onEvent(LivenessEvent event) {
+@@ -186,19 +193,12 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+ 
+             @Override
+             public void onComplete(LivenessResult r) {
+-                complete(gen, r, src);
++                complete(gen, r, sessionSource);
+             }
+         });
+         result.success(s.sessionId());
+     }
+ 
+-    @Override
+-    public void retry() {
+-        if (session != null) session.retry();
+-    }
+-
+-    @Override
+-    public void cancel() {
+     @NonNull
+     @Override
+     public String cameraFor(@NonNull String workflow) {
+@@ -210,6 +210,13 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         holder.reloadConfig();
+     }
+ 
++    @Override
++    public void retry() {
++        if (session != null) session.retry();
++    }
++
++    @Override
++    public void cancel() {
+         if (session != null) session.cancel();
+     }
+ 
+@@ -229,8 +236,9 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         Log.i(TAG, "config overrides now " + holder.overrides());
+     }
+ 
++    /** {@code src} is null for the fake engine, which then has no best frame to send either. */
+     private void complete(int gen, LivenessResult r, CameraXFrameSource src) {
+-        src.stop(); // the session stops it too; stop() is idempotent
++        if (src != null) src.stop(); // the session stops it too; stop() is idempotent
+         if (BuildConfig.DEBUG) {
+             Log.i(TAG, "complete " + LivenessMaps.describe(r));
+             Log.i(TAG, "analyzer " + holder.analyzerTimes().summary());
+@@ -239,7 +247,8 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         }
+         holder.background().execute(() -> {
+             byte[] jpeg = null;
+-            if (r.passed() && r.bestFrame != null) {
++            // Without a camera the fake engine makes up a grey frame: not worth sending.
++            if (src != null && r.passed() && r.bestFrame != null) {
+                 try {
+                     jpeg = BestFrameEncoder.jpeg(r.bestFrame, BestFrameEncoder.QUALITY);
+                 } catch (RuntimeException e) {
+diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
+index 669de9f..a56d9b4 100644
+--- a/lib/ui/liveness/liveness_page.dart
++++ b/lib/ui/liveness/liveness_page.dart
+@@ -126,7 +126,7 @@ class _LivenessPageState extends State<LivenessPage> {
+     super.initState();
+     _controller.addListener(_onStateChanged);
+     _subscription = _service.messages.listen(_onMessage);
+-    if (widget.previewBuilder != null) _previewReady.complete();
++    if (widget.previewBuilder != null || widget.useFake) _previewReady.complete();
+     _begin();
+   }
+ 
+@@ -309,7 +309,9 @@ class _LivenessPageState extends State<LivenessPage> {
+         AndroidView(
+           viewType: LivenessPage.previewViewType,
+           creationParamsCodec: const StandardMessageCodec(),
++    // The fake engine has no camera: a placeholder instead of a black view.
+           onPlatformViewCreated: (_) {
++        (widget.useFake ? const LivenessPlaceholderPreview() : null) ??
+             if (!_previewReady.isCompleted) _previewReady.complete();
+           },
+         );
+@@ -523,6 +525,18 @@ class _OvalPainter extends CustomPainter {
+         center: Offset(size.width / 2, size.height * 0.47),
+         width: size.width * 0.66,
+         height: size.height * 0.66,
++/// A neutral grey silhouette in place of the camera picture: the fake engine,
++/// tests and privacy-safe screenshots.
++class LivenessPlaceholderPreview extends StatelessWidget {
++  const LivenessPlaceholderPreview({super.key});
++
++  @override
++  Widget build(BuildContext context) => const ColoredBox(
++        color: Color(0xFFBDBDBD),
++        child: Center(child: Icon(Icons.person, size: 180, color: Color(0xFF8A8A8A))),
++      );
++}
++
+       );
+ 
+   @override

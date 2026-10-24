@@ -1,0 +1,334 @@
+From b8f794a65a7b0cf964298ebabb207b011978dddc Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 21:53:42 +0530
+Subject: [PATCH 21/26] LivenessMetricsStore: persisted anonymised liveness
+ metrics
+
+The engine's LivenessMetrics live in memory for one process. The store
+keeps their totals in SharedPreferences (liveness_metrics) across app
+restarts: counts and totals only (sessions, passes by path, final and
+attempt failures by error code, retries, cancellations, device errors,
+analysed frames and processing time, challenge counts and time). No
+session ids, timestamps, scores of individuals or images.
+
+merge(metrics) adds what a LivenessMetrics object gained since its
+previous merge (weakly keyed per object), so each count is added once,
+whatever the number of services. derived() returns the totals and the
+rates: avg processing ms, avg challenge completion ms, retry rate,
+failure rate, passive share, failures by code. reset() clears the totals;
+counts already merged are not added again.
+
+Tests (JVM, in-memory SharedPreferences): each count once, merge across
+two services, persistence across a new store and a new service, reset,
+and only count keys with long values stored.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../android/LivenessMetricsStore.java         | 116 ++++++++++++
+ .../android/LivenessMetricsStoreTest.java     | 174 ++++++++++++++++++
+ 2 files changed, 290 insertions(+)
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMetricsStore.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMetricsStoreTest.java
+
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMetricsStore.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMetricsStore.java
+new file mode 100644
+index 0000000..085dbae
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessMetricsStore.java
+@@ -0,0 +1,116 @@
++package io.mosip.registration.liveness.android;
++
++import android.content.SharedPreferences;
++
++import java.util.LinkedHashMap;
++import java.util.Locale;
++import java.util.Map;
++import java.util.TreeMap;
++import java.util.WeakHashMap;
++
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
++
++/**
++ * The engine's anonymised metrics over app restarts: counts and totals only, kept in SharedPreferences. No session
++ * ids, timestamps, scores of individuals or images are stored.
++ *
++ * <p>A service's {@link LivenessMetrics} counts from zero for its lifetime (one app process). After each session,
++ * {@link #merge} adds what changed since that object's previous merge, so every count is added exactly once, whatever
++ * the number of services (one per process, or a replaced one).
++ */
++public final class LivenessMetricsStore {
++
++    public static final String PREFS = "liveness_metrics";
++    private static final String COUNT = "count.";
++    private static final String FINAL_FAILURE = "finalFailure.";
++    private static final String ATTEMPT_FAILURE = "attemptFailure.";
++
++    private final SharedPreferences prefs;
++    // The last snapshot merged from each live metrics object (weak: a dropped service is forgotten).
++    private final Map<LivenessMetrics, LivenessMetrics.Snapshot> merged = new WeakHashMap<>();
++
++    public LivenessMetricsStore(SharedPreferences prefs) {
++        this.prefs = prefs;
++    }
++
++    /** Adds the counts {@code metrics} gained since its previous merge (all of them the first time). */
++    public synchronized void merge(LivenessMetrics metrics) {
++        LivenessMetrics.Snapshot now = metrics.snapshot();
++        LivenessMetrics.Snapshot before = merged.put(metrics, now);
++        SharedPreferences.Editor e = prefs.edit();
++        long[] a = counts(now), b = before == null ? new long[a.length] : counts(before);
++        for (int i = 0; i < COUNTS.length; i++) add(e, COUNT + COUNTS[i], a[i] - b[i]);
++        for (Map.Entry<ErrorCode, Long> f : now.finalFailuresByCode.entrySet()) {
++            add(e, FINAL_FAILURE + f.getKey().name(), f.getValue() - previous(before == null ? null : before.finalFailuresByCode, f.getKey()));
++        }
++        for (Map.Entry<ErrorCode, Long> f : now.attemptFailuresByCode.entrySet()) {
++            add(e, ATTEMPT_FAILURE + f.getKey().name(), f.getValue() - previous(before == null ? null : before.attemptFailuresByCode, f.getKey()));
++        }
++        e.apply();
++    }
++
++    /** Clears the stored totals. Counts already merged are not added again. */
++    public synchronized void reset() {
++        prefs.edit().clear().apply();
++    }
++
++    /** A stored count (0 if none); {@code name} is a Snapshot field name, e.g. "sessions". */
++    public synchronized long count(String name) {
++        return prefs.getLong(COUNT + name, 0L);
++    }
++
++    /** The stored totals and the rates derived from them, in a fixed order (log- and display-friendly). */
++    public synchronized Map<String, String> derived() {
++        long sessions = count("sessions"), passedPassive = count("passedPassive"), passedActive = count("passedActive");
++        Map<String, String> m = new LinkedHashMap<>();
++        m.put("sessions", Long.toString(sessions));
++        m.put("passedPassive", Long.toString(passedPassive));
++        m.put("passedActive", Long.toString(passedActive));
++        m.put("failedFinal", Long.toString(count("failedFinal")));
++        m.put("cancelled", Long.toString(count("cancelled")));
++        m.put("retries", Long.toString(count("retries")));
++        m.put("deviceErrors", Long.toString(count("deviceErrors")));
++        m.put("avgProcessingMs", fmt(ratio(count("processingMsTotal"), count("framesAnalyzed"))));
++        m.put("avgChallengeCompletionMs", fmt(ratio(count("challengeMsTotal"), count("challengesDetected"))));
++        m.put("retryRate", fmt(ratio(count("retries"), sessions)));
++        m.put("failureRate", fmt(ratio(count("failedFinal"), sessions)));
++        m.put("passiveShare", fmt(ratio(passedPassive, passedPassive + passedActive)));
++        Map<String, String> byCode = new TreeMap<>();
++        for (Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
++            if (e.getKey().startsWith(FINAL_FAILURE) || e.getKey().startsWith(ATTEMPT_FAILURE)) {
++                byCode.put(e.getKey(), String.valueOf(e.getValue()));
++            }
++        }
++        m.putAll(byCode);
++        return m;
++    }
++
++    // The Snapshot's long fields, by name; counts() must list them in the same order.
++    static final String[] COUNTS = {"sessions", "passedPassive", "passedActive", "failedFinal", "cancelled",
++            "cooldownRefusals", "retries", "attemptFailures", "deviceErrors", "framesAnalyzed", "processingMsTotal",
++            "challengesDetected", "challengeMsTotal", "challengesFailed"};
++
++    private static long[] counts(LivenessMetrics.Snapshot s) {
++        return new long[]{s.sessions, s.passedPassive, s.passedActive, s.failedFinal, s.cancelled, s.cooldownRefusals,
++                s.retries, s.attemptFailures, s.deviceErrors, s.framesAnalyzed, s.processingMsTotal,
++                s.challengesDetected, s.challengeMsTotal, s.challengesFailed};
++    }
++
++    private void add(SharedPreferences.Editor e, String key, long delta) {
++        if (delta != 0) e.putLong(key, prefs.getLong(key, 0L) + delta);
++    }
++
++    private static long previous(Map<ErrorCode, Long> m, ErrorCode code) {
++        Long v = m == null ? null : m.get(code);
++        return v == null ? 0L : v;
++    }
++
++    private static double ratio(long a, long b) {
++        return b == 0 ? Double.NaN : (double) a / b;
++    }
++
++    private static String fmt(double d) {
++        return Double.isNaN(d) ? "NaN" : String.format(Locale.ROOT, "%.3f", d);
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMetricsStoreTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMetricsStoreTest.java
+new file mode 100644
+index 0000000..1096b15
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessMetricsStoreTest.java
+@@ -0,0 +1,174 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++
++import android.content.SharedPreferences;
++
++import org.junit.Test;
++
++import java.util.HashMap;
++import java.util.Map;
++import java.util.Set;
++
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.LivenessResult;
++import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
++
++public class LivenessMetricsStoreTest {
++
++    private final MapPrefs prefs = new MapPrefs();
++    private final LivenessMetricsStore store = new LivenessMetricsStore(prefs);
++
++    @Test
++    public void eachCountIsAddedOnce() {
++        LivenessMetrics m = new LivenessMetrics();
++        m.sessionStarted();
++        m.frameAnalyzed(30);
++        m.passed(LivenessResult.PassPath.PASSIVE_ONLY);
++        store.merge(m);
++        store.merge(m); // nothing new
++        m.sessionStarted();
++        m.attemptFailed(ErrorCode.CHALLENGE_TIMEOUT);
++        m.retryStarted();
++        m.failedFinal(ErrorCode.MAX_RETRIES_EXCEEDED);
++        m.frameAnalyzed(50);
++        store.merge(m);
++
++        assertEquals(2, store.count("sessions"));
++        assertEquals(1, store.count("passedPassive"));
++        assertEquals(1, store.count("failedFinal"));
++        assertEquals(1, store.count("retries"));
++        assertEquals(80, store.count("processingMsTotal"));
++        Map<String, String> d = store.derived();
++        assertEquals("40.000", d.get("avgProcessingMs"));
++        assertEquals("0.500", d.get("failureRate"));
++        assertEquals("0.500", d.get("retryRate"));
++        assertEquals("1.000", d.get("passiveShare"));
++        assertEquals("1", d.get("finalFailure.MAX_RETRIES_EXCEEDED"));
++        assertEquals("1", d.get("attemptFailure.CHALLENGE_TIMEOUT"));
++    }
++
++    @Test
++    public void mergesAcrossTwoServices() {
++        LivenessMetrics a = new LivenessMetrics(), b = new LivenessMetrics();
++        a.sessionStarted();
++        a.passed(LivenessResult.PassPath.PASSIVE_ONLY);
++        store.merge(a);
++        b.sessionStarted();
++        b.passed(LivenessResult.PassPath.ACTIVE_CHALLENGE);
++        b.challengeDetected(1200);
++        store.merge(b);
++        a.sessionStarted();
++        a.failedFinal(ErrorCode.PAD_FAILURE);
++        store.merge(a);
++        b.sessionStarted();
++        b.failedFinal(ErrorCode.PAD_FAILURE);
++        store.merge(b);
++
++        assertEquals(4, store.count("sessions"));
++        assertEquals(1, store.count("passedPassive"));
++        assertEquals(1, store.count("passedActive"));
++        assertEquals(2, store.count("failedFinal"));
++        Map<String, String> d = store.derived();
++        assertEquals("2", d.get("finalFailure.PAD_FAILURE"));
++        assertEquals("0.500", d.get("passiveShare"));
++        assertEquals("1200.000", d.get("avgChallengeCompletionMs"));
++    }
++
++    @Test
++    public void totalsSurviveANewStoreAndANewService() {
++        LivenessMetrics first = new LivenessMetrics();
++        first.sessionStarted();
++        first.cancelled();
++        store.merge(first);
++
++        // App restart: new store object on the same preferences, new service counting from zero.
++        LivenessMetricsStore again = new LivenessMetricsStore(prefs);
++        assertEquals(1, again.count("sessions"));
++        LivenessMetrics second = new LivenessMetrics();
++        second.sessionStarted();
++        again.merge(second);
++        assertEquals(2, again.count("sessions"));
++        assertEquals(1, again.count("cancelled"));
++    }
++
++    @Test
++    public void resetClearsAndDoesNotAddOldCountsAgain() {
++        LivenessMetrics m = new LivenessMetrics();
++        m.sessionStarted();
++        m.failedFinal(ErrorCode.CHALLENGE_FAILED);
++        store.merge(m);
++        store.reset();
++        assertEquals(0, store.count("sessions"));
++        assertFalse(store.derived().containsKey("finalFailure.CHALLENGE_FAILED"));
++        assertEquals("NaN", store.derived().get("failureRate"));
++
++        store.merge(m); // unchanged since the last merge
++        assertEquals(0, store.count("sessions"));
++        m.sessionStarted();
++        store.merge(m);
++        assertEquals(1, store.count("sessions"));
++        assertEquals(0, store.count("failedFinal"));
++    }
++
++    @Test
++    public void storesNoIdentifiersOrTimes() {
++        LivenessMetrics m = new LivenessMetrics();
++        m.sessionStarted();
++        m.passed(LivenessResult.PassPath.PASSIVE_ONLY);
++        m.attemptFailed(ErrorCode.FACE_NOT_DETECTED);
++        store.merge(m);
++        for (Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
++            boolean known = e.getKey().startsWith("count.") || e.getKey().startsWith("finalFailure.")
++                    || e.getKey().startsWith("attemptFailure.");
++            assertEquals(e.getKey(), true, known);
++            assertEquals(e.getKey(), Long.class, e.getValue().getClass());
++        }
++    }
++
++    /** In-memory SharedPreferences: edits apply on commit()/apply(), like the real one. */
++    static final class MapPrefs implements SharedPreferences {
++        final Map<String, Object> values = new HashMap<>();
++
++        @Override public Map<String, ?> getAll() { return new HashMap<>(values); }
++        @Override public String getString(String k, String d) { return values.containsKey(k) ? (String) values.get(k) : d; }
++        @SuppressWarnings("unchecked")
++        @Override public Set<String> getStringSet(String k, Set<String> d) { return values.containsKey(k) ? (Set<String>) values.get(k) : d; }
++        @Override public int getInt(String k, int d) { return values.containsKey(k) ? (Integer) values.get(k) : d; }
++        @Override public long getLong(String k, long d) { return values.containsKey(k) ? (Long) values.get(k) : d; }
++        @Override public float getFloat(String k, float d) { return values.containsKey(k) ? (Float) values.get(k) : d; }
++        @Override public boolean getBoolean(String k, boolean d) { return values.containsKey(k) ? (Boolean) values.get(k) : d; }
++        @Override public boolean contains(String k) { return values.containsKey(k); }
++        @Override public void registerOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener l) { }
++        @Override public void unregisterOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener l) { }
++
++        @Override
++        public Editor edit() {
++            return new Editor() {
++                final Map<String, Object> puts = new HashMap<>();
++                boolean clear;
++
++                @Override public Editor putString(String k, String v) { puts.put(k, v); return this; }
++                @Override public Editor putStringSet(String k, Set<String> v) { puts.put(k, v); return this; }
++                @Override public Editor putInt(String k, int v) { puts.put(k, v); return this; }
++                @Override public Editor putLong(String k, long v) { puts.put(k, v); return this; }
++                @Override public Editor putFloat(String k, float v) { puts.put(k, v); return this; }
++                @Override public Editor putBoolean(String k, boolean v) { puts.put(k, v); return this; }
++                @Override public Editor remove(String k) { puts.put(k, null); return this; }
++                @Override public Editor clear() { clear = true; return this; }
++
++                @Override
++                public boolean commit() {
++                    if (clear) values.clear();
++                    for (Map.Entry<String, Object> e : puts.entrySet()) {
++                        if (e.getValue() == null) values.remove(e.getKey()); else values.put(e.getKey(), e.getValue());
++                    }
++                    return true;
++                }
++
++                @Override public void apply() { commit(); }
++            };
++        }
++    }
++}

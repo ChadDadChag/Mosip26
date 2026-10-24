@@ -1,0 +1,76 @@
+From c9edc6894fc6d510301d75ba9df206e9fbc59381 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 18:46:18 +0530
+Subject: [PATCH 06/26] Add liveness strings to app_en.arb
+
+The 43 liveness_* keys of docs/ui-liveness-spec.md section 5 (Mosip26),
+copied from the spec's ARB block: titles, status, challenges, feedback,
+guidance, errors, tips, retry and progress (with int placeholders),
+recovery texts per workflow and buttons.
+
+The other languages (ar, fr, hi, kn, ta) do not have them yet; gen-l10n
+generates their getters with the English text (checked in the generated
+French file), so those screens show English until the translations come.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ assets/l10n/app_en.arb | 48 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/assets/l10n/app_en.arb b/assets/l10n/app_en.arb
+index 0012c53..b8e6be1 100644
+--- a/assets/l10n/app_en.arb
++++ b/assets/l10n/app_en.arb
+@@ -368,5 +368,51 @@
+   "select_option": "Select Option",
+   "cron_expression": "Cron Expression",
+   "id": "ID",
+-  "name": "Name"
++  "name": "Name",
++  "liveness_title_resident": "Face liveness check",
++  "liveness_title_operator": "Operator face verification",
++  "liveness_title_supervisor": "Supervisor face verification",
++  "liveness_status_starting": "Starting face liveness check…",
++  "liveness_status_checking": "Checking face liveness…",
++  "liveness_status_passed": "Good, face captured successfully",
++  "liveness_status_cancelled": "Face liveness check cancelled.",
++  "liveness_challenge_blink": "Please blink",
++  "liveness_challenge_smile": "Please smile",
++  "liveness_challenge_turn_left": "Please turn your head to the left",
++  "liveness_challenge_turn_right": "Please turn your head to the right",
++  "liveness_challenge_look_up": "Please look up",
++  "liveness_challenge_look_down": "Please look down",
++  "liveness_feedback_continue": "Please continue",
++  "liveness_feedback_action_detected": "Action detected",
++  "liveness_feedback_hold_still": "Hold still",
++  "liveness_guidance_no_face": "No face detected. Please look at the camera.",
++  "liveness_guidance_multiple_faces": "Only one person should be in view.",
++  "liveness_guidance_move_closer": "Please move closer.",
++  "liveness_guidance_move_back": "Please move back.",
++  "liveness_guidance_center_face": "Please center your face in the oval.",
++  "liveness_guidance_improve_lighting": "Please improve the lighting.",
++  "liveness_guidance_hold_steady": "Please hold steady.",
++  "liveness_guidance_look_at_camera": "Please look at the camera.",
++  "liveness_error_liveness_not_verified": "We could not verify face liveness. Please try again.",
++  "liveness_error_verification_not_completed": "Face verification could not be completed. Please try again.",
++  "liveness_error_max_attempts_reached": "Face verification could not be completed.",
++  "liveness_error_device_problem": "Camera/device not available. Check the connection and try again.",
++  "liveness_tips_title": "Tips:",
++  "liveness_tips_look_at_camera": "Look directly at the camera.",
++  "liveness_tips_face_visible": "Ensure your face is clearly visible.",
++  "liveness_tips_lighting": "Improve lighting.",
++  "liveness_tips_capture_area": "Keep your face within the capture area.",
++  "liveness_tips_follow_prompt": "Follow the prompted action.",
++  "liveness_retry_attempts_left": "{n} attempt(s) left",
++  "@liveness_retry_attempts_left": {"placeholders": {"n": {"type": "int"}}},
++  "liveness_progress_step": "Step {i} of {n}",
++  "@liveness_progress_step": {"placeholders": {"i": {"type": "int"}, "n": {"type": "int"}}},
++  "liveness_progress_attempt": "Attempt {a} of {m}",
++  "@liveness_progress_attempt": {"placeholders": {"a": {"type": "int"}, "m": {"type": "int"}}},
++  "liveness_recovery_resident": "Please contact the supervisor. The resident can be registered using the biometric exception process.",
++  "liveness_recovery_operator": "Please contact your administrator or try again later.",
++  "liveness_recovery_supervisor": "Please contact your administrator.",
++  "liveness_button_retry": "Retry",
++  "liveness_button_cancel": "Cancel",
++  "liveness_button_close": "Close"
+ }

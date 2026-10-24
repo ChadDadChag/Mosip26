@@ -1,0 +1,112 @@
+From d1aa693620518d044b89d5ff93fd881a1050cf69 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:57:11 +0530
+Subject: [PATCH 18/26] Login gate: fail closed if the page is gone
+
+login_page.dart: if the login page is no longer mounted when the liveness
+step would start, the operator is logged out again (logoutUser(),
+setIsSyncing(false)) instead of only returning, so a password alone never
+leaves the operator logged in. After a gate result that does not proceed,
+the logout happens first, then the page returns if it is gone, before any
+snackbar or setState.
+
+The other hooks already fail closed (they return without capturing or
+submitting); they now also return when their screen was closed during the
+liveness step (`!liveness.proceed || !mounted`), so no SBI capture or
+packet submission starts from a screen that is gone.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/login_page.dart                                 | 10 ++++++++--
+ .../operator_biometric_capture_scan_block_view.dart    |  2 +-
+ lib/ui/process_ui/generic_process.dart                 |  2 +-
+ .../widgets/biometric_scan_middle_block.dart           |  4 ++--
+ .../biometric_capture_scan_block_portrait.dart         |  2 +-
+ 5 files changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/lib/ui/login_page.dart b/lib/ui/login_page.dart
+index ee7574c..cca9816 100644
+--- a/lib/ui/login_page.dart
++++ b/lib/ui/login_page.dart
+@@ -354,12 +354,18 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
+     }
+ 
+     // Face liveness of the operator after the password (scope S1, docs/ui-liveness-spec.md section 6).
+-    // Not proceeding logs the operator out again and stays on the login page.
+-    if (!mounted) return;
++    // Not proceeding logs the operator out again and stays on the login page. Fail closed: if the page is gone,
++    // the password alone must not leave the operator logged in.
++    if (!mounted) {
++      await authProvider.logoutUser();
++      authProvider.setIsSyncing(false);
++      return;
++    }
+     final liveness = await LivenessGate.run(context, workflow: LivenessGate.operator);
+     if (!liveness.proceed) {
+       await authProvider.logoutUser();
+       authProvider.setIsSyncing(false);
++      if (!mounted) return;
+       if (liveness.blocked) {
+         _showInSnackBar(livenessText(appLocalizations, liveness.failureMessageKey));
+       }
+diff --git a/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart b/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
+index f36dd38..55f8611 100644
+--- a/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
++++ b/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
+@@ -385,7 +385,7 @@ class _OperatorBiometricCaptureScanBlockViewState
+               // section 6). Not proceeding means no capture.
+               if (biometricAttributeData.title == "Face") {
+                 final liveness = await LivenessGate.run(context, workflow: LivenessGate.operator);
+-                if (!liveness.proceed) return;
++                if (!liveness.proceed || !mounted) return;
+               }
+               List<Uint8List?> tempImageList = [];
+               await BiometricsApi().invokeDiscoverSbi("operatorBiometrics",
+diff --git a/lib/ui/process_ui/generic_process.dart b/lib/ui/process_ui/generic_process.dart
+index 9fd70b0..8372f65 100644
+--- a/lib/ui/process_ui/generic_process.dart
++++ b/lib/ui/process_ui/generic_process.dart
+@@ -707,7 +707,7 @@ class _GenericProcessState extends State<GenericProcess>
+           // section 6). Not proceeding keeps the authentication step and submits nothing.
+           if (!mounted) return;
+           final liveness = await LivenessGate.run(context, workflow: LivenessGate.operator);
+-          if (!liveness.proceed) {
++          if (!liveness.proceed || !mounted) {
+             if (liveness.blocked && mounted) {
+               _showInSnackBar(livenessText(appLocalizations, liveness.failureMessageKey));
+             }
+diff --git a/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart b/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart
+index d1f4a0a..fe7b790 100644
+--- a/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart
++++ b/lib/ui/process_ui/widgets/biometric_scan_middle_block.dart
+@@ -194,7 +194,7 @@ class _BiometricScanMiddleBlockState extends State<BiometricScanMiddleBlock> {
+                           // Rescan of the face: liveness again before the SBI capture (as in the portrait layout).
+                           if (widget.parameterTitle == "Face") {
+                             final liveness = await LivenessGate.run(context, workflow: LivenessGate.resident);
+-                            if (!liveness.proceed) return;
++                            if (!liveness.proceed || !mounted) return;
+                           }
+                           await BiometricsApi().invokeDiscoverSbi(
+                               widget.field.id!, widget.parameterTitle);
+@@ -304,7 +304,7 @@ class _BiometricScanMiddleBlockState extends State<BiometricScanMiddleBlock> {
+                   // (docs/ui-liveness-spec.md section 6). The exception photo is not gated.
+                   if (widget.parameterTitle == "Face") {
+                     final liveness = await LivenessGate.run(context, workflow: LivenessGate.resident);
+-                    if (!liveness.proceed) return;
++                    if (!liveness.proceed || !mounted) return;
+                   }
+                   List<Uint8List?> temp = [];
+                   await BiometricsApi().invokeDiscoverSbi(
+diff --git a/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart b/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart
+index 9ea60b7..a4d2713 100644
+--- a/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart
++++ b/lib/ui/process_ui/widgets_mobile/biometric_capture_scan_block_portrait.dart
+@@ -602,7 +602,7 @@ class _BiometricCaptureScanBlockPortraitState
+                 // biometric exception process, the recovery path when liveness fails.
+                 if (biometricAttributeData.title == "Face") {
+                   final liveness = await LivenessGate.run(context, workflow: LivenessGate.resident);
+-                  if (!liveness.proceed) return;
++                  if (!liveness.proceed || !mounted) return;
+                 }
+                 List<Uint8List?> tempImageList = [];
+                 await BiometricsApi().invokeDiscoverSbi(widget.field.id!,

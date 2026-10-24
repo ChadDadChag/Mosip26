@@ -1,0 +1,537 @@
+From d5be9cfd2d444af0eb932fa79543029642889059 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 17:49:31 +0530
+Subject: [PATCH 04/26] Add liveness debug page (debug builds only)
+
+lib/ui/liveness/liveness_debug_page.dart, opened from a "Liveness test"
+button on the login page that exists only when kDebugMode (the page also
+renders nothing in other builds):
+- workflow (RESIDENT / OPERATOR / SUPERVISOR), front or back camera, real or
+  fake engine, and the fake scenario (config override
+  mosip.registration.liveness.fake.scenario);
+- "Force challenges": overrides
+  mosip.registration.liveness.face.default.passiveThreshold to 0.9999;
+- the policy and model version, the camera preview (AndroidView), Start /
+  Retry / Cancel, a scrolling event log, and the result with the best-frame
+  thumbnail.
+It shows the passive score, which production screens never show. Not
+localised on purpose (developer tool).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/liveness/liveness_debug_page.dart | 463 +++++++++++++++++++++++
+ lib/ui/login_page.dart                   |  17 +
+ 2 files changed, 480 insertions(+)
+ create mode 100644 lib/ui/liveness/liveness_debug_page.dart
+
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+new file mode 100644
+index 0000000..b49f88f
+--- /dev/null
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -0,0 +1,463 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'dart:async';
++
++import 'package:flutter/foundation.dart' show kDebugMode;
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++
++/// Debug builds only: runs liveness sessions against the real or the fake
++/// engine and shows the raw events and the result (including the passive
++/// score, which production screens never show). Not localised on purpose.
++class LivenessDebugPage extends StatefulWidget {
++  const LivenessDebugPage({super.key});
++
++  @override
++  State<LivenessDebugPage> createState() => _LivenessDebugPageState();
++}
++
++class _LivenessDebugPageState extends State<LivenessDebugPage> {
++  static const String _previewViewType =
++      'io.mosip.registration_client/liveness_preview';
++  static const String _fakeScenarioKey =
++      'mosip.registration.liveness.fake.scenario';
++  static const String _passiveThresholdKey =
++      'mosip.registration.liveness.face.default.passiveThreshold';
++  // Default-level keys: the bundled defaults set minChallenges per workflow only for OPERATOR and SUPERVISOR (1).
++  static const String _challengeTypesKey =
++      'mosip.registration.liveness.face.default.challengeTypes';
++  static const String _minChallengesKey =
++      'mosip.registration.liveness.face.default.minChallenges';
++  static const List<String> _onlyChallenges = [
++    'any',
++    'BLINK',
++    'SMILE',
++    'TURN_LEFT',
++    'TURN_RIGHT',
++    'LOOK_UP',
++    'LOOK_DOWN',
++  ];
++  static const List<String> _workflows = ['RESIDENT', 'OPERATOR', 'SUPERVISOR'];
++  static const List<String> _fakeScenarios = [
++    'PASS_PASSIVE',
++    'PASS_ACTIVE',
++    'FAIL_CHALLENGE_THEN_PASS_ON_RETRY',
++    'PAD_ATTACK',
++    'CHALLENGE_TIMEOUT',
++    'NO_FACE_THEN_PASS',
++    'MULTIPLE_FACES',
++    'POOR_LIGHTING_HINTS',
++    'DEVICE_DISCONNECT',
++    'DEVICE_FAILURE',
++    'MAX_RETRIES_EXCEEDED',
++    'ENGINE_ERROR',
++    'RANDOM',
++  ];
++  // English texts of docs/ui-liveness-spec.md, so the prompts are readable at arm's length.
++  static const Map<String, String> _challengeTexts = {
++    'BLINK': 'Please blink',
++    'SMILE': 'Please smile',
++    'TURN_LEFT': 'Please turn your head to the left',
++    'TURN_RIGHT': 'Please turn your head to the right',
++    'LOOK_UP': 'Please look up',
++    'LOOK_DOWN': 'Please look down',
++  };
++  static const Map<String, String> _guidanceTexts = {
++    'NO_FACE': 'No face detected. Please look at the camera.',
++    'MULTIPLE_FACES': 'Only one person should be in view.',
++    'MOVE_CLOSER': 'Please move closer.',
++    'MOVE_BACK': 'Please move back.',
++    'CENTER_FACE': 'Please center your face in the oval.',
++    'IMPROVE_LIGHTING': 'Please improve the lighting.',
++    'HOLD_STEADY': 'Please hold steady.',
++    'LOOK_AT_CAMERA': 'Please look at the camera.',
++  };
++
++  final LivenessService _service = LivenessService();
++  final List<String> _log = [];
++  final Stopwatch _clock = Stopwatch();
++  final TextEditingController _overrideController = TextEditingController();
++  StreamSubscription<LivenessMessage>? _subscription;
++
++  String _workflow = 'RESIDENT';
++  String _camera = 'front';
++  bool _fake = false;
++  String _fakeScenario = 'PASS_ACTIVE';
++  bool _forceChallenges = false;
++  String _onlyChallenge = 'any';
++  bool _running = false;
++  LivenessPolicyInfo? _policy;
++  String _modelVersion = '';
++  String _status = '';
++  String _banner = 'Tap Start';
++  double? _bannerProgress;
++  LivenessMessage? _result;
++
++  @override
++  void initState() {
++    super.initState();
++    _subscription = _service.messages.listen(_onMessage);
++    _refreshPolicy();
++  }
++
++  @override
++  void dispose() {
++    if (_running) _service.cancel();
++    _subscription?.cancel();
++    _overrideController.dispose();
++    super.dispose();
++  }
++
++  Future<void> _refreshPolicy() async {
++    try {
++      final policy = await _service.policy(_workflow);
++      final version = await _service.modelVersion();
++      if (!mounted) return;
++      setState(() {
++        _policy = policy;
++        _modelVersion = version;
++      });
++    } on PlatformException catch (e) {
++      _addLog('policy failed: ${e.message}');
++    }
++  }
++
++  void _onMessage(LivenessMessage m) {
++    if (!mounted) return;
++    setState(() {
++      if (m.isComplete) {
++        _running = false;
++        _result = m;
++        _status = m.decision ?? '';
++        _banner = m.decision == 'PASSED'
++            ? 'Good, face captured successfully'
++            : '${m.decision} ${m.failureCode ?? ''}';
++        _bannerProgress = null;
++        _addLog('COMPLETE ${m.decision} ${m.passPath} failure=${m.failureCode} '
++            'message=${m.userMessage} score=${m.passiveScore.toStringAsFixed(4)} '
++            'challenges=${m.challengesIssued} attempts=${m.attempts} '
++            '${m.durationMs} ms model=${m.modelVersion}');
++      } else {
++        _status = _describe(m);
++        _updateBanner(m);
++        _addLog(_status);
++      }
++    });
++  }
++
++  void _updateBanner(LivenessMessage m) {
++    final challenge = '${_challengeTexts[m.challenge] ?? m.challenge} '
++        '(${m.challengeIndex}/${m.challengeCount})';
++    switch (m.type) {
++      case 'STARTED':
++        _banner = 'Starting face liveness check…';
++        _bannerProgress = null;
++        break;
++      case 'CHECKING_PASSIVE':
++        _banner = 'Checking face liveness…';
++        _bannerProgress = null;
++        break;
++      case 'GUIDANCE':
++        _banner = _guidanceTexts[m.guidance] ?? m.guidance ?? '';
++        break;
++      case 'CHALLENGE_PROMPT':
++        _banner = challenge;
++        _bannerProgress = 0;
++        break;
++      case 'CHALLENGE_PROGRESS':
++        _banner = challenge;
++        _bannerProgress = m.progress;
++        break;
++      case 'ACTION_DETECTED':
++        _bannerProgress = 1;
++        break;
++      case 'HOLD_STILL':
++        _banner = 'Please hold steady.';
++        _bannerProgress = null;
++        break;
++      case 'ATTEMPT_FAILED':
++        _banner = 'Attempt failed (${m.error}). Tap Retry.';
++        _bannerProgress = null;
++        break;
++      default:
++        _banner = '${m.type} ${m.error ?? ''}';
++        _bannerProgress = null;
++    }
++  }
++
++  void _applyOverride() {
++    final text = _overrideController.text.trim();
++    final eq = text.indexOf('=');
++    if (eq <= 0) {
++      setState(() => _addLog('override must be key=value (empty value removes it)'));
++      return;
++    }
++    _setOverride(text.substring(0, eq).trim(), text.substring(eq + 1).trim());
++  }
++
++  String _describe(LivenessMessage m) {
++    final parts = <String>[m.type ?? '?'];
++    if (m.guidance != null) parts.add(m.guidance!);
++    if (m.challenge != null) {
++      parts.add('${m.challenge} ${m.challengeIndex}/${m.challengeCount}');
++    }
++    if (m.type == 'CHALLENGE_PROMPT') parts.add('${m.timeoutMs} ms');
++    if (m.type == 'CHALLENGE_PROGRESS') parts.add(m.progress.toStringAsFixed(2));
++    if (m.error != null) {
++      parts.add('${m.error} (${m.userMessage}) retriesLeft=${m.retriesLeft}');
++    }
++    parts.add('attempt ${m.attemptNumber}');
++    return parts.join(' ');
++  }
++
++  void _addLog(String line) {
++    final t = (_clock.elapsedMilliseconds / 1000).toStringAsFixed(2);
++    _log.insert(0, '+${t}s $line');
++    if (_log.length > 300) _log.removeLast();
++  }
++
++  Future<void> _setOverride(String key, String value) async {
++    try {
++      await _service.setConfigOverride(key, value);
++      _addLog('override $key=${value.isEmpty ? '(removed)' : value}');
++    } on PlatformException catch (e) {
++      _addLog('override failed: ${e.message}');
++    }
++    await _refreshPolicy();
++  }
++
++  Future<void> _start() async {
++    setState(() {
++      _log.clear();
++      _result = null;
++      _status = 'starting';
++      _banner = 'Starting face liveness check…';
++      _bannerProgress = null;
++      _running = true;
++    });
++    _clock
++      ..reset()
++      ..start();
++    try {
++      final id = await _service.startSession(_workflow,
++          camera: _camera, useFake: _fake);
++      if (!mounted) return;
++      setState(() {
++        if (id.isEmpty) {
++          _running = false;
++          _status = 'liveness disabled for $_workflow';
++        }
++        _addLog(id.isEmpty ? _status : 'session $id');
++      });
++    } on PlatformException catch (e) {
++      setState(() {
++        _running = false;
++        _addLog('start failed: ${e.message}');
++      });
++    }
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    if (!kDebugMode) return const Scaffold(body: SizedBox.shrink());
++    final result = _result;
++    return Scaffold(
++      appBar: AppBar(title: const Text('Liveness test (debug)')),
++      body: ListView(
++        padding: const EdgeInsets.all(12),
++        children: [
++          Wrap(
++            spacing: 16,
++            crossAxisAlignment: WrapCrossAlignment.center,
++            children: [
++              DropdownButton<String>(
++                value: _workflow,
++                items: _workflows
++                    .map((w) => DropdownMenuItem(value: w, child: Text(w)))
++                    .toList(),
++                onChanged: _running
++                    ? null
++                    : (w) {
++                        setState(() => _workflow = w!);
++                        _refreshPolicy();
++                      },
++              ),
++              DropdownButton<String>(
++                value: _camera,
++                items: const [
++                  DropdownMenuItem(value: 'front', child: Text('front camera')),
++                  DropdownMenuItem(value: 'back', child: Text('back camera')),
++                ],
++                onChanged: _running ? null : (c) => setState(() => _camera = c!),
++              ),
++              DropdownButton<bool>(
++                value: _fake,
++                items: const [
++                  DropdownMenuItem(value: false, child: Text('real engine')),
++                  DropdownMenuItem(value: true, child: Text('fake engine')),
++                ],
++                onChanged: _running ? null : (f) => setState(() => _fake = f!),
++              ),
++              if (_fake)
++                DropdownButton<String>(
++                  value: _fakeScenario,
++                  items: _fakeScenarios
++                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
++                      .toList(),
++                  onChanged: _running
++                      ? null
++                      : (s) {
++                          setState(() => _fakeScenario = s!);
++                          _setOverride(_fakeScenarioKey, s!);
++                        },
++                ),
++            ],
++          ),
++          SwitchListTile(
++            contentPadding: EdgeInsets.zero,
++            title: const Text('Force challenges (passiveThreshold 0.9999)'),
++            value: _forceChallenges,
++            onChanged: _running
++                ? null
++                : (on) {
++                    setState(() => _forceChallenges = on);
++                    _setOverride(_passiveThresholdKey, on ? '0.9999' : '');
++                  },
++          ),
++          Row(
++            children: [
++              const Text('Only challenge: '),
++              DropdownButton<String>(
++                value: _onlyChallenge,
++                items: _onlyChallenges
++                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
++                    .toList(),
++                onChanged: _running
++                    ? null
++                    : (c) async {
++                        setState(() => _onlyChallenge = c!);
++                        final any = c == 'any';
++                        await _setOverride(_challengeTypesKey, any ? '' : c!);
++                        await _setOverride(_minChallengesKey, any ? '' : '1');
++                      },
++              ),
++            ],
++          ),
++          Text(_policy == null
++              ? 'policy: ...'
++              : 'policy: enabled=${_policy!.enabled} maxRetries=${_policy!.maxRetries} '
++                  'minChallenges=${_policy!.minChallenges} '
++                  'challengeTimeoutMs=${_policy!.challengeTimeoutMs}'),
++          Text('models: ${_modelVersion.isEmpty ? '(not loaded yet)' : _modelVersion}'),
++          Row(
++            children: [
++              Expanded(
++                child: TextField(
++                  controller: _overrideController,
++                  enabled: !_running,
++                  decoration: const InputDecoration(
++                      isDense: true, hintText: 'config override key=value'),
++                ),
++              ),
++              TextButton(
++                  onPressed: _running ? null : _applyOverride,
++                  child: const Text('Set')),
++            ],
++          ),
++          const SizedBox(height: 8),
++          Container(
++            padding: const EdgeInsets.all(12),
++            color: Colors.amber.shade100,
++            child: Column(
++              children: [
++                Text(_banner,
++                    textAlign: TextAlign.center,
++                    style: const TextStyle(
++                        fontSize: 22, fontWeight: FontWeight.bold)),
++                if (_bannerProgress != null) ...[
++                  const SizedBox(height: 6),
++                  LinearProgressIndicator(value: _bannerProgress),
++                ],
++              ],
++            ),
++          ),
++          const SizedBox(height: 8),
++          Center(
++            child: SizedBox(
++              width: 240,
++              height: 320,
++              child: ClipRRect(
++                borderRadius: BorderRadius.circular(8),
++                child: const AndroidView(
++                  viewType: _previewViewType,
++                  creationParamsCodec: StandardMessageCodec(),
++                ),
++              ),
++            ),
++          ),
++          const SizedBox(height: 8),
++          Wrap(
++            spacing: 8,
++            children: [
++              ElevatedButton(
++                  onPressed: _running ? null : _start, child: const Text('Start')),
++              OutlinedButton(
++                  onPressed: _running ? () => _service.retry() : null,
++                  child: const Text('Retry')),
++              OutlinedButton(
++                  onPressed: _running ? () => _service.cancel() : null,
++                  child: const Text('Cancel')),
++            ],
++          ),
++          const SizedBox(height: 8),
++          Text(_status, style: const TextStyle(fontWeight: FontWeight.bold)),
++          if (result != null) _resultCard(result),
++          const SizedBox(height: 8),
++          Container(
++            height: 240,
++            decoration: BoxDecoration(border: Border.all(color: Colors.black26)),
++            child: ListView.builder(
++              itemCount: _log.length,
++              itemBuilder: (context, i) => Text(_log[i],
++                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
++            ),
++          ),
++        ],
++      ),
++    );
++  }
++
++  Widget _resultCard(LivenessMessage r) {
++    final jpeg = r.bestFrameJpeg;
++    return Card(
++      child: Padding(
++        padding: const EdgeInsets.all(8),
++        child: Row(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            Expanded(
++              child: Text('decision: ${r.decision}\n'
++                  'passPath: ${r.passPath}\n'
++                  'failureCode: ${r.failureCode}\n'
++                  'userMessage: ${r.userMessage}\n'
++                  'passiveScore: ${r.passiveScore.toStringAsFixed(4)}\n'
++                  'challenges: ${r.challengesIssued.join(', ')}\n'
++                  'attempts: ${r.attempts}, ${r.durationMs} ms\n'
++                  'model: ${r.modelVersion}\n'
++                  'session: ${r.sessionId}'),
++            ),
++            if (jpeg != null)
++              Image.memory(jpeg, width: 96, height: 128, fit: BoxFit.cover),
++          ],
++        ),
++      ),
++    );
++  }
++}
+diff --git a/lib/ui/login_page.dart b/lib/ui/login_page.dart
+index 179ebe5..9b33955 100644
+--- a/lib/ui/login_page.dart
++++ b/lib/ui/login_page.dart
+@@ -8,6 +8,7 @@
+ import 'dart:async';
+ import 'dart:developer';
+ 
++import 'package:flutter/foundation.dart' show kDebugMode;
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:flutter_screenutil/flutter_screenutil.dart';
+@@ -21,6 +22,7 @@ import 'package:registration_client/pigeon/user_pigeon.dart';
+ import 'package:registration_client/provider/auth_provider.dart';
+ import 'package:registration_client/provider/sync_provider.dart';
+ import 'package:registration_client/ui/dashboard/dashboard_tablet.dart';
++import 'package:registration_client/ui/liveness/liveness_debug_page.dart';
+ import 'package:registration_client/ui/widgets/network_component.dart';
+ import 'package:registration_client/ui/widgets/sync_alert_dialog.dart';
+ import 'package:registration_client/utils/app_style.dart';
+@@ -162,6 +164,21 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
+                     SizedBox(
+                       height: 20.h,
+                     ),
++                    if (kDebugMode)
++                      Align(
++                        alignment: Alignment.centerRight,
++                        child: TextButton(
++                          onPressed: () => Navigator.push(
++                            context,
++                            MaterialPageRoute(
++                                builder: (_) => const LivenessDebugPage()),
++                          ),
++                          child: const Text(
++                            'Liveness test',
++                            style: TextStyle(color: appWhite),
++                          ),
++                        ),
++                      ),
+                     // Container(
+                     //   alignment: Alignment.centerRight,
+                     //   padding: EdgeInsets.symmetric(

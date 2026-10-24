@@ -1,0 +1,94 @@
+From 29ec667ba2ce67e2ab01eff64448706b18be9705 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:57:10 +0530
+Subject: [PATCH 17/26] Sync the round 3/4 liveness engine; expose its metrics
+
+Engine jars from Mosip26 ff66597 (person5-android rebased on the team main
+with Part 3 rounds 3 and 4, plus PR #4); the model bundle is unchanged
+(pad-2026.10.1, same SHA-256). What the app sees from rounds 3/4:
+- DEVICE_ERROR is recoverable with Retry until the per-session device
+  error limit (3) is exceeded, then FAILED_FINAL with the device code; the
+  LivenessPage already shows Retry for a recoverable DEVICE_ERROR. The fake
+  DEVICE_FAILURE scenario now follows the same pattern; no scenario was
+  renamed.
+- A one-challenge session (operator/supervisor default) is never BLINK
+  alone when another type is usable; a BLINK-only pool is still honoured.
+- The liveness-api contract is unchanged.
+
+LivenessServiceHolder.metrics(useFake) returns the engine's
+LivenessMetrics.Snapshot (DefaultLivenessService.metrics() /
+FakeLivenessService.metrics(): anonymised counts, rates and averages, no
+session ids, individual scores or images); debug builds log its toMap() at
+the end of each session. CameraXFrameSource: PR #4's wording of the sync
+script reference.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../api_services/LivenessApi.java                    |  1 +
+ android/liveness/engine-sync.txt                     | 12 ++++++------
+ .../liveness/android/LivenessServiceHolder.java      |  9 +++++++++
+ 3 files changed, 16 insertions(+), 6 deletions(-)
+
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index 3bd2f1a..7e1d33c 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -242,6 +242,7 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         if (BuildConfig.DEBUG) {
+             Log.i(TAG, "complete " + LivenessMaps.describe(r));
+             Log.i(TAG, "analyzer " + holder.analyzerTimes().summary());
++            Log.i(TAG, "metrics " + holder.metrics(src == null).toMap());
+         } else {
+             Log.i(TAG, "complete " + r.decision + " " + r.failureCode + " in " + r.durationMs + " ms");
+         }
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 4981e68..2e46994 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,13 +1,13 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit 79567b1
+-libs/liveness-api-1.2.0.2.jar f2d5ed4219ac2b8f699228978f0cd17d424a51a8cafb31b32868e70d2eec818c
+-libs/liveness-core-1.2.0.2.jar b001c7b82d9751f2b1f07303f2d2247fe0070c8af8fb57ed4377bf4bfc49e99c
+-libs/liveness-fake-1.2.0.2.jar 621f40df1d5ff7df4375a129598f861e168a46b05ba055fb600a02d49bc3461b
+-libs/liveness-analyzer-1.2.0.2.jar f55aee9561542f9ea42fc2e7ff819c146b1076f8e268e9cf31ba778a4dc310c4
++engine commit ff66597
++libs/liveness-api-1.2.0.2.jar cbc0f8a98f80ca38131bee1c60315932994ded9d256e01e0e0708b02467fb9e7
++libs/liveness-core-1.2.0.2.jar 3d7e2407fd84c5fc350b6b54dd99ad21a015be8a03b17adcf93230c287f3e683
++libs/liveness-fake-1.2.0.2.jar d10d270fc0d119f59a3390c80b65a72557ae744534dbfb4caeb59adabada513b
++libs/liveness-analyzer-1.2.0.2.jar 383ad834f8f39eaec1988456215e598f177c60a645d8d3bafc2c65d5da05dc0b
+ assets/liveness/models/manifest.json 14c761555d23bfcc147cf772556bc22cdba16a515f3af484c95bf5b8778a4c13
+ assets/liveness/models/manifest.sig c9fc221a1cb95632cdfa742b2496d50c2d8b94296794eed320f81311cb50d19a
+ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
+ assets/liveness/models/face_mesh_v2.onnx 4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb
+ assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
+ assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
+-src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java 8eac00ef24880b7c023729a4000f6831556fce5a7834a1d86624bd8a98f2581c
++src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java ec172afbe727ba31610b5e02f10e2372d693435d839e30a21396fa97db5b6f79
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 78b7cf3..e34cebc 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -35,6 +35,7 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
+ import io.mosip.registration.liveness.api.LivenessService;
+ import io.mosip.registration.liveness.api.WorkflowType;
+ import io.mosip.registration.liveness.core.DefaultLivenessService;
++import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
+ import io.mosip.registration.liveness.fake.FakeLivenessService;
+ 
+ /**
+@@ -141,6 +142,14 @@ public final class LivenessServiceHolder {
+         return real.policy(workflow);
+     }
+ 
++    /**
++     * The engine's anonymised operational metrics since app start (counts, rates and averages; no session ids,
++     * individual scores or images). The fake engine keeps its own, reset when its speed is changed.
++     */
++    public LivenessMetrics.Snapshot metrics(boolean useFake) {
++        return (useFake ? fake.metrics() : real.metrics()).snapshot();
++    }
++
+     /** "back" when {@code mosip.registration.liveness.face.android.<workflow>.camera} says so, else "front". */
+     public String cameraFor(WorkflowType workflow) {
+         String v = config.get(CAMERA_KEY_PREFIX + workflow.name().toLowerCase(Locale.ROOT) + ".camera");

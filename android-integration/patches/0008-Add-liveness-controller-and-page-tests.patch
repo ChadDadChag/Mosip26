@@ -1,0 +1,866 @@
+From 992fb4488b3d28b99628e2f8278770ea32b4eb70 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 18:46:18 +0530
+Subject: [PATCH 08/26] Add liveness controller and page tests
+
+test/liveness/ (flutter test test/liveness: 44 tests):
+- liveness_controller_test.dart (35): every event type; guidance debounce
+  (waiting, latest wins, same hint no flicker) and clearing; every guidance
+  and challenge key and icon; progress and "Please continue";
+  LOOK_AT_CAMERA after a turn; attempts and Retry visibility; tips only for
+  LIVENESS_NOT_VERIFIED; PAD and engine errors generic; device errors
+  recoverable or not; FAILED_FINAL texts for each workflow; final PAD;
+  operator cooldown refusal; permission refused; a result without
+  FAILED_FINAL; bridge failure; CANCELLED; events after a final state; and
+  every liveness key of app_en.arb resolving through livenessText. A manual
+  timer factory drives the 500 ms debounce (fake_async is not a direct dev
+  dependency).
+- liveness_page_test.dart (9): a scripted LivenessService and a placeholder
+  preview on a phone-sized surface: PASS_ACTIVE banner texts in order, then
+  the page pops passed after about 1 s; PAD attack generic text without
+  tips, then max attempts with the resident recovery text and Close;
+  LIVENESS_NOT_VERIFIED tips and Retry -> retry(); Cancel -> cancel() and
+  cancelled; back mid-session cancels; a CANCELLED result pops cancelled;
+  disabled workflow pops disabled without starting; permission refused:
+  device text, operator recovery, Close; guidance in the hint line and a
+  result of another session ignored.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ test/liveness/liveness_controller_test.dart | 500 ++++++++++++++++++++
+ test/liveness/liveness_page_test.dart       | 319 +++++++++++++
+ 2 files changed, 819 insertions(+)
+ create mode 100644 test/liveness/liveness_controller_test.dart
+ create mode 100644 test/liveness/liveness_page_test.dart
+
+diff --git a/test/liveness/liveness_controller_test.dart b/test/liveness/liveness_controller_test.dart
+new file mode 100644
+index 0000000..8425f1c
+--- /dev/null
++++ b/test/liveness/liveness_controller_test.dart
+@@ -0,0 +1,500 @@
++import 'dart:async';
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:flutter/widgets.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/ui/liveness/liveness_controller.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
++
++/// Timers that fire only when the test moves time on.
++class ManualTimers {
++  Duration now = Duration.zero;
++  final List<_ManualTimer> _timers = [];
++
++  Timer call(Duration duration, void Function() callback) {
++    final t = _ManualTimer(now + duration, callback);
++    _timers.add(t);
++    return t;
++  }
++
++  void elapse(Duration d) {
++    final end = now + d;
++    while (true) {
++      final due = _timers.where((t) => t.isActive && t.dueAt <= end).toList()
++        ..sort((a, b) => a.dueAt.compareTo(b.dueAt));
++      if (due.isEmpty) break;
++      now = due.first.dueAt;
++      due.first.fire();
++    }
++    now = end;
++  }
++}
++
++class _ManualTimer implements Timer {
++  _ManualTimer(this.dueAt, this._callback);
++
++  final Duration dueAt;
++  final void Function() _callback;
++  bool _active = true;
++
++  void fire() {
++    _active = false;
++    _callback();
++  }
++
++  @override
++  void cancel() => _active = false;
++
++  @override
++  bool get isActive => _active;
++
++  @override
++  int get tick => 0;
++}
++
++LivenessMessage ev(String type,
++        {int attempt = 1,
++        String? guidance,
++        String? challenge,
++        int index = 0,
++        int count = 0,
++        double progress = 0,
++        String? error,
++        String? userMessage,
++        int retriesLeft = 0,
++        bool recoverable = true}) =>
++    LivenessMessage(<String, Object?>{
++      'kind': 'event',
++      'type': type,
++      'guidance': guidance,
++      'challenge': challenge,
++      'challengeIndex': index,
++      'challengeCount': count,
++      'timeoutMs': 6000,
++      'progress': progress,
++      'error': error,
++      'userMessage': userMessage,
++      'attemptNumber': attempt,
++      'retriesLeft': retriesLeft,
++      'recoverable': recoverable,
++    });
++
++LivenessMessage complete(String decision,
++        {String? failureCode, String userMessage = 'NONE', String sessionId = 's-1'}) =>
++    LivenessMessage(<String, Object?>{
++      'kind': 'complete',
++      'decision': decision,
++      'passPath': decision == 'PASSED' ? 'ACTIVE_CHALLENGE' : 'NONE',
++      'failureCode': failureCode,
++      'userMessage': userMessage,
++      'passiveScore': 0.5,
++      'challengesIssued': const <String>[],
++      'attempts': 1,
++      'durationMs': 1000,
++      'sessionId': sessionId,
++      'modelVersion': 'v',
++      'bestFrameJpeg': null,
++    });
++
++void main() {
++  late ManualTimers timers;
++  late LivenessController c;
++
++  LivenessController controller(String workflow, {int maxRetries = 3}) =>
++      LivenessController(workflow: workflow, maxRetries: maxRetries, timerFactory: timers.call);
++
++  setUp(() {
++    timers = ManualTimers();
++    c = controller('RESIDENT');
++  });
++
++  tearDown(() => c.dispose());
++
++  group('start and passive check', () {
++    test('initial state: starting, Cancel only', () {
++      final s = c.state;
++      expect(s.phase, LivenessPhase.starting);
++      expect(s.statusKey, 'liveness.status.starting');
++      expect(s.showCancel, isTrue);
++      expect(s.showRetry || s.showClose, isFalse);
++      expect(s.attempt, 0);
++      expect(s.maxAttempts, 4);
++      expect(c.titleKey, 'liveness.title.resident');
++    });
++
++    test('STARTED: attempt a of m, neutral oval with the camera icon, no progress', () {
++      c.handle(ev('STARTED'));
++      expect(c.state.attempt, 1);
++      expect(c.state.maxAttempts, 4);
++      expect(c.state.ovalTone, LivenessOvalTone.neutral);
++      expect(c.state.icon, LivenessIcon.camera);
++      expect(c.state.progressVisible, isFalse);
++    });
++
++    test('maxRetries from the policy sets m', () {
++      c.maxRetries = 1;
++      c.handle(ev('STARTED'));
++      expect(c.state.maxAttempts, 2);
++    });
++
++    test('CHECKING_PASSIVE: checking text, indeterminate progress, blue scanning', () {
++      c.handle(ev('STARTED'));
++      c.handle(ev('CHECKING_PASSIVE'));
++      final s = c.state;
++      expect(s.phase, LivenessPhase.checking);
++      expect(s.statusKey, 'liveness.status.checking');
++      expect(s.progressVisible, isTrue);
++      expect(s.progress, isNull);
++      expect(s.ovalTone, LivenessOvalTone.checking);
++      expect(s.icon, LivenessIcon.scanning);
++      expect(s.showCancel, isTrue);
++    });
++  });
++
++  group('guidance', () {
++    test('GUIDANCE sets the hint, leaves the status', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(ev('GUIDANCE', guidance: 'MOVE_CLOSER'));
++      expect(c.state.hintKey, 'liveness.guidance.move_closer');
++      expect(c.state.hintIsGuidance, isTrue);
++      expect(c.state.statusKey, 'liveness.status.checking');
++    });
++
++    test('a different hint within 500 ms waits for the rest of the 500 ms; the latest wins', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(ev('GUIDANCE', guidance: 'MOVE_CLOSER'));
++      timers.elapse(const Duration(milliseconds: 100));
++      c.handle(ev('GUIDANCE', guidance: 'IMPROVE_LIGHTING'));
++      c.handle(ev('GUIDANCE', guidance: 'CENTER_FACE'));
++      expect(c.state.hintKey, 'liveness.guidance.move_closer');
++      timers.elapse(const Duration(milliseconds: 399));
++      expect(c.state.hintKey, 'liveness.guidance.move_closer');
++      timers.elapse(const Duration(milliseconds: 1));
++      expect(c.state.hintKey, 'liveness.guidance.center_face');
++    });
++
++    test('after 500 ms a new hint shows at once', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(ev('GUIDANCE', guidance: 'MOVE_CLOSER'));
++      timers.elapse(const Duration(milliseconds: 600));
++      c.handle(ev('GUIDANCE', guidance: 'MOVE_BACK'));
++      expect(c.state.hintKey, 'liveness.guidance.move_back');
++    });
++
++    test('the same hint again does not flicker or restart', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(ev('GUIDANCE', guidance: 'NO_FACE'));
++      var notified = 0;
++      c.addListener(() => notified++);
++      c.handle(ev('GUIDANCE', guidance: 'NO_FACE'));
++      expect(notified, 0);
++      expect(c.state.hintKey, 'liveness.guidance.no_face');
++    });
++
++    test('CHECKING_PASSIVE clears the hint and drops a waiting one', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(ev('GUIDANCE', guidance: 'MULTIPLE_FACES'));
++      c.handle(ev('GUIDANCE', guidance: 'IMPROVE_LIGHTING')); // waits
++      c.handle(ev('CHECKING_PASSIVE'));
++      expect(c.state.hintKey, isNull);
++      timers.elapse(const Duration(seconds: 1));
++      expect(c.state.hintKey, isNull);
++    });
++
++    test('CHALLENGE_PROGRESS replaces guidance with "Please continue"', () {
++      c.handle(ev('CHALLENGE_PROMPT', challenge: 'SMILE', index: 1, count: 2));
++      c.handle(ev('GUIDANCE', guidance: 'HOLD_STEADY'));
++      expect(c.state.hintKey, 'liveness.guidance.hold_steady');
++      c.handle(ev('CHALLENGE_PROGRESS', challenge: 'SMILE', index: 1, count: 2, progress: 0.4));
++      expect(c.state.hintKey, 'liveness.feedback.continue');
++      expect(c.state.hintIsGuidance, isFalse);
++    });
++
++    test('every guidance value has its key', () {
++      for (final g in [
++        'NO_FACE',
++        'MULTIPLE_FACES',
++        'MOVE_CLOSER',
++        'MOVE_BACK',
++        'CENTER_FACE',
++        'IMPROVE_LIGHTING',
++        'HOLD_STEADY',
++        'LOOK_AT_CAMERA'
++      ]) {
++        final x = controller('RESIDENT');
++        x.handle(ev('CHECKING_PASSIVE'));
++        x.handle(ev('GUIDANCE', guidance: g));
++        expect(x.state.hintKey, 'liveness.guidance.${g.toLowerCase()}');
++        x.dispose();
++      }
++    });
++  });
++
++  group('challenges', () {
++    test('CHALLENGE_PROMPT: the prompt, step i of n, determinate 0, amber with the challenge icon', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(ev('GUIDANCE', guidance: 'MOVE_CLOSER'));
++      c.handle(ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
++      final s = c.state;
++      expect(s.phase, LivenessPhase.challenge);
++      expect(s.statusKey, 'liveness.challenge.blink');
++      expect(s.challengeKey, 'liveness.challenge.blink');
++      expect(s.hintKey, isNull);
++      expect(s.stepIndex, 1);
++      expect(s.stepCount, 2);
++      expect(s.progressVisible, isTrue);
++      expect(s.progress, 0);
++      expect(s.ovalTone, LivenessOvalTone.challenge);
++      expect(s.icon, LivenessIcon.blink);
++    });
++
++    test('each challenge has its key and icon', () {
++      const icons = {
++        'BLINK': LivenessIcon.blink,
++        'SMILE': LivenessIcon.smile,
++        'TURN_LEFT': LivenessIcon.turnLeft,
++        'TURN_RIGHT': LivenessIcon.turnRight,
++        'LOOK_UP': LivenessIcon.lookUp,
++        'LOOK_DOWN': LivenessIcon.lookDown,
++      };
++      icons.forEach((challenge, icon) {
++        c.handle(ev('CHALLENGE_PROMPT', challenge: challenge, index: 1, count: 1));
++        expect(c.state.statusKey, 'liveness.challenge.${challenge.toLowerCase()}');
++        expect(c.state.icon, icon);
++      });
++    });
++
++    test('CHALLENGE_PROGRESS keeps the prompt and shows the progress', () {
++      c.handle(ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 2, count: 2));
++      c.handle(ev('CHALLENGE_PROGRESS', challenge: 'TURN_LEFT', index: 2, count: 2, progress: 0.7));
++      expect(c.state.statusKey, 'liveness.challenge.turn_left');
++      expect(c.state.progress, closeTo(0.7, 1e-9));
++      expect(c.state.stepIndex, 2);
++    });
++
++    test('ACTION_DETECTED: feedback text, green check, full bar', () {
++      c.handle(ev('CHALLENGE_PROMPT', challenge: 'SMILE', index: 1, count: 2));
++      c.handle(ev('ACTION_DETECTED'));
++      expect(c.state.phase, LivenessPhase.actionDetected);
++      expect(c.state.statusKey, 'liveness.feedback.action_detected');
++      expect(c.state.ovalTone, LivenessOvalTone.success);
++      expect(c.state.icon, LivenessIcon.check);
++      expect(c.state.progress, 1.0);
++      expect(c.state.showCancel, isTrue);
++    });
++
++    test('LOOK_AT_CAMERA after a turn: shown after ACTION_DETECTED and during HOLD_STILL', () {
++      c.handle(ev('CHALLENGE_PROMPT', challenge: 'TURN_RIGHT', index: 1, count: 1));
++      c.handle(ev('ACTION_DETECTED'));
++      c.handle(ev('GUIDANCE', guidance: 'LOOK_AT_CAMERA'));
++      expect(c.state.hintKey, 'liveness.guidance.look_at_camera');
++      expect(c.state.statusKey, 'liveness.feedback.action_detected');
++
++      c.handle(ev('HOLD_STILL'));
++      expect(c.state.statusKey, 'liveness.feedback.hold_still');
++      expect(c.state.hintKey, isNull);
++      timers.elapse(const Duration(milliseconds: 600));
++      c.handle(ev('GUIDANCE', guidance: 'LOOK_AT_CAMERA'));
++      expect(c.state.hintKey, 'liveness.guidance.look_at_camera');
++      expect(c.state.phase, LivenessPhase.holdStill);
++    });
++
++    test('HOLD_STILL: blue scanning, indeterminate, no step', () {
++      c.handle(ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 1));
++      c.handle(ev('HOLD_STILL'));
++      expect(c.state.ovalTone, LivenessOvalTone.checking);
++      expect(c.state.icon, LivenessIcon.scanning);
++      expect(c.state.progressVisible, isTrue);
++      expect(c.state.progress, isNull);
++      expect(c.state.stepCount, 0);
++    });
++  });
++
++  group('attempt failures and retry', () {
++    test('LIVENESS_NOT_VERIFIED: the error, attempts left, tips, Retry and Cancel', () {
++      c.handle(ev('STARTED'));
++      c.handle(ev('ATTEMPT_FAILED',
++          error: 'CHALLENGE_TIMEOUT', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 3));
++      final s = c.state;
++      expect(s.phase, LivenessPhase.attemptFailed);
++      expect(s.statusKey, 'liveness.error.liveness_not_verified');
++      expect(s.messageKey, 'liveness.error.liveness_not_verified');
++      expect(s.hintKey, 'liveness.retry.attempts_left');
++      expect(s.retriesLeft, 3);
++      expect(s.tips, isTrue);
++      expect(s.showRetry && s.showCancel, isTrue);
++      expect(s.showClose, isFalse);
++      expect(s.ovalTone, LivenessOvalTone.error);
++      expect(s.icon, LivenessIcon.cross);
++    });
++
++    test('PAD_FAILURE and ENGINE_ERROR show the generic text and no tips', () {
++      for (final code in ['PAD_FAILURE', 'ENGINE_ERROR']) {
++        final x = controller('RESIDENT');
++        x.handle(ev('ATTEMPT_FAILED', error: code, userMessage: 'VERIFICATION_NOT_COMPLETED', retriesLeft: 2));
++        expect(x.state.statusKey, 'liveness.error.verification_not_completed');
++        expect(x.state.tips, isFalse);
++        expect(x.state.showRetry, isTrue);
++        x.dispose();
++      }
++    });
++
++    test('a missing user message falls back to the generic text', () {
++      c.handle(ev('ATTEMPT_FAILED', error: 'ENGINE_ERROR', retriesLeft: 1));
++      expect(c.state.statusKey, 'liveness.error.verification_not_completed');
++    });
++
++    test('guidance does not replace the attempts-left line', () {
++      c.handle(ev('ATTEMPT_FAILED', error: 'POOR_QUALITY', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 2));
++      c.handle(ev('GUIDANCE', guidance: 'NO_FACE'));
++      expect(c.state.hintKey, 'liveness.retry.attempts_left');
++    });
++
++    test('Retry: the next STARTED shows attempt 2 and hides Retry', () {
++      c.handle(ev('STARTED'));
++      c.handle(ev('ATTEMPT_FAILED', error: 'CHALLENGE_FAILED', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 3));
++      c.handle(ev('STARTED', attempt: 2));
++      expect(c.state.attempt, 2);
++      expect(c.state.showRetry, isFalse);
++      expect(c.state.tips, isFalse);
++      expect(c.state.hintKey, isNull);
++    });
++  });
++
++  group('device errors', () {
++    test('recoverable: device text, camera-off icon, Retry and Cancel', () {
++      c.handle(ev('DEVICE_ERROR', error: 'DEVICE_DISCONNECTED', userMessage: 'DEVICE_PROBLEM', recoverable: true));
++      expect(c.state.phase, LivenessPhase.deviceError);
++      expect(c.state.statusKey, 'liveness.error.device_problem');
++      expect(c.state.icon, LivenessIcon.cameraOff);
++      expect(c.state.showRetry, isTrue);
++      expect(c.state.showCancel, isTrue);
++      expect(c.state.tips, isFalse);
++    });
++
++    test('not recoverable: Cancel only until FAILED_FINAL', () {
++      c.handle(ev('DEVICE_ERROR', error: 'CAMERA_UNAVAILABLE', userMessage: 'DEVICE_PROBLEM', recoverable: false));
++      expect(c.state.showRetry, isFalse);
++      expect(c.state.showCancel, isTrue);
++      c.handle(ev('FAILED_FINAL', error: 'CAMERA_UNAVAILABLE', userMessage: 'DEVICE_PROBLEM', recoverable: false));
++      expect(c.state.statusKey, 'liveness.error.device_problem');
++      expect(c.state.recoveryKey, 'liveness.recovery.resident');
++      expect(c.state.showClose, isTrue);
++      expect(c.state.showCancel, isFalse);
++    });
++  });
++
++  group('final states', () {
++    test('PASSED: success text, green check, no buttons', () {
++      c.handle(ev('HOLD_STILL'));
++      c.handle(ev('PASSED'));
++      final s = c.state;
++      expect(s.phase, LivenessPhase.passed);
++      expect(s.statusKey, 'liveness.status.passed');
++      expect(s.ovalTone, LivenessOvalTone.success);
++      expect(s.icon, LivenessIcon.check);
++      expect(s.showRetry || s.showCancel || s.showClose, isFalse);
++      c.handle(complete('PASSED'));
++      expect(c.result!.decision, 'PASSED');
++      expect(c.state.phase, LivenessPhase.passed);
++    });
++
++    test('FAILED_FINAL: max attempts plus each workflow\'s recovery text, Close only', () {
++      for (final wf in ['RESIDENT', 'OPERATOR', 'SUPERVISOR']) {
++        final x = controller(wf);
++        x.handle(ev('FAILED_FINAL', attempt: 4, error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED',
++            recoverable: false));
++        expect(x.state.phase, LivenessPhase.failedFinal);
++        expect(x.state.statusKey, 'liveness.error.max_attempts_reached');
++        expect(x.state.messageKey, 'liveness.error.max_attempts_reached');
++        expect(x.state.recoveryKey, 'liveness.recovery.${wf.toLowerCase()}');
++        expect(x.state.showClose, isTrue);
++        expect(x.state.showRetry || x.state.showCancel, isFalse);
++        expect(x.state.tips, isFalse);
++        x.dispose();
++      }
++    });
++
++    test('a final PAD or engine failure also gets max attempts, never "try again"', () {
++      c.handle(ev('FAILED_FINAL', error: 'PAD_FAILURE', userMessage: 'VERIFICATION_NOT_COMPLETED', recoverable: false));
++      expect(c.state.statusKey, 'liveness.error.max_attempts_reached');
++    });
++
++    test('operator cooldown refusal: an immediate FAILED_FINAL renders like max attempts', () {
++      final x = controller('OPERATOR', maxRetries: 3);
++      x.handle(ev('FAILED_FINAL', error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED', recoverable: false));
++      x.handle(complete('FAILED', failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED'));
++      expect(x.state.statusKey, 'liveness.error.max_attempts_reached');
++      expect(x.state.recoveryKey, 'liveness.recovery.operator');
++      expect(x.state.showClose, isTrue);
++      x.dispose();
++    });
++
++    test('camera permission refused: device text, recovery, Close', () {
++      c.permissionDenied();
++      expect(c.state.phase, LivenessPhase.failedFinal);
++      expect(c.state.statusKey, 'liveness.error.device_problem');
++      expect(c.state.recoveryKey, 'liveness.recovery.resident');
++      expect(c.state.showClose, isTrue);
++      expect(c.state.showCancel, isFalse);
++    });
++
++    test('a failed result without FAILED_FINAL (refused before any event) uses its user message', () {
++      c.handle(complete('FAILED', failureCode: 'CAMERA_UNAVAILABLE', userMessage: 'DEVICE_PROBLEM'));
++      expect(c.state.phase, LivenessPhase.failedFinal);
++      expect(c.state.statusKey, 'liveness.error.device_problem');
++    });
++
++    test('the bridge failing gives the final generic state', () {
++      c.startFailed();
++      expect(c.state.statusKey, 'liveness.error.max_attempts_reached');
++      expect(c.state.showClose, isTrue);
++    });
++
++    test('CANCELLED: no message, no buttons', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(complete('CANCELLED', failureCode: 'CANCELLED'));
++      expect(c.state.phase, LivenessPhase.cancelled);
++      expect(c.state.statusKey, isNull);
++      expect(c.state.showRetry || c.state.showCancel || c.state.showClose, isFalse);
++      expect(c.result!.decision, 'CANCELLED');
++    });
++
++    test('events after a final state are ignored', () {
++      c.handle(ev('PASSED'));
++      c.handle(ev('GUIDANCE', guidance: 'NO_FACE'));
++      c.handle(ev('CHECKING_PASSIVE'));
++      expect(c.state.phase, LivenessPhase.passed);
++      expect(c.state.hintKey, isNull);
++    });
++
++    test('a waiting hint is dropped by PASSED', () {
++      c.handle(ev('CHECKING_PASSIVE'));
++      c.handle(ev('GUIDANCE', guidance: 'MOVE_CLOSER'));
++      c.handle(ev('GUIDANCE', guidance: 'MOVE_BACK'));
++      c.handle(ev('PASSED'));
++      timers.elapse(const Duration(seconds: 1));
++      expect(c.state.hintKey, isNull);
++    });
++  });
++
++  test('every liveness key in app_en.arb resolves through livenessText', () async {
++    final l = await AppLocalizations.delegate.load(const Locale('en'));
++    final arb = jsonDecode(File('assets/l10n/app_en.arb').readAsStringSync()) as Map<String, dynamic>;
++    final keys = arb.keys.where((k) => k.startsWith('liveness_')).toList();
++    expect(keys.length, 43);
++    for (final k in keys) {
++      final parts = k.split('_');
++      final canonical = '${parts[0]}.${parts[1]}.${parts.sublist(2).join('_')}';
++      final text = livenessText(l, canonical, i: 1, n: 2, a: 1, m: 4);
++      expect(text, isNot(canonical), reason: '$canonical has no getter');
++      expect(text, isNotEmpty);
++    }
++    expect(livenessText(l, 'liveness.progress.step', i: 1, n: 2), 'Step 1 of 2');
++    expect(livenessText(l, 'liveness.retry.attempts_left', n: 3), '3 attempt(s) left');
++    expect(livenessText(l, 'liveness.progress.attempt', a: 2, m: 4), 'Attempt 2 of 4');
++  });
++}
+diff --git a/test/liveness/liveness_page_test.dart b/test/liveness/liveness_page_test.dart
+new file mode 100644
+index 0000000..03463c2
+--- /dev/null
++++ b/test/liveness/liveness_page_test.dart
+@@ -0,0 +1,319 @@
++import 'dart:async';
++
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++
++/// A scripted LivenessService: the test emits the engine's maps.
++class FakeLivenessService implements LivenessService {
++  final StreamController<LivenessMessage> _messages = StreamController<LivenessMessage>.broadcast();
++  bool enabled = true;
++  bool permission = true;
++  int maxRetries = 3;
++  String sessionId = 's-1';
++  int retries = 0;
++  int cancels = 0;
++  final List<String> started = [];
++
++  void emit(Map<String, Object?> m) => _messages.add(LivenessMessage(m));
++
++  @override
++  Stream<LivenessMessage> get messages => _messages.stream;
++
++  @override
++  Future<bool> isEnabled(String workflow) async => enabled;
++
++  @override
++  Future<LivenessPolicyInfo> policy(String workflow) async => LivenessPolicyInfo(
++      enabled: enabled, maxRetries: maxRetries, minChallenges: 2, challengeTimeoutMs: 6000);
++
++  @override
++  Future<bool> ensureCameraPermission() async => permission;
++
++  @override
++  Future<String> startSession(String workflow, {String camera = 'front', bool useFake = false}) async {
++    started.add('$workflow/$camera/$useFake');
++    return enabled ? sessionId : '';
++  }
++
++  @override
++  Future<void> retry() async => retries++;
++
++  @override
++  Future<void> cancel() async => cancels++;
++
++  @override
++  Future<String> modelVersion() async => 'test-model';
++
++  @override
++  Future<void> setConfigOverride(String key, String value) async {}
++}
++
++Map<String, Object?> ev(String type,
++        {int attempt = 1,
++        String? guidance,
++        String? challenge,
++        int index = 0,
++        int count = 0,
++        double progress = 0,
++        String? error,
++        String? userMessage,
++        int retriesLeft = 0,
++        bool recoverable = true}) =>
++    <String, Object?>{
++      'kind': 'event',
++      'type': type,
++      'guidance': guidance,
++      'challenge': challenge,
++      'challengeIndex': index,
++      'challengeCount': count,
++      'timeoutMs': 6000,
++      'progress': progress,
++      'error': error,
++      'userMessage': userMessage,
++      'attemptNumber': attempt,
++      'retriesLeft': retriesLeft,
++      'recoverable': recoverable,
++    };
++
++Map<String, Object?> complete(String decision,
++        {String? failureCode, String userMessage = 'NONE', String sessionId = 's-1'}) =>
++    <String, Object?>{
++      'kind': 'complete',
++      'decision': decision,
++      'passPath': decision == 'PASSED' ? 'ACTIVE_CHALLENGE' : 'NONE',
++      'failureCode': failureCode,
++      'userMessage': userMessage,
++      'passiveScore': 0.62,
++      'challengesIssued': const <String>['BLINK', 'SMILE'],
++      'attempts': 1,
++      'durationMs': 4321,
++      'sessionId': sessionId,
++      'modelVersion': 'test-model',
++      'bestFrameJpeg': null,
++    };
++
++class _Launcher extends StatelessWidget {
++  const _Launcher(this.service, this.workflow, this.onResult);
++
++  final LivenessService service;
++  final String workflow;
++  final void Function(LivenessOutcome?) onResult;
++
++  @override
++  Widget build(BuildContext context) => Scaffold(
++        body: Center(
++          child: ElevatedButton(
++            onPressed: () async {
++              final outcome = await Navigator.push<LivenessOutcome>(
++                context,
++                MaterialPageRoute(
++                  builder: (_) => LivenessPage(
++                    workflow: workflow,
++                    service: service,
++                    previewBuilder: () => const ColoredBox(color: Colors.grey),
++                  ),
++                ),
++              );
++              onResult(outcome);
++            },
++            child: const Text('open'),
++          ),
++        ),
++      );
++}
++
++void main() {
++  late FakeLivenessService service;
++  LivenessOutcome? outcome;
++  var returned = false;
++
++  setUp(() {
++    service = FakeLivenessService();
++    outcome = null;
++    returned = false;
++  });
++
++  Future<void> open(WidgetTester tester, {String workflow = 'RESIDENT'}) async {
++    await tester.binding.setSurfaceSize(const Size(411, 891)); // a phone in portrait
++    addTearDown(() => tester.binding.setSurfaceSize(null));
++    await tester.pumpWidget(MaterialApp(
++      localizationsDelegates: AppLocalizations.localizationsDelegates,
++      supportedLocales: AppLocalizations.supportedLocales,
++      home: _Launcher(service, workflow, (o) {
++        outcome = o;
++        returned = true;
++      }),
++    ));
++    await tester.tap(find.text('open'));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400)); // route transition and the start-up calls
++  }
++
++  Future<void> send(WidgetTester tester, Map<String, Object?> m) async {
++    service.emit(m);
++    // The first pump delivers the event (a microtask) and schedules a frame; the second draws it.
++    await tester.pump();
++    await tester.pump();
++  }
++
++  Future<void> tapText(WidgetTester tester, String text) async {
++    await tester.ensureVisible(find.text(text));
++    await tester.pump();
++    await tester.tap(find.text(text));
++    await tester.pump();
++  }
++
++  testWidgets('PASS_ACTIVE: the banner follows the script, then the page pops passed', (tester) async {
++    await open(tester);
++    expect(service.started, ['RESIDENT/front/false']);
++    expect(find.text('Face liveness check'), findsOneWidget);
++
++    await send(tester, ev('STARTED'));
++    expect(find.text('Starting face liveness check…'), findsOneWidget);
++    expect(find.text('Attempt 1 of 4'), findsOneWidget);
++    await send(tester, ev('CHECKING_PASSIVE'));
++    expect(find.text('Checking face liveness…'), findsOneWidget);
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
++    expect(find.text('Please blink'), findsOneWidget);
++    expect(find.text('Step 1 of 2'), findsOneWidget);
++    await send(tester, ev('CHALLENGE_PROGRESS', challenge: 'BLINK', index: 1, count: 2, progress: 0.35));
++    expect(find.text('Please blink'), findsOneWidget);
++    expect(find.text('Please continue'), findsOneWidget);
++    await send(tester, ev('ACTION_DETECTED'));
++    expect(find.text('Action detected'), findsOneWidget);
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'SMILE', index: 2, count: 2));
++    expect(find.text('Please smile'), findsOneWidget);
++    expect(find.text('Step 2 of 2'), findsOneWidget);
++    await send(tester, ev('ACTION_DETECTED'));
++    await send(tester, ev('HOLD_STILL'));
++    expect(find.text('Hold still'), findsOneWidget);
++    await send(tester, ev('PASSED'));
++    expect(find.text('Good, face captured successfully'), findsOneWidget);
++    expect(find.text('Cancel'), findsNothing);
++    await send(tester, complete('PASSED'));
++
++    await tester.pump(const Duration(milliseconds: 900));
++    expect(returned, isFalse, reason: 'the success state stays about 1 s');
++    await tester.pump(const Duration(milliseconds: 200));
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(returned, isTrue);
++    expect(outcome!.passed, isTrue);
++    expect(outcome!.passPath, 'ACTIVE_CHALLENGE');
++    expect(outcome!.sessionId, 's-1');
++    expect(outcome!.durationMs, 4321);
++    expect(find.text('0.62'), findsNothing);
++  });
++
++  testWidgets('PAD attack: generic text without tips, then max attempts with the recovery text and Close',
++      (tester) async {
++    await open(tester);
++    await send(tester, ev('STARTED'));
++    await send(tester, ev('CHECKING_PASSIVE'));
++    await send(tester, ev('ATTEMPT_FAILED',
++        error: 'PAD_FAILURE', userMessage: 'VERIFICATION_NOT_COMPLETED', retriesLeft: 3));
++    expect(find.text('Face verification could not be completed. Please try again.'), findsOneWidget);
++    expect(find.text('Tips:'), findsNothing);
++    expect(find.text('3 attempt(s) left'), findsOneWidget);
++    expect(find.text('Retry'), findsOneWidget);
++
++    await send(tester, ev('FAILED_FINAL',
++        attempt: 4, error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED', recoverable: false));
++    await send(tester, complete('FAILED', failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED'));
++    expect(find.text('Face verification could not be completed.'), findsOneWidget);
++    expect(find.text('Please contact the supervisor. The resident can be registered using the biometric exception process.'),
++        findsOneWidget);
++    expect(find.text('Retry'), findsNothing);
++    expect(find.text('Cancel'), findsNothing);
++    await tapText(tester, 'Close');
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(outcome!.passed, isFalse);
++    expect(outcome!.cancelled, isFalse);
++    expect(outcome!.failureCode, 'MAX_RETRIES_EXCEEDED');
++  });
++
++  testWidgets('LIVENESS_NOT_VERIFIED shows the tips; Retry calls retry()', (tester) async {
++    await open(tester);
++    await send(tester, ev('ATTEMPT_FAILED',
++        error: 'CHALLENGE_TIMEOUT', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 2));
++    expect(find.text('We could not verify face liveness. Please try again.'), findsOneWidget);
++    expect(find.text('Tips:'), findsOneWidget);
++    expect(find.textContaining('Follow the prompted action.'), findsOneWidget);
++    await tapText(tester, 'Retry');
++    expect(service.retries, 1);
++    await send(tester, ev('STARTED', attempt: 2));
++    expect(find.text('Attempt 2 of 4'), findsOneWidget);
++    expect(find.text('Tips:'), findsNothing);
++
++    await tapText(tester, 'Cancel');
++    await tester.pump(const Duration(milliseconds: 400));
++  });
++
++  testWidgets('Cancel calls cancel() and pops cancelled', (tester) async {
++    await open(tester);
++    await send(tester, ev('STARTED'));
++    await send(tester, ev('CHECKING_PASSIVE'));
++    await tapText(tester, 'Cancel');
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(service.cancels, 1);
++    expect(outcome!.cancelled, isTrue);
++    expect(outcome!.passed, isFalse);
++  });
++
++  testWidgets('back mid-session cancels', (tester) async {
++    await open(tester);
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 1, count: 2));
++    expect(find.text('Please turn your head to the left'), findsOneWidget);
++    await tester.pageBack(); // the app bar's back button: Navigator.maybePop, as the system back does
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(service.cancels, 1);
++    expect(outcome!.cancelled, isTrue);
++  });
++
++  testWidgets('a CANCELLED result pops cancelled', (tester) async {
++    await open(tester);
++    await send(tester, ev('STARTED'));
++    await send(tester, complete('CANCELLED', failureCode: 'CANCELLED'));
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(outcome!.cancelled, isTrue);
++    expect(service.cancels, 0);
++  });
++
++  testWidgets('a disabled workflow pops disabled without starting a session', (tester) async {
++    service.enabled = false;
++    await open(tester);
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(returned, isTrue);
++    expect(outcome!.disabled, isTrue);
++    expect(service.started, isEmpty);
++  });
++
++  testWidgets('camera permission refused: device text, recovery text and Close', (tester) async {
++    service.permission = false;
++    await open(tester, workflow: 'OPERATOR');
++    expect(service.started, isEmpty);
++    expect(find.text('Operator face verification'), findsOneWidget);
++    expect(find.text('Camera/device not available. Check the connection and try again.'), findsOneWidget);
++    expect(find.text('Please contact your administrator or try again later.'), findsOneWidget);
++    await tapText(tester, 'Close');
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(outcome!.failureCode, 'CAMERA_UNAVAILABLE');
++    expect(outcome!.userMessage, 'DEVICE_PROBLEM');
++  });
++
++  testWidgets('guidance shows in the hint line; a result of another session is ignored', (tester) async {
++    await open(tester);
++    await send(tester, ev('CHECKING_PASSIVE'));
++    await send(tester, ev('GUIDANCE', guidance: 'IMPROVE_LIGHTING'));
++    expect(find.text('Please improve the lighting.'), findsOneWidget);
++    expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
++    await send(tester, complete('CANCELLED', sessionId: 'old-session'));
++    expect(returned, isFalse);
++    await tapText(tester, 'Cancel');
++    await tester.pump(const Duration(milliseconds: 600));
++  });
++}

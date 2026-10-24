@@ -1,0 +1,88 @@
+From 77f97a93efe522bfb9facfe8c44097cb81adbb92 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:32:59 +0530
+Subject: [PATCH 15/26] Gate packet authentication and supervisor approval with
+ liveness
+
+- generic_process.dart continueButtonTap: between the packet password
+  check and submitRegistrationDto, LivenessGate.run(OPERATOR): the officer
+  who signs the packet. Not proceeding submits nothing and stays on the
+  authentication step; blocked shows the failure text in a snackbar.
+- authenticate_dialogbox.dart submitReviews: between the supervisor's
+  password check and submitSelected, LivenessGate.run(SUPERVISOR); the
+  liveness screen opens over the dialog (root navigator). Not proceeding
+  approves nothing and keeps the dialog; blocked shows the failure text
+  in the dialog's error line. The added mounted check also guards the
+  existing context use after the await (one analyzer info fewer).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../widget/authenticate_dialogbox.dart          | 17 +++++++++++++++++
+ lib/ui/process_ui/generic_process.dart          | 12 ++++++++++++
+ 2 files changed, 29 insertions(+)
+
+diff --git a/lib/ui/approve_packet/widget/authenticate_dialogbox.dart b/lib/ui/approve_packet/widget/authenticate_dialogbox.dart
+index 94425ad..60773a5 100644
+--- a/lib/ui/approve_packet/widget/authenticate_dialogbox.dart
++++ b/lib/ui/approve_packet/widget/authenticate_dialogbox.dart
+@@ -3,6 +3,8 @@ import 'dart:developer';
+ import 'package:flutter/material.dart';
+ import 'package:provider/provider.dart';
+ import 'package:registration_client/provider/approve_packets_provider.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
+ import 'package:registration_client/utils/app_config.dart';
+ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+ 
+@@ -81,6 +83,21 @@ class _AuthenticateDialogBoxState extends State<AuthenticateDialogBox> {
+     });
+     bool isAuthenticated = await _authenticatePacketPassword();
+     if (isAuthenticated) {
++      // Face liveness of the supervisor before the approval (docs/ui-liveness-spec.md section 6). Not proceeding
++      // approves nothing and keeps the dialog open.
++      if (!mounted) return;
++      final liveness = await LivenessGate.run(context, workflow: LivenessGate.supervisor);
++      if (!mounted) return;
++      if (!liveness.proceed) {
++        setState(() {
++          loading = false;
++          showLoginError = liveness.blocked;
++          if (liveness.blocked) {
++            loginError = livenessText(appLocalizations, liveness.failureMessageKey);
++          }
++        });
++        return;
++      }
+       try {
+         await context.read<ApprovePacketsProvider>().submitSelected();
+         Navigator.of(context).pop();
+diff --git a/lib/ui/process_ui/generic_process.dart b/lib/ui/process_ui/generic_process.dart
+index 97a128c..9fd70b0 100644
+--- a/lib/ui/process_ui/generic_process.dart
++++ b/lib/ui/process_ui/generic_process.dart
+@@ -28,6 +28,8 @@ import 'package:registration_client/provider/connectivity_provider.dart';
+ import 'package:registration_client/provider/global_provider.dart';
+ import 'package:registration_client/provider/registration_task_provider.dart';
+ 
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
+ import 'package:registration_client/ui/post_registration/acknowledgement_page.dart';
+ import 'package:registration_client/ui/post_registration/preview_page.dart';
+ import 'package:registration_client/ui/process_ui/widgets/generic_process_screen_content.dart';
+@@ -701,6 +703,16 @@ class _GenericProcessState extends State<GenericProcess>
+           if (!isPacketAuthenticated) {
+             return;
+           }
++          // Face liveness of the operator who signs the packet (OPERATOR workflow, docs/ui-liveness-spec.md
++          // section 6). Not proceeding keeps the authentication step and submits nothing.
++          if (!mounted) return;
++          final liveness = await LivenessGate.run(context, workflow: LivenessGate.operator);
++          if (!liveness.proceed) {
++            if (liveness.blocked && mounted) {
++              _showInSnackBar(livenessText(appLocalizations, liveness.failureMessageKey));
++            }
++            return;
++          }
+           RegistrationSubmitResponse registrationSubmitResponse =
+               await registrationTaskProvider.submitRegistrationDto(username);
+           if (registrationSubmitResponse.errorCode != null && registrationSubmitResponse.errorCode!.isNotEmpty) {

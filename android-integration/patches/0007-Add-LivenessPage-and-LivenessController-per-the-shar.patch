@@ -1,0 +1,1248 @@
+From 66ca5a58ce31cb557fd60c33b0424bdf400eb0f7 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 18:46:18 +0530
+Subject: [PATCH 07/26] Add LivenessPage and LivenessController per the shared
+ UI spec
+
+lib/ui/liveness/ (docs/ui-liveness-spec.md in Mosip26):
+- liveness_controller.dart: a ChangeNotifier without widgets that turns the
+  event and result maps into an immutable LivenessViewState (phase, status /
+  hint / challenge / message / recovery keys, step i of n, progress or
+  indeterminate, attempt a of m, retries left, oval tone + icon,
+  Retry / Cancel / Close, tips). Rules from spec sections 3 and 4:
+  guidance shown at once, or after the rest of 500 ms since the last one
+  (latest wins), cleared and dropped by CHECKING_PASSIVE, CHALLENGE_PROMPT,
+  CHALLENGE_PROGRESS ("Please continue"), PASSED and failures;
+  LOOK_AT_CAMERA after ACTION_DETECTED / HOLD_STILL; errors only through
+  the user message (PAD and engine errors: the generic text, no tips; tips
+  only for LIVENESS_NOT_VERIFIED); FAILED_FINAL always max_attempts_reached
+  or the device text, plus liveness.recovery.<workflow>, Close only, which
+  also covers the cooldown refusal; camera permission refused: the device
+  text, recovery and Close. Timers come from an injectable factory.
+- liveness_strings.dart: the one switch from canonical keys to the
+  generated AppLocalizations getters, with the placeholders.
+- liveness_page.dart: LivenessPage(workflow, camera, useFake,
+  previewBuilder, service, showDebugInfo) pops a LivenessOutcome (passed,
+  cancelled, disabled, passPath, failureCode, userMessage, bestFrameJpeg,
+  sessionId, attempts, durationMs, modelVersion). Flow: isEnabled (else
+  pop disabled), camera permission, policy (m = maxRetries + 1), wait for
+  the platform view, startSession. Layout per spec section 2: the 3:4
+  preview (AndroidView or previewBuilder) with a face oval in the tone
+  colour, a light dim outside it and an icon badge; the status line in a
+  26 sp banner inside Semantics(liveRegion); the hint (18 sp, warning icon
+  for guidance); step and progress bar; attempt line; tips; recovery text;
+  48 dp buttons. PASSED: success state, then pop after 1 s. Back and Cancel
+  cancel the session; dispose() cancels a running one. A result of an
+  older session is ignored. No score or model information on screen; in
+  debug builds only, a small chip with the model version.
+- LivenessService gets ensureCameraPermission(); startSession uses it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../liveness_service_impl.dart                |   9 +-
+ lib/platform_spi/liveness_service.dart        |   3 +
+ lib/ui/liveness/liveness_controller.dart      | 480 +++++++++++++++
+ lib/ui/liveness/liveness_page.dart            | 547 ++++++++++++++++++
+ lib/ui/liveness/liveness_strings.dart         | 115 ++++
+ 5 files changed, 1152 insertions(+), 2 deletions(-)
+ create mode 100644 lib/ui/liveness/liveness_controller.dart
+ create mode 100644 lib/ui/liveness/liveness_page.dart
+ create mode 100644 lib/ui/liveness/liveness_strings.dart
+
+diff --git a/lib/platform_android/liveness_service_impl.dart b/lib/platform_android/liveness_service_impl.dart
+index ff96137..391a325 100644
+--- a/lib/platform_android/liveness_service_impl.dart
++++ b/lib/platform_android/liveness_service_impl.dart
+@@ -52,11 +52,16 @@ class LivenessServiceImpl implements LivenessService {
+   @override
+   Future<LivenessPolicyInfo> policy(String workflow) => _api.policy(workflow);
+ 
++  @override
++  Future<bool> ensureCameraPermission() async {
++    final PermissionStatus status = await Permission.camera.request();
++    return status.isGranted;
++  }
++
+   @override
+   Future<String> startSession(String workflow,
+       {String camera = 'front', bool useFake = false}) async {
+-    final PermissionStatus status = await Permission.camera.request();
+-    if (!status.isGranted) {
++    if (!await ensureCameraPermission()) {
+       final String id = 'camera-denied-${DateTime.now().millisecondsSinceEpoch}';
+       _controller.add(LivenessMessage(<String, Object?>{
+         'kind': 'complete',
+diff --git a/lib/platform_spi/liveness_service.dart b/lib/platform_spi/liveness_service.dart
+index 67132b4..d91741f 100644
+--- a/lib/platform_spi/liveness_service.dart
++++ b/lib/platform_spi/liveness_service.dart
+@@ -61,6 +61,9 @@ abstract class LivenessService {
+ 
+   Future<LivenessPolicyInfo> policy(String workflow);
+ 
++  /// Asks for the camera permission if needed; true when granted.
++  Future<bool> ensureCameraPermission();
++
+   /// Asks for the camera permission, then starts a session (cancelling any
+   /// running one). Returns the session id, or "" when liveness is disabled for
+   /// the workflow. A refused permission completes the session with FAILED /
+diff --git a/lib/ui/liveness/liveness_controller.dart b/lib/ui/liveness/liveness_controller.dart
+new file mode 100644
+index 0000000..7910dc3
+--- /dev/null
++++ b/lib/ui/liveness/liveness_controller.dart
+@@ -0,0 +1,480 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'dart:async';
++
++import 'package:flutter/foundation.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++
++/// Creates the controller's timers; tests pass a manual one.
++typedef LivenessTimerFactory = Timer Function(
++    Duration duration, void Function() callback);
++
++enum LivenessPhase {
++  starting,
++  checking,
++  challenge,
++  actionDetected,
++  holdStill,
++  attemptFailed,
++  passed,
++  failedFinal,
++  deviceError,
++  cancelled,
++}
++
++/// The face-oval colour. Always shown together with [LivenessIcon].
++enum LivenessOvalTone { neutral, checking, challenge, success, error }
++
++enum LivenessIcon {
++  camera,
++  scanning,
++  blink,
++  smile,
++  turnLeft,
++  turnRight,
++  lookUp,
++  lookDown,
++  check,
++  cross,
++  cameraOff,
++}
++
++const Object _unset = Object();
++
++/// What the liveness screen shows, as canonical message keys
++/// (docs/ui-liveness-spec.md §3, §4). Never a score or model detail.
++@immutable
++class LivenessViewState {
++  const LivenessViewState({
++    required this.phase,
++    this.statusKey,
++    this.hintKey,
++    this.hintIsGuidance = false,
++    this.challengeKey,
++    this.stepIndex = 0,
++    this.stepCount = 0,
++    this.progressVisible = false,
++    this.progress,
++    this.attempt = 0,
++    this.maxAttempts = 0,
++    this.retriesLeft = 0,
++    this.ovalTone = LivenessOvalTone.neutral,
++    this.icon = LivenessIcon.camera,
++    this.showRetry = false,
++    this.showCancel = true,
++    this.showClose = false,
++    this.tips = false,
++    this.messageKey,
++    this.recoveryKey,
++  });
++
++  final LivenessPhase phase;
++
++  /// The big status line: a status, challenge, feedback or error key.
++  final String? statusKey;
++
++  /// The hint line. `liveness.retry.attempts_left` takes [retriesLeft].
++  final String? hintKey;
++
++  /// The hint is positioning guidance (shown with a warning icon).
++  final bool hintIsGuidance;
++
++  /// `liveness.challenge.<name>` during a challenge.
++  final String? challengeKey;
++
++  /// "Step i of n" (1-based); 0 = not shown.
++  final int stepIndex;
++  final int stepCount;
++
++  /// The progress bar is shown; [progress] null = indeterminate.
++  final bool progressVisible;
++  final double? progress;
++
++  /// "Attempt a of m"; 0 = not shown.
++  final int attempt;
++  final int maxAttempts;
++  final int retriesLeft;
++
++  final LivenessOvalTone ovalTone;
++  final LivenessIcon icon;
++
++  final bool showRetry;
++  final bool showCancel;
++  final bool showClose;
++
++  /// Show the tips list (LIVENESS_NOT_VERIFIED only).
++  final bool tips;
++
++  /// The failure message key (attempt failed, device error, final failure).
++  final String? messageKey;
++
++  /// `liveness.recovery.<workflow>` on a final failure.
++  final String? recoveryKey;
++
++  bool get isFinal =>
++      phase == LivenessPhase.passed ||
++      phase == LivenessPhase.failedFinal ||
++      phase == LivenessPhase.cancelled;
++
++  LivenessViewState copyWith({
++    LivenessPhase? phase,
++    Object? statusKey = _unset,
++    Object? hintKey = _unset,
++    bool? hintIsGuidance,
++    Object? challengeKey = _unset,
++    int? stepIndex,
++    int? stepCount,
++    bool? progressVisible,
++    Object? progress = _unset,
++    int? attempt,
++    int? maxAttempts,
++    int? retriesLeft,
++    LivenessOvalTone? ovalTone,
++    LivenessIcon? icon,
++    bool? showRetry,
++    bool? showCancel,
++    bool? showClose,
++    bool? tips,
++    Object? messageKey = _unset,
++    Object? recoveryKey = _unset,
++  }) {
++    return LivenessViewState(
++      phase: phase ?? this.phase,
++      statusKey: identical(statusKey, _unset) ? this.statusKey : statusKey as String?,
++      hintKey: identical(hintKey, _unset) ? this.hintKey : hintKey as String?,
++      hintIsGuidance: hintIsGuidance ?? this.hintIsGuidance,
++      challengeKey:
++          identical(challengeKey, _unset) ? this.challengeKey : challengeKey as String?,
++      stepIndex: stepIndex ?? this.stepIndex,
++      stepCount: stepCount ?? this.stepCount,
++      progressVisible: progressVisible ?? this.progressVisible,
++      progress: identical(progress, _unset) ? this.progress : progress as double?,
++      attempt: attempt ?? this.attempt,
++      maxAttempts: maxAttempts ?? this.maxAttempts,
++      retriesLeft: retriesLeft ?? this.retriesLeft,
++      ovalTone: ovalTone ?? this.ovalTone,
++      icon: icon ?? this.icon,
++      showRetry: showRetry ?? this.showRetry,
++      showCancel: showCancel ?? this.showCancel,
++      showClose: showClose ?? this.showClose,
++      tips: tips ?? this.tips,
++      messageKey: identical(messageKey, _unset) ? this.messageKey : messageKey as String?,
++      recoveryKey: identical(recoveryKey, _unset) ? this.recoveryKey : recoveryKey as String?,
++    );
++  }
++
++  @override
++  String toString() => 'LivenessViewState($phase, status=$statusKey, hint=$hintKey, '
++      'step=$stepIndex/$stepCount, progress=${progressVisible ? progress : '-'}, '
++      'attempt=$attempt/$maxAttempts, tone=$ovalTone, icon=$icon, '
++      'retry=$showRetry cancel=$showCancel close=$showClose tips=$tips, '
++      'message=$messageKey recovery=$recoveryKey)';
++}
++
++/// Turns liveness events and the result into [LivenessViewState]s, following
++/// docs/ui-liveness-spec.md §3 and §4. Holds no widgets.
++///
++/// Guidance hints: a new hint is shown at once unless another one was shown
++/// less than [hintDebounce] ago; then it waits for the rest of that time (the
++/// latest one wins). CHECKING_PASSIVE, CHALLENGE_PROMPT, CHALLENGE_PROGRESS,
++/// PASSED and failures clear the hint and drop a waiting one.
++class LivenessController extends ChangeNotifier {
++  LivenessController({
++    required String workflow,
++    int maxRetries = 0,
++    LivenessTimerFactory? timerFactory,
++  })  : _workflow = workflow.toLowerCase(),
++        _timer = timerFactory ?? ((d, cb) => Timer(d, cb)),
++        _state = LivenessViewState(
++          phase: LivenessPhase.starting,
++          statusKey: 'liveness.status.starting',
++          maxAttempts: maxRetries + 1,
++        );
++
++  static const Duration hintDebounce = Duration(milliseconds: 500);
++
++  final String _workflow;
++  final LivenessTimerFactory _timer;
++  LivenessViewState _state;
++  LivenessMessage? _result;
++  Timer? _hintLock;
++  String? _pendingHint;
++  bool _disposed = false;
++
++  LivenessViewState get state => _state;
++
++  /// The session's result once it completed (kind "complete").
++  LivenessMessage? get result => _result;
++
++  String get titleKey => 'liveness.title.$_workflow';
++
++  /// From `policy(workflow).maxRetries`: "Attempt a of m" uses m = maxRetries + 1.
++  set maxRetries(int value) => _set(_state.copyWith(maxAttempts: value + 1));
++
++  void handle(LivenessMessage m) {
++    if (_disposed) return;
++    if (m.isComplete) {
++      _complete(m);
++    } else if (!_state.isFinal) {
++      _event(m);
++    }
++  }
++
++  /// The camera permission was refused: the device text, the recovery text and Close.
++  void permissionDenied() => _set(_finalState('DEVICE_PROBLEM'));
++
++  /// The session could not be started at all (bridge error).
++  void startFailed() => _set(_finalState('VERIFICATION_NOT_COMPLETED'));
++
++  void _event(LivenessMessage m) {
++    final attempt = m.attemptNumber > 0 ? m.attemptNumber : _state.attempt;
++    switch (m.type) {
++      case 'STARTED':
++        _dropPendingHint();
++        _set(LivenessViewState(
++          phase: LivenessPhase.starting,
++          statusKey: 'liveness.status.starting',
++          attempt: attempt,
++          maxAttempts: _state.maxAttempts,
++          ovalTone: LivenessOvalTone.neutral,
++          icon: LivenessIcon.camera,
++        ));
++        break;
++      case 'CHECKING_PASSIVE':
++        _dropPendingHint();
++        _set(LivenessViewState(
++          phase: LivenessPhase.checking,
++          statusKey: 'liveness.status.checking',
++          progressVisible: true,
++          attempt: attempt,
++          maxAttempts: _state.maxAttempts,
++          ovalTone: LivenessOvalTone.checking,
++          icon: LivenessIcon.scanning,
++        ));
++        break;
++      case 'GUIDANCE':
++        if (_state.phase == LivenessPhase.attemptFailed) return; // the hint line shows the attempts left
++        final guidance = m.guidance;
++        if (guidance != null) _showGuidance('liveness.guidance.${guidance.toLowerCase()}');
++        break;
++      case 'CHALLENGE_PROMPT':
++        _dropPendingHint();
++        _set(_challengeState(m, attempt, progress: 0, hint: null));
++        break;
++      case 'CHALLENGE_PROGRESS':
++        _dropPendingHint();
++        _set(_challengeState(m, attempt,
++            progress: m.progress.clamp(0.0, 1.0).toDouble(),
++            hint: 'liveness.feedback.continue'));
++        break;
++      case 'ACTION_DETECTED':
++        _dropPendingHint();
++        _set(_state.copyWith(
++          phase: LivenessPhase.actionDetected,
++          statusKey: 'liveness.feedback.action_detected',
++          hintKey: null,
++          hintIsGuidance: false,
++          progressVisible: true,
++          progress: 1.0,
++          attempt: attempt,
++          ovalTone: LivenessOvalTone.success,
++          icon: LivenessIcon.check,
++        ));
++        break;
++      case 'HOLD_STILL':
++        _dropPendingHint();
++        _set(LivenessViewState(
++          phase: LivenessPhase.holdStill,
++          statusKey: 'liveness.feedback.hold_still',
++          progressVisible: true,
++          attempt: attempt,
++          maxAttempts: _state.maxAttempts,
++          ovalTone: LivenessOvalTone.checking,
++          icon: LivenessIcon.scanning,
++        ));
++        break;
++      case 'ATTEMPT_FAILED':
++        _dropPendingHint();
++        final message = _errorKey(m.userMessage);
++        _set(LivenessViewState(
++          phase: LivenessPhase.attemptFailed,
++          statusKey: message,
++          messageKey: message,
++          hintKey: 'liveness.retry.attempts_left',
++          retriesLeft: m.retriesLeft,
++          attempt: attempt,
++          maxAttempts: _state.maxAttempts,
++          ovalTone: LivenessOvalTone.error,
++          icon: LivenessIcon.cross,
++          showRetry: true,
++          tips: m.userMessage == 'LIVENESS_NOT_VERIFIED',
++        ));
++        break;
++      case 'PASSED':
++        _set(_passedState(attempt));
++        break;
++      case 'FAILED_FINAL':
++        _set(_finalState(m.userMessage, attempt: attempt));
++        break;
++      case 'DEVICE_ERROR':
++        _dropPendingHint();
++        _set(LivenessViewState(
++          phase: LivenessPhase.deviceError,
++          statusKey: 'liveness.error.device_problem',
++          messageKey: 'liveness.error.device_problem',
++          attempt: attempt,
++          maxAttempts: _state.maxAttempts,
++          retriesLeft: m.retriesLeft,
++          ovalTone: LivenessOvalTone.error,
++          icon: LivenessIcon.cameraOff,
++          showRetry: m.recoverable,
++        ));
++        break;
++      default:
++        break; // a newer engine's event: nothing to show
++    }
++  }
++
++  void _complete(LivenessMessage m) {
++    _result = m;
++    switch (m.decision) {
++      case 'PASSED':
++        if (_state.phase != LivenessPhase.passed) _set(_passedState(_state.attempt));
++        break;
++      case 'CANCELLED':
++        _dropPendingHint();
++        _set(LivenessViewState(
++          phase: LivenessPhase.cancelled,
++          attempt: _state.attempt,
++          maxAttempts: _state.maxAttempts,
++          showCancel: false,
++        ));
++        break;
++      default:
++        // Usually FAILED_FINAL came first; a refusal before any event (camera permission) did not.
++        if (_state.phase != LivenessPhase.failedFinal) _set(_finalState(m.userMessage));
++    }
++  }
++
++  LivenessViewState _challengeState(LivenessMessage m, int attempt,
++      {required double progress, required String? hint}) {
++    final challenge = m.challenge;
++    return LivenessViewState(
++      phase: LivenessPhase.challenge,
++      statusKey: challenge == null ? _state.statusKey : 'liveness.challenge.${challenge.toLowerCase()}',
++      challengeKey: challenge == null ? null : 'liveness.challenge.${challenge.toLowerCase()}',
++      hintKey: hint,
++      stepIndex: m.challengeIndex,
++      stepCount: m.challengeCount,
++      progressVisible: true,
++      progress: progress,
++      attempt: attempt,
++      maxAttempts: _state.maxAttempts,
++      ovalTone: LivenessOvalTone.challenge,
++      icon: _challengeIcon(challenge),
++    );
++  }
++
++  LivenessViewState _passedState(int attempt) {
++    _dropPendingHint();
++    return LivenessViewState(
++      phase: LivenessPhase.passed,
++      statusKey: 'liveness.status.passed',
++      progressVisible: true,
++      progress: 1.0,
++      attempt: attempt,
++      maxAttempts: _state.maxAttempts,
++      ovalTone: LivenessOvalTone.success,
++      icon: LivenessIcon.check,
++      showCancel: false,
++    );
++  }
++
++  /// FAILED_FINAL: never the "try again" texts. MAX_RETRIES_EXCEEDED, a cooldown
++  /// refusal and final engine or PAD errors get max_attempts_reached; a device
++  /// problem gets the device text. Both with the workflow's recovery text.
++  LivenessViewState _finalState(String? userMessage, {int? attempt}) {
++    _dropPendingHint();
++    final key = userMessage == 'DEVICE_PROBLEM'
++        ? 'liveness.error.device_problem'
++        : 'liveness.error.max_attempts_reached';
++    return LivenessViewState(
++      phase: LivenessPhase.failedFinal,
++      statusKey: key,
++      messageKey: key,
++      recoveryKey: 'liveness.recovery.$_workflow',
++      attempt: attempt ?? _state.attempt,
++      maxAttempts: _state.maxAttempts,
++      ovalTone: LivenessOvalTone.error,
++      icon: LivenessIcon.cross,
++      showCancel: false,
++      showClose: true,
++    );
++  }
++
++  static String _errorKey(String? userMessage) {
++    if (userMessage == null || userMessage == 'NONE') {
++      return 'liveness.error.verification_not_completed';
++    }
++    return 'liveness.error.${userMessage.toLowerCase()}';
++  }
++
++  static LivenessIcon _challengeIcon(String? challenge) {
++    switch (challenge) {
++      case 'BLINK':
++        return LivenessIcon.blink;
++      case 'SMILE':
++        return LivenessIcon.smile;
++      case 'TURN_LEFT':
++        return LivenessIcon.turnLeft;
++      case 'TURN_RIGHT':
++        return LivenessIcon.turnRight;
++      case 'LOOK_UP':
++        return LivenessIcon.lookUp;
++      case 'LOOK_DOWN':
++        return LivenessIcon.lookDown;
++      default:
++        return LivenessIcon.scanning;
++    }
++  }
++
++  void _showGuidance(String key) {
++    if (key == _state.hintKey) {
++      _pendingHint = null;
++      return;
++    }
++    if (_hintLock?.isActive ?? false) {
++      _pendingHint = key;
++      return;
++    }
++    _set(_state.copyWith(hintKey: key, hintIsGuidance: true));
++    _hintLock = _timer(hintDebounce, _hintUnlocked);
++  }
++
++  void _hintUnlocked() {
++    final pending = _pendingHint;
++    _pendingHint = null;
++    if (_disposed || pending == null || _state.isFinal) return;
++    _showGuidance(pending);
++  }
++
++  void _dropPendingHint() => _pendingHint = null;
++
++  void _set(LivenessViewState next) {
++    if (_disposed) return;
++    _state = next;
++    notifyListeners();
++  }
++
++  @override
++  void dispose() {
++    _disposed = true;
++    _hintLock?.cancel();
++    super.dispose();
++  }
++}
+diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
+new file mode 100644
+index 0000000..669de9f
+--- /dev/null
++++ b/lib/ui/liveness/liveness_page.dart
+@@ -0,0 +1,547 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'dart:async';
++import 'dart:math' as math;
++
++import 'package:flutter/foundation.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/ui/liveness/liveness_controller.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
++
++/// What [LivenessPage] returns with `Navigator.pop`.
++@immutable
++class LivenessOutcome {
++  const LivenessOutcome({
++    this.passed = false,
++    this.cancelled = false,
++    this.disabled = false,
++    this.passPath,
++    this.failureCode,
++    this.userMessage,
++    this.bestFrameJpeg,
++    this.sessionId,
++    this.attempts = 0,
++    this.durationMs = 0,
++    this.modelVersion,
++  });
++
++  factory LivenessOutcome.fromResult(LivenessMessage r) => LivenessOutcome(
++        passed: r.decision == 'PASSED',
++        cancelled: r.decision == 'CANCELLED',
++        passPath: r.passPath,
++        failureCode: r.failureCode,
++        userMessage: r.userMessage,
++        bestFrameJpeg: r.bestFrameJpeg,
++        sessionId: r.sessionId,
++        attempts: r.attempts,
++        durationMs: r.durationMs,
++        modelVersion: r.modelVersion,
++      );
++
++  /// Liveness is disabled for the workflow: the caller keeps its legacy flow.
++  static const LivenessOutcome disabledOutcome = LivenessOutcome(disabled: true);
++  static const LivenessOutcome cancelledOutcome = LivenessOutcome(cancelled: true);
++
++  final bool passed;
++  final bool cancelled;
++  final bool disabled;
++  final String? passPath;
++  final String? failureCode;
++  final String? userMessage;
++
++  /// JPEG of the best frame, on passed only. Keep it in memory.
++  final Uint8List? bestFrameJpeg;
++  final String? sessionId;
++  final int attempts;
++  final int durationMs;
++  final String? modelVersion;
++
++  @override
++  String toString() => 'LivenessOutcome(passed=$passed cancelled=$cancelled disabled=$disabled '
++      'passPath=$passPath failure=$failureCode message=$userMessage attempts=$attempts '
++      '${durationMs}ms bestFrame=${bestFrameJpeg == null ? '-' : '${bestFrameJpeg!.length} bytes'})';
++}
++
++/// The face liveness step (docs/ui-liveness-spec.md): checks that liveness is
++/// enabled for [workflow], asks for the camera, starts a session and renders its
++/// events. Pops a [LivenessOutcome]: passed (about 1 s after the success state),
++/// failed (after Close), cancelled (Cancel or back) or disabled.
++class LivenessPage extends StatefulWidget {
++  const LivenessPage({
++    super.key,
++    required this.workflow,
++    this.camera = 'front',
++    this.useFake = false,
++    this.previewBuilder,
++    this.service,
++    this.showDebugInfo = true,
++  });
++
++  static const String previewViewType = 'io.mosip.registration_client/liveness_preview';
++  static const Duration passedDelay = Duration(seconds: 1);
++
++  /// RESIDENT, OPERATOR or SUPERVISOR.
++  final String workflow;
++
++  /// front or back.
++  final String camera;
++
++  /// The scripted fake engine (debug and tests).
++  final bool useFake;
++
++  /// Replaces the camera preview (tests, privacy-safe screenshots).
++  final Widget Function()? previewBuilder;
++
++  /// Defaults to the platform's [LivenessService].
++  final LivenessService? service;
++
++  /// Debug builds only: a small chip with the model version (off for documentation screenshots).
++  final bool showDebugInfo;
++
++  @override
++  State<LivenessPage> createState() => _LivenessPageState();
++}
++
++class _LivenessPageState extends State<LivenessPage> {
++  late final LivenessService _service = widget.service ?? LivenessService();
++  late final LivenessController _controller = LivenessController(workflow: widget.workflow);
++  final Completer<void> _previewReady = Completer<void>();
++  StreamSubscription<LivenessMessage>? _subscription;
++  Timer? _passedTimer;
++  String? _sessionId;
++  bool _sessionRunning = false;
++  bool _popped = false;
++  String _debugModel = '';
++
++  @override
++  void initState() {
++    super.initState();
++    _controller.addListener(_onStateChanged);
++    _subscription = _service.messages.listen(_onMessage);
++    if (widget.previewBuilder != null) _previewReady.complete();
++    _begin();
++  }
++
++  @override
++  void dispose() {
++    _passedTimer?.cancel();
++    _subscription?.cancel();
++    if (_sessionRunning) _service.cancel(); // leaving the screen releases the camera
++    _controller.removeListener(_onStateChanged);
++    _controller.dispose();
++    super.dispose();
++  }
++
++  Future<void> _begin() async {
++    try {
++      if (!await _service.isEnabled(widget.workflow)) {
++        _pop(LivenessOutcome.disabledOutcome);
++        return;
++      }
++      if (!await _service.ensureCameraPermission()) {
++        _controller.permissionDenied();
++        return;
++      }
++      final policy = await _service.policy(widget.workflow);
++      _controller.maxRetries = policy.maxRetries;
++      if (kDebugMode && widget.showDebugInfo) _debugModel = await _service.modelVersion();
++      // Let the platform view exist first, so the session binds its preview.
++      await _previewReady.future.timeout(const Duration(seconds: 2), onTimeout: () {});
++      if (!mounted || _popped) return;
++      _sessionRunning = true;
++      final id = await _service.startSession(widget.workflow,
++          camera: widget.camera, useFake: widget.useFake);
++      if (id.isEmpty) {
++        _sessionRunning = false;
++        _pop(LivenessOutcome.disabledOutcome);
++        return;
++      }
++      _sessionId = id;
++    } on PlatformException catch (e) {
++      debugPrint('Liveness could not start: ${e.code}');
++      _sessionRunning = false;
++      _controller.startFailed();
++    }
++  }
++
++  void _onMessage(LivenessMessage m) {
++    if (_popped) return;
++    if (m.isComplete && _sessionId != null && m.sessionId != _sessionId) return; // an older session
++    _controller.handle(m);
++    if (!m.isComplete) return;
++    _sessionRunning = false;
++    switch (m.decision) {
++      case 'CANCELLED':
++        _pop(LivenessOutcome.fromResult(m));
++        break;
++      case 'PASSED':
++        _passedTimer = Timer(LivenessPage.passedDelay, () => _pop(LivenessOutcome.fromResult(m)));
++        break;
++      default:
++        break; // the final screen waits for Close
++    }
++  }
++
++  void _onStateChanged() {
++    if (mounted) setState(() {});
++  }
++
++  void _retry() => _service.retry();
++
++  void _cancel() {
++    if (_sessionRunning) _service.cancel();
++    _sessionRunning = false;
++    _pop(LivenessOutcome.cancelledOutcome);
++  }
++
++  void _close() {
++    final result = _controller.result;
++    if (result != null) {
++      _pop(LivenessOutcome.fromResult(result));
++    } else {
++      // Refused before a session existed: the camera permission, or the bridge failed.
++      final camera = _controller.state.messageKey == 'liveness.error.device_problem';
++      _pop(LivenessOutcome(
++        failureCode: camera ? 'CAMERA_UNAVAILABLE' : 'ENGINE_ERROR',
++        userMessage: camera ? 'DEVICE_PROBLEM' : 'VERIFICATION_NOT_COMPLETED',
++      ));
++    }
++  }
++
++  void _onBack() {
++    final state = _controller.state;
++    final result = _controller.result;
++    if (state.phase == LivenessPhase.passed && result != null) {
++      _passedTimer?.cancel();
++      _pop(LivenessOutcome.fromResult(result));
++    } else if (state.phase == LivenessPhase.failedFinal) {
++      _close();
++    } else {
++      _cancel();
++    }
++  }
++
++  void _pop(LivenessOutcome outcome) {
++    if (_popped || !mounted) return;
++    _popped = true;
++    Navigator.of(context).pop(outcome);
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final l = AppLocalizations.of(context)!;
++    final s = _controller.state;
++    final tone = _toneColor(s.ovalTone);
++    return WillPopScope(
++      onWillPop: () async {
++        _onBack();
++        return false;
++      },
++      child: Scaffold(
++        appBar: AppBar(
++          title: Text(livenessText(l, _controller.titleKey)),
++          actions: [
++            if (kDebugMode && _debugModel.isNotEmpty)
++              Padding(
++                padding: const EdgeInsets.only(right: 8),
++                child: Center(
++                  child: Chip(
++                    visualDensity: VisualDensity.compact,
++                    label: Text('debug $_debugModel', style: const TextStyle(fontSize: 11)),
++                  ),
++                ),
++              ),
++          ],
++        ),
++        body: SafeArea(
++          child: LayoutBuilder(builder: (context, constraints) {
++            final previewWidth = math.min(constraints.maxWidth * 0.72, 420.0);
++            return SingleChildScrollView(
++              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.stretch,
++                children: [
++                  Center(
++                    child: SizedBox(
++                      width: previewWidth,
++                      child: AspectRatio(aspectRatio: 3 / 4, child: _preview(s, tone)),
++                    ),
++                  ),
++                  const SizedBox(height: 16),
++                  _statusBanner(l, s, tone),
++                  _hintLine(l, s),
++                  if (s.progressVisible) _progressRow(l, s, tone),
++                  if (s.attempt > 0 && s.maxAttempts > 0 && s.phase != LivenessPhase.cancelled)
++                    Padding(
++                      padding: const EdgeInsets.only(top: 8),
++                      child: Text(
++                        livenessText(l, 'liveness.progress.attempt', a: s.attempt, m: s.maxAttempts),
++                        style: const TextStyle(fontSize: 16),
++                      ),
++                    ),
++                  if (s.tips) _tips(l),
++                  if (s.recoveryKey != null)
++                    Padding(
++                      padding: const EdgeInsets.only(top: 12),
++                      child: Text(livenessText(l, s.recoveryKey!), style: const TextStyle(fontSize: 18)),
++                    ),
++                  const SizedBox(height: 20),
++                  _buttons(l, s),
++                ],
++              ),
++            );
++          }),
++        ),
++      ),
++    );
++  }
++
++  Widget _preview(LivenessViewState s, Color tone) {
++    final preview = widget.previewBuilder?.call() ??
++        AndroidView(
++          viewType: LivenessPage.previewViewType,
++          creationParamsCodec: const StandardMessageCodec(),
++          onPlatformViewCreated: (_) {
++            if (!_previewReady.isCompleted) _previewReady.complete();
++          },
++        );
++    return ClipRRect(
++      borderRadius: BorderRadius.circular(12),
++      child: LayoutBuilder(builder: (context, c) {
++        final oval = _OvalPainter.ovalRect(Size(c.maxWidth, c.maxHeight));
++        return Stack(
++          fit: StackFit.expand,
++          children: [
++            preview,
++            IgnorePointer(child: CustomPaint(painter: _OvalPainter(tone))),
++            Positioned(
++              left: oval.center.dx - 22,
++              top: math.max(4, oval.top - 22),
++              child: ExcludeSemantics(
++                child: Container(
++                  width: 44,
++                  height: 44,
++                  decoration: BoxDecoration(
++                    color: tone,
++                    shape: BoxShape.circle,
++                    border: Border.all(color: Colors.white, width: 2),
++                  ),
++                  child: Icon(_iconData(s.icon), color: Colors.white, size: 26),
++                ),
++              ),
++            ),
++          ],
++        );
++      }),
++    );
++  }
++
++  Widget _statusBanner(AppLocalizations l, LivenessViewState s, Color tone) {
++    final key = s.statusKey;
++    return Semantics(
++      liveRegion: true,
++      child: Container(
++        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
++        decoration: BoxDecoration(
++          color: tone.withOpacity(0.12),
++          borderRadius: BorderRadius.circular(8),
++          border: Border.all(color: tone, width: 2),
++        ),
++        child: Row(
++          children: [
++            ExcludeSemantics(child: Icon(_iconData(s.icon), color: tone, size: 32)),
++            const SizedBox(width: 12),
++            Expanded(
++              child: Text(
++                key == null ? '' : livenessText(l, key),
++                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
++              ),
++            ),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _hintLine(AppLocalizations l, LivenessViewState s) {
++    final key = s.hintKey;
++    if (key == null) return const SizedBox(height: 8);
++    return Padding(
++      padding: const EdgeInsets.only(top: 10),
++      child: Semantics(
++        liveRegion: true,
++        child: Row(
++          children: [
++            if (s.hintIsGuidance)
++              Padding(
++                padding: const EdgeInsets.only(right: 8),
++                child: Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
++              ),
++            Expanded(
++              child: Text(livenessText(l, key, n: s.retriesLeft),
++                  style: const TextStyle(fontSize: 18)),
++            ),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _progressRow(AppLocalizations l, LivenessViewState s, Color tone) {
++    return Padding(
++      padding: const EdgeInsets.only(top: 12),
++      child: Row(
++        children: [
++          if (s.stepCount > 0)
++            Padding(
++              padding: const EdgeInsets.only(right: 12),
++              child: Text(
++                livenessText(l, 'liveness.progress.step', i: s.stepIndex, n: s.stepCount),
++                style: const TextStyle(fontSize: 16),
++              ),
++            ),
++          Expanded(
++            child: ExcludeSemantics(
++              child: LinearProgressIndicator(
++                value: s.progress,
++                minHeight: 8,
++                color: tone,
++                backgroundColor: tone.withOpacity(0.2),
++              ),
++            ),
++          ),
++        ],
++      ),
++    );
++  }
++
++  Widget _tips(AppLocalizations l) {
++    return Padding(
++      padding: const EdgeInsets.only(top: 12),
++      child: Column(
++        crossAxisAlignment: CrossAxisAlignment.start,
++        children: [
++          Text(livenessText(l, 'liveness.tips.title'),
++              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
++          for (final key in livenessTipKeys)
++            Padding(
++              padding: const EdgeInsets.only(top: 4),
++              child: Text('•  ${livenessText(l, key)}', style: const TextStyle(fontSize: 16)),
++            ),
++        ],
++      ),
++    );
++  }
++
++  Widget _buttons(AppLocalizations l, LivenessViewState s) {
++    const size = Size(120, 48);
++    return Wrap(
++      alignment: WrapAlignment.center,
++      spacing: 12,
++      runSpacing: 8,
++      children: [
++        if (s.showRetry)
++          ElevatedButton(
++            style: ElevatedButton.styleFrom(minimumSize: size),
++            onPressed: _retry,
++            child: Text(livenessText(l, 'liveness.button.retry')),
++          ),
++        if (s.showCancel)
++          OutlinedButton(
++            style: OutlinedButton.styleFrom(minimumSize: size),
++            onPressed: _cancel,
++            child: Text(livenessText(l, 'liveness.button.cancel')),
++          ),
++        if (s.showClose)
++          ElevatedButton(
++            style: ElevatedButton.styleFrom(minimumSize: size),
++            onPressed: _close,
++            child: Text(livenessText(l, 'liveness.button.close')),
++          ),
++      ],
++    );
++  }
++
++  static Color _toneColor(LivenessOvalTone tone) {
++    switch (tone) {
++      case LivenessOvalTone.neutral:
++        return Colors.grey.shade600;
++      case LivenessOvalTone.checking:
++        return Colors.blue.shade600;
++      case LivenessOvalTone.challenge:
++        return Colors.amber.shade800;
++      case LivenessOvalTone.success:
++        return Colors.green.shade600;
++      case LivenessOvalTone.error:
++        return Colors.red.shade600;
++    }
++  }
++
++  static IconData _iconData(LivenessIcon icon) {
++    switch (icon) {
++      case LivenessIcon.camera:
++        return Icons.photo_camera_outlined;
++      case LivenessIcon.scanning:
++        return Icons.center_focus_weak;
++      case LivenessIcon.blink:
++        return Icons.visibility_outlined;
++      case LivenessIcon.smile:
++        return Icons.sentiment_satisfied_alt;
++      case LivenessIcon.turnLeft:
++        return Icons.arrow_back; // the preview is mirrored: the user's left is on screen left
++      case LivenessIcon.turnRight:
++        return Icons.arrow_forward;
++      case LivenessIcon.lookUp:
++        return Icons.arrow_upward;
++      case LivenessIcon.lookDown:
++        return Icons.arrow_downward;
++      case LivenessIcon.check:
++        return Icons.check_circle;
++      case LivenessIcon.cross:
++        return Icons.cancel;
++      case LivenessIcon.cameraOff:
++        return Icons.no_photography_outlined;
++    }
++  }
++}
++
++/// The face-oval guide: the outside dimmed lightly, the outline in the state colour.
++class _OvalPainter extends CustomPainter {
++  _OvalPainter(this.color);
++
++  final Color color;
++
++  static Rect ovalRect(Size size) => Rect.fromCenter(
++        center: Offset(size.width / 2, size.height * 0.47),
++        width: size.width * 0.66,
++        height: size.height * 0.66,
++      );
++
++  @override
++  void paint(Canvas canvas, Size size) {
++    final oval = ovalRect(size);
++    final dim = Path()
++      ..fillType = PathFillType.evenOdd
++      ..addRect(Offset.zero & size)
++      ..addOval(oval);
++    canvas.drawPath(dim, Paint()..color = Colors.black.withOpacity(0.30));
++    canvas.drawOval(
++      oval,
++      Paint()
++        ..style = PaintingStyle.stroke
++        ..strokeWidth = 4
++        ..color = color,
++    );
++  }
++
++  @override
++  bool shouldRepaint(_OvalPainter old) => old.color != color;
++}
+diff --git a/lib/ui/liveness/liveness_strings.dart b/lib/ui/liveness/liveness_strings.dart
+new file mode 100644
+index 0000000..fd93601
+--- /dev/null
++++ b/lib/ui/liveness/liveness_strings.dart
+@@ -0,0 +1,115 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++
++/// The tips under LIVENESS_NOT_VERIFIED, in the spec's order (after liveness.tips.title).
++const List<String> livenessTipKeys = [
++  'liveness.tips.look_at_camera',
++  'liveness.tips.face_visible',
++  'liveness.tips.lighting',
++  'liveness.tips.capture_area',
++  'liveness.tips.follow_prompt',
++];
++
++/// The one place that maps the spec's canonical keys (docs/ui-liveness-spec.md
++/// §5) to the generated getters. [i] / [n] / [a] / [m] fill the placeholders of
++/// the progress and retry keys. An unknown key is returned as it is, so a gap
++/// shows up in testing instead of an empty line.
++String livenessText(AppLocalizations l, String key,
++    {int i = 0, int n = 0, int a = 0, int m = 0}) {
++  switch (key) {
++    case 'liveness.title.resident':
++      return l.liveness_title_resident;
++    case 'liveness.title.operator':
++      return l.liveness_title_operator;
++    case 'liveness.title.supervisor':
++      return l.liveness_title_supervisor;
++    case 'liveness.status.starting':
++      return l.liveness_status_starting;
++    case 'liveness.status.checking':
++      return l.liveness_status_checking;
++    case 'liveness.status.passed':
++      return l.liveness_status_passed;
++    case 'liveness.status.cancelled':
++      return l.liveness_status_cancelled;
++    case 'liveness.challenge.blink':
++      return l.liveness_challenge_blink;
++    case 'liveness.challenge.smile':
++      return l.liveness_challenge_smile;
++    case 'liveness.challenge.turn_left':
++      return l.liveness_challenge_turn_left;
++    case 'liveness.challenge.turn_right':
++      return l.liveness_challenge_turn_right;
++    case 'liveness.challenge.look_up':
++      return l.liveness_challenge_look_up;
++    case 'liveness.challenge.look_down':
++      return l.liveness_challenge_look_down;
++    case 'liveness.feedback.continue':
++      return l.liveness_feedback_continue;
++    case 'liveness.feedback.action_detected':
++      return l.liveness_feedback_action_detected;
++    case 'liveness.feedback.hold_still':
++      return l.liveness_feedback_hold_still;
++    case 'liveness.guidance.no_face':
++      return l.liveness_guidance_no_face;
++    case 'liveness.guidance.multiple_faces':
++      return l.liveness_guidance_multiple_faces;
++    case 'liveness.guidance.move_closer':
++      return l.liveness_guidance_move_closer;
++    case 'liveness.guidance.move_back':
++      return l.liveness_guidance_move_back;
++    case 'liveness.guidance.center_face':
++      return l.liveness_guidance_center_face;
++    case 'liveness.guidance.improve_lighting':
++      return l.liveness_guidance_improve_lighting;
++    case 'liveness.guidance.hold_steady':
++      return l.liveness_guidance_hold_steady;
++    case 'liveness.guidance.look_at_camera':
++      return l.liveness_guidance_look_at_camera;
++    case 'liveness.error.liveness_not_verified':
++      return l.liveness_error_liveness_not_verified;
++    case 'liveness.error.verification_not_completed':
++      return l.liveness_error_verification_not_completed;
++    case 'liveness.error.max_attempts_reached':
++      return l.liveness_error_max_attempts_reached;
++    case 'liveness.error.device_problem':
++      return l.liveness_error_device_problem;
++    case 'liveness.tips.title':
++      return l.liveness_tips_title;
++    case 'liveness.tips.look_at_camera':
++      return l.liveness_tips_look_at_camera;
++    case 'liveness.tips.face_visible':
++      return l.liveness_tips_face_visible;
++    case 'liveness.tips.lighting':
++      return l.liveness_tips_lighting;
++    case 'liveness.tips.capture_area':
++      return l.liveness_tips_capture_area;
++    case 'liveness.tips.follow_prompt':
++      return l.liveness_tips_follow_prompt;
++    case 'liveness.retry.attempts_left':
++      return l.liveness_retry_attempts_left(n);
++    case 'liveness.progress.step':
++      return l.liveness_progress_step(i, n);
++    case 'liveness.progress.attempt':
++      return l.liveness_progress_attempt(a, m);
++    case 'liveness.recovery.resident':
++      return l.liveness_recovery_resident;
++    case 'liveness.recovery.operator':
++      return l.liveness_recovery_operator;
++    case 'liveness.recovery.supervisor':
++      return l.liveness_recovery_supervisor;
++    case 'liveness.button.retry':
++      return l.liveness_button_retry;
++    case 'liveness.button.cancel':
++      return l.liveness_button_cancel;
++    case 'liveness.button.close':
++      return l.liveness_button_close;
++    default:
++      return key;
++  }
++}
