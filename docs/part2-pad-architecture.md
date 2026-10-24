@@ -17,8 +17,8 @@ flowchart TD
     C -- 0 --> R0[reset session moire<br/>empty analysis]
     C -- ">1" --> R2[reset session moire<br/>primary box only, score NaN]
     C -- 1 --> RC[replay cues: moire, glare]
-    RC --> Q[quality: luma, clipped highlights,<br/>blur, size, centring, cut-off]
-    Q --> M[FaceMesh V2: 478 points<br/>ROI 1.5x, eyes levelled]
+    RC --> Q[quality: luma, clipped highlights,<br/>blur absolute and relative to the session,<br/>size, centring, cut-off]
+    Q --> M[FaceMesh V2: 478 points, ROI 1.5x<br/>tracked from the previous landmarks,<br/>else from YuNet with eyes levelled]
     M -- no mesh --> NM[score NaN<br/>moire still counted]
     M --> P[head pose: yaw, pitch, roll<br/>pitch bias removed]
     P --> G{pose within<br/>yaw 30, pitch 25?}
@@ -33,8 +33,8 @@ flowchart TD
 | Stage | Output in `FrameAnalysis` |
 |---|---|
 | detect + count | `faceCount`, `faceBox` (primary face, pixels) |
-| replay cues + quality | `qualityIssues`: TOO_DARK, TOO_BRIGHT (mean luma, or more than 30% clipped pixels), BLURRY, FACE_TOO_SMALL, FACE_TOO_LARGE, FACE_OFF_CENTER, FACE_CUT_OFF |
-| mesh | `landmarks`: eyes (6 points each, the contract's EAR order), irises, mouth, nose, chin, forehead |
+| replay cues + quality | `qualityIssues`: TOO_DARK, TOO_BRIGHT (mean luma, or more than 30% clipped pixels), BLURRY (Laplacian variance below 15, or below 0.45 × the session's rolling median: F6), FACE_TOO_SMALL, FACE_TOO_LARGE, FACE_OFF_CENTER, FACE_CUT_OFF |
+| mesh | `landmarks`: eyes (6 points each, the contract's EAR order), irises, mouth, nose, chin, forehead. The ROI follows the previous frame's landmarks while the face box overlaps (F7) |
 | pose | `yawDeg`, `pitchDeg`, `rollDeg` |
 | PAD + cap | `livenessScore` in [0, 1], NaN when not computed |
 | audit | `padDetails` (section 4), `processingMs` |
@@ -122,11 +122,12 @@ stays small and fixed in shape.
 
 ## 7. The model bundle
 
-**Contents.** `manifest.json`, `manifest.sig` and the four ONNX files. They are packaged in the jar under
-`liveness/models/` (`ClasspathBundleSource`), or kept in a `ModelStore` directory.
+**Contents.** `manifest.json`, `manifest.sig` and the five ONNX files: the four liveness models and SFace for face
+binding (section 12). They are packaged in the jar under `liveness/models/` (`ClasspathBundleSource`), or kept in a
+`ModelStore` directory. The current bundle is `pad-2026.10.4`.
 
 ```json
-{ "schema": 1, "bundleVersion": "pad-2026.10.1", "keyId": "mosip-liveness-dev-2026-10",
+{ "schema": 1, "bundleVersion": "pad-2026.10.4", "keyId": "mosip-liveness-dev-2026-10",
   "createdUtc": "2026-10-23T15:17:10Z", "params": { "pitchBiasDeg": -9.5 },
   "files": [ { "role": "DETECTOR", "name": "yunet_2026may.onnx", "size": 229738, "sha256": "ebafce4e..." }, ... ] }
 ```
@@ -136,8 +137,8 @@ stays small and fixed in shape.
 **Verification order** (`VerifiedBundle`). It fails closed: any problem is `MODEL_INTEGRITY_FAILED`, with no fallback.
 1. Read the manifest (64 KiB at most) and the signature (1 KiB at most).
 2. Look up `keyId` in `TrustedKeys`, then verify SHA256withECDSA **before parsing anything**.
-3. Parse strictly: schema 1, version `pad-YYYY.MM.N`, the same keyId, each of the four roles exactly once, safe file
-   names, finite parameters.
+3. Parse strictly: schema 1, version `pad-YYYY.MM.N`, the same keyId, each of the five roles exactly once (a
+   four-model bundle from before F1 is refused), safe file names, finite parameters.
 4. For each file: read it (64 MiB at most), then check its size, then its SHA-256.
 5. Build the ONNX sessions from those same verified byte arrays.
 
@@ -204,11 +205,13 @@ They are not in Part 3's `liveness-default.properties`. The prefix is `mosip.reg
 | `detectorSecondFaceMinAreaRatio` | 0.2 | a second face counts if its area is at least this × the primary face's |
 | `meshPresenceThreshold` | 0.5 | below this the mesh is dropped (no pose, no score) |
 | `meshRoiScale` | 1.5 | mesh crop size relative to the face box |
+| `meshTracking` | true | F7: the mesh ROI comes from the previous frame's landmarks while the face box overlaps (IoU at least 0.3); `false` always uses the YuNet ROI |
 | `pitchBiasDeg` | −9.5 | removed from the mesh pitch; when the key is absent, the bundle's signed value wins |
 | `padMaxYawDeg` / `padMaxPitchDeg` | 30 / 25 | outside this pose range the score is NaN (`pose_gated`) |
 | `tooDarkLuma` / `tooBrightLuma` | 40 / 220 | mean face luma limits |
 | `qualityMaxClippedFraction` | 0.30 | more than this share of the face crop with R, G and B all ≥ 250 is also TOO_BRIGHT |
 | `blurLapVar` | 15 | Laplacian variance below this is BLURRY |
+| `qualityRelativeBlurRatio` | 0.45 | F6: also BLURRY below this fraction of the median of the session's last 15 unflagged single-face frames (once 5 are known); `off` disables it |
 | `minAreaFrac` / `minFaceWidthPx` | 0.04 / 80 | below either is FACE_TOO_SMALL |
 | `maxAreaFrac` | 0.60 | above is FACE_TOO_LARGE |
 | `maxCentreOffset` | 0.25 | above is FACE_OFF_CENTER |
@@ -216,6 +219,9 @@ They are not in Part 3's `liveness-default.properties`. The prefix is `mosip.reg
 | `moireCapScore` | 0.60 | the capped score; must be in (0, 1) |
 | `moireWindow` / `moireMinFrames` | 10 / 3 | rolling-median length, and the values needed before the cap applies |
 | `moireVetoThreshold` | off | a number enables the hard veto (score 0) |
+
+Face binding has its own key, outside the analyzer prefix: `mosip.registration.liveness.face.binding.cosineThreshold`
+(default 0.363; section 12).
 
 ## 10. Performance
 
@@ -230,6 +236,10 @@ Development laptop: AMD Ryzen AI 7 350, JDK 11, ONNX Runtime 1.31.0 CPU, 20 warm
 
 The breakdown at p50: detect 5 ms, mesh 7.5 ms, PAD (both models) 4.7 ms, everything else under 1 ms. At 18–22 ms
 per frame, the analyzer easily covers Part 3's 8 fps passive rate and 15 fps challenge rate on one core.
+
+These figures predate face binding. Since `pad-2026.10.4`, preload also builds the SFace session: 2.4 s in a fresh
+JVM on the laptop. A match takes 28 ms per face and runs once per capture, not per frame. Per-frame times are
+unchanged, apart from the occasional F7 fallback, which re-runs the mesh.
 
 ## 11. Android notes (Person 5)
 
@@ -247,7 +257,81 @@ per frame, the analyzer easily covers Part 3's 8 fps passive rate and 15 fps cha
 - If INT8 is needed, use static QDQ quantisation, then re-run the parity tests and re-sign (see the model selection
   doc).
 
-## 12. Known limitations
+## 12. Face binding (F1)
+
+**The gap.** Liveness runs on camera frames, but the face that is stored comes from the SBI capture. Without a link
+between the two, a live person could pass liveness while a photo, or another person, is captured. Face binding
+compares `LivenessResult.bestFrame` with the captured face and accepts the capture only if both show the same person.
+
+**Model.** SFace from OpenCV Zoo (`face_recognition_sface_2021dec.onnx`, a MobileFaceNet trained with the SFace loss).
+- Licence: Apache-2.0, byte-identical to upstream (38.7 MB). The training-data provenance is in `models/LICENSES.md`.
+- It is the fifth role of the signed bundle (`MATCHER`, bundle `pad-2026.10.4`).
+
+**Method.** This is OpenCV's `FaceRecognizerSF`, mirrored from `modules/objdetect/src/face_recognize.cpp` (OpenCV
+5.0.0); line numbers are in `reference_pipeline.py`:
+1. Detect with YuNet. Each image must hold exactly one face, counted as the analyzer counts faces.
+2. Fit a similarity transform from the 5 YuNet keypoints to OpenCV's 112 × 112 ArcFace template (an Umeyama fit).
+3. `warpAffine` to 112 × 112 (bilinear, zero border, 8-bit).
+4. Feed the network the RGB values 0..255 in NCHW layout. It returns 128 values.
+5. Cosine of the two L2-normalised features. The faces MATCH at 0.363 or above (OpenCV's documented SFace
+   threshold), else NO_MATCH.
+
+```java
+try (FaceMatcher matcher = factory.createMatcher()) {          // shares the factory's verified sessions
+    MatchResult m = matcher.compare(result.bestFrame, capturedFace);
+    // m.outcome: MATCH, NO_MATCH, NO_FACE_A, NO_FACE_B, MULTIPLE_FACES_A, MULTIPLE_FACES_B
+    // m.similarity (NaN unless both faces were found), m.threshold
+}
+```
+
+**Parity.**
+- **Python vs OpenCV:** the Python spec's features have a cosine of at least 0.9999995 with `cv2.FaceRecognizerSF` on
+  every golden face. The aligned crops differ by at most 1 grey level, because OpenCV quantises sub-pixel positions to
+  1/32 pixel.
+- **Java vs Python:** feature cosine 1.0000000, and pairwise similarities within 1e-15 (`golden/binding.json`).
+
+**Evaluation** (`BindingEvaluation`; single subject s01, provisional; aggregates only):
+
+| set | pairs | min | median | max |
+|---|---|---|---|---|
+| genuine: s01's bona fide takes, pairwise | 55 | 0.742 | 0.810 | 0.973 |
+| genuine: the same NASA person in different photos | 12 | 0.672 | 0.797 | 0.945 |
+| same person via a photo: s01 vs screen photos of s01's selfie | 99 | 0.295 | 0.645 | 0.806 |
+| impostor: s01 vs 49 public portraits | 539 | -0.321 | 0.033 | 0.253 |
+| impostor: s01 vs screen photos of NASA portraits | 99 | -0.065 | 0.025 | 0.137 |
+| impostor: NASA vs NASA, different people | 1159 | -0.182 | 0.112 | 0.376 |
+| impostor: crew faces vs each other and vs the portraits | 202 | -0.176 | 0.083 | 0.383 |
+
+**What the numbers show.**
+- **At 0.363:** FNMR is 0 on both genuine sets. Two of the 1,999 impostor pairs match (0.376 and 0.383, both
+  between public NASA photos).
+- **At 0.40 and above:** no impostor pair matches. FNMR on the genuine sets stays 0 up to 0.60.
+- **Recommendation: 0.45.**
+  - It leaves a margin of 0.067 above the highest impostor and 0.22 below the lowest genuine pair.
+  - It still matches the person's own photo on a screen (median 0.645).
+  - The default stays at OpenCV's 0.363 until it is decided; the setting is
+    `mosip.registration.liveness.face.binding.cosineThreshold`.
+- **The trade-off:**
+  - A false match lets a different person's face be stored. That is the security error.
+  - A false non-match only asks the operator to recapture.
+  - With one subject, the genuine side is thin: a lower-quality SBI image (other lighting, older photo) would move
+    genuine scores down.
+
+**Binding is not presentation attack detection.** A photo of the same person on a screen still matches (median
+0.645). Binding must run after liveness passed, never instead of it.
+
+**Cost.**
+- One face (detection, alignment, SFace) takes 28 ms on the laptop.
+- The bundle grows from 8.2 MiB to 45.1 MiB.
+- A fresh-JVM preload of the five sessions took 2.4 s on the laptop. Android effects (APK size, memory) come with the
+  round-2 integration.
+
+**Integration.**
+- **Desktop (Person 4):** call `compare(bestFrame, capturedFace)` before accepting the capture; see
+  `part2-findings-for-other-parts.md`.
+- **Android:** fix round 2.
+
+## 13. Known limitations
 
 | Limitation | Effect | What would fix it |
 |---|---|---|
@@ -255,6 +339,6 @@ per frame, the analyzer easily covers Part 3's 8 fps passive rate and 15 fps cha
 | Printed photos are not yet evaluated | Unknown APCER for print species | The user records `print_flat` and `print_curved`, then re-runs `PadEvaluation` |
 | Moiré depends on the device | The 1.40 cap was set on one phone and one camera (margin 1.37 vs 1.435) | Re-validate on more screens and cameras before enabling the veto |
 | A blown-out face used to pass as "usable" | Webcam auto-exposure keeps the mean luma near 110 | **Fixed (Phase 6c):** TOO_BRIGHT also fires when more than 30% of the face crop is clipped |
-| Motion blur passes the absolute blur threshold | Head-motion frames can stay "usable" | A per-session, relative sharpness check |
-| Near-profile poses lose the mesh, or are pose-gated | No score above 30° yaw or 25° pitch | Expected; Part 3 waits for a frontal face |
+| Motion blur passes the absolute blur threshold | Head-motion frames can stay "usable" | **Fixed (F6):** BLURRY also below 0.45 × the session's rolling lapVar median. Moving bona fide frames: 0% → 29% BLURRY; normal frames unchanged (100% usable) |
+| Near-profile poses lose the mesh, or are pose-gated | No score above 30° yaw or 25° pitch; landmarks were lost at about 62–66° | **Improved (F7):** the mesh ROI tracks the previous landmarks. Live, the largest yaw with landmarks went from +66° / −62° to +69° / −73°. Beyond that, YuNet loses the face. No score is expected there: Part 3 waits for a frontal face, and a turn challenge needs only 20° |
 | A capped attack still goes to a challenge | A tilted phone photo passed BLINK and SMILE once (Phase 5) | **Mitigated (Phase 6c):** Part 3's pose-drift guard (12°) during BLINK and SMILE; PadMonitor still watches every challenge frame |

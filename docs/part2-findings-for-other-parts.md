@@ -82,6 +82,29 @@ LivenessService liveness = DefaultLivenessService.builder()
   installed versions. Expose `rollback()` as an operator action only.
 - **Errors.** A model integrity failure is `MODEL_INTEGRITY_FAILED` and is final: there is no fallback to unverified
   models. Show the contract's `userMessage()`.
+- **Face binding (F1).**
+  - **Why.** Liveness runs on camera frames, but the stored face comes from the SBI capture. A live person could
+    therefore pass liveness while a photo is captured.
+  - **What to do (Person 4, Desktop).** After liveness PASSED and the SBI face was captured, compare the two before
+    accepting the capture:
+
+    ```java
+    try (FaceMatcher matcher = analyzers.createMatcher()) {        // shares the factory's verified sessions
+        MatchResult m = matcher.compare(result.bestFrame, capturedFaceFrame);   // RGB888 frames
+        if (!m.matched()) { /* do not accept: recapture, or the exception process */ }
+    }
+    ```
+
+  - **Outcomes.** Accept only `MATCH`. The other outcomes:
+    - `NO_MATCH`: a different person;
+    - `NO_FACE_A` / `NO_FACE_B`, `MULTIPLE_FACES_A` / `MULTIPLE_FACES_B`: image A or B does not hold exactly one face.
+
+    Decode the SBI image to RGB first; ISO 19794-5 faces are often JPEG 2000.
+  - **Threshold.** `mosip.registration.liveness.face.binding.cosineThreshold`; the default is OpenCV's 0.363. The
+    evaluation suggests 0.45 (see [part2-pad-architecture.md](part2-pad-architecture.md) §12).
+  - **Binding is not presentation attack detection.** A photo of the same person matches. Use it after liveness,
+    not instead of it.
+  - **Android.** Person 5 adds it in fix round 2.
 
 ## Part 1: frame pipeline
 
