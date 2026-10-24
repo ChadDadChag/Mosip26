@@ -58,6 +58,10 @@ import io.mosip.registration.liveness.api.FrameSource;
  * so both use cases share the camera session and the same 4:3 framing. Without one, only the analysis
  * is bound. The preview is display-only: frames come from the analysis use case.</p>
  *
+ * <p><b>Exposure assist (dim faces):</b> on by default ({@link #setExposureAssist}). The mean luma of the face region
+ * is taken from the already-copied Y plane of each delivered frame; while it stays below about 70 the camera's
+ * exposure compensation is stepped up, and back toward 0 above about 150 (see {@code ExposureAssist}).</p>
+ *
  * <p><b>Orientation:</b> each frame is rotated by CameraX's
  * {@code getRotationDegrees()} so faces arrive upright, matching the Desktop sources.
  * Frames are not mirrored (the front-camera preview may be; the analysis frames are not).</p>
@@ -110,6 +114,9 @@ public final class CameraXFrameSource implements FrameSource {
     private volatile DeviceInfo deviceInfo;
     private volatile ProcessCameraProvider cameraProvider;
     private volatile boolean debugTiming;
+    // Exposure assist for dim faces (on by default): see ExposureAssist.
+    private final ExposureAssist exposure = new ExposureAssist();
+    private volatile double lastCentreLuma = Double.NaN;
 
     // Analysis-thread only: the pacing state, plane copies reused across frames (the RGB output is not, see
     // onImageAvailable) and the debug timing window.
@@ -197,6 +204,29 @@ public final class CameraXFrameSource implements FrameSource {
         this.debugTiming = enabled;
     }
 
+    /**
+     * Exposure assist for dim faces (on by default): while the face region (the centre 40% x 50% of the upright
+     * frame) stays dark, the camera's exposure compensation is stepped up, and back toward 0 once it is bright; it
+     * goes back to 0 on {@link #stop()}. Cameras without exposure compensation are left alone.
+     */
+    public void setExposureAssist(boolean enabled) {
+        exposure.setEnabled(enabled);
+    }
+
+    public boolean exposureAssist() {
+        return exposure.enabled();
+    }
+
+    /** The exposure compensation index the assist has set (0 = the camera's own exposure). */
+    public int exposureIndex() {
+        return exposure.index();
+    }
+
+    /** Mean luma (0..255) of the face region in the last delivered frame; NaN before the first one. */
+    public double lastCentreLuma() {
+        return lastCentreLuma;
+    }
+
     @Override
     public DeviceInfo info() {
         return deviceInfo;
@@ -279,7 +309,33 @@ public final class CameraXFrameSource implements FrameSource {
             this.cameraProvider = null;
             this.imageAnalysis = null;
             this.boundCamera = null;
+            return;
         }
+        exposure.attach(cameraXExposure(camera));
+    }
+
+    private static ExposureAssist.Control cameraXExposure(final Camera camera) {
+        return new ExposureAssist.Control() {
+            @Override
+            public boolean supported() {
+                return camera.getCameraInfo().getExposureState().isExposureCompensationSupported();
+            }
+
+            @Override
+            public int min() {
+                return camera.getCameraInfo().getExposureState().getExposureCompensationRange().getLower();
+            }
+
+            @Override
+            public int max() {
+                return camera.getCameraInfo().getExposureState().getExposureCompensationRange().getUpper();
+            }
+
+            @Override
+            public void setIndex(int index) {
+                camera.getCameraControl().setExposureCompensationIndex(index); // async; any thread
+            }
+        };
     }
 
     @Override
@@ -291,6 +347,7 @@ public final class CameraXFrameSource implements FrameSource {
         if (analysis != null) {
             analysis.clearAnalyzer();
         }
+        exposure.reset(); // back to the camera's own exposure (index 0)
         // Reuse the ProcessCameraProvider obtained in start()/bindUseCases()
         // rather than calling ProcessCameraProvider.getInstance(context).get() again
         // here: that call's Future is resolved on first use and CameraX caches the
@@ -345,6 +402,12 @@ public final class CameraXFrameSource implements FrameSource {
             // A new array per frame: Frame keeps the reference, and the engine may hold frames (best frame).
             byte[] rgb = yuv420ToRgb888(imageProxy, rotation);
             long convertNs = System.nanoTime() - convertStartNs;
+            // The Y plane was just copied: the face region's mean luma costs a few thousand samples.
+            ImageProxy.PlaneProxy yPlane = imageProxy.getPlanes()[0];
+            double luma = centreMeanLuma(yBytes, imageProxy.getWidth(), imageProxy.getHeight(),
+                    yPlane.getRowStride(), yPlane.getPixelStride(), rotation);
+            lastCentreLuma = luma;
+            exposure.onLuma(luma, imageProxy.getImageInfo().getTimestamp());
             if (frameIndex == 0) {
                 observeResolution(width, height);
                 Log.i(TAG, "analysis " + imageProxy.getWidth() + "x" + imageProxy.getHeight()
@@ -399,10 +462,12 @@ public final class CameraXFrameSource implements FrameSource {
         }
         double seconds = elapsed / 1e9;
         Log.d(TAG, String.format(Locale.ROOT,
-                "camera %.1f fps, delivered %.1f fps, yuv->rgb avg %.2f ms max %.2f ms, %.1f%% of one core",
+                "camera %.1f fps, delivered %.1f fps, yuv->rgb avg %.2f ms max %.2f ms, %.1f%% of one core, "
+                        + "face-region luma %.0f, exposure assist %s index %d",
                 windowReceived / seconds, windowConverted / seconds,
                 windowConverted == 0 ? 0.0 : windowConvertNs / 1e6 / windowConverted, windowConvertMaxNs / 1e6,
-                100.0 * windowConvertNs / elapsed));
+                100.0 * windowConvertNs / elapsed, lastCentreLuma, exposure.enabled() ? "on" : "off",
+                exposure.index()));
         windowStartNs = now;
         windowReceived = 0;
         windowConverted = 0;
@@ -478,6 +543,141 @@ public final class CameraXFrameSource implements FrameSource {
         byte[] out = reuse.length >= size ? reuse : new byte[size];
         buffer.get(out, 0, size);
         return out;
+    }
+
+    /**
+     * Mean Y (0..255) of the face region, the centre 40% x 50% of the UPRIGHT frame, sampled every 4th pixel in both
+     * directions. {@code width}/{@code height} are the plane's (unrotated) size; at 90/270 the region is transposed.
+     */
+    static double centreMeanLuma(byte[] y, int width, int height, int rowStride, int pixelStride,
+                                 int rotationDegrees) {
+        boolean swap = rotationDegrees == 90 || rotationDegrees == 270;
+        double fx = swap ? 0.5 : 0.4;
+        double fy = swap ? 0.4 : 0.5;
+        int x0 = (int) (width * (1 - fx) / 2);
+        int y0 = (int) (height * (1 - fy) / 2);
+        long sum = 0;
+        int n = 0;
+        for (int row = y0; row < height - y0; row += 4) {
+            int offset = row * rowStride;
+            for (int col = x0; col < width - x0; col += 4) {
+                sum += y[offset + col * pixelStride] & 0xFF;
+                n++;
+            }
+        }
+        return n == 0 ? Double.NaN : (double) sum / n;
+    }
+
+    /**
+     * Steps the camera's exposure compensation up while the face region stays dark and back toward 0 once it is
+     * bright. Dark: mean luma below {@value #DARK_LUMA} for {@value #DARK_FOR_MS} ms, then one step up at most every
+     * {@value #STEP_EVERY_MS} ms, up to the camera's maximum. Bright: above {@value #BRIGHT_LUMA}, one step back toward
+     * 0 at most every {@value #STEP_EVERY_MS} ms. Never below 0: the camera's own auto-exposure handles bright scenes.
+     * Thread-safe; times are camera timestamps in ns. Package-private for its test.
+     */
+    static final class ExposureAssist {
+
+        /** The camera side; read once when attached. */
+        interface Control {
+            boolean supported();
+
+            int min();
+
+            int max();
+
+            void setIndex(int index);
+        }
+
+        static final double DARK_LUMA = 70;
+        static final double BRIGHT_LUMA = 150;
+        static final long DARK_FOR_MS = 1000;
+        static final long STEP_EVERY_MS = 500;
+
+        private Control control;
+        private int maxIndex;
+        private boolean enabled = true;
+        private int index;
+        private long darkSinceNs = NONE;
+        private long lastStepNs = NONE;
+
+        synchronized void setEnabled(boolean on) {
+            if (!on) toZero();
+            enabled = on;
+        }
+
+        synchronized boolean enabled() {
+            return enabled;
+        }
+
+        synchronized int index() {
+            return index;
+        }
+
+        /** A newly bound camera: start from 0. A camera without exposure compensation is never touched. */
+        synchronized void attach(Control camera) {
+            control = null;
+            index = 0;
+            darkSinceNs = NONE;
+            lastStepNs = NONE;
+            try {
+                if (camera != null && camera.supported() && camera.max() > 0) {
+                    control = camera;
+                    maxIndex = camera.max();
+                }
+            } catch (RuntimeException e) {
+                Log.w(TAG, "exposure state unavailable: " + e.getMessage());
+            }
+        }
+
+        synchronized void onLuma(double meanLuma, long nowNs) {
+            if (!enabled || control == null || Double.isNaN(meanLuma)) {
+                return;
+            }
+            if (meanLuma < DARK_LUMA) {
+                if (darkSinceNs == NONE) darkSinceNs = nowNs;
+                if (nowNs - darkSinceNs >= DARK_FOR_MS * 1_000_000L && index < maxIndex && canStep(nowNs)) {
+                    step(index + 1, nowNs);
+                }
+            } else {
+                darkSinceNs = NONE;
+                if (meanLuma > BRIGHT_LUMA && index > 0 && canStep(nowNs)) {
+                    step(index - 1, nowNs);
+                }
+            }
+        }
+
+        /** The camera is being released: back to its own exposure, and forget it. */
+        synchronized void reset() {
+            toZero();
+            control = null;
+            darkSinceNs = NONE;
+            lastStepNs = NONE;
+        }
+
+        private void toZero() {
+            if (control != null && index != 0) {
+                try {
+                    control.setIndex(0);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "could not reset exposure compensation: " + e.getMessage());
+                }
+            }
+            index = 0;
+        }
+
+        private boolean canStep(long nowNs) {
+            return lastStepNs == NONE || nowNs - lastStepNs >= STEP_EVERY_MS * 1_000_000L;
+        }
+
+        private void step(int to, long nowNs) {
+            try {
+                control.setIndex(to);
+                index = to;
+                lastStepNs = nowNs;
+            } catch (RuntimeException e) {
+                Log.w(TAG, "could not set exposure compensation " + to + ": " + e.getMessage());
+            }
+        }
     }
 
     private static byte clampByte(int value) {
