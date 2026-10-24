@@ -10,6 +10,7 @@ import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.Frame;
 import io.mosip.registration.liveness.api.LivenessEngineException;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -69,6 +70,35 @@ public final class FaceMatcher implements AutoCloseable {
             throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "ONNX Runtime failed while matching faces", e);
         } catch (RuntimeException e) {
             throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "Unexpected failure matching faces", e);
+        }
+    }
+
+    /**
+     * For evaluation tools: the SFace feature of the image's face when it has exactly one (as {@link #compare} counts
+     * faces), else null. A feature is a biometric template: keep it in memory only.
+     */
+    public synchronized float[] featureOfSingleFace(byte[] rgb, int w, int h) throws LivenessEngineException {
+        if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");
+        check(rgb, w, h, "A");
+        try {
+            List<FaceDetection> faces = detector.detect(rgb, w, h);
+            if (YuNetDetector.countFaces(faces, secondFaceMinAreaRatio) != 1) return null;
+            return embedder.embed(rgb, w, h, YuNetDetector.primary(faces));
+        } catch (OrtException e) {
+            throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "ONNX Runtime failed while embedding a face", e);
+        }
+    }
+
+    /** For evaluation tools: the feature of every face YuNet finds, in YuNet's order (group photos). Memory only. */
+    public synchronized List<float[]> featuresOfAllFaces(byte[] rgb, int w, int h) throws LivenessEngineException {
+        if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");
+        check(rgb, w, h, "A");
+        try {
+            List<float[]> out = new ArrayList<float[]>();
+            for (FaceDetection f : detector.detect(rgb, w, h)) out.add(embedder.embed(rgb, w, h, f));
+            return out;
+        } catch (OrtException e) {
+            throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "ONNX Runtime failed while embedding faces", e);
         }
     }
 

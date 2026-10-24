@@ -81,6 +81,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     private final AnalyzerStats stats = new AnalyzerStats();
     private final float[] pose = new float[3];
     private ReplayCues.Cues lastCues;
+    private QualityReport lastQuality;
     private volatile boolean closed;
     /** Test seam: when not NaN, replaces every computed moire value (tests drive the cap without screen images). */
     float moireOverride = Float.NaN;
@@ -128,6 +129,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         if (faceCount != 1) {
             moireCap.reset(); // no face, or a different face may have been presented
             lastCues = null;
+            lastQuality = null;
         }
         if (faceCount == 0) {
             stats.framesNoFace++;
@@ -149,6 +151,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         t = System.nanoTime();
         QualityReport q = quality.assess(rgb, w, h, primary, lastCues.glare);
         stats.qualityNs = System.nanoTime() - t;
+        lastQuality = q;
 
         t = System.nanoTime();
         MeshResult mesh = landmarker.estimate(rgb, w, h, primary);
@@ -238,6 +241,14 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
      */
     public ReplayCues.Cues lastReplayCues() {
         return lastCues;
+    }
+
+    /**
+     * The quality metrics of the last frame's face, lapVar included (not part of the FaceAnalyzer contract; for
+     * evaluation tools). Null when the last frame had no face or several faces.
+     */
+    public QualityReport lastQuality() {
+        return lastQuality;
     }
 
     /** Statistics of this analyzer (not part of the FaceAnalyzer contract; for the benchmark and the demo). */

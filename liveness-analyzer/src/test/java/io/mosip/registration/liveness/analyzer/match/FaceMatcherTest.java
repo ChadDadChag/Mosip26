@@ -105,6 +105,23 @@ class FaceMatcherTest {
     }
 
     @Test
+    void evaluationHelpersReturnFeatures() throws Exception {
+        try (FaceMatcher m = matcher(AnalyzerConfig.defaults())) {
+            float[] single = m.featureOfSingleFace(portrait.rgb, portrait.width, portrait.height);
+            assertThat(single).hasSize(SFaceEmbedder.FEATURE_LENGTH);
+            assertThat(m.featureOfSingleFace(crew.rgb, crew.width, crew.height)).as("four faces").isNull();
+            java.util.List<float[]> all = m.featuresOfAllFaces(crew.rgb, crew.width, crew.height);
+            assertThat(all).hasSize(4);
+            assertThat(SFaceEmbedder.cosine(all.get(0), single)).isLessThan(0.363);
+            m.close();
+            assertThatThrownBy(() -> m.featureOfSingleFace(portrait.rgb, portrait.width, portrait.height))
+                    .isInstanceOf(LivenessEngineException.class);
+            assertThatThrownBy(() -> m.featuresOfAllFaces(crew.rgb, crew.width, crew.height))
+                    .isInstanceOf(LivenessEngineException.class);
+        }
+    }
+
+    @Test
     void theFactoryCreatesAMatcherOnTheSignedBundle() throws Exception {
         try (OnnxFaceAnalyzerFactory f = new OnnxFaceAnalyzerFactory(); FaceMatcher m = f.createMatcher()) {
             assertThat(m.compare(frame(portrait), frame(mirrored)).outcome).isEqualTo(MatchResult.Outcome.MATCH);

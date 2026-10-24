@@ -56,6 +56,8 @@ class OnnxFaceAnalyzerTest {
             assertThat(a.lastReplayCues()).isNotNull();
             assertThat(a.lastReplayCues().moire).isEqualTo(r.padDetails.get("moire"));
             assertThat(a.lastReplayCues().glare).isBetween(0f, 1f);
+            assertThat(a.lastQuality()).isNotNull();
+            assertThat(a.lastQuality().lapVar).isGreaterThan(15);
             assertThat(r.processingMs).isGreaterThanOrEqualTo(0);
             assertThat(a.modelVersion()).isEqualTo("test-version");
             AnalyzerStats s = a.stats();
@@ -160,6 +162,7 @@ class OnnxFaceAnalyzerTest {
 
             assertThat(a.analyze(empty).faceCount).isZero(); // face lost: the window restarts
             assertThat(a.lastReplayCues()).isNull();
+            assertThat(a.lastQuality()).isNull();
             assertThat(a.analyze(portrait).livenessScore).isEqualTo(raw);
             assertThat(a.analyze(portrait).livenessScore).isEqualTo(raw);
             assertThat(a.analyze(portrait).livenessScore).isEqualTo(0.60f);
