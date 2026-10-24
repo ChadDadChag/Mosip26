@@ -1,7 +1,9 @@
 package io.mosip.registration.liveness.eval;
 
+import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzer;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
 import io.mosip.registration.liveness.analyzer.pad.ReplayCues;
 import io.mosip.registration.liveness.analyzer.heuristic.HeuristicFaceAnalyzer;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
@@ -37,7 +39,10 @@ import java.util.Set;
  * ISO/IEC 30107-3:2023 metrics ({@link PadMetrics}).
  * <pre>
  *   PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-yyyyMMdd] [--no-heuristic]
+ *                 [--bundle &lt;signed bundle dir&gt;]
  * </pre>
+ * {@code --bundle} evaluates another signed bundle (for example a local int8 test bundle) instead of the bundled models;
+ * it is verified against the built-in keys exactly as the bundled one is.
  * Per take: a fresh analyzer (one per take, as one per session), frames in order with timestamps 1000/fps apart.
  * The presentation score is what production decides on: the median of the FIRST full window of Part 3's
  * {@link PassiveEvaluator} (default RESIDENT policy, default tuning). A take without a full window is a
@@ -251,7 +256,10 @@ public final class PadEvaluation {
                 err.println("no takes under " + data + " (expected bona_fide/<subject>/<take>/ and attack/<species>/...)");
                 return 1;
             }
-            OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory();
+            OnnxFaceAnalyzerFactory factory = a.has("--bundle")
+                    ? new OnnxFaceAnalyzerFactory(new DirectoryBundleSource(new File(a.single("--bundle"))),
+                            AnalyzerConfig.defaults())
+                    : new OnnxFaceAnalyzerFactory();
             String modelVersion = factory.modelVersion();
             List<TakeData> runs = new ArrayList<TakeData>();
             try {
@@ -287,7 +295,8 @@ public final class PadEvaluation {
             return 0;
         } catch (ModelBundleTool.UsageException | IllegalArgumentException e) {
             err.println("error: " + e.getMessage());
-            err.println("usage: PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-yyyyMMdd] [--no-heuristic]");
+            err.println("usage: PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-yyyyMMdd] [--no-heuristic]"
+                    + " [--bundle <signed bundle dir>]");
             return 2;
         } catch (Exception e) {
             err.println("FAILED: " + e);
