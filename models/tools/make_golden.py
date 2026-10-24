@@ -21,6 +21,9 @@ works (PD-USGov-NASA) from Wikimedia Commons; never put team faces here.
      crew (and its mirror): faceCount >= 2; primary-face quality issues exactly [FACE_TOO_SMALL]
                             (a ~51 px face in a 640 px group photo is correctly too small)
    livenessScore is printed, never asserted: a digital photo may legitimately score as a spoof.
+4. binding.json (face binding, F1; also alone with --binding): the SFace feature of every face in the portrait,
+   its mirror and the crew photo, the cosines between them and with OpenCV's FaceRecognizerSF. Asserted: cosine
+   with cv2 >= 0.9999 per face; the portrait matches its mirror; every other pair stays below the threshold.
 """
 import argparse
 import hashlib
@@ -111,6 +114,54 @@ def blur_study():
                   f"lapVar sharp {values[0]:8.2f}  sigma1.5 {values[1]:7.2f}  sigma3 {values[2]:7.2f}")
 
 
+def binding(failures):
+    """golden/binding.json for the Java FaceMatcher parity tests (F1): every face YuNet finds in the portrait, its
+    mirror and the crew photo, with its box, keypoints and SFace feature; the cosines between them; and the
+    cosine of each feature with OpenCV's own FaceRecognizerSF (cv2), given the same detection. The features come
+    from the public-domain fixture images only."""
+    import cv2
+
+    pipe = rp.Pipeline()
+    rec = cv2.FaceRecognizerSF_create(str(rp.MODELS / rp.SFACE_FILE), "")
+    faces = []
+    for fx in FIXTURES:
+        bgr = rp.imread_bgr(GOLDEN / (fx["name"] + ".png"))
+        for flipped in (False, True):
+            if fx["name"] == "crew_multi" and flipped:
+                continue
+            img = np.ascontiguousarray(bgr[:, ::-1]) if flipped else bgr
+            for k, f in enumerate(pipe.yunet.detect(img)):
+                feat, aligned = rp.sface_embed(pipe.sface, img, f)
+                row = np.array([f["box"] + [v for p in f["kps"] for v in p] + [f["score"]]], dtype=np.float32)
+                feat_cv = rec.feature(rec.alignCrop(img, row)).ravel()
+                ident = ("portrait" if fx["name"] == "portrait_frontal" else f"crew{k}") + ("_flipped" if flipped else "")
+                faces.append({"id": ident, "image": fx["name"] + ".png", "flipped": flipped, "box": f["box"],
+                              "score": f["score"], "kps": f["kps"], "feature": [float(v) for v in feat],
+                              "featureNorm": float(np.linalg.norm(feat)),
+                              "alignedStats": rp.tensor_stats(rp.sface_input(aligned)),
+                              "cosineWithOpenCv": rp.sface_cosine(feat, feat_cv)})
+    cos = {}
+    for i, a in enumerate(faces):
+        for b in faces[i + 1:]:
+            cos[a["id"] + "~" + b["id"]] = rp.sface_cosine(a["feature"], b["feature"])
+    meta = {"model": rp.SFACE_FILE, "sha256": file_hash(rp.MODELS / rp.SFACE_FILE, "sha256"),
+            "threshold": rp.SFACE_COSINE_THRESHOLD, "reference": "OpenCV 5.0.0 FaceRecognizerSF "
+            "(modules/objdetect/src/face_recognize.cpp) via reference_pipeline.sface_*",
+            "license": "Images public domain (PD-USGov-NASA); features derived from them"}
+    out = GOLDEN / "binding.json"
+    out.write_text(rp.to_json({"meta": meta, "faces": faces, "cosines": cos}), encoding="utf-8")
+    print(f"{out.name}: {len(faces)} faces")
+    for f in faces:
+        check(f["cosineWithOpenCv"] >= 0.9999, f"{f['id']} feature cosine with cv2 >= 0.9999 "
+              f"(got {f['cosineWithOpenCv']:.7f})", failures)
+    t = rp.SFACE_COSINE_THRESHOLD
+    check(cos["portrait~portrait_flipped"] >= t, f"portrait vs its mirror matches (cosine "
+          f"{cos['portrait~portrait_flipped']:.4f} >= {t})", failures)
+    for key, v in cos.items():
+        if key != "portrait~portrait_flipped":
+            check(v < t, f"{key} does not match (cosine {v:.4f} < {t})", failures)
+
+
 def check(cond, msg, failures):
     print(("  ok    " if cond else "  FAIL  ") + msg)
     if not cond:
@@ -123,9 +174,16 @@ def main():
     ap.add_argument("--images-only", action="store_true", help="stop after creating missing fixture images")
     ap.add_argument("--blur-study", action="store_true",
                     help="print lapVar of each primary face, sharp and Gaussian-blurred (sigma 1.5 and 3), then exit")
+    ap.add_argument("--binding", action="store_true", help="write only golden/binding.json (face binding, F1)")
     args = ap.parse_args()
     if args.blur_study:
         blur_study()
+        return
+    if args.binding:
+        failures = []
+        binding(failures)
+        if failures:
+            sys.exit(f"{len(failures)} binding assertion(s) failed")
         return
     GOLDEN.mkdir(parents=True, exist_ok=True)
     for fx in FIXTURES:
@@ -149,6 +207,7 @@ def main():
             print(f"{out.name}: {rp.summary(res)}")
 
     print("assertions:")
+    binding(failures)
     p, pf = results[("portrait_frontal", False)], results[("portrait_frontal", True)]
     check(p["faceCount"] == 1, f"portrait faceCount == 1 (got {p['faceCount']})", failures)
     check(p["meshFlag"] is not None and p["meshFlag"] >= 0.5, f"portrait meshFlag >= 0.5 (got {p['meshFlag']})", failures)

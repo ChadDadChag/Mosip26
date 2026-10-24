@@ -65,5 +65,6 @@ class OnnxModelsTest {
         assertThat(ModelRole.LANDMARKS.fileName()).isEqualTo("face_mesh_v2.onnx");
         assertThat(ModelRole.PAD_V2.fileName()).isEqualTo("minifasnet_v2_s2.7.onnx");
         assertThat(ModelRole.PAD_V1SE.fileName()).isEqualTo("minifasnet_v1se_s4.0.onnx");
+        assertThat(ModelRole.MATCHER.fileName()).isEqualTo("face_recognition_sface_2021dec.onnx");
     }
 }

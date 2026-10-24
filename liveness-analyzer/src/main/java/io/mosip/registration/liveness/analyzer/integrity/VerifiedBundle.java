@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  *   <li>read manifest.json (at most 64 KiB) and manifest.sig (at most 1 KiB, one line {@code <keyId>:<hex DER>});</li>
  *   <li>look up keyId in {@link TrustedKeys}; verify SHA256withECDSA over the EXACT manifest bytes;</li>
  *   <li>only then parse the manifest (schema 1, strict) and check it: version {@code pad-YYYY.MM.N}, keyId equal to
- *       the signature's, exactly the four {@link ModelRole}s once each, safe file names, finite numeric params;</li>
+ *       the signature's, exactly the required {@link ModelRole}s once each, safe file names, finite numeric params;</li>
  *   <li>for each file: read it (at most 64 MiB), check its size, then its SHA-256.</li>
  * </ol>
  * Messages name the problem and never contain key material.
@@ -132,7 +132,10 @@ public final class VerifiedBundle {
                 params.put(e.getKey(), (Double) e.getValue()); // MiniJson never yields NaN or infinity
             }
             List<Object> files = MiniJson.getArray(json, "files");
-            if (files.size() != ModelRole.values().length) throw fail("manifest must list exactly 4 model files in " + where);
+            if (files.size() != ModelRole.values().length) {
+                throw fail("manifest files are not exactly the required roles (" + ModelRole.values().length
+                        + ") in " + where);
+            }
             Set<String> seenNames = new HashSet<String>();
             for (Object o : files) {
                 if (!(o instanceof Map)) throw fail("manifest file entry is not an object in " + where);

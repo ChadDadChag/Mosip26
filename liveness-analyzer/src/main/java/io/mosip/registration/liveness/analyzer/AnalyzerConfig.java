@@ -23,10 +23,13 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *       (1.40; {@code off} disables), {@code moireCapScore} (0.60), {@code moireWindow} (10), {@code moireMinFrames} (3),
  *       {@code moireVetoThreshold} ({@code off}; a number enables the hard veto)</li>
  * </ul>
+ * Face binding (F1) has its own key, outside the analyzer prefix: {@value #BINDING_THRESHOLD_KEY} (0.363, OpenCV's
+ * SFace cosine threshold; {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}).
  */
 public final class AnalyzerConfig {
 
     public static final String KEY_PREFIX = "mosip.registration.liveness.face.analyzer.";
+    public static final String BINDING_THRESHOLD_KEY = "mosip.registration.liveness.face.binding.cosineThreshold";
 
     /** ONNX Runtime execution provider. Unavailable providers fall back to CPU. */
     public enum Accelerator { CPU, XNNPACK, NNAPI }
@@ -63,6 +66,8 @@ public final class AnalyzerConfig {
     public final int moireMinFrames;
     /** Rolling median at or above this sets the score to 0; NaN = off (the default until multi-device data). */
     public final double moireVetoThreshold;
+    /** Face binding: two faces are the same person when the SFace cosine is at or above this, in [-1, 1]. */
+    public final double bindingCosineThreshold;
 
     private AnalyzerConfig(Builder b) {
         intraOpThreads = b.intraOpThreads;
@@ -87,6 +92,7 @@ public final class AnalyzerConfig {
         moireWindow = b.moireWindow;
         moireMinFrames = b.moireMinFrames;
         moireVetoThreshold = b.moireVetoThreshold;
+        bindingCosineThreshold = b.bindingCosineThreshold;
     }
 
     public static Builder builder() {
@@ -122,6 +128,7 @@ public final class AnalyzerConfig {
         b.moireWindow = moireWindow;
         b.moireMinFrames = moireMinFrames;
         b.moireVetoThreshold = moireVetoThreshold;
+        b.bindingCosineThreshold = bindingCosineThreshold;
         return b;
     }
 
@@ -168,6 +175,14 @@ public final class AnalyzerConfig {
         b.moireWindow = intValue(cfg, "moireWindow", b.moireWindow);
         b.moireMinFrames = intValue(cfg, "moireMinFrames", b.moireMinFrames);
         b.moireVetoThreshold = optionalThreshold(cfg, "moireVetoThreshold", b.moireVetoThreshold);
+        String binding = cfg.get(BINDING_THRESHOLD_KEY);
+        if (binding != null && !binding.trim().isEmpty()) {
+            try {
+                b.bindingCosineThreshold = Double.parseDouble(binding.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(BINDING_THRESHOLD_KEY + ": not a number: '" + binding + "'");
+            }
+        }
         return b.build();
     }
 
@@ -207,6 +222,9 @@ public final class AnalyzerConfig {
         range("moireMinFrames", moireMinFrames, 1, 100);
         range("moireWindow", moireWindow, moireMinFrames, 100);
         if (!Double.isNaN(moireVetoThreshold)) positiveUpTo("moireVetoThreshold", moireVetoThreshold, 10);
+        if (!(bindingCosineThreshold >= -1 && bindingCosineThreshold <= 1)) {
+            throw new IllegalArgumentException(BINDING_THRESHOLD_KEY + " must be in [-1.0, 1.0], got " + bindingCosineThreshold);
+        }
     }
 
     private static void range(String key, double v, double lo, double hi) {
@@ -277,6 +295,7 @@ public final class AnalyzerConfig {
         private int moireWindow = 10;
         private int moireMinFrames = 3;
         private double moireVetoThreshold = Double.NaN;
+        private double bindingCosineThreshold = 0.363;
 
         private Builder() { }
 
@@ -306,6 +325,7 @@ public final class AnalyzerConfig {
         public Builder moireMinFrames(int v) { moireMinFrames = v; return this; }
         /** NaN (the default) switches the veto off. */
         public Builder moireVetoThreshold(double v) { moireVetoThreshold = v; return this; }
+        public Builder bindingCosineThreshold(double v) { bindingCosineThreshold = v; return this; }
 
         public AnalyzerConfig build() {
             AnalyzerConfig c = new AnalyzerConfig(this);

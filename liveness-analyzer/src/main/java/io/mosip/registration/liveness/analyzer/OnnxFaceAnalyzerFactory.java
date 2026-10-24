@@ -6,6 +6,7 @@ import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
 import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
 import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 import io.mosip.registration.liveness.analyzer.integrity.VerifiedBundle;
+import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
 import io.mosip.registration.liveness.analyzer.runtime.OnnxModels;
 import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
@@ -65,6 +66,17 @@ public final class OnnxFaceAnalyzerFactory implements FaceAnalyzerFactory, AutoC
         synchronized (this) {
             ensureLoaded();
             return new OnnxFaceAnalyzer(models, effective, version);
+        }
+    }
+
+    /**
+     * A face matcher (F1, face binding) on this factory's verified sessions and effective config (loads them if
+     * needed). Closing the factory makes the matcher fail with ENGINE_ERROR.
+     */
+    public FaceMatcher createMatcher() throws LivenessEngineException {
+        synchronized (this) {
+            ensureLoaded();
+            return new FaceMatcher(models, effective);
         }
     }
 

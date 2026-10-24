@@ -56,3 +56,20 @@ Main fields (frame pixels, continuous coordinates with pixel centre = i + 0.5, y
 
 Mesh, pose and PAD are computed on the primary face even when `faceCount > 1`, so `crew_multi`
 covers every stage. The production analyzer skips them for multi-face frames.
+
+## binding.json (face binding, F1)
+
+`make_golden.py --binding` writes the SFace features that `SFaceEmbedderParityTest` and `FaceMatcherTest` check:
+- **Faces:** every face YuNet finds in the portrait (`portrait`), its mirror (`portrait_flipped`) and the crew photo
+  (`crew0`..`crew3`, in YuNet's order).
+- **Per face:**
+  - `box`, `score` and `kps`;
+  - `feature`, the 128 raw SFace values, not normalised;
+  - `featureNorm`;
+  - `alignedStats`, the statistics of the 112 x 112 input;
+  - `cosineWithOpenCv`, the cosine with OpenCV's FaceRecognizerSF given the same detection. It is at least
+    0.9999995 for all six faces.
+- **`cosines`:** every pair. The portrait matches its mirror (0.956). All other pairs are between -0.03 and 0.15,
+  far below the 0.363 threshold.
+
+The features are derived from the public-domain fixture images only.

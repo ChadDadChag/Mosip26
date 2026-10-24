@@ -24,6 +24,34 @@ class ImageOpsTest {
     }
 
     @Test
+    void openCvWarpUsesIntegerPixelCentresAndAZeroBorder() {
+        int w = 7, h = 5;
+        byte[] rgb = image(w, h, 3);
+        float[] out = new float[3 * w * h];
+        // Identity: an exact copy, as NCHW R, G, B.
+        ImageOps.warpAffineOpenCv(rgb, w, h, new double[] {1, 0, 0, 0, 1, 0}, w, h, out);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                for (int c = 0; c < 3; c++) assertThat(out[c * w * h + y * w + x]).isEqualTo((float) px(rgb, w, x, y, c));
+            }
+        }
+        // A shift by +1 in x (src index -> dst index): dst(x) = src(x - 1); dst column 0 reads outside, so it is 0.
+        ImageOps.warpAffineOpenCv(rgb, w, h, new double[] {1, 0, 1, 0, 1, 0}, w, h, out);
+        assertThat(out[0]).isEqualTo(0f);
+        assertThat(out[3]).isEqualTo((float) px(rgb, w, 2, 0, 0));
+        // Half a pixel: the mean of two neighbours, rounded half up; at the border half of the value.
+        ImageOps.warpAffineOpenCv(rgb, w, h, new double[] {1, 0, 0.5, 0, 1, 0}, w, h, out);
+        assertThat(out[2]).isEqualTo((float) Math.floor((px(rgb, w, 1, 0, 0) + px(rgb, w, 2, 0, 0)) / 2.0 + 0.5));
+        assertThat(out[0]).isEqualTo((float) Math.floor(px(rgb, w, 0, 0, 0) / 2.0 + 0.5));
+        assertThatThrownBy(() -> ImageOps.warpAffineOpenCv(rgb, w, h, new double[5], w, h, out))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ImageOps.warpAffineOpenCv(rgb, w, h, new double[6], w, h, new float[3]))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ImageOps.warpAffineOpenCv(new byte[2], w, h, new double[6], w, h, out))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void identityAffineIsExact() {
         int w = 7, h = 5;
         byte[] rgb = image(w, h, 1);

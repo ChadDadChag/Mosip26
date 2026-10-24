@@ -27,6 +27,23 @@ class AnalyzerConfigTest {
     }
 
     @Test
+    void theBindingThresholdHasItsOwnKey() {
+        assertThat(AnalyzerConfig.defaults().bindingCosineThreshold).isEqualTo(0.363);
+        Map<String, String> m = new HashMap<String, String>();
+        m.put(AnalyzerConfig.BINDING_THRESHOLD_KEY, " 0.45 ");
+        AnalyzerConfig c = AnalyzerConfig.fromConfig(provider(m));
+        assertThat(c.bindingCosineThreshold).isEqualTo(0.45);
+        assertThat(c.toBuilder().build().bindingCosineThreshold).isEqualTo(0.45);
+        m.put(AnalyzerConfig.BINDING_THRESHOLD_KEY, "high");
+        assertThatThrownBy(() -> AnalyzerConfig.fromConfig(provider(m)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(AnalyzerConfig.BINDING_THRESHOLD_KEY);
+        assertThatThrownBy(() -> AnalyzerConfig.builder().bindingCosineThreshold(1.5).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cosineThreshold");
+        assertThatThrownBy(() -> AnalyzerConfig.builder().bindingCosineThreshold(Double.NaN).build())
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void defaultsMatchTheReferencePipeline() {
         AnalyzerConfig c = AnalyzerConfig.defaults();
         assertThat(c.intraOpThreads).isEqualTo(2);

@@ -1,11 +1,11 @@
 # Third-party licences for the Part 2 models
 
-The four model files in `models/` are third-party works, redistributed under their original
+The five model files in `models/` are third-party works, redistributed under their original
 licences. **The weights are unmodified apart from format conversion**: there was no retraining,
 fine-tuning, pruning or quantisation.
 - `face_mesh_v2.onnx` was converted from TFLite to ONNX.
 - The two MiniFASNet files were exported from the PyTorch `.pth` weights to ONNX.
-- `yunet_2026may.onnx` is byte-identical to upstream.
+- `yunet_2026may.onnx` and `face_recognition_sface_2021dec.onnx` are byte-identical to upstream.
 
 The conversions were done by the MOSIP Decode Part 2 team with the scripts in `tools/`. That
 statement is the notice of change required by Apache-2.0 section 4(b) for the three converted files.
@@ -15,6 +15,7 @@ statement is the notice of change required by Apache-2.0 section 4(b) for the th
 | `yunet_2026may.onnx` | YuNet face detector, [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_detection_yunet) | Copyright (c) 2020 Shiqi Yu | MIT (text below) |
 | `face_mesh_v2.onnx` | MediaPipe FaceMesh V2 (`face_landmarks_detector.tflite` from the Face Landmarker task bundle `face_landmarker/float16/1`), [Google MediaPipe](https://github.com/google-ai-edge/mediapipe) | Copyright The MediaPipe Authors (Google LLC) | Apache-2.0 (text below) |
 | `minifasnet_v2_s2.7.onnx`, `minifasnet_v1se_s4.0.onnx` | MiniFASNetV2 / MiniFASNetV1SE, [Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing/tree/b6d5f04ad78778917853b25c778acef6d5626d15) | Copyright 2020 Minivision | Apache-2.0 (text below) |
+| `face_recognition_sface_2021dec.onnx` | SFace face recognition (MobileFaceNet trained with the SFace loss), [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_recognition_sface); contributed by Yaoyao Zhong, ONNX conversion by Chengrui Wang | No copyright holder named (the zoo's LICENSE keeps the Apache template line "Copyright [yyyy] [name of copyright owner]") | Apache-2.0: the directory's own `LICENSE`, and its README says "All files in this directory are licensed under Apache 2.0 License" |
 | `tools/third_party/silent_face/MiniFASNet.py` | Silent-Face-Anti-Spoofing `src/model_lib/MiniFASNet.py`, unmodified | Copyright 2020 Minivision | Apache-2.0; see the `LICENSE` and `NOTICE` files in that directory |
 
 ## Attribution
@@ -31,6 +32,22 @@ statement is the notice of change required by Apache-2.0 section 4(b) for the th
 - **YuNet (OpenCV Zoo).** This product includes the YuNet face detection model by Shiqi Yu and
   contributors, distributed through OpenCV Zoo (https://github.com/opencv/opencv_zoo), licensed
   under the MIT License.
+- **SFace (OpenCV Zoo).** This product includes the SFace face recognition model
+  (`face_recognition_sface_2021dec.onnx`) by Yaoyao Zhong, distributed through OpenCV Zoo
+  (https://github.com/opencv/opencv_zoo), licensed under the Apache License 2.0. It is used only for face
+  binding (F1): comparing the face that passed liveness with the captured face.
+
+  **Provenance of the training data.** The zoo states only that the files are "MobileFaceNet instances
+  trained on the SFace loss function". It does not say which dataset this checkpoint was trained on.
+  - The SFace paper (Zhong et al., IEEE TIP 2021, https://ieeexplore.ieee.org/document/9318547) reports
+    models trained on CASIA-WebFace, VGGFace2 and MS-Celeb-1M.
+  - These are web-scraped collections of celebrity photos. MS-Celeb-1M was withdrawn by Microsoft in
+    2019, and VGGFace2 is no longer distributed by its authors.
+  - The original research repository (https://github.com/zhongyy/SFace) has no licence file. The
+    Apache-2.0 grant comes from the OpenCV Zoo directory the author contributed to.
+
+  The weights are permissively licensed. The training-data provenance should still be reviewed before
+  production use, as for any public face recognition model.
 
 The golden test images under `liveness-analyzer/src/test/resources/golden/` are US-government
 works in the public domain. Their sources are listed in the `README.md` in that directory.
@@ -63,7 +80,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Apache License 2.0 (MediaPipe, Silent-Face-Anti-Spoofing)
+## Apache License 2.0 (MediaPipe, Silent-Face-Anti-Spoofing, SFace)
 
 Verbatim Apache License 2.0 text, as in the MediaPipe repository (`LICENSE` at commit `a908d668c730da128dfa8d9f6bd25d519d006692`):
 

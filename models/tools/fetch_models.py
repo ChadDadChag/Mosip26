@@ -3,7 +3,7 @@
 Every source is pinned by URL (at an immutable commit where the host offers one),
 byte size and SHA-256. A download that fails either check is deleted and the
 script exits non-zero; files already in the cache are re-verified, not re-fetched.
-YuNet ships unmodified, so once verified it is also copied to models/yunet_2026may.onnx.
+YuNet and SFace ship unmodified, so once verified they are also copied to models/.
 
     python -I models/tools/fetch_models.py            # the model sources
     python -I models/tools/fetch_models.py --extras   # + yakhyo ONNX cross-check files
@@ -31,6 +31,14 @@ SOURCES = [
          size=229738,
          sha256="ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0",
          install_as="yunet_2026may.onnx"),
+    # F1 face binding: SFace (MobileFaceNet, SFace loss), Apache-2.0 per the zoo directory's LICENSE. An LFS file:
+    # github.com/.../raw/<commit>/ redirects to the LFS media URL. Size and sha256 are the LFS pointer's.
+    dict(name="face_recognition_sface_2021dec.onnx",
+         url=f"https://github.com/opencv/opencv_zoo/raw/{OPENCV_ZOO_COMMIT}"
+             "/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+         size=38696353,
+         sha256="0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+         install_as="face_recognition_sface_2021dec.onnx"),
     dict(name="2.7_80x80_MiniFASNetV2.pth",
          url=f"https://raw.githubusercontent.com/minivision-ai/Silent-Face-Anti-Spoofing/{SILENT_FACE_COMMIT}"
              "/resources/anti_spoof_models/2.7_80x80_MiniFASNetV2.pth",

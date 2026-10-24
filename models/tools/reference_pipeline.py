@@ -27,6 +27,7 @@ YUNET_FILE = "yunet_2026may.onnx"
 MESH_FILE = "face_mesh_v2.onnx"
 PAD_V2_FILE = "minifasnet_v2_s2.7.onnx"
 PAD_V1SE_FILE = "minifasnet_v1se_s4.0.onnx"
+SFACE_FILE = "face_recognition_sface_2021dec.onnx"
 
 YUNET_TARGET_WIDTH = 320
 YUNET_STRIDES = (8, 16, 32)
@@ -80,6 +81,16 @@ MOUTH_UPPER_INNER, MOUTH_LOWER_INNER = 13, 14
 NOSE_TIP, CHIN, FOREHEAD = 1, 152, 10
 LEFT_EYE_OUTER, RIGHT_EYE_OUTER = 263, 33
 LEFT_IRIS, RIGHT_IRIS = 473, 468  # V2 only (points 468..477)
+
+# Face binding (F1): OpenCV FaceRecognizerSF with the zoo's SFace model, mirrored from OpenCV 5.0.0
+# modules/objdetect/src/face_recognize.cpp (commit 40738fb, the opencv-python 5.0.0 build used here).
+SFACE_SIZE = 112
+SFACE_INPUT, SFACE_OUTPUT = "data", "fc1"
+# face_recognize.cpp:80, the 112 x 112 ArcFace template: right eye, left eye, nose tip, right and left mouth corner
+# (the YuNet keypoint order), and :85, its mean as written in the source.
+SFACE_TEMPLATE = ((38.2946, 51.6963), (73.5318, 51.5014), (56.0252, 71.7366), (41.5493, 92.3655), (70.7299, 92.2041))
+SFACE_TEMPLATE_MEAN = (56.0262, 71.9008)
+SFACE_COSINE_THRESHOLD = 0.363  # opencv_zoo models/face_recognition_sface/sface.py:24 (match when cosine >= 0.363)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -180,6 +191,7 @@ def iou(a, b):
 def new_session(path, threads=2):
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = threads
+    opts.log_severity_level = 3  # errors only: SFace lists its initializers as graph inputs, one warning each
     return ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
 
 
@@ -459,6 +471,156 @@ class MiniFasNet:
 
 
 # ---------------------------------------------------------------------------------------------
+# Face binding (F1): SFace embeddings, as OpenCV's FaceRecognizerSF
+# ---------------------------------------------------------------------------------------------
+
+FLT_MIN = 1.1754943508222875e-38
+
+
+def sface_transform(kps):
+    """2x3 similarity transform from the 5 YuNet keypoints (frame) to the 112 x 112 template, exactly as
+    FaceRecognizerSFImpl::getSimilarityTransformMatrix (face_recognize.cpp:79-189), an Umeyama fit. The C++ keeps
+    points, means and de-meaned points in float and accumulates in double; so does this.
+
+        src_mean = (sum of the 5 src x, then y, added left to right in float) / 5          (:81-84)
+        dst_mean = SFACE_TEMPLATE_MEAN, the constants written in the source              (:85)
+        A[r][c]  = (1/5) sum_i dst_demean[i][r] * src_demean[i][c]                        (:103-115)
+        d = (1, 1); d[1] = -1 when det(A) < 0                                            (:117-120)
+        U, S, Vt = svd(A), singular values descending (cv::SVD::compute)                 (:123)
+        rank = number of S > max(S) * 2 * FLT_MIN                                        (:124-130)
+        R = U diag(d) Vt; but for rank 1 with det(U) det(Vt) > 0, R = U Vt                (:135-168)
+        var = (1/5) sum src_demean_x^2 + (1/5) sum src_demean_y^2                        (:169-176)
+        scale = (S0 d0 + S1 d1) / var                                                    (:177)
+        M = [scale R | dst_mean - scale R src_mean]                                      (:178-187)
+    M maps SOURCE pixel indices to template pixel indices (OpenCV's convention for warpAffine).
+    """
+    f32 = np.float32
+    src = np.asarray(kps, dtype=np.float32).reshape(5, 2)
+    dst = np.asarray(SFACE_TEMPLATE, dtype=np.float32)
+    src_mean = []
+    for k in range(2):
+        s = src[0, k]
+        for i in range(1, 5):
+            s = f32(s + src[i, k])
+        src_mean.append(f32(s / f32(5)))
+    src_mean = np.asarray(src_mean, dtype=np.float32)
+    dst_mean = np.asarray(SFACE_TEMPLATE_MEAN, dtype=np.float32)
+    src_demean = (src - src_mean).astype(np.float32)
+    dst_demean = (dst - dst_mean).astype(np.float32)
+
+    def mean_of_products(p, q):
+        acc = 0.0
+        for i in range(5):
+            acc += float(f32(p[i] * q[i]))
+        return acc / 5
+
+    A = np.array([[mean_of_products(dst_demean[:, 0], src_demean[:, 0]),
+                   mean_of_products(dst_demean[:, 0], src_demean[:, 1])],
+                  [mean_of_products(dst_demean[:, 1], src_demean[:, 0]),
+                   mean_of_products(dst_demean[:, 1], src_demean[:, 1])]], dtype=np.float64)
+    d = [1.0, 1.0]
+    if A[0, 0] * A[1, 1] - A[0, 1] * A[1, 0] < 0:
+        d[1] = -1.0
+    u, s, vt = np.linalg.svd(A)
+    tol = max(s[0], s[1]) * 2 * FLT_MIN
+    rank = int(s[0] > tol) + int(s[1] > tol)
+    if rank == 1 and np.linalg.det(u) * np.linalg.det(vt) > 0:
+        R = u @ vt
+    elif rank == 1:
+        R = u @ np.diag([d[0], -1.0]) @ vt
+    else:
+        R = u @ np.diag(d) @ vt
+    var = mean_of_products(src_demean[:, 0], src_demean[:, 0]) + mean_of_products(src_demean[:, 1], src_demean[:, 1])
+    scale = 1.0 / var * (s[0] * d[0] + s[1] * d[1])
+    ts = R @ src_mean.astype(np.float64)
+    t = dst_mean.astype(np.float64) - scale * ts
+    return [[scale * R[0, 0], scale * R[0, 1], t[0]], [scale * R[1, 0], scale * R[1, 1], t[1]]]
+
+
+def warp_affine_cv(img, M, out_w, out_h):
+    """cv::warpAffine(img, out, M, (out_w, out_h), INTER_LINEAR) on an 8-bit image, as face_recognize.cpp:54 calls
+    it (default BORDER_CONSTANT 0). Unlike sample_affine, M maps SOURCE pixel indices to DESTINATION pixel indices
+    and pixel centres are at integer coordinates:
+        Minv = cv::invertAffineTransform(M)
+        (X, Y) = Minv . (i, j, 1) for destination pixel (i, j)
+        x0 = floor(X), y0 = floor(Y), fx = X - x0, fy = Y - y0; a neighbour outside the image counts as 0
+        out = (1-fy)((1-fx) I[y0,x0] + fx I[y0,x0+1]) + fy((1-fx) I[y0+1,x0] + fx I[y0+1,x0+1])
+        rounded half up to 0..255 (the 8-bit result OpenCV hands to blobFromImage).
+    OpenCV quantises the sub-pixel position to 1/32 pixel; this float version does not. make_golden.py compares
+    the crops and the features with cv2's."""
+    a, b, c = M[0]
+    d, e, f = M[1]
+    det = a * e - b * d
+    det = 1.0 / det if det != 0 else 0.0
+    i11, i12, i21, i22 = e * det, -b * det, -d * det, a * det
+    b1, b2 = -i11 * c - i12 * f, -i21 * c - i22 * f
+    h_src, w_src = img.shape[:2]
+    gx, gy = np.meshgrid(np.arange(out_w, dtype=np.float64), np.arange(out_h, dtype=np.float64))
+    X = i11 * gx + i12 * gy + b1
+    Y = i21 * gx + i22 * gy + b2
+    x0 = np.floor(X).astype(np.int64)
+    y0 = np.floor(Y).astype(np.int64)
+    fx = (X - x0)[:, :, None]
+    fy = (Y - y0)[:, :, None]
+
+    def px(yy, xx):
+        inside = (xx >= 0) & (xx < w_src) & (yy >= 0) & (yy < h_src)
+        vals = np.zeros(yy.shape + (img.shape[2],), dtype=np.float64)
+        vals[inside] = img[yy[inside], xx[inside]]
+        return vals
+
+    top = (1 - fx) * px(y0, x0) + fx * px(y0, x0 + 1)
+    bottom = (1 - fx) * px(y0 + 1, x0) + fx * px(y0 + 1, x0 + 1)
+    return np.clip(np.floor((1 - fy) * top + fy * bottom + 0.5), 0, 255).astype(np.uint8)
+
+
+def sface_input(aligned_bgr):
+    """[1, 3, 112, 112] float32 NCHW, channels R, G, B, raw 0..255: cv::dnn::blobFromImage(aligned, 1, (112, 112),
+    (0, 0, 0), swapRB=true, crop=false) (face_recognize.cpp:58)."""
+    return aligned_bgr[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32)
+
+
+class SFace:
+    """SFace (MobileFaceNet): input "data" [1,3,112,112]; output "fc1" [1,128], the feature (not normalised)."""
+
+    def __init__(self, path, threads=2):
+        self.session = new_session(path, threads)
+
+    def run(self, tensor):
+        return self.session.run([SFACE_OUTPUT], {SFACE_INPUT: tensor})[0][0].astype(np.float64)
+
+
+def sface_embed(model, bgr, face):
+    """(feature, aligned crop) of one detected face: transform, warp, blob, network."""
+    aligned = warp_affine_cv(bgr, sface_transform(face["kps"]), SFACE_SIZE, SFACE_SIZE)
+    return model.run(sface_input(aligned)), aligned
+
+
+def sface_cosine(f1, f2):
+    """FaceRecognizerSF::match with FR_COSINE (face_recognize.cpp:62-69): both features L2-normalised
+    (cv::normalize), then their dot product."""
+    a = np.asarray(f1, dtype=np.float64)
+    b = np.asarray(f2, dtype=np.float64)
+    return float(np.dot(a / np.linalg.norm(a), b / np.linalg.norm(b)))
+
+
+def face_match(pipe, bgr_a, bgr_b, threshold=SFACE_COSINE_THRESHOLD):
+    """The Java FaceMatcher.compare: YuNet on each image, exactly one face each (faceCount as count_faces), then the
+    cosine of the two embeddings. Returns (outcome, similarity): NO_FACE_A / MULTIPLE_FACES_A / NO_FACE_B /
+    MULTIPLE_FACES_B (similarity None), else MATCH when similarity >= threshold, otherwise NO_MATCH."""
+    feats = []
+    for tag, bgr in (("A", bgr_a), ("B", bgr_b)):
+        n, primary = count_faces(pipe.yunet.detect(bgr))
+        if n == 0:
+            return "NO_FACE_" + tag, None
+        if n > 1:
+            return "MULTIPLE_FACES_" + tag, None
+        feats.append(sface_embed(pipe.sface, bgr, primary)[0])
+    sim = sface_cosine(feats[0], feats[1])
+    return ("MATCH" if sim >= threshold else "NO_MATCH"), sim
+
+
+# ---------------------------------------------------------------------------------------------
 # Quality and replay cues (primary face)
 # ---------------------------------------------------------------------------------------------
 
@@ -571,6 +733,8 @@ class Pipeline:
         self.mesh = FaceMesh(models_dir / MESH_FILE, threads)
         self.pad_v2 = MiniFasNet(models_dir / PAD_V2_FILE, PAD_V2_SCALE, threads)
         self.pad_v1se = MiniFasNet(models_dir / PAD_V1SE_FILE, PAD_V1SE_SCALE, threads)
+        # Face binding only (not part of analyze()); optional so folders with the liveness models alone still load.
+        self.sface = SFace(models_dir / SFACE_FILE, threads) if (models_dir / SFACE_FILE).exists() else None
 
     def analyze(self, bgr):
         """Full reference analysis of one BGR frame. Mesh, pose and PAD run on the primary face

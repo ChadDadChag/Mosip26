@@ -90,6 +90,51 @@ public final class ImageOps {
         if (padW > outW || padH > outH) zeroPadding(layout, dst, outW, outH, padW, padH);
     }
 
+    /**
+     * OpenCV's {@code warpAffine(src, dst, M, Size(outW, outH), INTER_LINEAR)} on an 8-bit image (default
+     * BORDER_CONSTANT 0) into an NCHW R, G, B tensor of raw 0..255 values, as FaceRecognizerSF feeds SFace. Java
+     * mirror of {@code reference_pipeline.warp_affine_cv} + {@code sface_input}. Unlike {@link #sample}, {@code m}
+     * maps SOURCE pixel indices to DESTINATION pixel indices and pixel centres are at integer coordinates: destination
+     * pixel (i, j) samples the source at (X, Y) = M<sup>-1</sup> (i, j) (OpenCV's invertAffineTransform), bilinear over
+     * the 4 neighbours with a neighbour outside the image counting as 0, rounded half up to 0..255. OpenCV quantises
+     * the sub-pixel position to 1/32 pixel; this does not (at most 1 grey level apart, see make_golden.py).
+     *
+     * @param m 2 x 3, row major: {a, b, c, d, e, f}
+     */
+    public static void warpAffineOpenCv(byte[] rgb, int srcW, int srcH, double[] m, int outW, int outH, float[] dst) {
+        if (rgb == null || srcW <= 0 || srcH <= 0 || rgb.length < srcW * srcH * 3) {
+            throw new IllegalArgumentException("invalid RGB888 source");
+        }
+        if (m == null || m.length != 6 || outW <= 0 || outH <= 0) throw new IllegalArgumentException("invalid warp");
+        if (dst == null || dst.length < 3 * outW * outH) throw new IllegalArgumentException("destination buffer too small");
+        double det = m[0] * m[4] - m[1] * m[3];
+        det = det != 0 ? 1.0 / det : 0.0;
+        double i11 = m[4] * det, i12 = -m[1] * det, i21 = -m[3] * det, i22 = m[0] * det;
+        double b1 = -i11 * m[2] - i12 * m[5], b2 = -i21 * m[2] - i22 * m[5];
+        int plane = outW * outH;
+        for (int j = 0; j < outH; j++) {
+            for (int i = 0; i < outW; i++) {
+                double x = i11 * i + i12 * j + b1, y = i21 * i + i22 * j + b2;
+                int x0 = (int) Math.floor(x), y0 = (int) Math.floor(y);
+                double fx = x - x0, fy = y - y0;
+                int o = j * outW + i;
+                for (int ch = 0; ch < 3; ch++) {
+                    double top = (1 - fx) * at(rgb, srcW, srcH, x0, y0, ch) + fx * at(rgb, srcW, srcH, x0 + 1, y0, ch);
+                    double bottom = (1 - fx) * at(rgb, srcW, srcH, x0, y0 + 1, ch)
+                            + fx * at(rgb, srcW, srcH, x0 + 1, y0 + 1, ch);
+                    double v = Math.floor((1 - fy) * top + fy * bottom + 0.5);
+                    dst[ch * plane + o] = (float) (v < 0 ? 0 : v > 255 ? 255 : v);
+                }
+            }
+        }
+    }
+
+    /** Channel {@code ch} (0 = R) of pixel (x, y), or 0 outside the image (BORDER_CONSTANT). */
+    private static int at(byte[] rgb, int w, int h, int x, int y, int ch) {
+        if (x < 0 || y < 0 || x >= w || y >= h) return 0;
+        return rgb[(y * w + x) * 3 + ch] & 0xFF;
+    }
+
     private static float lerp(byte[] rgb, int p00, int p01, int p10, int p11, double fx, double fy) {
         double top = (1 - fx) * (rgb[p00] & 0xFF) + fx * (rgb[p01] & 0xFF);
         double bottom = (1 - fx) * (rgb[p10] & 0xFF) + fx * (rgb[p11] & 0xFF);

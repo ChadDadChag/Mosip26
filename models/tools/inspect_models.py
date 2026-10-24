@@ -25,6 +25,7 @@ ROLES = {
     rp.MESH_FILE: "478-point face mesh with irises (MediaPipe FaceMesh V2, face_landmarker.task float16/1, converted)",
     rp.PAD_V2_FILE: "PAD, MiniFASNetV2, crop scale 2.7 (Silent-Face, exported)",
     rp.PAD_V1SE_FILE: "PAD, MiniFASNetV1SE, crop scale 4.0 (Silent-Face, exported)",
+    rp.SFACE_FILE: "face binding (F1): SFace face recognition, MobileFaceNet (OpenCV Zoo 2021dec, unmodified)",
 }
 
 
@@ -44,6 +45,8 @@ def sample_inputs():
         rp.MESH_FILE: {rp.MESH_INPUT: rp.mesh_input(bgr, rp.mesh_roi(face))},
         rp.PAD_V2_FILE: {"input": rp.pad_input(bgr, rp.get_new_box(w, h, ibox, rp.PAD_V2_SCALE))},
         rp.PAD_V1SE_FILE: {"input": rp.pad_input(bgr, rp.get_new_box(w, h, ibox, rp.PAD_V1SE_SCALE))},
+        rp.SFACE_FILE: {rp.SFACE_INPUT: rp.sface_input(
+            rp.warp_affine_cv(bgr, rp.sface_transform(face["kps"]), rp.SFACE_SIZE, rp.SFACE_SIZE))},
     }
 
 
@@ -55,6 +58,9 @@ def describe_run(name, outputs):
         first = [round(float(v), 3) for v in outputs[rp.MESH_LANDMARKS].ravel()[:3]]
         return (f"sigmoid({rp.MESH_FLAG}) = {rp.sigmoid(float(outputs[rp.MESH_FLAG].ravel()[0])):.6f}; "
                 f"first point (x, y, z) = {first}; Identity_2 (unused) = {float(outputs['Identity_2'].ravel()[0]):.4f}")
+    if name == rp.SFACE_FILE:
+        feat = outputs[rp.SFACE_OUTPUT].ravel()
+        return f"feature L2 norm {float(np.linalg.norm(feat)):.3f}; first values {[round(float(v), 4) for v in feat[:4]]}"
     logits = outputs["output"][0]
     return (f"logits {[round(float(v), 4) for v in logits]}, "
             f"softmax {[round(float(v), 4) for v in rp.softmax(logits)]} (index 1 = real)")
@@ -108,7 +114,7 @@ def main():
             if sess.get_inputs()[0].name != "input" or sess.get_inputs()[0].shape != [1, 3, 80, 80] \
                     or names != ["output"] or outputs["output"].shape != (1, 3):
                 problems.append(f"{name} I/O differs from input [1,3,80,80] / output [1,3]")
-    lines += [f"Total size of the four models: {total:,} bytes ({total / 1048576:.2f} MiB).", ""]
+    lines += [f"Total size of the {len(ROLES)} models: {total:,} bytes ({total / 1048576:.2f} MiB).", ""]
     OUT.write_text("\n".join(lines), encoding="utf-8")
     print("\n".join(lines))
     if problems:

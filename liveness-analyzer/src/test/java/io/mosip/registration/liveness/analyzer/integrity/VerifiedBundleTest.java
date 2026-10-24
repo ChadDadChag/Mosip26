@@ -140,10 +140,20 @@ class VerifiedBundleTest {
     }
 
     @Test
-    void filesMustBeTheFourRolesOnceEach() throws Exception {
+    void aBundleWithoutTheMatcherFails() throws Exception {
+        // A pre-F1 bundle (four models, no SFace) is no longer accepted.
+        Map<ModelRole, byte[]> four = new LinkedHashMap<ModelRole, byte[]>(models);
+        four.remove(ModelRole.MATCHER);
+        assertFails(signedManifest(TestBundles.manifest(V, TestBundles.KEY_ID, "{}", filesBody(four), 1)),
+                "not exactly the required roles");
+    }
+
+    @Test
+    void filesMustBeTheRequiredRolesOnceEach() throws Exception {
         Map<ModelRole, byte[]> three = new LinkedHashMap<ModelRole, byte[]>(models);
         three.remove(ModelRole.PAD_V1SE);
-        assertFails(signedManifest(TestBundles.manifest(V, TestBundles.KEY_ID, "{}", filesBody(three), 1)), "exactly 4");
+        assertFails(signedManifest(TestBundles.manifest(V, TestBundles.KEY_ID, "{}", filesBody(three), 1)),
+                "not exactly the required roles");
         String dup = filesBody(three) + ",\n" + TestBundles.fileEntry("DETECTOR", "other.onnx", 5, "ab".repeat(32));
         assertFails(signedManifest(TestBundles.manifest(V, TestBundles.KEY_ID, "{}", dup, 1)), "listed twice");
         String unknown = filesBody(three) + ",\n" + TestBundles.fileEntry("GPU", "x.onnx", 5, "ab".repeat(32));

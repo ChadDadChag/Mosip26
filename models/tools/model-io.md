@@ -75,4 +75,19 @@ PAD, MiniFASNetV1SE, crop scale 4.0 (Silent-Face, exported)
 
 Sample run: logits [-3.1623, 4.5181, -1.3578], softmax [0.0005, 0.9967, 0.0028] (index 1 = real)
 
-Total size of the four models: 8,636,957 bytes (8.24 MiB).
+## `face_recognition_sface_2021dec.onnx`
+
+face binding (F1): SFace face recognition, MobileFaceNet (OpenCV Zoo 2021dec, unmodified)
+
+- size: 38,696,353 bytes
+- sha256: `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79`
+- IR version 6; opset ai.onnx 11; producer
+
+| kind | name | declared shape | dtype | sample-run shape |
+|---|---|---|---|---|
+| input | `data` | [1, 3, 112, 112] | tensor(float) | [1, 3, 112, 112] |
+| output | `fc1` | [1, 128] | tensor(float) | [1, 128] |
+
+Sample run: feature L2 norm 14.775; first values [-2.1255, 0.0207, -0.6833, 3.4608]
+
+Total size of the 5 models: 47,333,310 bytes (45.14 MiB).

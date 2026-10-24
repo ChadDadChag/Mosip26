@@ -64,6 +64,11 @@ public final class GoldenFixtures {
         return new Image(rgb, w, h);
     }
 
+    /** An image from raw RGB888 pixels (synthetic test images). */
+    public static Image raw(byte[] rgb, int width, int height) {
+        return new Image(rgb, width, height);
+    }
+
     public static Image flip(Image img) {
         byte[] out = new byte[img.rgb.length];
         for (int y = 0; y < img.height; y++) {
