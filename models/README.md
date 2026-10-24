@@ -187,3 +187,57 @@ Offline updates go through `ModelStore`:
 - **rollback:** an explicit operator action.
 
 These are also available as `ModelBundleTool install|rollback`.
+
+## INT8 evaluation (P5-5): measured, not adopted
+
+`tools/quantize_int8.py` builds static INT8 versions of the mesh and both MiniFASNets and compares
+them with the fp32 models. Nothing it produces is committed or shipped: the INT8 files stay in the
+gitignored `tools/.cache/int8/`.
+
+- **Method:** `quant_pre_process`, then `quantize_static` with `QuantFormat.QDQ`, per-channel
+  weights and signed 8-bit activations and weights (ONNX Runtime's recommended first choice).
+- **Calibration data:** public images only. These are the 49 portraits of
+  `pitch_calibration_urls.txt` and the two golden images, each also mirrored: 102 images with
+  108 faces. Each face is cropped exactly as the analyzer crops it (the mesh ROI, and the
+  Silent-Face crops at 2.7 and 4.0). The team's recordings are never used for calibration.
+- **YuNet stays fp32:** opencv_zoo publishes an INT8 YuNet only for 2023mar, not for the
+  2026may model in the bundle.
+
+fp32 vs INT8 with MinMax calibration. Percentile calibration and unsigned activations were no
+better, and entropy calibration produced the same files as MinMax.
+
+| difference | golden images (4, with mirrors) | 49 portraits (98, with mirrors) | local recordings (700 frames, aggregates) |
+|---|---|---|---|
+| contract landmarks, max px | 1.8 to 18.0 | p95 27.0, max 59.4 | p95 27.9, max 55.7 |
+| all mesh points, mean px | 1.0 to 5.0 | mean 5.2 | mean 5.7 |
+| eye aspect ratio | 0.04 to 0.12 | p95 0.09, max 0.18 | p95 0.16, max 0.30 |
+| pitch, degrees | 0.1 to 7.6 | p95 6.7 | p95 10.8 |
+| livenessScore | 0.0001 to 0.0105 | p95 0.13, max 0.19 | p95 0.12, max 0.23 |
+| frames whose zone changes (0.85 / 0.30) | 0 | 5 | 55 |
+
+The eye aspect ratio errors are as large as a blink itself (a blink is detected below 0.6 x the
+open-eye value).
+
+`PadEvaluation --bundle <dir>` was run on the local recordings with the INT8 models in a test
+bundle. The bundle was signed locally with the development key and is not committed. In the
+production three-zone table, the bona fide takes went from 8/11 passive passes and 1/11 challenges
+to 7/11 and 2/11 (BPCER at 0.85: 11.1% to 22.2%). The attack rows did not change.
+
+INT8 is also slower everywhere it was measured:
+- **Laptop** (Ryzen AI 7 350, CPU): the mesh went from 8.0 to 14.2 ms, and each MiniFASNet from
+  about 2.7 to 5.8 ms.
+- **Samsung S23 FE** (profile build, CPU, 2 threads): the mesh went from 8.9 to 18.0 ms, and the
+  PAD stage (both models) from 5.6 to 9.6 ms.
+
+The cause is that the networks use PReLU (69 layers in the mesh, 33 in MiniFASNet V2), which ONNX
+Runtime does not run quantised. Every convolution output is therefore converted back to float and
+quantised again.
+
+**Recommendation: do not adopt INT8 as it stands.** It would need quantisation-aware training or
+PReLU-free variants of the models first. The phone results are in
+`docs/part5-android-benchmark.md`.
+
+```
+python -I models/tools/quantize_int8.py --eval-data eval-data --json <report.json>   # main env
+python -I models/tools/quantize_int8.py --compare-only --out <dir>                   # compare an existing folder
+```
