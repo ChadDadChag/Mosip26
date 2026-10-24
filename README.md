@@ -97,7 +97,8 @@ Close the window to stop. To make a `.mjpeg` recording from your webcam or a fol
 
 ## Run the liveness harness (the whole pipeline)
 
-`LivenessHarness` connects a frame source, the Part 2 stand-in analyzer (`HeuristicFaceAnalyzer`) and the real
+`LivenessHarness` connects a frame source, Part 2's ONNX analyzer (the signed model bundle; `--analyzer heuristic`
+or `-Dliveness.analyzer=heuristic` selects the earlier stand-in, `HeuristicFaceAnalyzer`) and the real
 Part 3 engine. The window shows:
 - the live preview, with the detected face box and the liveness score
 - the current status, the challenge prompt and its progress, and positioning guidance, using the problem-statement texts
@@ -107,10 +108,11 @@ Part 3 engine. The window shows:
     & $mvn -q exec:java "-Dexec.mainClass=io.mosip.registration.liveness.device.demo.LivenessHarness" "-Dexec.args=video C:\path\to\clip.mjpeg 15 --workflow operator --diagnostic"
 
 Arguments: `webcam [fps]`, `video <file.mjpeg> [fps]`, `images <fileOrDir> [fps]`, plus `--workflow resident|operator|supervisor`,
+`--analyzer onnx|heuristic` (default onnx),
 `--diagnostic` (prints the audit, `diag.*` per-attempt score statistics and the metrics) and `--headless` (no window).
 Headless mode presses Retry automatically and exits with 0 (PASSED), 1 (FAILED) or 2 (cancelled or timed out).
 
-The stand-in analyzer is not a real PAD model: it can pass a photo. Real PAD results need Part 2's analyzer.
+The heuristic stand-in is not a real PAD model: it can pass a photo. Use the default ONNX analyzer for PAD results.
 
 The SBI path (`SbiStreamFrameSource`) needs a running MDS (a real device or the patched MockMDS) and is used
 from inside the Registration Client (see "How to use it" below). To check an MDS stream on its own, use `SbiStreamProbe`

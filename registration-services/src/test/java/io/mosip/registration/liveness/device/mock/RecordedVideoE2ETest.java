@@ -5,8 +5,9 @@ import io.mosip.registration.liveness.api.LivenessPolicy;
 import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.DefaultLivenessService;
+import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
 import io.mosip.registration.liveness.device.LivenessTestSupport;
-import io.mosip.registration.liveness.engine.HeuristicFaceAnalyzer;
+import io.mosip.registration.liveness.device.demo.LivenessHarness;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -27,8 +28,9 @@ import static org.junit.Assert.assertTrue;
  * Automated end-to-end liveness tests from recorded videos (bonus task): every clip in
  * {@code src/test/resources/liveness/videos/} (and in the folder named by the system property
  * {@value #VIDEOS_DIR_PROPERTY}, for team recordings kept outside the repo) is played through the real device path
- * ({@link MockFrameSource} video mode), the Part 2 analyzer stand-in ({@link HeuristicFaceAnalyzer}) and the real
- * Part 3 engine, and the result is checked against the expectation in the file name:
+ * ({@link MockFrameSource} video mode), Part 2's ONNX analyzer (or, with {@code -Dliveness.analyzer=heuristic}, the
+ * heuristic stand-in; see {@link LivenessHarness#analyzerFactory(String)}) and the real Part 3 engine, and the result
+ * is checked against the expectation in the file name:
  * <pre>
  *   &lt;name&gt;__expect-PASSED.mjpeg
  *   &lt;name&gt;__expect-FAILED.mjpeg
@@ -83,10 +85,17 @@ public class RecordedVideoE2ETest {
     public void clipReachesTheExpectedDecision() throws Exception {
         LivenessTestSupport.Audit audit = new LivenessTestSupport.Audit();
         Map<String, String> config = LivenessTestSupport.config(LivenessPolicy.PREFIX + "default.maxRetries", "0");
-        DefaultLivenessService svc = LivenessTestSupport.service(config, HeuristicFaceAnalyzer::new, audit);
+        FaceAnalyzerFactory analyzers =
+                LivenessHarness.analyzerFactory(System.getProperty(LivenessHarness.ANALYZER_PROPERTY, "onnx"));
+        LivenessResult r;
         LivenessTestSupport.Recorder rec = new LivenessTestSupport.Recorder();
-        svc.newSession(WorkflowType.RESIDENT).start(MockFrameSource.ofVideoFile(clip.toPath(), 15.0, true), rec);
-        LivenessResult r = rec.await(TIMEOUT_SEC);
+        try {
+            DefaultLivenessService svc = LivenessTestSupport.service(config, analyzers, audit);
+            svc.newSession(WorkflowType.RESIDENT).start(MockFrameSource.ofVideoFile(clip.toPath(), 15.0, true), rec);
+            r = rec.await(TIMEOUT_SEC);
+        } finally {
+            if (analyzers instanceof AutoCloseable) ((AutoCloseable) analyzers).close(); // the ONNX sessions
+        }
 
         assertEquals(clip.getName() + " events " + rec.types(), expectedDecision, r.decision.name());
         if (expectedCode != null) {
