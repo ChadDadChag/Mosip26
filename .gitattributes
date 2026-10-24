@@ -1,0 +1,14 @@
+# Hashed or signed text resources must keep their exact bytes on every OS. On Windows, core.autocrlf=true
+# would check them out with CRLF; for example, the checksum of
+# registration-services/src/main/resources/liveness/heuristic-analyzer.properties then no longer matches its manifest.
+*.properties text eol=lf
+*.manifest   text eol=lf
+*.jsonl      text eol=lf
+# Binary assets: never convert.
+*.onnx   binary
+*.tflite binary
+*.pth    binary
+*.jpg    binary
+*.jpeg   binary
+*.png    binary
+*.mjpeg  binary
