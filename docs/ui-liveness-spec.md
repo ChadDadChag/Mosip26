@@ -60,6 +60,8 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
   - **Retry** only after ATTEMPT_FAILED, or after a DEVICE_ERROR with `recoverable = true`.
   - **Cancel** always, except after PASSED and FAILED_FINAL.
   - **Close** only after FAILED_FINAL.
+  - **Open settings** (Android) only when the camera permission is permanently refused (Android no longer asks):
+    it opens the app's system settings. Close stays next to it.
 - **On PASSED:** show the success state, then continue automatically after about **1 s**. There is no button.
 
 ## 3. State table
@@ -164,6 +166,7 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
 | `liveness.button.retry` | Retry | button |
 | `liveness.button.cancel` | Cancel | button |
 | `liveness.button.close` | Close | button |
+| `liveness.button.open_settings` | Open settings | button: camera permission permanently refused (Android) |
 
 **Error mapping.** Always go through `event.error.userMessage()` and never switch on the raw `ErrorCode` in the UI:
 `NONE` shows nothing, and the other four values map to `liveness.error.<value in lower case>`.
@@ -231,6 +234,7 @@ liveness.recovery.supervisor=Please contact your administrator.
 liveness.button.retry=Retry
 liveness.button.cancel=Cancel
 liveness.button.close=Close
+liveness.button.open_settings=Open settings
 ```
 
 **Android, `assets/l10n/app_en.arb`** (Person 5; merge into the existing JSON object):
@@ -281,7 +285,8 @@ liveness.button.close=Close
 "liveness_recovery_supervisor": "Please contact your administrator.",
 "liveness_button_retry": "Retry",
 "liveness_button_cancel": "Cancel",
-"liveness_button_close": "Close"
+"liveness_button_close": "Close",
+"liveness_button_open_settings": "Open settings"
 ```
 
 **Other languages.** Add the same keys with translations. Until a language has them, each client falls back to
@@ -333,6 +338,32 @@ GUIDANCE and DEVICE_ERROR can arrive in any non-final state. A recoverable DEVIC
 Cancel always returns to the screen that started the step, as if the user had backed out, with no state change.
 The engine's cooldown (`onRepeatedFailure = COOLDOWN`) arrives as an immediate FAILED_FINAL and is rendered the same
 way as reaching the maximum attempts.
+
+**Android hooks (as built in P5-4).** Every screen calls one function, `LivenessGate.run(context, workflow)`
+(`lib/ui/liveness/liveness_gate.dart`), and branches on its result: **proceed** (passed, or liveness disabled for the
+workflow, in which case no liveness screen opens), **cancelled** (Cancel or back) or **blocked** (failed; the liveness
+screen already showed the recovery text). The gate opens the liveness screen full screen on the root navigator, so it
+also works from a dialog. It uses the workflow's camera, `mosip.registration.liveness.face.android.<workflow>.camera`
+(front or back, default front). It never throws: any error is **blocked** (fail closed) with the generic text.
+
+| Hook (file) | Workflow | Proceed | Cancelled | Blocked |
+|---|---|---|---|---|
+| Resident face capture, Scan of the **Face** tile (`biometric_capture_scan_block_portrait.dart`; the landscape layout `biometric_scan_middle_block.dart`, Scan and Rescan) | RESIDENT | the SBI face capture as before | no capture, no capture attempt counted | the same as cancelled; the screen showed `liveness.recovery.resident` |
+| Operator login, after a successful password (`login_page.dart`) | OPERATOR | sync or home as before | log out again, stay on the login page | log out again, stay on the login page, snackbar with the failure text |
+| Operator onboarding, Scan of the **Face** tile (`operator_biometric_capture_scan_block_view.dart`) | OPERATOR | the SBI face capture as before | no capture | no capture |
+| Packet authentication, between the password check and the packet submission (`generic_process.dart`) | OPERATOR: the officer signs the packet | the packet is submitted | nothing submitted, stay on the authentication step | nothing submitted, stay on the authentication step, snackbar |
+| Supervisor approval, between the password check and the approval (`authenticate_dialogbox.dart`) | SUPERVISOR | the approval is submitted and the dialog closes | nothing approved, the dialog stays | nothing approved, the dialog stays with the failure text |
+
+- **The exception photo is not gated.** It is taken in the biometric exception process, which is the recovery path
+  the resident recovery text points to when liveness fails; gating it would close that path.
+- **Packet authentication uses OPERATOR**: the registration officer authenticates the packet with their own password.
+- **Camera permission refused** (Android): the screen shows `liveness.error.device_problem` plus the recovery text and
+  Close, and the gate returns blocked. When Android will no longer ask (refused for good), `liveness.button.open_settings`
+  also opens the app's settings. No session is started without the permission.
+- **Config after a sync**: the client re-reads the liveness config after every global-param refresh (sync). New
+  sessions use it; a running session keeps its policy and analyzer.
+- **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
+  and there is no best frame.
 
 ## 7. Accessibility
 
