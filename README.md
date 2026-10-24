@@ -335,3 +335,43 @@ Recordings of people go only to `eval-data/`, which is gitignored, and only with
 - [docs/part2-iso30107-evaluation.md](docs/part2-iso30107-evaluation.md): ISO/IEC 30107-3 method and results (single subject, provisional), thresholds, next steps
 - [docs/part2-findings-for-other-parts.md](docs/part2-findings-for-other-parts.md): changes made in Part 3 and recommendations for Parts 1, 4 and 5
 - [models/README.md](models/README.md): model provenance, conversion checks and the reference pipeline
+
+---
+
+# Part 5: Android integration
+
+Part 5 puts Parts 1 to 3 into the MOSIP Android Registration Client (Flutter, v1.1.1). A face liveness check now runs before each face check of the client:
+- the resident face capture (before the SBI capture);
+- operator login (after the password);
+- operator onboarding;
+- packet authentication;
+- supervisor approval.
+
+The engine is the same Java code as on the Desktop. It runs on the phone's camera through CameraX, with the signed models on ONNX Runtime for Android, and needs no network.
+
+| Path | What | Ships in the app |
+|---|---|---|
+| `android-integration/patches/` | 26 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, audit events REG-EVT-009..017, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), tests | yes |
+| `android-integration/person5-liveness.diff` | the same changes as one diff | yes |
+| `android-integration/scripts/` | `sync-engine.ps1` (engine jars, signed models and the camera source into the client), `apply-integration.ps1` (clone, apply, sync, build), `export-patches.ps1` (regenerate the patches) | no |
+| `android-liveness-frame-source/` | Part 1's `CameraXFrameSource`, copied into the client by the sync | yes |
+
+## Apply and build (Part 5)
+
+The patches leave out the engine jars, the model bundle and `CameraXFrameSource.java`; `sync-engine.ps1` copies those from this repository. From the repository root, in PowerShell with Flutter, the Android SDK and JDK 21 on PATH:
+
+    .\android-integration\scripts\apply-integration.ps1 -Target C:\dev\arc-liveness -BuildApk
+
+That runs these steps:
+1. Clones `v1.1.1`.
+2. Applies the 26 patches with `git am`.
+3. Builds and syncs the engine.
+4. Generates the Pigeon code.
+5. Builds an arm64 debug APK.
+
+The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 73 module tests and 56 Flutter tests.
+
+**Documentation:**
+- [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations
+- [docs/part5-android-benchmark.md](docs/part5-android-benchmark.md): on-device benchmark and the chosen analyzer defaults, real-session timings and memory, INT8, exposure assist in the dark, model update and airplane-mode checks, APK size
+- [docs/ui-liveness-spec.md](docs/ui-liveness-spec.md): the screen and message texts shared with the Desktop (Part 4)
