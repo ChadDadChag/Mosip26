@@ -13,6 +13,7 @@ import io.mosip.registration.liveness.analyzer.pad.ReplayCues;
 import io.mosip.registration.liveness.analyzer.pad.SilentFacePad;
 import io.mosip.registration.liveness.analyzer.quality.QualityAssessor;
 import io.mosip.registration.liveness.analyzer.quality.QualityReport;
+import io.mosip.registration.liveness.analyzer.quality.RelativeBlur;
 import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
 import io.mosip.registration.liveness.analyzer.runtime.OnnxModels;
 import io.mosip.registration.liveness.api.ErrorCode;
@@ -42,7 +43,9 @@ import java.util.Map;
  * </ul>
  *
  * <p>Per frame: detect; no face: empty analysis; several faces: primary box only (no landmarks, NaN pose and
- * score); one face: quality issues, replay cues and mesh. Without a mesh the pose is unknown, so the score is NaN.
+ * score); one face: quality issues, replay cues and mesh. BLURRY is also set relative to the session
+ * ({@link RelativeBlur}: lapVar below qualityRelativeBlurRatio x the median of the last 15 unflagged single-face
+ * frames, once 5 are known). Without a mesh the pose is unknown, so the score is NaN.
  * Outside the PAD pose range (|yaw| &gt; padMaxYawDeg or |pitch| &gt; padMaxPitchDeg) the score is NaN; otherwise
  * score = (p_v2[1] + p_v1se[1]) / 2, then the session moire cap ({@link MoireCap}): every frame with exactly one face
  * adds its moire to the session's rolling median, scored or not; any other face count clears it. When the median of
@@ -78,6 +81,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     private final QualityAssessor quality;
     private final ReplayCues cues;
     private final MoireCap moireCap;
+    private final RelativeBlur relativeBlur;
     private final AnalyzerStats stats = new AnalyzerStats();
     private final float[] pose = new float[3];
     private ReplayCues.Cues lastCues;
@@ -99,6 +103,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         this.cues = new ReplayCues();
         this.moireCap = new MoireCap(config.moireCapThreshold, config.moireCapScore, config.moireWindow,
                 config.moireMinFrames, config.moireVetoThreshold);
+        this.relativeBlur = new RelativeBlur(config.qualityRelativeBlurRatio);
     }
 
     @Override
@@ -150,6 +155,8 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
 
         t = System.nanoTime();
         QualityReport q = quality.assess(rgb, w, h, primary, lastCues.glare);
+        EnumSet<QualityIssue> issues = q.issuesCopy();
+        if (relativeBlur.check(q.lapVar, issues.contains(QualityIssue.BLURRY))) issues.add(QualityIssue.BLURRY);
         stats.qualityNs = System.nanoTime() - t;
         lastQuality = q;
 
@@ -159,7 +166,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         if (mesh == null) {
             Map<String, Float> details = new LinkedHashMap<String, Float>();
             capped(Float.NaN, details);
-            return finish(frame, 1, primary.toBox(), null, nan3(), q.issuesCopy(), Float.NaN, details, start);
+            return finish(frame, 1, primary.toBox(), null, nan3(), issues, Float.NaN, details, start);
         }
 
         t = System.nanoTime();
@@ -173,7 +180,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
             Map<String, Float> details = new LinkedHashMap<String, Float>();
             details.put(POSE_GATED, 1f);
             capped(Float.NaN, details);
-            return finish(frame, 1, primary.toBox(), landmarks, ypr, q.issuesCopy(), Float.NaN, details, start);
+            return finish(frame, 1, primary.toBox(), landmarks, ypr, issues, Float.NaN, details, start);
         }
 
         t = System.nanoTime();
@@ -187,7 +194,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         details.put("minifas_v1se_spoof", p.v1se[0] + p.v1se[2]);
         float score = capped(p.score, details);
         details.put(MOIRE_CAP, moireCap.active() ? 1f : 0f);
-        return finish(frame, 1, primary.toBox(), landmarks, ypr, q.issuesCopy(), score, details, start);
+        return finish(frame, 1, primary.toBox(), landmarks, ypr, issues, score, details, start);
     }
 
     /**

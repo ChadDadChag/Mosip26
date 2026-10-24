@@ -2,6 +2,7 @@
 
     python -I models/tools/reference_pipeline.py IMAGE [--flip] [--json OUT]
     python -I models/tools/reference_pipeline.py --session      (session moire cap self-test)
+    python -I models/tools/reference_pipeline.py --blur         (session relative blur self-test, F6)
 
 All math is numpy. cv2 is used only by imread_bgr (decoding) and by the webcam script for
 capture and display. Each step's docstring is the formula the Java port mirrors.
@@ -889,6 +890,57 @@ def session_self_test():
     return 0 if ok else 1
 
 
+# ---------------------------------------------------------------------------------------------
+# Session relative blur (F6; stateful, one per session like the moire cap)
+# ---------------------------------------------------------------------------------------------
+
+RELATIVE_BLUR_RATIO = 0.45   # BLURRY below this fraction of the session's rolling lapVar median; None = off
+RELATIVE_BLUR_WINDOW = 15    # unflagged single-face frames in the median
+RELATIVE_BLUR_MIN = 5        # values needed before the relative rule applies
+
+
+def session_blur(lap_vars, ratio=RELATIVE_BLUR_RATIO, window=RELATIVE_BLUR_WINDOW, min_values=RELATIVE_BLUR_MIN,
+                 abs_threshold=Q_BLUR_LAP_VAR):
+    """BLURRY per frame of a session, in order (the Java RelativeBlur). lap_vars holds each frame's quality lapVar,
+    None for a frame without exactly one face (it neither gets a flag nor touches the window).
+
+        blurry = lapVar < abs_threshold                                   (quality(), unchanged)
+              or (len(buf) >= min_values and lapVar < ratio * median(buf))
+    buf = the lapVar of the last `window` single-face frames that were NOT blurry. The frame is compared before it is
+    added and is added only when not blurry, so a burst of motion blur cannot drag the median down. Even count:
+    the median is the mean of the two middle values. ratio None switches the relative rule off."""
+    buf, out = [], []
+    for v in lap_vars:
+        if v is None:
+            out.append(None)
+            continue
+        relative = ratio is not None and len(buf) >= min_values and v < ratio * float(np.median(buf))
+        blurry = v < abs_threshold or relative
+        if not blurry:
+            buf = (buf + [v])[-window:]
+        out.append(blurry)
+    return out
+
+
+# The sequence the Java RelativeBlurTest replays, and the expected flags (ratio 0.45).
+BLUR_SELF_TEST = [100, 110, 90, 105, 95,      # 5 values: median 100, the relative rule is armed
+                  40,                          # < 45: blurry, not added
+                  50,                          # >= 45: sharp, added (median 97.5)
+                  10,                          # < 15: blurry by the fixed threshold
+                  None,                        # no face: untouched
+                  30, 30, 30, 30, 30, 30,      # a burst: all blurry, the median stays 97.5
+                  44, 44.5, 60]                # 44 >= 0.45 x 97.5 = 43.875: sharp, added; then 44.5 and 60 too
+BLUR_EXPECTED = [False, False, False, False, False, True, False, True, None,
+                 True, True, True, True, True, True, False, False, False]
+
+
+def blur_self_test():
+    got = session_blur(BLUR_SELF_TEST)
+    ok = got == BLUR_EXPECTED
+    print("relative blur self-test", "PASSED" if ok else f"FAILED: {got}")
+    return 0 if ok else 1
+
+
 def to_json(res):
     """JSON text with NaN mapped to null (JSON has no NaN)."""
     def clean(v):
@@ -918,9 +970,12 @@ def main():
     ap.add_argument("--flip", action="store_true", help="mirror the decoded pixels horizontally first")
     ap.add_argument("--json", help="write the full result to this file")
     ap.add_argument("--session", action="store_true", help="run the session moire cap self-test and exit")
+    ap.add_argument("--blur", action="store_true", help="run the session relative blur self-test and exit")
     args = ap.parse_args()
     if args.session:
         return session_self_test()
+    if args.blur:
+        return blur_self_test()
     if not args.image:
         ap.error("an image is required (or --session)")
     bgr = imread_bgr(args.image)

@@ -42,6 +42,17 @@ class PadEvaluationTest {
     }
 
     @Test
+    void setChangesAnalyzerSettings() {
+        assertThat(PadEvaluation.analyzerConfig(java.util.Arrays.asList("qualityRelativeBlurRatio=off", "intraOpThreads = 3"))
+                .qualityRelativeBlurRatio).isNaN();
+        assertThat(PadEvaluation.analyzerConfig(java.util.Collections.<String>emptyList()).qualityRelativeBlurRatio)
+                .isEqualTo(0.45);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> PadEvaluation.analyzerConfig(java.util.Collections.singletonList("novalue")))
+                .isInstanceOf(ModelBundleTool.UsageException.class);
+    }
+
+    @Test
     void candidateScorers() {
         PadEvaluation.FrameRec f = frame(0.9f, 0.5f, 1.9f, 0.30f);
         List<PadEvaluation.Candidate> fixed = PadEvaluation.fixedCandidates();

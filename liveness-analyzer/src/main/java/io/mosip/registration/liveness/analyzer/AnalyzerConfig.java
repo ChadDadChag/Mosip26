@@ -22,6 +22,9 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *   <li>session moire cap ({@link io.mosip.registration.liveness.analyzer.pad.MoireCap}): {@code moireCapThreshold}
  *       (1.40; {@code off} disables), {@code moireCapScore} (0.60), {@code moireWindow} (10), {@code moireMinFrames} (3),
  *       {@code moireVetoThreshold} ({@code off}; a number enables the hard veto)</li>
+ *   <li>relative motion blur ({@link io.mosip.registration.liveness.analyzer.quality.RelativeBlur}):
+ *       {@code qualityRelativeBlurRatio} (0.45; {@code off} disables): BLURRY also when lapVar is below this
+ *       fraction of the session's rolling median</li>
  * </ul>
  * Face binding (F1) has its own key, outside the analyzer prefix: {@value #BINDING_THRESHOLD_KEY} (0.363, OpenCV's
  * SFace cosine threshold; {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}).
@@ -68,6 +71,8 @@ public final class AnalyzerConfig {
     public final double moireVetoThreshold;
     /** Face binding: two faces are the same person when the SFace cosine is at or above this, in [-1, 1]. */
     public final double bindingCosineThreshold;
+    /** BLURRY also below this fraction of the session's rolling lapVar median, in (0, 1]; NaN = off. */
+    public final double qualityRelativeBlurRatio;
 
     private AnalyzerConfig(Builder b) {
         intraOpThreads = b.intraOpThreads;
@@ -93,6 +98,7 @@ public final class AnalyzerConfig {
         moireMinFrames = b.moireMinFrames;
         moireVetoThreshold = b.moireVetoThreshold;
         bindingCosineThreshold = b.bindingCosineThreshold;
+        qualityRelativeBlurRatio = b.qualityRelativeBlurRatio;
     }
 
     public static Builder builder() {
@@ -129,6 +135,7 @@ public final class AnalyzerConfig {
         b.moireMinFrames = moireMinFrames;
         b.moireVetoThreshold = moireVetoThreshold;
         b.bindingCosineThreshold = bindingCosineThreshold;
+        b.qualityRelativeBlurRatio = qualityRelativeBlurRatio;
         return b;
     }
 
@@ -175,6 +182,7 @@ public final class AnalyzerConfig {
         b.moireWindow = intValue(cfg, "moireWindow", b.moireWindow);
         b.moireMinFrames = intValue(cfg, "moireMinFrames", b.moireMinFrames);
         b.moireVetoThreshold = optionalThreshold(cfg, "moireVetoThreshold", b.moireVetoThreshold);
+        b.qualityRelativeBlurRatio = optionalThreshold(cfg, "qualityRelativeBlurRatio", b.qualityRelativeBlurRatio);
         String binding = cfg.get(BINDING_THRESHOLD_KEY);
         if (binding != null && !binding.trim().isEmpty()) {
             try {
@@ -222,6 +230,7 @@ public final class AnalyzerConfig {
         range("moireMinFrames", moireMinFrames, 1, 100);
         range("moireWindow", moireWindow, moireMinFrames, 100);
         if (!Double.isNaN(moireVetoThreshold)) positiveUpTo("moireVetoThreshold", moireVetoThreshold, 10);
+        if (!Double.isNaN(qualityRelativeBlurRatio)) positiveUpTo("qualityRelativeBlurRatio", qualityRelativeBlurRatio, 1);
         if (!(bindingCosineThreshold >= -1 && bindingCosineThreshold <= 1)) {
             throw new IllegalArgumentException(BINDING_THRESHOLD_KEY + " must be in [-1.0, 1.0], got " + bindingCosineThreshold);
         }
@@ -296,6 +305,7 @@ public final class AnalyzerConfig {
         private int moireMinFrames = 3;
         private double moireVetoThreshold = Double.NaN;
         private double bindingCosineThreshold = 0.363;
+        private double qualityRelativeBlurRatio = 0.45;
 
         private Builder() { }
 
@@ -326,6 +336,8 @@ public final class AnalyzerConfig {
         /** NaN (the default) switches the veto off. */
         public Builder moireVetoThreshold(double v) { moireVetoThreshold = v; return this; }
         public Builder bindingCosineThreshold(double v) { bindingCosineThreshold = v; return this; }
+        /** NaN switches the relative blur rule off. */
+        public Builder qualityRelativeBlurRatio(double v) { qualityRelativeBlurRatio = v; return this; }
 
         public AnalyzerConfig build() {
             AnalyzerConfig c = new AnalyzerConfig(this);

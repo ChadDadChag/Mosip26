@@ -27,6 +27,18 @@ class AnalyzerConfigTest {
     }
 
     @Test
+    void theRelativeBlurRatioCanBeSetOrSwitchedOff() {
+        assertThat(AnalyzerConfig.defaults().qualityRelativeBlurRatio).isEqualTo(0.45);
+        assertThat(AnalyzerConfig.fromConfig(provider(keys("qualityRelativeBlurRatio", "0.3"))).qualityRelativeBlurRatio)
+                .isEqualTo(0.3);
+        AnalyzerConfig off = AnalyzerConfig.fromConfig(provider(keys("qualityRelativeBlurRatio", "off")));
+        assertThat(off.qualityRelativeBlurRatio).isNaN();
+        assertThat(off.toBuilder().build().qualityRelativeBlurRatio).isNaN();
+        assertThatThrownBy(() -> AnalyzerConfig.builder().qualityRelativeBlurRatio(1.5).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("qualityRelativeBlurRatio");
+    }
+
+    @Test
     void theBindingThresholdHasItsOwnKey() {
         assertThat(AnalyzerConfig.defaults().bindingCosineThreshold).isEqualTo(0.363);
         Map<String, String> m = new HashMap<String, String>();

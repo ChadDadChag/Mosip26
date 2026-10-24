@@ -3,6 +3,7 @@ package io.mosip.registration.liveness.eval;
 import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzer;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
 import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
 import io.mosip.registration.liveness.analyzer.pad.ReplayCues;
 import io.mosip.registration.liveness.analyzer.heuristic.HeuristicFaceAnalyzer;
@@ -39,10 +40,11 @@ import java.util.Set;
  * ISO/IEC 30107-3:2023 metrics ({@link PadMetrics}).
  * <pre>
  *   PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-yyyyMMdd] [--no-heuristic]
- *                 [--bundle &lt;signed bundle dir&gt;]
+ *                 [--bundle &lt;signed bundle dir&gt;] [--set &lt;analyzer setting&gt;=&lt;value&gt; ...]
  * </pre>
  * {@code --bundle} evaluates another signed bundle (for example a local int8 test bundle) instead of the bundled models;
- * it is verified against the built-in keys exactly as the bundled one is.
+ * it is verified against the built-in keys exactly as the bundled one is. {@code --set} changes an analyzer setting
+ * (an {@code AnalyzerConfig} key without its prefix, for example {@code qualityRelativeBlurRatio=off}).
  * Per take: a fresh analyzer (one per take, as one per session), frames in order with timestamps 1000/fps apart.
  * The presentation score is what production decides on: the median of the FIRST full window of Part 3's
  * {@link PassiveEvaluator} (default RESIDENT policy, default tuning). A take without a full window is a
@@ -256,10 +258,10 @@ public final class PadEvaluation {
                 err.println("no takes under " + data + " (expected bona_fide/<subject>/<take>/ and attack/<species>/...)");
                 return 1;
             }
-            OnnxFaceAnalyzerFactory factory = a.has("--bundle")
-                    ? new OnnxFaceAnalyzerFactory(new DirectoryBundleSource(new File(a.single("--bundle"))),
-                            AnalyzerConfig.defaults())
-                    : new OnnxFaceAnalyzerFactory();
+            AnalyzerConfig config = analyzerConfig(a.all("--set"));
+            OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory(a.has("--bundle")
+                    ? new DirectoryBundleSource(new File(a.single("--bundle"))) : new ClasspathBundleSource(), config);
+            if (!a.all("--set").isEmpty()) out.println("analyzer settings: " + a.all("--set"));
             String modelVersion = factory.modelVersion();
             List<TakeData> runs = new ArrayList<TakeData>();
             try {
@@ -296,13 +298,24 @@ public final class PadEvaluation {
         } catch (ModelBundleTool.UsageException | IllegalArgumentException e) {
             err.println("error: " + e.getMessage());
             err.println("usage: PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-yyyyMMdd] [--no-heuristic]"
-                    + " [--bundle <signed bundle dir>]");
+                    + " [--bundle <signed bundle dir>] [--set <analyzer setting>=<value> ...]");
             return 2;
         } catch (Exception e) {
             err.println("FAILED: " + e);
             e.printStackTrace(err);
             return 1;
         }
+    }
+
+    /** Analyzer settings from --set name=value (names without the mosip.registration.liveness.face.analyzer. prefix). */
+    static AnalyzerConfig analyzerConfig(List<String> settings) throws ModelBundleTool.UsageException {
+        Map<String, String> m = new LinkedHashMap<String, String>();
+        for (String kv : settings) {
+            int eq = kv.indexOf('=');
+            if (eq <= 0) throw new ModelBundleTool.UsageException("--set must be name=value: " + kv);
+            m.put(AnalyzerConfig.KEY_PREFIX + kv.substring(0, eq).trim(), kv.substring(eq + 1).trim());
+        }
+        return AnalyzerConfig.fromConfig(m::get);
     }
 
     private static void write(File f, String s) throws IOException {
