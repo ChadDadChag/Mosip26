@@ -32,6 +32,19 @@ class OnnxFaceAnalyzerTest {
         return GoldenFixtures.frame(GoldenFixtures.image(name));
     }
 
+    /** 20 analyses of the same frame in one analyzer (one session). */
+    private static Callable<List<FrameAnalysis>> session(final AnalyzerConfig cfg, final Frame f) {
+        return new Callable<List<FrameAnalysis>>() {
+            @Override public List<FrameAnalysis> call() throws Exception {
+                List<FrameAnalysis> out = new ArrayList<FrameAnalysis>();
+                try (OnnxFaceAnalyzer a = analyzer(cfg)) {
+                    for (int i = 0; i < 20; i++) out.add(a.analyze(f));
+                }
+                return out;
+            }
+        };
+    }
+
     @Test
     void portraitIsUsableWithAScoreThatMatchesTheReference() throws Exception {
         try (OnnxFaceAnalyzer a = analyzer(AnalyzerConfig.defaults())) {
@@ -238,23 +251,26 @@ class OnnxFaceAnalyzerTest {
     @Test
     void twoAnalyzersSharingOneModelSetAgreeAcrossThreads() throws Exception {
         final Frame portrait = frame("portrait_frontal");
+        // Tracking off: every frame then uses the YuNet ROI, so all 20 results equal the single-frame reference.
+        final AnalyzerConfig cfg = AnalyzerConfig.builder().meshTracking(false).build();
         final FrameAnalysis reference;
-        try (OnnxFaceAnalyzer a = analyzer(AnalyzerConfig.defaults())) {
+        try (OnnxFaceAnalyzer a = analyzer(cfg)) {
             reference = a.analyze(portrait);
         }
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             List<Future<List<FrameAnalysis>>> futures = new ArrayList<Future<List<FrameAnalysis>>>();
+            List<Future<List<FrameAnalysis>>> tracked = new ArrayList<Future<List<FrameAnalysis>>>();
             for (int t = 0; t < 2; t++) {
-                futures.add(pool.submit(new Callable<List<FrameAnalysis>>() {
-                    @Override public List<FrameAnalysis> call() throws Exception {
-                        List<FrameAnalysis> out = new ArrayList<FrameAnalysis>();
-                        try (OnnxFaceAnalyzer a = analyzer(AnalyzerConfig.defaults())) {
-                            for (int i = 0; i < 20; i++) out.add(a.analyze(portrait));
-                        }
-                        return out;
-                    }
-                }));
+                futures.add(pool.submit(session(cfg, portrait)));
+                tracked.add(pool.submit(session(AnalyzerConfig.defaults(), portrait)));
+            }
+            // With tracking on, each session's sequence is deterministic: both threads agree frame by frame.
+            List<FrameAnalysis> t0 = tracked.get(0).get(), t1 = tracked.get(1).get();
+            for (int i = 0; i < t0.size(); i++) {
+                assertThat(t1.get(i).yawDeg).isEqualTo(t0.get(i).yawDeg);
+                assertThat(t1.get(i).livenessScore).isEqualTo(t0.get(i).livenessScore);
+                assertThat(t1.get(i).landmarks.leftEye[1]).containsExactly(t0.get(i).landmarks.leftEye[1]);
             }
             for (Future<List<FrameAnalysis>> f : futures) {
                 for (FrameAnalysis r : f.get()) {

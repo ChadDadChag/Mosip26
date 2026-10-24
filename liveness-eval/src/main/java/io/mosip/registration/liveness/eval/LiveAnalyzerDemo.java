@@ -42,7 +42,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * Live webcam demo of the Part 2 analyzer and of a full Part 3 session (development only). Camera frames stay in
  * memory; nothing is written unless a dataset take is recorded with consent (R key) or a report is saved.
  * <pre>
- *   LiveAnalyzerDemo --mode analyze    [--camera 0]   overlay: box, eye points, irises, EAR, pose, scores, issues, ms
+ *   LiveAnalyzerDemo --mode analyze    [--camera 0] [--set name=value ...]   overlay: box, eye points, irises, EAR,
+ *                                      pose, scores, issues, ms; the largest yaw with landmarks per side (Z resets)
  *   LiveAnalyzerDemo --mode calibrate  [--camera 0]   guided quality-calibration conditions, per-condition issue table
  *   LiveAnalyzerDemo --mode session    [--workflow RESIDENT|OPERATOR|SUPERVISOR] [--force-active] [--auto-retry]
  *   LiveAnalyzerDemo --mode series     --plan a,b,c,...   scripted session runs with prompts (see {@link SessionDemo})
@@ -60,7 +61,7 @@ public final class LiveAnalyzerDemo {
         String mode = a.has("--mode") ? a.single("--mode") : "analyze";
         int camera = Integer.parseInt(a.has("--camera") ? a.single("--camera") : "0");
         switch (mode) {
-            case "analyze": analyze(camera); break;
+            case "analyze": analyze(camera, PadEvaluation.analyzerConfig(a.all("--set"))); break;
             case "calibrate": calibrate(camera); break;
             case "session":
             case "series": SessionDemo.run(a, camera); break;
@@ -89,17 +90,47 @@ public final class LiveAnalyzerDemo {
         }
     }
 
-    static void analyze(final int camera) throws Exception {
-        final OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory();
+    /** The largest yaw on each side over frames that had landmarks (F7 check); Z resets it. */
+    static final class YawRange {
+        volatile float left = Float.NaN, right = Float.NaN; // + = the subject's left, - = their right
+
+        synchronized void add(FrameAnalysis r) {
+            if (r.landmarks == null || Float.isNaN(r.yawDeg)) return;
+            if (r.yawDeg > 0 && (Float.isNaN(left) || r.yawDeg > left)) left = r.yawDeg;
+            if (r.yawDeg < 0 && (Float.isNaN(right) || r.yawDeg < right)) right = r.yawDeg;
+        }
+
+        synchronized void reset() {
+            left = Float.NaN;
+            right = Float.NaN;
+        }
+
+        @Override public synchronized String toString() {
+            return String.format("max yaw with landmarks: subject's left %+.1f, subject's right %+.1f", left, right);
+        }
+    }
+
+    static void analyze(final int camera, AnalyzerConfig config) throws Exception {
+        final OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory(
+                new io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource(), config);
         final OnnxFaceAnalyzer analyzer = (OnnxFaceAnalyzer) factory.create();
-        final DemoWindow w = new DemoWindow("Part 2 analyzer: live (" + factory.modelVersion() + ")");
+        final DemoWindow w = new DemoWindow("Part 2 analyzer: live (" + factory.modelVersion() + ", mesh tracking "
+                + (config.meshTracking ? "on" : "off") + ")");
         final WebcamFrameSource[] source = {new WebcamFrameSource(camera, 640, 480, 15)};
         final LiveLoop loop = new LiveLoop();
         final Deque<Float> last10 = new ArrayDeque<Float>();
-        w.message("Live analysis: R = record a dataset take (with consent)", Color.DARK_GRAY);
+        final YawRange yaw = new YawRange();
+        w.message("Live analysis: R = record a dataset take (with consent), Z = reset the max yaw", Color.DARK_GRAY);
         w.key("R", new Runnable() {
             @Override public void run() {
                 recordTake(w, camera, source, loop);
+            }
+        });
+        w.key("Z", new Runnable() {
+            @Override public void run() {
+                yaw.reset();
+                System.out.println("max yaw reset");
+                w.message("Max yaw reset", new Color(0, 120, 0));
             }
         });
         w.onClose(new Runnable() {
@@ -119,18 +150,24 @@ public final class LiveAnalyzerDemo {
             }
             FrameAnalysis r = analyzer.analyze(f);
             analysed++;
+            yaw.add(r);
             if (!Float.isNaN(r.livenessScore)) {
                 last10.addLast(r.livenessScore);
                 if (last10.size() > 10) last10.removeFirst();
             }
             w.video(DemoWindow.image(f), overlay(r));
-            w.info(describe(r, analyzer.stats(), median(last10), analyzer.lastReplayCues()));
+            w.info(describe(r, analyzer.stats(), median(last10), analyzer.lastReplayCues()) + yaw + "\n"
+                    + String.format("tracked frames %d, fallbacks %d%n", analyzer.stats().framesTracked(),
+                    analyzer.stats().trackingFallbacks()));
             if (System.currentTimeMillis() >= nextStatus) {
-                System.out.printf("status: %d frames analysed; last: faces %d score %.3f usable %b issues %s total %.1f ms%n",
-                        analysed, r.faceCount, r.livenessScore, r.usable(), r.qualityIssues, analyzer.stats().lastTotalNs() / 1e6);
+                System.out.printf("status: %d frames analysed; last: faces %d score %.3f usable %b issues %s total %.1f ms; %s%n",
+                        analysed, r.faceCount, r.livenessScore, r.usable(), r.qualityIssues,
+                        analyzer.stats().lastTotalNs() / 1e6, yaw);
                 nextStatus += 5000;
             }
         }
+        System.out.println("final " + yaw + "; tracked frames " + analyzer.stats().framesTracked() + ", fallbacks "
+                + analyzer.stats().trackingFallbacks() + " (mesh tracking " + (config.meshTracking ? "on" : "off") + ")");
         source[0].stop();
         analyzer.close();
         factory.close();

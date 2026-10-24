@@ -24,6 +24,9 @@ works (PD-USGov-NASA) from Wikimedia Commons; never put team faces here.
 4. binding.json (face binding, F1; also alone with --binding): the SFace feature of every face in the portrait,
    its mirror and the crew photo, the cosines between them and with OpenCV's FaceRecognizerSF. Asserted: cosine
    with cv2 >= 0.9999 per face; the portrait matches its mirror; every other pair stays below the threshold.
+5. tracking.json (landmark tracking, F7; also alone with --tracking): the portrait and its mirror analysed twice in
+   one session; the second frame's tracked ROI, presence, landmarks and pose. Asserted: frame 2 is tracked without
+   fallback and its landmarks stay close to frame 1's (mean < 2.5 px, max < 8 px: a different crop).
 """
 import argparse
 import hashlib
@@ -162,6 +165,32 @@ def binding(failures):
             check(v < t, f"{key} does not match (cosine {v:.4f} < {t})", failures)
 
 
+def tracking(failures):
+    """golden/tracking.json for the Java landmark-tracking parity test (F7): the portrait and its mirror, each
+    analysed twice in one session. The first frame uses the YuNet ROI (as the single-frame fixtures); the second uses
+    the ROI tracked from the first frame's mesh. Stored for the second frame: the tracked ROI, the presence, the
+    contract landmarks and the pose."""
+    pipe = rp.Pipeline()
+    bgr = rp.imread_bgr(GOLDEN / "portrait_frontal.png")
+    out = {"meta": {"note": "session of the same frame twice; values of the second (tracked) frame",
+                    "trackIou": rp.TRACK_IOU}}
+    for name, img in (("portrait_frontal", bgr), ("portrait_frontal_flipped", np.ascontiguousarray(bgr[:, ::-1]))):
+        first, second = rp.session_mesh(pipe, [img, img])
+        check(not first["tracked"] and second["tracked"] and not second["fallback"],
+              f"{name}: frame 1 on the YuNet ROI, frame 2 tracked without fallback", failures)
+        pts = second["points"]
+        yaw, pitch_raw, roll = rp.head_pose(pts)
+        # A different crop gives a slightly different mesh: the tracked ROI is tighter than YuNet's (MediaPipe's own).
+        d = np.hypot(*(pts[:, :2] - first["points"][:, :2]).T)
+        check(d.max() < 8.0 and d.mean() < 2.5, f"{name}: tracked landmarks close to the YuNet-ROI ones "
+              f"(mean {d.mean():.2f} px, max {d.max():.2f} px)", failures)
+        out[name] = {"roi": second["roi"], "meshFlag": second["meshFlag"], "landmarks": rp.named_points(pts),
+                     "yawDeg": yaw, "pitchDeg": pitch_raw - rp.PITCH_BIAS_DEG, "rollDeg": roll}
+    path = GOLDEN / "tracking.json"
+    path.write_text(rp.to_json(out), encoding="utf-8")
+    print(f"{path.name}: written")
+
+
 def check(cond, msg, failures):
     print(("  ok    " if cond else "  FAIL  ") + msg)
     if not cond:
@@ -175,7 +204,14 @@ def main():
     ap.add_argument("--blur-study", action="store_true",
                     help="print lapVar of each primary face, sharp and Gaussian-blurred (sigma 1.5 and 3), then exit")
     ap.add_argument("--binding", action="store_true", help="write only golden/binding.json (face binding, F1)")
+    ap.add_argument("--tracking", action="store_true", help="write only golden/tracking.json (landmark tracking, F7)")
     args = ap.parse_args()
+    if args.tracking:
+        failures = []
+        tracking(failures)
+        if failures:
+            sys.exit(f"{len(failures)} tracking assertion(s) failed")
+        return
     if args.blur_study:
         blur_study()
         return
@@ -208,6 +244,7 @@ def main():
 
     print("assertions:")
     binding(failures)
+    tracking(failures)
     p, pf = results[("portrait_frontal", False)], results[("portrait_frontal", True)]
     check(p["faceCount"] == 1, f"portrait faceCount == 1 (got {p['faceCount']})", failures)
     check(p["meshFlag"] is not None and p["meshFlag"] >= 0.5, f"portrait meshFlag >= 0.5 (got {p['meshFlag']})", failures)

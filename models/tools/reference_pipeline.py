@@ -347,6 +347,62 @@ class FaceMesh:
         return lm.reshape(self.points, 3).astype(np.float64), sigmoid(float(logit.ravel()[0]))
 
 
+TRACK_IOU = 0.3  # F7: minimum IoU between this frame's face box and the previous one for landmark tracking
+
+
+def mesh_roi_from_points(pts, scale=MESH_ROI_SCALE):
+    """MediaPipe's TRACKING ROI from the previous frame's landmarks (F7): face_landmarks_detector_graph.cc lines
+    138-154 at commit e9794ef (see models/README.md, "ROI convention for the mesh"):
+        bounding box of all 478 (X, Y) points, centre (cx, cy)
+        theta = atan2(Y[263] - Y[33], X[263] - X[33])   (subject's right eye outer corner -> left)
+        S     = scale * max(box width, box height)       (square_long, scale 1.5)"""
+    xs, ys = pts[:, 0], pts[:, 1]
+    x0, x1, y0, y1 = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+    r, l = pts[RIGHT_EYE_OUTER], pts[LEFT_EYE_OUTER]
+    return {"cx": (x0 + x1) / 2, "cy": (y0 + y1) / 2, "S": scale * max(x1 - x0, y1 - y0),
+            "theta": math.atan2(float(l[1] - r[1]), float(l[0] - r[0]))}
+
+
+def mesh_on_roi(pipe, bgr, roi):
+    """(frame-space mesh points or None below the presence threshold, presence) on one ROI."""
+    raw, flag = pipe.mesh.run(mesh_input(bgr, roi))
+    return (back_project(raw, roi) if flag >= MESH_FLAG_THRESHOLD else None), flag
+
+
+def session_mesh(pipe, frames, tracking=True):
+    """The analyzer's mesh over a session's frames, in order (F7; the Java OnnxFaceAnalyzer.mesh). Per frame:
+      * faceCount != 1: no mesh, and the tracking source is dropped;
+      * tracking on, a previous mesh, and IoU(face box, previous face box) >= TRACK_IOU: the ROI comes from the
+        previous points (mesh_roi_from_points); if the presence is then below the threshold the frame is re-run
+        once on the YuNet ROI ("fallback");
+      * otherwise: the YuNet ROI (mesh_roi).
+    The mesh found (or none) becomes the next frame's source. A session's first frame always uses the YuNet ROI, so
+    single golden frames are unaffected. Returns dicts: faceCount, roi, tracked, fallback, meshFlag, points."""
+    prev_pts, prev_box, out = None, None, []
+    for bgr in frames:
+        n, primary = count_faces(pipe.yunet.detect(bgr))
+        if n != 1:
+            prev_pts = prev_box = None
+            out.append({"faceCount": n})
+            continue
+        tracked = fallback = False
+        if tracking and prev_pts is not None and iou(primary["box"], prev_box) >= TRACK_IOU:
+            tracked = True
+            roi = mesh_roi_from_points(prev_pts)
+            pts, flag = mesh_on_roi(pipe, bgr, roi)
+            if pts is None:
+                fallback = True
+                roi = mesh_roi(primary)
+                pts, flag = mesh_on_roi(pipe, bgr, roi)
+        else:
+            roi = mesh_roi(primary)
+            pts, flag = mesh_on_roi(pipe, bgr, roi)
+        prev_pts, prev_box = (pts, primary["box"]) if pts is not None else (None, None)
+        out.append({"faceCount": 1, "roi": roi, "tracked": tracked, "fallback": fallback, "meshFlag": flag,
+                    "points": pts})
+    return out
+
+
 def back_project(raw, roi, size=MESH_SIZE):
     """Raw mesh points -> frame coords: (X, Y) = mesh_matrix(roi) . (x, y, 1);  Z = (z / N) * S."""
     M = mesh_matrix(roi, size)

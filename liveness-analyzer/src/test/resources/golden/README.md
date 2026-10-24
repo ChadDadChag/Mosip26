@@ -73,3 +73,15 @@ covers every stage. The production analyzer skips them for multi-face frames.
   far below the 0.363 threshold.
 
 The features are derived from the public-domain fixture images only.
+
+## tracking.json (landmark tracking, F7)
+
+`make_golden.py --tracking` analyses the portrait, and separately its mirror, twice in one session
+(`reference_pipeline.session_mesh`):
+- **Frame 1** uses the YuNet ROI, as the single-frame fixtures do.
+- **Frame 2** uses the ROI tracked from frame 1's mesh: the bounding box of the 478 points, rotated from point 33
+  to point 263, at 1.5x.
+
+For frame 2 the file stores the `roi` (`cx`, `cy`, `S`, `theta`), `meshFlag`, the contract `landmarks` and the
+pose. The tracked ROI is tighter than YuNet's, so frame 2's landmarks differ from frame 1's by a mean of 1.0 to
+1.3 px (at most 5.5 px). `MeshTrackingTest` checks the Java tracking path against these values.

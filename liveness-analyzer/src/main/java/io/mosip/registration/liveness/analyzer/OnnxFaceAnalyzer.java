@@ -45,7 +45,9 @@ import java.util.Map;
  * <p>Per frame: detect; no face: empty analysis; several faces: primary box only (no landmarks, NaN pose and
  * score); one face: quality issues, replay cues and mesh. BLURRY is also set relative to the session
  * ({@link RelativeBlur}: lapVar below qualityRelativeBlurRatio x the median of the last 15 unflagged single-face
- * frames, once 5 are known). Without a mesh the pose is unknown, so the score is NaN.
+ * frames, once 5 are known). The mesh ROI follows the previous frame's landmarks while the face box overlaps (F7,
+ * {@link AnalyzerConfig#meshTracking}), which keeps landmarks through larger head turns than YuNet's eye keypoints
+ * allow. Without a mesh the pose is unknown, so the score is NaN.
  * Outside the PAD pose range (|yaw| &gt; padMaxYawDeg or |pitch| &gt; padMaxPitchDeg) the score is NaN; otherwise
  * score = (p_v2[1] + p_v1se[1]) / 2, then the session moire cap ({@link MoireCap}): every frame with exactly one face
  * adds its moire to the session's rolling median, scored or not; any other face count clears it. When the median of
@@ -71,6 +73,8 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
 
     static final String POSE_GATED = "pose_gated";
     static final String MOIRE_CAP = "moire_cap";
+    /** Minimum IoU between this frame's face box and the previous one for landmark tracking (F7). */
+    static final double TRACK_IOU = 0.3;
 
     private final AnalyzerConfig config;
     private final String modelVersion;
@@ -82,6 +86,9 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     private final ReplayCues cues;
     private final MoireCap moireCap;
     private final RelativeBlur relativeBlur;
+    // Landmark tracking (F7): the last mesh and its face box; trackBox == null means no tracking source.
+    private final float[][] trackPoints = new float[MeshResult.POINTS][2];
+    private FaceDetection trackBox;
     private final AnalyzerStats stats = new AnalyzerStats();
     private final float[] pose = new float[3];
     private ReplayCues.Cues lastCues;
@@ -135,6 +142,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
             moireCap.reset(); // no face, or a different face may have been presented
             lastCues = null;
             lastQuality = null;
+            trackBox = null;
         }
         if (faceCount == 0) {
             stats.framesNoFace++;
@@ -161,7 +169,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         lastQuality = q;
 
         t = System.nanoTime();
-        MeshResult mesh = landmarker.estimate(rgb, w, h, primary);
+        MeshResult mesh = mesh(rgb, w, h, primary);
         stats.meshNs = System.nanoTime() - t;
         if (mesh == null) {
             Map<String, Float> details = new LinkedHashMap<String, Float>();
@@ -195,6 +203,43 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         float score = capped(p.score, details);
         details.put(MOIRE_CAP, moireCap.active() ? 1f : 0f);
         return finish(frame, 1, primary.toBox(), landmarks, ypr, issues, score, details, start);
+    }
+
+    /**
+     * The mesh of the primary face (F7, {@code reference_pipeline.session_mesh}). When tracking is on, the previous
+     * frame had a mesh and the face box overlaps the previous one (IoU >= {@value #TRACK_IOU}), the ROI comes from
+     * the previous landmarks ({@link FaceMeshLandmarker#trackingRoi}); if the presence then falls below the threshold,
+     * the frame is re-run once on the YuNet ROI. Otherwise the YuNet ROI is used. The mesh found (or none) becomes the
+     * next frame's tracking source.
+     */
+    private MeshResult mesh(byte[] rgb, int w, int h, FaceDetection primary) throws OrtException {
+        MeshResult mesh;
+        if (config.meshTracking && trackBox != null && FaceDetection.iou(primary, trackBox) >= TRACK_IOU) {
+            stats.framesTracked++;
+            double[] roi = FaceMeshLandmarker.trackingRoi(trackPoints, config.meshRoiScale);
+            mesh = landmarker.estimate(rgb, w, h, roi[0], roi[1], roi[2], roi[3]);
+            if (mesh == null) {
+                stats.trackingFallbacks++;
+                mesh = landmarker.estimate(rgb, w, h, primary);
+            }
+        } else {
+            mesh = landmarker.estimate(rgb, w, h, primary);
+        }
+        if (mesh == null) {
+            trackBox = null;
+        } else {
+            trackFrom(mesh.points, primary);
+        }
+        return mesh;
+    }
+
+    /** Sets the tracking source (also a test seam: tests inject a bad source to force the fallback). */
+    void trackFrom(float[][] points, FaceDetection box) {
+        for (int n = 0; n < MeshResult.POINTS; n++) {
+            trackPoints[n][0] = points[n][0];
+            trackPoints[n][1] = points[n][1];
+        }
+        trackBox = box;
     }
 
     /**

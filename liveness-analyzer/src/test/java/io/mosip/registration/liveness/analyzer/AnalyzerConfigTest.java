@@ -27,6 +27,17 @@ class AnalyzerConfigTest {
     }
 
     @Test
+    void meshTrackingIsOnUnlessSetToFalse() {
+        assertThat(AnalyzerConfig.defaults().meshTracking).isTrue();
+        AnalyzerConfig off = AnalyzerConfig.fromConfig(provider(keys("meshTracking", " FALSE ")));
+        assertThat(off.meshTracking).isFalse();
+        assertThat(off.toBuilder().build().meshTracking).isFalse();
+        assertThat(AnalyzerConfig.fromConfig(provider(keys("meshTracking", "true"))).meshTracking).isTrue();
+        assertThatThrownBy(() -> AnalyzerConfig.fromConfig(provider(keys("meshTracking", "yes"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("meshTracking");
+    }
+
+    @Test
     void theRelativeBlurRatioCanBeSetOrSwitchedOff() {
         assertThat(AnalyzerConfig.defaults().qualityRelativeBlurRatio).isEqualTo(0.45);
         assertThat(AnalyzerConfig.fromConfig(provider(keys("qualityRelativeBlurRatio", "0.3"))).qualityRelativeBlurRatio)

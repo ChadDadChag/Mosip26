@@ -13,7 +13,8 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *   <li>{@code intraOpThreads} (2), {@code accelerator} (CPU | XNNPACK | NNAPI, default CPU)</li>
  *   <li>{@code detectorMaxWidth} (320), {@code detectorScoreThreshold} (0.7), {@code detectorNmsIou} (0.3),
  *       {@code detectorSecondFaceMinAreaRatio} (0.2)</li>
- *   <li>{@code meshPresenceThreshold} (0.5), {@code meshRoiScale} (1.5), {@code pitchBiasDeg} (-9.5; when the key is
+ *   <li>{@code meshTracking} (true: the mesh ROI follows the previous frame's landmarks, as MediaPipe tracks, F7),
+ *       {@code meshPresenceThreshold} (0.5), {@code meshRoiScale} (1.5), {@code pitchBiasDeg} (-9.5; when the key is
  *       absent the model bundle's signed param wins, see {@link #pitchBiasExplicit})</li>
  *   <li>{@code padMaxYawDeg} (30), {@code padMaxPitchDeg} (25): outside this pose range the PAD score is NaN</li>
  *   <li>{@code tooDarkLuma} (40), {@code tooBrightLuma} (220), {@code blurLapVar} (15), {@code minAreaFrac} (0.04),
@@ -73,6 +74,8 @@ public final class AnalyzerConfig {
     public final double bindingCosineThreshold;
     /** BLURRY also below this fraction of the session's rolling lapVar median, in (0, 1]; NaN = off. */
     public final double qualityRelativeBlurRatio;
+    /** Mesh ROI from the previous frame's landmarks when the face box overlaps (IoU >= 0.3); else from YuNet. */
+    public final boolean meshTracking;
 
     private AnalyzerConfig(Builder b) {
         intraOpThreads = b.intraOpThreads;
@@ -99,6 +102,7 @@ public final class AnalyzerConfig {
         moireVetoThreshold = b.moireVetoThreshold;
         bindingCosineThreshold = b.bindingCosineThreshold;
         qualityRelativeBlurRatio = b.qualityRelativeBlurRatio;
+        meshTracking = b.meshTracking;
     }
 
     public static Builder builder() {
@@ -136,6 +140,7 @@ public final class AnalyzerConfig {
         b.moireVetoThreshold = moireVetoThreshold;
         b.bindingCosineThreshold = bindingCosineThreshold;
         b.qualityRelativeBlurRatio = qualityRelativeBlurRatio;
+        b.meshTracking = meshTracking;
         return b;
     }
 
@@ -183,6 +188,14 @@ public final class AnalyzerConfig {
         b.moireMinFrames = intValue(cfg, "moireMinFrames", b.moireMinFrames);
         b.moireVetoThreshold = optionalThreshold(cfg, "moireVetoThreshold", b.moireVetoThreshold);
         b.qualityRelativeBlurRatio = optionalThreshold(cfg, "qualityRelativeBlurRatio", b.qualityRelativeBlurRatio);
+        String tracking = cfg.get(KEY_PREFIX + "meshTracking");
+        if (tracking != null && !tracking.trim().isEmpty()) {
+            String t = tracking.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!t.equals("true") && !t.equals("false")) {
+                throw new IllegalArgumentException(KEY_PREFIX + "meshTracking: not true or false: '" + tracking + "'");
+            }
+            b.meshTracking = t.equals("true");
+        }
         String binding = cfg.get(BINDING_THRESHOLD_KEY);
         if (binding != null && !binding.trim().isEmpty()) {
             try {
@@ -306,6 +319,7 @@ public final class AnalyzerConfig {
         private double moireVetoThreshold = Double.NaN;
         private double bindingCosineThreshold = 0.363;
         private double qualityRelativeBlurRatio = 0.45;
+        private boolean meshTracking = true;
 
         private Builder() { }
 
@@ -338,6 +352,7 @@ public final class AnalyzerConfig {
         public Builder bindingCosineThreshold(double v) { bindingCosineThreshold = v; return this; }
         /** NaN switches the relative blur rule off. */
         public Builder qualityRelativeBlurRatio(double v) { qualityRelativeBlurRatio = v; return this; }
+        public Builder meshTracking(boolean v) { meshTracking = v; return this; }
 
         public AnalyzerConfig build() {
             AnalyzerConfig c = new AnalyzerConfig(this);

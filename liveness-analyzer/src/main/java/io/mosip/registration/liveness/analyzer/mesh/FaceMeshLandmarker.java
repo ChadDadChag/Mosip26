@@ -49,7 +49,40 @@ public final class FaceMeshLandmarker {
 
     /** The mesh of {@code face}, or null when the presence value is below the threshold. */
     public MeshResult estimate(byte[] rgb, int width, int height, FaceDetection face) throws OrtException {
-        Affine m = prepare(rgb, width, height, face);
+        return run(prepare(rgb, width, height, face));
+    }
+
+    /**
+     * The mesh on an explicit ROI (landmark tracking, F7: {@link #trackingRoi}), or null when the presence value is
+     * below the threshold.
+     */
+    public MeshResult estimate(byte[] rgb, int width, int height, double cx, double cy, double side, double theta)
+            throws OrtException {
+        return run(prepare(rgb, width, height, cx, cy, side, theta));
+    }
+
+    /**
+     * MediaPipe's tracking ROI from the previous frame's landmarks ({@code face_landmarks_detector_graph.cc} lines
+     * 138-154 at commit e9794ef; {@code reference_pipeline.mesh_roi_from_points}): the axis-aligned bounding box of
+     * all 478 (x, y) points, centred; rotation from point 33 (the subject's right eye, outer corner) to point 263
+     * (left eye, outer corner); a square of side {@code scale} x max(w, h) (square_long).
+     *
+     * @return {cx, cy, side, theta}
+     */
+    public static double[] trackingRoi(float[][] points, double scale) {
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (float[] p : points) {
+            minX = Math.min(minX, p[0]);
+            maxX = Math.max(maxX, p[0]);
+            minY = Math.min(minY, p[1]);
+            maxY = Math.max(maxY, p[1]);
+        }
+        float[] r = points[MeshIndices.RIGHT_EYE_OUTER], l = points[MeshIndices.LEFT_EYE_OUTER];
+        return new double[] {(minX + maxX) / 2, (minY + maxY) / 2, scale * Math.max(maxX - minX, maxY - minY),
+                Math.atan2(l[1] - r[1], l[0] - r[0])};
+    }
+
+    private MeshResult run(Affine m) throws OrtException {
         float[] raw = null;
         float logit = Float.NaN;
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(input), new long[] {1, SIZE, SIZE, 3});
@@ -81,12 +114,18 @@ public final class FaceMeshLandmarker {
         return result;
     }
 
-    /** Sets the ROI on the reused result, fills the input buffer and returns the ROI affine. */
+    /** Sets the YuNet ROI on the reused result, fills the input buffer and returns the ROI affine. */
     Affine prepare(byte[] rgb, int width, int height, FaceDetection face) {
-        result.cx = face.x + face.w / 2;
-        result.cy = face.y + face.h / 2;
-        result.side = roiScale * Math.max(face.w, face.h);
-        result.theta = Math.atan2(face.keypointY(1) - face.keypointY(0), face.keypointX(1) - face.keypointX(0));
+        return prepare(rgb, width, height, face.x + face.w / 2, face.y + face.h / 2,
+                roiScale * Math.max(face.w, face.h),
+                Math.atan2(face.keypointY(1) - face.keypointY(0), face.keypointX(1) - face.keypointX(0)));
+    }
+
+    private Affine prepare(byte[] rgb, int width, int height, double cx, double cy, double side, double theta) {
+        result.cx = cx;
+        result.cy = cy;
+        result.side = side;
+        result.theta = theta;
         Affine m = Affine.rotatedSquare(result.cx, result.cy, result.side, result.theta, SIZE);
         ImageOps.sample(rgb, width, height, m, SIZE, SIZE, ImageOps.Layout.NHWC_RGB_0_1, input);
         return m;

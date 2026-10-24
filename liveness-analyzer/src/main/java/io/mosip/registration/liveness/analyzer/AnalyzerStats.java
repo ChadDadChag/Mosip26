@@ -8,6 +8,7 @@ public final class AnalyzerStats {
 
     long detectNs, meshNs, poseNs, qualityNs, padNs, cuesNs, totalNs;
     long frames, framesNoFace, framesOneFace, framesMultiFace, framesPoseGated;
+    long framesTracked, trackingFallbacks;
 
     AnalyzerStats() { }
 
@@ -29,4 +30,8 @@ public final class AnalyzerStats {
     public long framesOneFace() { return framesOneFace; }
     public long framesMultiFace() { return framesMultiFace; }
     public long framesPoseGated() { return framesPoseGated; }
+    /** Frames whose mesh ROI came from the previous frame's landmarks (F7). */
+    public long framesTracked() { return framesTracked; }
+    /** Tracked frames whose mesh presence fell below the threshold and were re-run on the YuNet ROI. */
+    public long trackingFallbacks() { return trackingFallbacks; }
 }
