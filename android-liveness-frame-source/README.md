@@ -46,6 +46,10 @@ contract the Desktop `SbiStreamFrameSource` and `MockFrameSource` implement.
   `bindToLifecycle` call (after `unbindAll`). The preview is display-only.
 - **Every Nth frame**: the `frameStride` constructor argument skips conversion of
   unselected frames. `Frame.sequence()` stays the raw index, so skips appear as gaps.
+- **Pacing**: `maxDeliverFps` (default 15, the engine's highest analysis rate, reached during
+  challenges; 0 = unlimited) skips, before conversion, frames whose camera timestamp is less than
+  1/maxDeliverFps (less 10% for jitter) after the last delivered frame. A 30 fps camera then delivers
+  15 fps and converts half the frames. It applies after `frameStride`; skips are gaps in the sequence.
 - **Rotation**: each frame is rotated by `ImageProxy.getImageInfo().getRotationDegrees()`
   while converting, so faces arrive upright (width and height swap at 90/270). Frames are not
   mirrored: front-camera previews often are, but the analysis frames are not. Left/right

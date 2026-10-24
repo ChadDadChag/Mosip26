@@ -66,6 +66,11 @@ import io.mosip.registration.liveness.api.FrameSource;
  * {@link Frame#sequence()} stays the raw frame index, so skips show up as gaps,
  * the same as the Desktop sources.</p>
  *
+ * <p><b>Pacing:</b> {@code maxDeliverFps} (default {@value #DEFAULT_MAX_DELIVER_FPS}, the engine's highest analysis
+ * rate, during challenges; 0 = unlimited) skips, before any conversion, frames whose camera timestamp is less than
+ * 1/maxDeliverFps after the last delivered one, less 10% for timestamp jitter, so a 30 fps camera delivers 15 fps
+ * and not 10. It applies after {@code frameStride}; skipped frames are gaps in {@link Frame#sequence()} too.</p>
+ *
  * <p>Depends only on {@code liveness-api} (pure Java, no Android/Desktop-specific
  * types) plus CameraX - it does not reference any Desktop-side class
  * ({@code SbiStreamFrameSource}, {@code MockFrameSource}, {@code BioService}, etc.),
@@ -77,6 +82,8 @@ public final class CameraXFrameSource implements FrameSource {
     private static final String TAG = "CameraXFrameSource";
     private static final int UNKNOWN_CAPABILITY = 0;
     private static final long TIMING_WINDOW_NS = 1_000_000_000L;
+    public static final int DEFAULT_MAX_DELIVER_FPS = 15;
+    private static final long NONE = Long.MIN_VALUE;
 
     // BT.601 full-range coefficients in 16.16 fixed point: 1.402, 0.344136, 0.714136, 1.772.
     private static final int R_V = 91881;
@@ -90,6 +97,7 @@ public final class CameraXFrameSource implements FrameSource {
     private final CameraSelector cameraSelector;
     private final Size targetResolution;
     private final int frameStride;
+    private final long minDeliverIntervalNs;
     private final Preview.SurfaceProvider previewSurface;
     private final ExecutorService analysisExecutor;
 
@@ -103,8 +111,9 @@ public final class CameraXFrameSource implements FrameSource {
     private volatile ProcessCameraProvider cameraProvider;
     private volatile boolean debugTiming;
 
-    // Analysis-thread only: plane copies reused across frames (the RGB output is not, see onImageAvailable)
-    // and the debug timing window.
+    // Analysis-thread only: the pacing state, plane copies reused across frames (the RGB output is not, see
+    // onImageAvailable) and the debug timing window.
+    private long lastDeliveredNs = NONE;
     private byte[] yBytes = new byte[0];
     private byte[] uBytes = new byte[0];
     private byte[] vBytes = new byte[0];
@@ -140,12 +149,28 @@ public final class CameraXFrameSource implements FrameSource {
     public CameraXFrameSource(Context context, LifecycleOwner lifecycleOwner,
                               CameraSelector cameraSelector, Size targetResolution, int frameStride,
                               @Nullable Preview.SurfaceProvider previewSurface) {
+        this(context, lifecycleOwner, cameraSelector, targetResolution, frameStride, previewSurface,
+                DEFAULT_MAX_DELIVER_FPS);
+    }
+
+    /**
+     * @param maxDeliverFps deliver at most this many frames per second (camera time), skipping the rest before
+     *                      conversion; 0 = no limit
+     */
+    public CameraXFrameSource(Context context, LifecycleOwner lifecycleOwner,
+                              CameraSelector cameraSelector, Size targetResolution, int frameStride,
+                              @Nullable Preview.SurfaceProvider previewSurface, int maxDeliverFps) {
         if (context == null || lifecycleOwner == null || cameraSelector == null || targetResolution == null) {
             throw new IllegalArgumentException("context, lifecycleOwner, cameraSelector and targetResolution are required");
         }
         if (frameStride < 1) {
             throw new IllegalArgumentException("frameStride must be >= 1, was " + frameStride);
         }
+        if (maxDeliverFps < 0) {
+            throw new IllegalArgumentException("maxDeliverFps must be >= 0, was " + maxDeliverFps);
+        }
+        // 10% early is still on time: camera timestamps jitter, and a strict 1/fps would halve a 30 fps camera to 10.
+        this.minDeliverIntervalNs = maxDeliverFps == 0 ? 0L : 900_000_000L / maxDeliverFps;
         this.context = context.getApplicationContext();
         this.lifecycleOwner = lifecycleOwner;
         this.cameraSelector = cameraSelector;
@@ -165,8 +190,8 @@ public final class CameraXFrameSource implements FrameSource {
     }
 
     /**
-     * Logs (at debug level, once a second) the frames received and converted and the YUV conversion
-     * time. Off by default. Never logs pixels.
+     * Logs (at debug level, once a second) the frames received and delivered, the YUV conversion
+     * time and its share of one core. Off by default. Never logs pixels.
      */
     public void setDebugTiming(boolean enabled) {
         this.debugTiming = enabled;
@@ -293,9 +318,9 @@ public final class CameraXFrameSource implements FrameSource {
      * CameraX analyzer callback, invoked on {@link #analysisExecutor}. Converts the
      * YUV_420_888 image to packed RGB888 using the standard BT.601 conversion
      * (the same coefficients {@code ImageQualityMetrics} on the desktop side uses
-     * for luma, for consistency), then delivers a {@link Frame}.
+     * for luma, for consistency), then delivers a {@link Frame}. Package-private for the pacing test.
      */
-    private void onImageAvailable(@NonNull ImageProxy imageProxy) {
+    void onImageAvailable(@NonNull ImageProxy imageProxy) {
         if (!running.get()) {
             imageProxy.close();
             return;
@@ -303,8 +328,14 @@ public final class CameraXFrameSource implements FrameSource {
         long frameIndex = sequence.getAndIncrement();
         boolean timing = debugTiming;
         try {
+            if (frameIndex == 0) {
+                lastDeliveredNs = NONE; // a new start(): pace from its first frame
+            }
             if (frameIndex % frameStride != 0) {
                 return; // skipped: no conversion cost
+            }
+            if (tooSoon(imageProxy.getImageInfo().getTimestamp())) {
+                return; // paced: no conversion cost
             }
             int rotation = imageProxy.getImageInfo().getRotationDegrees();
             boolean swap = rotation == 90 || rotation == 270;
@@ -337,6 +368,25 @@ public final class CameraXFrameSource implements FrameSource {
         }
     }
 
+    /** True when a frame comes too soon after the last delivered one; otherwise records it as delivered. */
+    private boolean tooSoon(long timestampNs) {
+        if (minDeliverIntervalNs == 0L) {
+            return false;
+        }
+        if (lastDeliveredNs != NONE && timestampNs - lastDeliveredNs < minDeliverIntervalNs) {
+            return true;
+        }
+        lastDeliveredNs = timestampNs;
+        return false;
+    }
+
+    /** Test seam: marks the source running with {@code listener}, without binding a camera. */
+    void attachForTest(Listener listener) {
+        this.listener = listener;
+        this.sequence.set(0L);
+        running.set(true);
+    }
+
     private void logTimingWindow() {
         long now = System.nanoTime();
         if (windowStartNs == 0L) {
@@ -349,9 +399,10 @@ public final class CameraXFrameSource implements FrameSource {
         }
         double seconds = elapsed / 1e9;
         Log.d(TAG, String.format(Locale.ROOT,
-                "camera %.1f fps, converted %.1f fps, yuv->rgb avg %.2f ms max %.2f ms",
+                "camera %.1f fps, delivered %.1f fps, yuv->rgb avg %.2f ms max %.2f ms, %.1f%% of one core",
                 windowReceived / seconds, windowConverted / seconds,
-                windowConverted == 0 ? 0.0 : windowConvertNs / 1e6 / windowConverted, windowConvertMaxNs / 1e6));
+                windowConverted == 0 ? 0.0 : windowConvertNs / 1e6 / windowConverted, windowConvertMaxNs / 1e6,
+                100.0 * windowConvertNs / elapsed));
         windowStartNs = now;
         windowReceived = 0;
         windowConverted = 0;
