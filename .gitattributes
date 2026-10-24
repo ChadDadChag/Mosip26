@@ -1,9 +1,12 @@
 # Hashed or signed text resources must keep their exact bytes on every OS. On Windows, core.autocrlf=true
 # would check them out with CRLF; for example, the checksum of
-# registration-services/src/main/resources/liveness/heuristic-analyzer.properties then no longer matches its manifest.
+# liveness-analyzer/src/main/resources/liveness/heuristic-analyzer.properties then no longer matches its manifest.
 *.properties text eol=lf
 *.manifest   text eol=lf
 *.jsonl      text eol=lf
+# Part 2: the signed model bundle. manifest.sig signs the exact bytes of manifest.json: no conversion at all.
+models/manifest.json -text
+models/manifest.sig  -text
 # Binary assets: never convert.
 *.onnx   binary
 *.tflite binary
