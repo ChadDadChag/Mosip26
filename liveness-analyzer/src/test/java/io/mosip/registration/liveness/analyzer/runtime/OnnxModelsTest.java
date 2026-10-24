@@ -26,6 +26,20 @@ class OnnxModelsTest {
     }
 
     @Test
+    void telemetryIsSwitchedOffAndCreateStillWorks() throws Exception {
+        OnnxModels models = OnnxModels.create(TestModels.load(), 1);
+        try {
+            assertThat(OnnxModels.disableTelemetry(models.env())).as("ORT 1.31 has setTelemetry").isTrue();
+            assertThat(models.session(ModelRole.DETECTOR).getInputNames()).containsExactly("input");
+        } finally {
+            models.close();
+        }
+        OnnxModels again = OnnxModels.create(TestModels.load(), 2); // attempted once per process; no effect now
+        assertThat(again.session(ModelRole.PAD_V2).getOutputNames()).containsExactly("output");
+        again.close();
+    }
+
+    @Test
     void rejectsMissingRolesAndBadThreadCounts() throws Exception {
         Map<ModelRole, byte[]> bytes = TestModels.load();
         bytes.remove(ModelRole.PAD_V1SE);

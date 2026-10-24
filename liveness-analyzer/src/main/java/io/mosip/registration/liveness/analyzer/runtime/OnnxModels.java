@@ -20,8 +20,15 @@ import java.util.Map;
  * <p>Accelerators are best-effort: if the requested execution provider cannot be added or a model does not load
  * with it (for example NNAPI on a desktop), ALL sessions are created on the CPU instead; see
  * {@link #activeAccelerator()}.
+ *
+ * <p>ONNX Runtime's own telemetry is switched off on the shared environment once per process
+ * ({@code OrtEnvironment.setTelemetry(false)}); the engine works offline and sends nothing. A runtime without the
+ * switch never blocks liveness.
  */
 public final class OnnxModels implements AutoCloseable {
+
+    private static boolean telemetryAttempted; // guarded by OnnxModels.class
+    private static boolean telemetryOff;       // guarded by OnnxModels.class
 
     private final OrtEnvironment env;
     private final Map<ModelRole, OrtSession> sessions;
@@ -52,6 +59,7 @@ public final class OnnxModels implements AutoCloseable {
             if (modelBytes.get(role) == null) throw new IllegalArgumentException("missing model for " + role);
         }
         OrtEnvironment env = OrtEnvironment.getEnvironment();
+        disableTelemetry(env);
         ModelRole[] failed = new ModelRole[1];
         if (config.accelerator != Accelerator.CPU) {
             try {
@@ -68,6 +76,24 @@ public final class OnnxModels implements AutoCloseable {
             throw new LivenessEngineException(ErrorCode.ENGINE_ERROR,
                     "ONNX Runtime could not load the " + failed[0] + " model", e);
         }
+    }
+
+    /** Switches ONNX Runtime's telemetry off, the first time only; returns whether it is off. Never throws. */
+    static synchronized boolean disableTelemetry(OrtEnvironment env) {
+        if (!telemetryAttempted) {
+            telemetryAttempted = true;
+            try {
+                env.setTelemetry(false);
+                telemetryOff = true;
+            } catch (OrtException e) {
+                // the runtime refused; liveness does not depend on it
+            } catch (RuntimeException e) {
+                // likewise
+            } catch (LinkageError e) {
+                // an older runtime without the method or its native part
+            }
+        }
+        return telemetryOff;
     }
 
     private static OnnxModels build(OrtEnvironment env, Map<ModelRole, byte[]> modelBytes, int threads,
