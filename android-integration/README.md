@@ -20,7 +20,7 @@ phone: [`docs/part5-android-benchmark.md`](../docs/part5-android-benchmark.md).
 
 | path | what it is |
 |---|---|
-| `patches/0001-*.patch` … `0027-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
+| `patches/0001-*.patch` … `0031-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
 | `person5-liveness.diff` | the same changes as one diff, for `git apply` |
 | `scripts/sync-engine.ps1` | builds the engine here and copies it into the client: the four engine jars, the signed model bundle and Part 1's `CameraXFrameSource.java`; writes `android/liveness/engine-sync.txt` |
 | `scripts/apply-integration.ps1` | clones the tag, applies the patches, runs the sync and, with `-BuildApk`, builds the app |
@@ -42,7 +42,7 @@ The patches do contain `android/liveness/engine-sync.txt`. It records the engine
 SHA-256 of every synced file at the time the branch was synced.
 
 **Why two forms.**
-- **The series:** it keeps the 27 commits and their messages. That is what reviewers read, and it
+- **The series:** it keeps the 31 commits and their messages. That is what reviewers read, and it
   lets someone rebase or cherry-pick onto a newer upstream release commit by commit.
 - **The consolidated diff:** it shows the whole change in one file, and applies in one step with
   plain `git apply`, with no commit metadata.
@@ -85,7 +85,7 @@ git -c core.longpaths=true clone --depth 1 --branch v1.1.1 https://github.com/mo
 cd C:\dev\arc-liveness
 git config core.longpaths true
 
-# 2a. The integration as 27 commits ...
+# 2a. The integration as 31 commits ...
 git am --whitespace=nowarn (Get-ChildItem <Mosip26>\android-integration\patches\*.patch | Sort-Object Name).FullName
 # 2b. ... or as one change
 git apply --index --whitespace=nowarn <Mosip26>\android-integration\person5-liveness.diff
@@ -114,10 +114,14 @@ In bash, step 2a is `git am --whitespace=nowarn <Mosip26>/android-integration/pa
   about 2 minutes.
 - `--target-platform` removes only Flutter's own libraries. ONNX Runtime still ships for all four
   ABIs, and the release build type lists all four in `abiFilters`.
-- The arm64 profile APK was 256 MiB, of which 134 MiB is ONNX Runtime. Distribute per ABI (an App
-  Bundle, or `splits { abi }`); see the benchmark document.
-- The SFace face matcher (fix round 1, F1) adds 38.7 MB to every APK. The debug APK is now
-  488,250,639 bytes.
+- The arm64-targeted profile APK of P5-5 was 256 MiB, of which 134 MiB is ONNX Runtime.
+  **Distribute per ABI** with `flutter build apk --split-per-abi` (or an App Bundle,
+  `flutter build appbundle`). Profile build, fix round 2: arm64-v8a 151.3 MiB, armeabi-v7a
+  138.6 MiB, x86_64 159.3 MiB; see the benchmark document, section G.
+- The face matcher (F1) is OpenCV Zoo's int8 SFace since `pad-2026.10.5`: 9.9 MB in every APK
+  (the fp32 file of fix round 1 was 38.7 MB).
+- Debug APK sizes are not comparable between builds: incremental packaging leaves free space in
+  the APK when entries are replaced.
 
 **Release builds.**
 - `BuildConfig.LIVENESS_DIAGNOSTICS` is false in release builds.
@@ -144,15 +148,19 @@ has a **Liveness test** button (top right), which opens the debug page. From the
 - run the analyzer benchmark;
 - read and reset the persisted metrics;
 - install or roll back a signed model bundle staged with `adb push` in
-  `/sdcard/Android/data/io.mosip.registration_client/files/bundle-staging/`.
+  `/sdcard/Android/data/io.mosip.registration_client/files/bundle-staging/`;
+- run the face binding test (F1): a real gate, then one camera still (JPEG, or JPEG 2000 as an SBI
+  sends it) compared with the gate's best frame; and the matcher benchmark (timings of the
+  bundled models and of each signed test bundle in `files/bench-bundles/`).
 
 The debug page never shows camera images.
 
 **Upgrading a phone that installed a model bundle.** The store keeps installed bundles across app
 updates. A four-model bundle installed before F1 (for example the P5-5 test's `pad-2026.10.1`) no
 longer verifies against the five roles. The engine ignores it, because it is older than the
-bundled `pad-2026.10.4`. The next model install keeps it as the rollback target; a rollback to it
-fails with `MODEL_INTEGRITY_FAILED` and changes nothing. A second install prunes it.
+bundled bundle (`pad-2026.10.5`). Since fix round 2 the next model install first installs the
+bundled bundle as the rollback base and removes every older bundle, so a rollback lands on the
+bundled version.
 
 ## Verification
 
@@ -177,11 +185,15 @@ fails with `MODEL_INTEGRITY_FAILED` and changes nothing. A second install prunes
    For a byte-identical result, use `sync-engine.ps1 -SkipBuild` with the jars that were synced
    into the branch.
 2. **Tests:**
-   - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 73 tests, all passing.
-   - `flutter test test/liveness`: 56 tests, all passing.
+   - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 89 tests, all passing. The face
+     binding tests run the real matcher: the module's unit-test classpath swaps in the desktop
+     ONNX Runtime (`android/liveness/build.gradle`).
+   - `flutter test test/liveness`: 64 tests, all passing.
 3. **On a phone:** open the debug page and run:
    - one "Resident face" hook gate with the fake engine, which needs no camera;
-   - one "Resident face" hook gate with the real engine, looking at the camera.
+   - one "Resident face" hook gate with the real engine, looking at the camera;
+   - the face binding test: "1. Binding gate", then "2. Capture still and bind" with the same
+     face in view, which gives MATCH.
 
 ## Regenerate the patches
 

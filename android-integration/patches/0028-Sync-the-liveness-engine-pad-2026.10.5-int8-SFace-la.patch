@@ -1,0 +1,145 @@
+From cce5f8f51f5114f25ec15fc4793e120caf50e2b1 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sun, 25 Oct 2026 14:34:06 +0530
+Subject: [PATCH 28/31] Sync the liveness engine: pad-2026.10.5 (int8 SFace),
+ lazy matcher, store base
+
+Engine jars and models from Mosip26 3eea3dc (fix round 2):
+- the binding threshold default is 0.45;
+- preload() verifies all five files but builds only the four per-frame
+  sessions; the face matcher (MATCHER) session is built on first use or
+  by OnnxFaceAnalyzerFactory.warmUpMatcher();
+- ModelStore.install(staged, bundled, keys) seeds the bundled bundle as
+  the rollback base when the store is empty or older, and removes the
+  older bundles;
+- the bundle is pad-2026.10.5: OpenCV Zoo's int8 SFace,
+  face_recognition_sface_2021dec_int8.onnx (9,896,933 bytes), replaces
+  the fp32 file (38,696,353 bytes). The analyzer jar is 13.5 MB (42.4 MB).
+
+LivenessServiceHolder uses the new engine API:
+- preload(), on the background thread, then builds the matcher session
+  (warmUpMatcher) and logs both times;
+- installModelBundle() calls install(staged, assets, keys): the staged and
+  the bundled bundles are verified first, the staged one must be newer
+  than both, and an empty or older store gets the bundled models as its
+  rollback base (the special case for an empty store goes).
+
+On the phone (debug build): "bundle pad-2026.10.5 verified and loaded in
+222 ms", then "face matcher session built in 34 ms" (fp32 four sessions:
+427-526 ms; fix round 1, five sessions: 504 ms).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt              | 16 +++----
+ .../android/LivenessServiceHolder.java        | 42 ++++++++++++-------
+ 2 files changed, 35 insertions(+), 23 deletions(-)
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 5c70777..6c90e6a 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,14 +1,14 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit 74317e6
+-libs/liveness-api-1.2.0.2.jar 57a932e19b7eb0c4ade9a3e190862fed0e1cd412bc85912d9b8d86c87c04aeca
+-libs/liveness-core-1.2.0.2.jar d3dbd5fdfcc8ff5e265752307790ed77725dbe4bfb66102d9674d63919c5ed02
+-libs/liveness-fake-1.2.0.2.jar 65af759ba71f7af7a77831bfc84a0a9fb13c4d40fe0a9c0e05026bc0b613fc48
+-libs/liveness-analyzer-1.2.0.2.jar aca2eee22e56fce84c0ed9aad157f4c6c230aec4bab3e9c113992f61f0be507f
+-assets/liveness/models/manifest.json 8c97e8fffd197d4f7a96607c5eb5b43d028d003926934a607651475c04033731
+-assets/liveness/models/manifest.sig a2bc1f07ae28ed1103c6ac3cf60e02da6fe31f683589a2261cc667b614c7ac6d
++engine commit 3eea3dc
++libs/liveness-api-1.2.0.2.jar 514fa8992c1dc49048e289e68cb933ca39aa079301d8ae54e02e29d76571bc6e
++libs/liveness-core-1.2.0.2.jar 4aa11e647862e4e5b56891264b70c9369ac12b78b7148c8d0de55cfc50838a40
++libs/liveness-fake-1.2.0.2.jar dfb9d047c990ba1fc638c5729bd311ea9424912f12ddefc0282b1bf55bfcef50
++libs/liveness-analyzer-1.2.0.2.jar 4aad3409eab8af42408eaa43f4d7be3b0dcdff764086a2bd7c5ade5da54391f7
++assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
++assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
+ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
+ assets/liveness/models/face_mesh_v2.onnx 4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb
+ assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
+ assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
+-assets/liveness/models/face_recognition_sface_2021dec.onnx 0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79
++assets/liveness/models/face_recognition_sface_2021dec_int8.onnx 2b0e941e6f16cc048c20aee0c8e31f569118f65d702914540f7bfdc14048d78a
+ src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java d354bc01ddfd9bd2152be655b80598520b495c93842291253e5edd58f5a07ab0
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 01702e2..f1d6d69 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -29,7 +29,6 @@ import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+ import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
+ import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
+ import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
+-import io.mosip.registration.liveness.analyzer.integrity.VerifiedBundle;
+ import io.mosip.registration.liveness.api.AuditSink;
+ import io.mosip.registration.liveness.api.ConfigProvider;
+ import io.mosip.registration.liveness.api.ErrorCode;
+@@ -129,7 +128,11 @@ public final class LivenessServiceHolder {
+         return FakeLivenessService.builder(config).timeScale(timeScale).auditSink(audit).build();
+     }
+ 
+-    /** Verifies the model bundle and builds the ONNX sessions on a background thread; logs the time taken. */
++    /**
++     * On a background thread: verifies the model bundle (all five files) and builds the per-frame ONNX sessions, then
++     * builds the face-binding (MATCHER) session, so that neither the first session nor the first binding waits.
++     * Logs both times.
++     */
+     public void preload() {
+         background.execute(() -> {
+             long start = SystemClock.elapsedRealtime();
+@@ -147,8 +150,18 @@ public final class LivenessServiceHolder {
+                 audit.record(AuditSink.Event.MODEL_LOADED, null, null, d);
+             } catch (LivenessEngineException e) {
+                 preloadFailed(e.code(), e, start);
++                return;
+             } catch (RuntimeException | LinkageError e) {
+                 preloadFailed(ErrorCode.ENGINE_ERROR, e, start);
++                return;
++            }
++            long warm = SystemClock.elapsedRealtime();
++            try {
++                factory.warmUpMatcher();
++                Log.i(TAG, "preload: face matcher session built in " + (SystemClock.elapsedRealtime() - warm) + " ms");
++            } catch (LivenessEngineException | RuntimeException | LinkageError e) {
++                // The first binding builds it (or fails closed); liveness itself is unaffected.
++                Log.w(TAG, "preload: face matcher warm-up failed after " + (SystemClock.elapsedRealtime() - warm) + " ms", e);
+             }
+         });
+     }
+@@ -209,25 +222,24 @@ public final class LivenessServiceHolder {
+     }
+ 
+     /**
+-     * Installs the signed bundle staged in {@code dir} into the model store ({@link ModelStore#install}: verified,
+-     * strictly newer than the store's current one, atomic switch) and reloads the analyzer, so the next session uses
+-     * it; a running session keeps its models. The first install also installs the bundled models (verified) as the
+-     * store's base, so that {@link #rollbackModelBundle()} can return to them.
++     * Installs the signed bundle staged in {@code dir} into the model store and reloads the analyzer, so the next
++     * session uses it; a running session keeps its models. {@link ModelStore#install(
++     * io.mosip.registration.liveness.analyzer.integrity.BundleSource,
++     * io.mosip.registration.liveness.analyzer.integrity.BundleSource, TrustedKeys)}: the staged and the bundled
++     * bundles are verified first, the staged one must be newer than both the bundled and the store's current one, and
++     * when the store is empty or older than the bundled models these become its rollback base (older bundles are
++     * removed), so that {@link #rollbackModelBundle()} returns to them.
+      *
+      * @return the installed version
+      * @throws LivenessEngineException  MODEL_INTEGRITY_FAILED for a bundle that does not verify (the store is unchanged)
+-     * @throws IllegalArgumentException for a bundle that is not newer than the current one
++     * @throws IllegalArgumentException for a bundle that is not newer than the bundled or the current one
+      */
+     public synchronized String installModelBundle(File dir) throws LivenessEngineException, IOException {
+-        DirectoryBundleSource staged = new DirectoryBundleSource(dir);
+-        VerifiedBundle.load(staged, TrustedKeys.builtIn()); // a bad bundle fails here, before the store is touched
+         ModelStore store = modelStore();
+-        if (store.installedVersions().isEmpty()) {
+-            String base = store.install(new AssetBundleSource(context), TrustedKeys.builtIn());
+-            Log.i(TAG, "model store: bundled " + base + " installed as the base for rollback");
+-        }
+-        String v = store.install(staged, TrustedKeys.builtIn());
+-        Log.i(TAG, "model store: installed " + v + " from " + dir);
++        String before = modelStoreStatus();
++        String v = store.install(new DirectoryBundleSource(dir), new AssetBundleSource(context), TrustedKeys.builtIn());
++        Log.i(TAG, "model store: installed " + v + " from " + dir + " (before: " + before + "; now: "
++                + modelStoreStatus() + ")");
+         reloadModels();
+         return v;
+     }

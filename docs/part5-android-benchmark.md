@@ -39,8 +39,9 @@ chosen from it.
 - **Size:**
   - the arm64 profile APK is 256 MiB, and ONNX Runtime for four processor types (ABIs) is
     134 MiB of it;
-  - an arm64-only APK would be about 145 MiB;
-  - distribute per ABI (an Android App Bundle, or APK splits).
+  - an arm64-only APK would be about 145 MiB; measured in fix round 2 with `--split-per-abi` and
+    the five-model bundle: 151.3 MiB (section G);
+  - distribute per ABI (an Android App Bundle, or split APKs).
 
 ## Device and builds
 
@@ -335,12 +336,26 @@ errors.
   four ABIs, and the release build type lists all four in `abiFilters`.
 - A universal release APK therefore carries four copies of ONNX Runtime.
 
+**Measured per ABI (fix round 2, F10).** `flutter build apk --profile --split-per-abi`, bundle
+`pad-2026.10.5` (five models, 17.7 MiB, with the int8 SFace for face binding):
+
+| APK | size | native libraries |
+|---|---|---|
+| arm64-v8a | 158,607,245 B (151.3 MiB) | arm64-v8a only, 66.1 MiB (ONNX Runtime 32.6 MiB) |
+| armeabi-v7a | 145,315,101 B (138.6 MiB) | armeabi-v7a only |
+| x86_64 | 167,078,781 B (159.3 MiB) | x86_64 only |
+
+Against the single arm64-targeted APK above (256.1 MiB, four-model bundle), the arm64 split is
+105 MiB smaller even with face binding. Flutter builds no x86 split; the x86 copy of ONNX Runtime
+goes. The release build type's `ndk.abiFilters` (upstream) made Gradle refuse `--split-per-abi`
+("cannot be present when splits abi filters are set"). It now applies only without a split.
+
 **Recommendations.**
-- Distribute per ABI: an Android App Bundle through a store, or `splits { abi { ... } }` for
-  sideloaded APKs. Most current Android phones and tablets are arm64, so the arm64 split is the
-  one to test.
-- Backlog (F10): a reduced ONNX Runtime build containing only the operators these four models
-  use would shrink the 32.6 MiB arm64 library further. Not done.
+- **Distribute per ABI: split APKs for sideloading (`flutter build apk --release --split-per-abi`),
+  or an Android App Bundle (`flutter build appbundle`) through a store.** Most current Android
+  phones and tablets are arm64, so the arm64 split is the one to test.
+- Backlog: a reduced ONNX Runtime build containing only the operators these five models use
+  would shrink the 32.6 MiB arm64 library further. Not done.
 
 ## Low-end phones: caveat and what to try
 

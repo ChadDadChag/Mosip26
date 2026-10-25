@@ -146,14 +146,30 @@ sequenceDiagram
   end
   Eng-->>Api: result PASSED (best frame)
   Api-->>Page: result
+  Api->>Api: hold the best frame (FaceBinding, memory only)
   Page-->>Gate: LivenessOutcome(passed)
   Gate-->>Scr: proceed
-  Scr->>SBI: invokeDiscoverSbi / capture face (unchanged)
+  Scr->>Api: armBinding(sessionId) (FaceBinding.captureFace)
+  Scr->>SBI: invokeDiscoverSbi / capture face
+  SBI-->>Api: capture result (BiometricsDetailsApi.parseRCaptureResponse)
+  Api->>Api: decode the ISO 19794-5 JPEG 2000 face, FaceMatcher.compare (binding thread)
+  alt MATCH
+    Api-->>Scr: stored as before, "Ok"
+  else anything else
+    Api-->>Scr: not stored, LIVENESS_BINDING_FAILED
+    Note over Scr: generic text; no attempt counted, no scan dialog
+  end
   Note over Scr: Not proceed (cancelled or blocked): return before the SBI call. No capture and no capture attempt is counted.
 ```
 
 The same gate runs in the landscape layout of this screen (Scan and Rescan). Without that, a
 rotated tablet would skip liveness.
+
+**Face binding (F1, fix round 2).** Liveness runs on the camera, but the stored face comes from the
+SBI. The capture handler therefore stores an armed face capture only if it is the person who
+passed: an SFace comparison with the session's best frame, MATCH at a cosine of 0.45 or more. The
+operator onboarding face (c) is bound the same way. The flow, the fail-closed rules and the config
+are in [ui-liveness-spec.md](ui-liveness-spec.md) §6 "Face binding (F1)".
 
 ### (b) Operator login: after the password
 
@@ -351,8 +367,8 @@ uses. An installed bundle that is newer but fails verification fails closed: MOD
 with no fallback to unverified files. An installed bundle that is not newer is not read. After the
 app update to five models (F1), the phone's store still held the four-model `pad-2026.10.1` from
 the P5-5 install test. Before this rule that bundle failed verification and blocked the real engine.
-Since fix round 2 the next install seeds the bundled `pad-2026.10.4` as the rollback base and removes
-the older bundles, so a rollback lands on the bundled version.
+Since fix round 2 the next install seeds the bundled bundle (`pad-2026.10.5`) as the rollback base
+and removes the older bundles, so a rollback lands on the bundled version.
 
 ## 4. Online and offline
 
@@ -446,6 +462,8 @@ An invalid analyzer config is logged, and the Android defaults are used instead.
 |---|---|---|
 | `mosip.registration.liveness.face.android.<resident\|operator\|supervisor>.camera` | front | `back` uses the back camera for that workflow |
 | `mosip.registration.liveness.face.android.exposureAssist` | true | `false` turns the dim-face exposure assist off |
+| `mosip.registration.liveness.face.binding.enabled` | true | `false`: face captures are stored without face binding, each one audited SKIPPED |
+| `mosip.registration.liveness.face.binding.cosineThreshold` | 0.45 | face binding MATCH at or above this cosine (read by the analyzer config) |
 
 ### Test keys (debug page only)
 
@@ -479,6 +497,7 @@ engine.
 | REG-EVT-015 | LIVENESS_MODEL_LOADED | system | models loaded (app start, after a sync or an update; also per session in the engine) | Android: modelVersion, loadMs, accelerator; engine: base keys |
 | REG-EVT-016 | LIVENESS_MODEL_INTEGRITY_FAILED | system | the bundle did not verify, or the analyzer could not be built | errorCode, reason (engine) or phase=preload (Android) |
 | REG-EVT-017 | LIVENESS_CONFIG_LOADED | system | a workflow's policy is resolved after start or reload | engine, policy (one-line summary of all policy fields), configError |
+| REG-EVT-018 | LIVENESS_FACE_BINDING | system | an armed SBI face capture was compared with the liveness face (or binding is off: SKIPPED) | outcome (MATCH, NO_MATCH, NO_FACE_A/B, MULTIPLE_FACES_A/B, ERROR, SKIPPED), similarity (2 decimals), threshold |
 
 **No images.**
 - No audit record contains an image, pixels, landmarks or a face template.
@@ -520,7 +539,8 @@ derived values; the debug page shows them and has a Reset button.
 ## 8. Security and privacy
 
 - **Signed models, fail closed.**
-  - The four models ship as a bundle signed with ECDSA P-256 (`manifest.json`, `manifest.sig`).
+  - The five models (four for liveness, SFace for face binding) ship as a bundle signed with
+    ECDSA P-256 (`manifest.json`, `manifest.sig`).
   - At start-up and on every install, the signature is checked against a key compiled into the
     app, and so are every size and SHA-256, before anything is parsed. A failure gives
     MODEL_INTEGRITY_FAILED, and there is no fallback to unverified files.
@@ -550,6 +570,11 @@ derived values; the debug page shows them and has a Reset button.
   - The login page logs the operator out if the check does not proceed.
   - A refused camera permission blocks the check.
 - **Presentation attacks get no hints.** A PAD failure shows the generic text, never the reason.
+- **The stored face is the face that passed (F1).** An armed SBI face capture is stored only after a
+  MATCH with the session's best frame. A decode error, a timeout or a dropped best frame fails
+  closed. The best frame is held in memory for one comparison, at most 5 minutes, and is dropped when
+  a new session starts or the app goes to the background (except during the SBI capture itself).
+  Neither image is logged.
 
 ## 9. Build and run
 
@@ -559,17 +584,25 @@ short:
 | step | what |
 |---|---|
 | toolchain | git; JDK 11 + Maven 3.9.9 (engine); JDK 21, Android SDK 34 (build-tools 34.0.0), Flutter 3.10.4 (app) |
-| apply | clone `v1.1.1`, then `git am` the 26 patches (or `git apply` the one diff) |
+| apply | clone `v1.1.1`, then `git am` the 31 patches (or `git apply` the one diff) |
 | sync | `android-integration/scripts/sync-engine.ps1 -Clone <client>`: engine jars, signed models, camera source, and `engine-sync.txt` with commit and SHA-256 |
 | generate | `pigeon.sh` (Git Bash), then restore `ios/Runner/pigeon.h/.m` |
-| build | `flutter build apk --debug` (diagnostics); `--profile --target-platform android-arm64` (timings; not debuggable); `--release` (no diagnostics) |
+| build | `flutter build apk --debug` (diagnostics); `--profile --split-per-abi` (timings, one APK per ABI; not debuggable); `--release` (no diagnostics; add `--split-per-abi` to distribute) |
 | or all at once | `android-integration/scripts/apply-integration.ps1 -Target <new folder> -BuildApk` |
 
-**APK size and ABIs.**
-- The arm64 profile APK is 256 MiB, and ONNX Runtime for four ABIs is 134 MiB of it.
-- `--target-platform` does not drop ONNX Runtime's other ABIs, and the release build lists all
-  four in `abiFilters`.
-- Ship per ABI (an App Bundle, or APK splits): about 145 MiB for arm64.
+**APK size and ABIs (F10).**
+- One APK carries ONNX Runtime for four ABIs: the arm64-targeted profile APK of P5-5 was 256 MiB,
+  134 MiB of it ONNX Runtime. `--target-platform` does not drop ONNX Runtime's other ABIs.
+- **Distribute per ABI.** `flutter build apk --split-per-abi` builds one APK per ABI. The release
+  build type's `ndk.abiFilters` now applies only without a split, because Gradle refuses both
+  together. Profile build, fix round 2, with the int8 SFace:
+  - arm64-v8a 158,607,245 bytes (151.3 MiB);
+  - armeabi-v7a 145,315,101 bytes (138.6 MiB);
+  - x86_64 167,078,781 bytes (159.3 MiB).
+- An Android App Bundle (`flutter build appbundle`) gives the same per-device split through the
+  store. Either is recommended over the single APK.
+- Debug APK sizes are not comparable between builds: incremental packaging leaves free space in
+  the file when entries are replaced.
 
 **Phone setup (Samsung, Android 16).**
 1. Turn off Auto Blocker.
@@ -584,6 +617,8 @@ right. It offers:
   type only, and the exposure assist switch;
 - the "Hook gates" buttons, which call `LivenessGate.run` exactly as the five screens do;
 - Benchmark, the Metrics card, and the Model bundle card (install, rollback);
+- the Face binding test card: a real gate, then one camera still (JPEG or JPEG 2000) compared with
+  its best frame (outcome, similarity, threshold; neither image shown), and the matcher benchmark;
 - a placeholder preview for documentation screenshots.
 
 It shows scores and model versions, but never camera images other than the live preview.
@@ -594,10 +629,10 @@ It shows scores and model versions, but never camera images other than the live 
 
 | suite | tests | covers |
 |---|---|---|
-| `android/liveness` module (JVM) | **73**, all passing | audit sink (10), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal (12), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7) |
-| Flutter `test/liveness` | **56**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog |
+| `android/liveness` module (JVM) | **89**, all passing | audit sink (10), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal (12), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2) |
+| Flutter `test/liveness` | **64**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8) |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
-| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 191, eval 32 | Parts 1 to 3; see their documents |
+| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 224, eval 37 | Parts 1 to 3; see their documents |
 
 **Upstream test failures (not ours).** `:clientmanager:testDebugUnitTest` has **14 failing tests
 in upstream v1.1.1**:
@@ -632,6 +667,10 @@ provisional.
 | P5-5 | model update cases a to e | install, "not newer", tampered refused, rollback, persistence: all as designed |
 | P5-5 | airplane mode | cold start, real and fake gates passed, no network errors |
 | P5-6 | fresh clone of v1.1.1 + patches + sync | tree identical to the integration branch; tests passing; fake and real gates passed |
+| FR-1 | five-model bundle `pad-2026.10.4` | the old four-model store blocked the real engine until the factory ignored older store bundles; then fake and real gates passed |
+| FR-2 | binding test, fp32 SFace | the tester's face in the gate: the tester in the still MATCH 0.92; a NASA portrait on a screen NO_MATCH 0.15; an empty wall NO_FACE_B |
+| FR-2 | int8 SFace `pad-2026.10.5` | preload 222 ms, matcher session 34 ms; fake and real gates passed; binding test MATCH 0.90 |
+| FR-2 | matcher benchmark, fp32 / int8 | one-face embedding p50 45.6 / 36.8 ms; warm comparison 128 / 76 ms |
 
 ## 11. Limitations and backlog
 
@@ -642,16 +681,21 @@ provisional.
   - by the gate's widget tests;
   - by code review of each call site.
 
-  They were not run end to end inside the real screens.
+  They were not run end to end inside the real screens. The same holds for face binding in the
+  capture handler: it is covered by unit tests (the real matcher, every outcome, exactly-once
+  completion) and by the debug page's binding test, which uses the same native binding code and
+  the JPEG 2000 decoder. No SBI capture was made.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** The `ModelUpdateWorker` is a design only. Updates are installed from the
   debug page.
 - **Translations.** The 44 liveness strings exist in English (`app_en.arb`). The other languages
   fall back to English until translated.
-- **APK size.** ONNX Runtime ships for four ABIs; distribute per ABI. A reduced ONNX Runtime build
-  with only the needed operators (F10) is in the backlog.
-- **INT8 models.** Evaluated and rejected: slower and less accurate (`models/README.md`).
+- **APK size.** Distribute per ABI (split APKs or an App Bundle; section 9). A reduced ONNX Runtime
+  build with only the needed operators is in the backlog.
+- **INT8 models.** For the four liveness models: evaluated and rejected, slower and less accurate
+  (`models/README.md`). For SFace, OpenCV Zoo's own int8 file is used since `pad-2026.10.5`: it
+  met every adoption criterion and is faster on the phone.
 - **Attack coverage.** Tested so far: screen photos and replays on a laptop. Printed photos and
   masks are not tested yet.
 - **Signing key.** The model bundle is signed with a development key; replace it before release.
