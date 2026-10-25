@@ -1,0 +1,141 @@
+/* Face liveness screen (docs/ui-liveness-spec.md §2 and §7). Colours always come with an icon and a text. */
+
+.liveness-root {
+    -fx-background-color: #ffffff;
+    -fx-font-family: "Roboto", "Segoe UI", "Arial";
+}
+
+.liveness-header {
+    -fx-background-color: #2c3e50;
+    -fx-padding: 14 24 14 24;
+}
+
+.liveness-title {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+
+.liveness-preview {
+    -fx-background-color: #1f2328;
+    -fx-background-radius: 8;
+}
+
+.liveness-preview-placeholder {
+    -fx-text-fill: #c9d1d9;
+    -fx-font-size: 16px;
+    -fx-text-alignment: center;
+    -fx-padding: 24;
+}
+
+.liveness-oval {
+    -fx-fill: transparent;
+    -fx-stroke-width: 5;
+    -fx-stroke-dash-array: null;
+}
+
+.liveness-mask {
+    -fx-fill: rgba(0, 0, 0, 0.45);
+}
+
+.liveness-badge, .liveness-status-badge {
+    -fx-background-radius: 50%;
+    -fx-background-color: #8a8f98;
+}
+
+.liveness-badge-icon {
+    -fx-fill: #ffffff;
+}
+
+.liveness-status {
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1f2328;
+    -fx-text-alignment: center;
+}
+
+.liveness-hint {
+    -fx-font-size: 18px;
+    -fx-text-fill: #3d444d;
+    -fx-text-alignment: center;
+}
+
+.liveness-hint-icon {
+    -fx-fill: #b26a00;
+}
+
+.liveness-meta {
+    -fx-font-size: 15px;
+    -fx-text-fill: #3d444d;
+}
+
+.liveness-progress .bar {
+    -fx-background-color: #1e6fd9;
+    -fx-background-insets: 1;
+    -fx-background-radius: 6;
+}
+
+.liveness-progress .track {
+    -fx-background-radius: 6;
+}
+
+.liveness-tips {
+    -fx-background-color: #f6f8fa;
+    -fx-background-radius: 6;
+    -fx-padding: 10 16 10 16;
+}
+
+.liveness-tips .label {
+    -fx-font-size: 16px;
+    -fx-text-fill: #1f2328;
+}
+
+.liveness-tips-title {
+    -fx-font-weight: bold;
+}
+
+.liveness-button, .liveness-button-primary {
+    -fx-font-size: 16px;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+
+.liveness-button {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #2c3e50;
+    -fx-border-radius: 6;
+    -fx-text-fill: #2c3e50;
+}
+
+.liveness-button-primary {
+    -fx-background-color: #2c3e50;
+    -fx-text-fill: #ffffff;
+}
+
+.liveness-button:focused, .liveness-button-primary:focused {
+    -fx-border-color: #e39b00;
+    -fx-border-width: 3;
+    -fx-border-radius: 6;
+}
+
+/* Tones: oval stroke and badge background. */
+.tone-neutral .liveness-oval { -fx-stroke: #8a8f98; }
+.tone-neutral .liveness-badge, .tone-neutral .liveness-status-badge { -fx-background-color: #6e7681; }
+
+.tone-checking .liveness-oval { -fx-stroke: #1e6fd9; }
+.tone-checking .liveness-badge, .tone-checking .liveness-status-badge { -fx-background-color: #1e6fd9; }
+
+.tone-challenge .liveness-oval { -fx-stroke: #e39b00; }
+.tone-challenge .liveness-badge, .tone-challenge .liveness-status-badge { -fx-background-color: #b26a00; }
+.tone-challenge .liveness-progress .bar { -fx-background-color: #e39b00; }
+
+.tone-detected .liveness-oval { -fx-stroke: #2e9e4f; }
+.tone-detected .liveness-badge, .tone-detected .liveness-status-badge { -fx-background-color: #23803f; }
+.tone-detected .liveness-progress .bar { -fx-background-color: #2e9e4f; }
+
+.tone-success .liveness-oval { -fx-stroke: #2e9e4f; }
+.tone-success .liveness-badge, .tone-success .liveness-status-badge { -fx-background-color: #23803f; }
+.tone-success .liveness-progress .bar { -fx-background-color: #2e9e4f; }
+
+.tone-failure .liveness-oval { -fx-stroke: #c62828; }
+.tone-failure .liveness-badge, .tone-failure .liveness-status-badge { -fx-background-color: #c62828; }

@@ -376,3 +376,34 @@ The step-by-step version, verification and phone setup are in [android-integrati
 - [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations
 - [docs/part5-android-benchmark.md](docs/part5-android-benchmark.md): on-device benchmark and the chosen analyzer defaults, real-session timings and memory, INT8, exposure assist in the dark, model update and airplane-mode checks, APK size
 - [docs/ui-liveness-spec.md](docs/ui-liveness-spec.md): the screen and message texts shared with the Desktop (Part 4)
+
+---
+
+# Part 4: Desktop Registration Client integration
+
+Part 4 puts Parts 1 to 3 into the Desktop Registration Client (JavaFX, v1.2.0.2). A face liveness check runs before every face the client accepts or uses for authentication:
+- resident face capture (before the SBI capture);
+- operator login with face, and after a successful password (like Android; `mosip.registration.liveness.face.desktop.operator.gatePasswordLogin`);
+- operator onboarding (the operator's own face);
+- packet authentication with face (operator), and the biometric-exception reviewer (supervisor);
+- supervisor end-of-day approval with face.
+
+The face is accepted, or the authentication completes, only when the session returns PASSED and the captured face is the person who passed (face binding). The screen and texts are the ones shared with Android ([docs/ui-liveness-spec.md](docs/ui-liveness-spec.md)).
+
+| Path | What |
+|---|---|
+| `registration-client/.../controller/liveness/` | `LivenessGate` (the one call each flow makes), `LivenessScreenModel` (spec state table), `LivenessView` + `fxml/LivenessCheck.fxml` + `liveness.css` (the screen), `LivenessMessages`, `LivenessScreenDemo` (screens as PNG, interactive demo) |
+| `registration-services/.../liveness/desktop/` | `DesktopLivenessService` (engine, device, preload, config reload, metrics), `FaceBinding`, `DesktopLivenessConfig` (synced global config), `DesktopAuditSink` (audit module, `REG-LIV-001..011`) |
+| hooks | `GenericBiometricsController`, `BiometricsController`, `LoginController`, `AuthenticationController`, `EODAuthenticationController`, `BaseController.captureAndValidateFace`, `SessionContext.validateFace`, `ClientApplication` (preload) |
+| `docs/part4-registration-default.properties` | the liveness block for the server's `registration-default.properties` |
+| `docs/images/part4/` | the Desktop UI screens |
+
+Build and test (JDK 11, from `registration-client/registration`):
+
+    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip
+    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip
+
+Result: registration-services 129 tests, registration-client 27 tests, all passing (outside a git checkout add `-Dmaven.gitcommitid.skip=true`).
+
+**Documentation:**
+- [docs/part4-desktop-integration.md](docs/part4-desktop-integration.md): architecture, the hooks, face binding, sequence diagrams (resident, operator login, packet authentication, supervisor approval, failure, device, config sync), UI screens, configuration, audit and diagnostic logging, metrics, online/offline, security and privacy, testing, limitations
