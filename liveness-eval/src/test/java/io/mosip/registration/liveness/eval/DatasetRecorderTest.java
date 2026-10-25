@@ -91,7 +91,8 @@ class DatasetRecorderTest {
         String meta = new String(Files.readAllBytes(new File(dir, "meta.json").toPath()), StandardCharsets.UTF_8);
         assertThat(meta).contains("\"label\": \"bona_fide\"", "\"subject\": \"s01\"", "\"take\": 1", "\"frames\": 5",
                 "\"consent\": true", "\"deviceId\": \"fake:0\"", "recordedUtc", "fast 'fake'",
-                "\"condition\": \"normal\"", "\"kind\": \"bona_fide\"", "\"format\": \"png\"", "\"width\": 8");
+                "\"condition\": \"normal\"", "\"kind\": \"bona_fide\"", "\"format\": \"png\"", "\"width\": 8",
+                "\"duplicates\": 4"); // FastSource sends the same picture every time
         // A take is never overwritten.
         assertThatThrownBy(() -> DatasetRecorder.record(new FastSource(), take, null)).hasMessageContaining("already exists");
     }
@@ -146,5 +147,15 @@ class DatasetRecorderTest {
         File dir = DatasetRecorder.record(new FastSource(), new DatasetRecorder.Take("screen_replay", "s02", 3, 1, 2, root, "png", null), null);
         assertThat(dir).isEqualTo(new File(new File(new File(new File(root, "attack"), "screen_replay"), "s02"), "3"));
         assertThat(dir.list()).contains("meta.json", "frame_00000.png", "frame_00001.png");
+    }
+
+    @Test
+    void anOverriddenFolderIsOutsideTheProtocolLayout(@TempDir File root) throws Exception {
+        File clip = new File(new File(root, "f16-clips"), "nasa-print-normal");
+        File dir = DatasetRecorder.record(new FastSource(),
+                new DatasetRecorder.Take("print_flat", "s01", 1, 1, 3, root, "jpg", "nasa_print_normal").in(clip), null);
+        assertThat(dir).isEqualTo(clip);
+        assertThat(dir.list()).contains("meta.json", "frame_00000.jpg", "frame_00002.jpg");
+        assertThat(EvalDataset.scan(root)).isEmpty();
     }
 }

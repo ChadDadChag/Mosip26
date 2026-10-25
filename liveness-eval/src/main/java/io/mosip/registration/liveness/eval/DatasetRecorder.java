@@ -39,9 +39,11 @@ import java.util.regex.Pattern;
  * </pre>
  * Writes {@code <out>/bona_fide/<subject>/<take>/frame_00000.jpg ...} (attacks under {@code attack/<species>/}) and
  * {@code meta.json}. JPEG frames are quality 95 with 4:4:4 chroma (no colour subsampling, which would blur the
- * screen and print textures PAD looks at). Frames are paced to {@code --fps} by their timestamps. {@code eval-data/}
- * is gitignored: frames of real people are never committed. Subjects are codes (sNN), never names. Refuses to run
- * without {@code --consent}.
+ * screen and print textures PAD looks at). Frames are paced to {@code --fps} by their timestamps, kept in memory while
+ * recording and written afterwards (so PNG at 30 fps does not slow the camera down); {@code meta.json} counts the
+ * frames identical to the one before ({@code duplicates}: a camera slower than {@code --fps} repeats frames).
+ * {@code eval-data/} is gitignored: frames of real people are never committed. Subjects are codes (sNN), never names.
+ * Refuses to run without {@code --consent}.
  */
 public final class DatasetRecorder {
 
@@ -94,6 +96,7 @@ public final class DatasetRecorder {
         final int take, seconds;
         final double fps;
         final File root;
+        private File dirOverride;
 
         Take(String label, String subject, int take, int seconds, double fps, File root, String format, String condition) {
             if (!LABELS.contains(label)) throw new IllegalArgumentException("--label must be one of " + LABELS);
@@ -115,7 +118,17 @@ public final class DatasetRecorder {
             this.condition = condition;
         }
 
+        /**
+         * Records into {@code dir} instead of the protocol layout (regression clips and banding takes, which
+         * PadEvaluation must not pick up).
+         */
+        Take in(File dir) {
+            this.dirOverride = dir;
+            return this;
+        }
+
         File dir() {
+            if (dirOverride != null) return dirOverride;
             File base = label.equals("bona_fide") ? new File(root, "bona_fide") : new File(new File(root, "attack"), label);
             return new File(new File(base, subject), String.valueOf(take));
         }
@@ -128,30 +141,20 @@ public final class DatasetRecorder {
         if (!dir.mkdirs()) throw new IOException("cannot create " + dir);
         final int wanted = (int) Math.round(t.seconds * t.fps);
         final double intervalMs = 1000.0 / t.fps;
-        final List<Long> times = new ArrayList<Long>();
-        final int[] size = new int[2];
+        final List<Frame> frames = new ArrayList<Frame>();
         final AtomicReference<String> failure = new AtomicReference<String>();
         final CountDownLatch done = new CountDownLatch(1);
-        final File target = dir;
         if (out != null) out.println("recording " + wanted + " frames to " + dir);
         source.start(new FrameSource.Listener() {
             @Override public void onFrame(Frame f) {
-                int n = times.size();
-                if (n >= wanted) return;
-                // Pace by timestamps: frame n is due at first + n * interval; a faster camera's extra frames are dropped.
-                if (n > 0 && f.timestampMs() - times.get(0) < Math.round(n * intervalMs) - intervalMs / 4) return;
-                try {
-                    File file = new File(target, String.format("frame_%05d.%s", n, t.format));
-                    BufferedImage img = toImage(f);
-                    if (t.format.equals("jpg")) writeJpeg(img, file, JPEG_QUALITY);
-                    else ImageIO.write(img, "png", file);
-                    size[0] = f.width();
-                    size[1] = f.height();
-                    times.add(f.timestampMs());
-                    if (times.size() >= wanted) done.countDown();
-                } catch (IOException e) {
-                    failure.set(e.toString());
-                    done.countDown();
+                synchronized (frames) {
+                    int n = frames.size();
+                    if (n >= wanted) return;
+                    // Pace by timestamps: frame n is due at first + n * interval; a faster camera's extra frames are dropped.
+                    long first = n == 0 ? 0 : frames.get(0).timestampMs();
+                    if (n > 0 && f.timestampMs() - first < Math.round(n * intervalMs) - intervalMs / 4) return;
+                    frames.add(f);
+                    if (frames.size() >= wanted) done.countDown();
                 }
             }
 
@@ -168,11 +171,30 @@ public final class DatasetRecorder {
             source.stop();
         }
         if (failure.get() != null) throw new IOException("recording failed: " + failure.get());
-        Files.write(new File(dir, "meta.json").toPath(), meta(t, source.info(), times, size).getBytes(StandardCharsets.UTF_8));
+        List<Frame> kept;
+        synchronized (frames) {
+            kept = new ArrayList<Frame>(frames);
+        }
+        List<Long> times = new ArrayList<Long>();
+        int[] size = new int[2];
+        int duplicates = 0;
+        for (int n = 0; n < kept.size(); n++) {
+            Frame f = kept.get(n);
+            File file = new File(dir, String.format("frame_%05d.%s", n, t.format));
+            BufferedImage img = toImage(f);
+            if (t.format.equals("jpg")) writeJpeg(img, file, JPEG_QUALITY);
+            else if (!ImageIO.write(img, "png", file)) throw new IOException("no PNG writer");
+            if (n > 0 && Arrays.equals(f.rgb(), kept.get(n - 1).rgb())) duplicates++;
+            size[0] = f.width();
+            size[1] = f.height();
+            times.add(f.timestampMs());
+        }
+        Files.write(new File(dir, "meta.json").toPath(),
+                meta(t, source.info(), times, size, duplicates).getBytes(StandardCharsets.UTF_8));
         return dir;
     }
 
-    static String meta(Take t, FrameSource.DeviceInfo info, List<Long> times, int[] size) {
+    static String meta(Take t, FrameSource.DeviceInfo info, List<Long> times, int[] size, int duplicates) {
         long duration = times.size() < 2 ? 0 : times.get(times.size() - 1) - times.get(0);
         return "{\n"
                 + "  \"label\": \"" + t.label + "\",\n"
@@ -182,6 +204,7 @@ public final class DatasetRecorder {
                 + (t.condition == null ? "" : "  \"condition\": \"" + t.condition + "\",\n")
                 + "  \"fps\": " + t.fps + ",\n"
                 + "  \"frames\": " + times.size() + ",\n"
+                + "  \"duplicates\": " + duplicates + ",\n"
                 + "  \"durationMs\": " + duration + ",\n"
                 + "  \"format\": \"" + t.format + "\",\n"
                 + (t.format.equals("jpg") ? "  \"jpegQuality\": " + JPEG_QUALITY + ",\n  \"chroma\": \"4:4:4\",\n" : "")
