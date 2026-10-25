@@ -231,7 +231,8 @@ and reinstalls). They match the session logs one for one:
 
 ## D. Dim faces: exposure assist (finding F8)
 
-`CameraXFrameSource` (Mosip26 commit 1ec4f49) works as follows:
+`CameraXFrameSource` (Mosip26 commit 450812e, "Part 1: CameraXFrameSource exposure assist for dim faces")
+works as follows:
 - **Measure:** it reads the mean brightness of the face region (luma, 0–255) from each
   delivered frame.
 - **Step up:** below 70 for more than 1 s, it raises the camera's exposure compensation by one

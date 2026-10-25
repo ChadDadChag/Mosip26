@@ -1,7 +1,7 @@
 From 808e4cc2f339ea95422d9ae2d1e059a78d5ddb69 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 21:54:09 +0530
-Subject: [PATCH 24/31] Liveness: benchmark, persisted metrics, model update,
+Subject: [PATCH 24/32] Liveness: benchmark, persisted metrics, model update,
  Android defaults
 
 P5-5, wired through LivenessServiceHolder, LivenessApi (Pigeon) and the
