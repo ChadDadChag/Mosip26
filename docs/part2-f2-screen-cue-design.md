@@ -1,6 +1,6 @@
 # F2: a second screen cue for close-up screen attacks (design note)
 
-Status: design. The bezel and edge cue (section 3.1) was prototyped offline and **does not ship** (section 6). The
+Status: design. Three cues (sections 3.1 to 3.3) were prototyped offline, and **none ships** (section 6). The
 numbers are from one subject (s01), one attack phone and one webcam, so they are provisional.
 
 ## 1. The problem
@@ -119,6 +119,8 @@ cluttered backgrounds: door frames, shelves, a monitor behind the user.
 **Data it needs.** Per phone: brightness at 30%, 70% and 100% (PWM on and off). Two or more cameras. Rooms lit by
 50 Hz and 60 Hz mains lighting (fluorescent, LED) and by daylight.
 
+**Prototype result:** no banding in the existing recordings, so no separation (section 6.2).
+
 ### 3.3 Specular and colour statistics
 
 **Idea.**
@@ -145,6 +147,9 @@ cluttered backgrounds: door frames, shelves, a monitor behind the user.
   protectors remove the highlight.
 
 **Verdict.** Too weak and too risky as a rule of its own. It may later be one input to a combined score.
+
+**Prototype result:** the white point is neutralised, and the only separation is a face-colour shift with no margin
+(section 6.3).
 
 ### 3.4 Fine-tuning MiniFASNet on close-up screen negatives
 
@@ -294,3 +299,82 @@ momentary, and there is no margin.
 **Decision.** It does not ship, and there is no `edgeCapThreshold`. A test of planar motion (the whole region
 moving under one homography, as a flat presentation does) would need a body mask because of reason 3. Banding
 (section 3.2) is next, since it targets the screen that fills the view.
+
+### 6.2 Banding (section 3.2): does not ship
+
+**What was built.** `models/tools/f2_banding_prototype.py`, a development tool only. Per frame, for the V1SE 4.0×
+region and for the face box's central columns:
+- **Row profile.** The mean luma of each frame row, in native rows. There is no resampling, so the JPEG 8-row block
+  grid stays at exactly 1/8 cycle per row and can be left out.
+- **Spectrum.** Quadratic shading removed, a Hann window, then the power spectrum.
+- **Whitening.** Each bin is divided by the median of its ±8 neighbours, so a band shows as a narrow peak above the
+  scene's natural slope. The band of interest is periods of 6 to 60 rows: PWM at about 300–2,000 Hz with a row time
+  of 50–70 µs. The JPEG frequencies are left out.
+- **Scores.** `bandScore` is the largest whitened peak. The temporal check `driftScore` takes the last 10 frames:
+  for each frequency it multiplies the mean whitened power by (1 − phase coherence) in frame coordinates. A screen's
+  band keeps its power while its phase drifts. Scene structure keeps its phase.
+- **Session statistic.** The rolling median of `bandScore` over 10 single-face frames, as for moiré.
+
+**Data.** The same 35 takes. Aggregates only.
+
+**Results.** Each value is a session statistic. The threshold with no bona fide cost is the bona fide maximum.
+
+| Group | Takes | `bandScore`, 4.0× region (session median) | `bandScore`, face (session median) | `driftScore` (session median) | Moiré |
+|---|---|---|---|---|---|
+| Bona fide, all conditions | 11 | 4.63–7.70 | 3.27–17.53 | 0.10–2.70 | 1.02–1.31 |
+| Close-up, screen fills the view (`*_fill`) | 6 | 4.53–6.94 | 3.80–4.92 | 1.77–3.40 | 1.44–1.59 |
+| Close-up, small face on the screen | 6 | 3.51–7.70 | 0.00–3.40 | 1.17–2.22 | 1.54–1.58 |
+| `screen_photo` | 6 | 4.28–5.51 | 0.00–5.19 | 1.71–2.39 | 1.50–1.68 |
+| `screen_replay` | 6 | 5.90–11.17 | 4.30–14.99 | 1.85–3.00 | 1.20–1.44 |
+| **`*_fill` takes above the bona fide maximum** | | 0/6 (maximum 10.28) | 0/6 (maximum 19.54) | 0/6 (maximum 7.07) | |
+
+There is no banding to find. The take-average spectra of the six `*_fill` takes show no narrow peak at a common
+period: the strongest is 1.6–3.0 times its neighbours. A PWM band has a fixed period, set by the PWM frequency and
+the row time, so averaging over frames would keep it. The strongest narrow peaks belong to bona fide `normal`
+(6.6–17 times), from the room and the face's own structure.
+
+**Does the JPEG q95 limit the cue?** Only for very faint bands. Synthetic horizontal bands were added to the
+`close_whole` and `*_fill` frames, then measured directly and after a JPEG q95 4:4:4 round trip:
+- 0.5 grey levels at a 7–12-row period: detected in 70–100% of frames before JPEG, and 5% after (the same as with no
+  band).
+- 1 grey level or more at 7–12 rows: 100% before and after.
+- Periods of 20–40 rows are hidden by the scene's own row structure, with or without JPEG. They need 2–4 grey levels
+  or more.
+
+So the recordings could hide only bands under about 1 grey level. Either the attack phone does not band in these
+conditions (DC dimming, or an exposure long enough to average the PWM), or its bands are fainter than that. A
+lossless recording at 30 fps, with the screen at 30% brightness (PWM on), would settle it.
+
+### 6.3 Colour and white point (section 3.3): does not ship
+
+**What was built.** `models/tools/f2_colour_prototype.py`, a development tool only. Per frame, from the RGB pixels,
+with no skin model:
+- `blueFace`: the blue share b / (r + g + b) of the face box's centre;
+- `blueWhite`: the blue share of the brightest 5% of the 4.0× region, the scene's white point;
+- `satRegion`: the 95th percentile of the saturation in the 4.0× region;
+- `clipRegion`: the share of pixels with one channel clipped and another not.
+
+Each has a rolling median over 10 single-face frames.
+
+**Results.**
+- **The white point is neutral.** `blueWhite` of the `*_fill` takes (0.330–0.346) lies inside the bona fide range
+  (0.320–0.358). The camera's automatic white balance pulls the screen's cold white to neutral, as section 3.3
+  expected.
+- **The face is warmer, not bluer.** `blueFace` of the `*_fill` takes lies below the bona fide minimum (0.302) in
+  6/6 takes: 0.214–0.268 for the subject's selfie, 0.287–0.300 for the NASA portrait. This is the opposite of the
+  hypothesis. It comes from the displayed photo's own colour and the white balance shift, not from the screen's
+  primaries. The margin is 0.002.
+- **Saturation and clipping do not separate.** `satRegion` and `clipRegion` catch 0/6 `*_fill` takes.
+
+**Decision.** It does not ship. The only separation is a face-colour rule with no margin, which depends on the
+photo, the room light and the skin tone. That is exactly the fairness risk of section 3.3, and one subject cannot
+bound it.
+
+### 6.4 Where this leaves F2
+
+- **Today.** The session moiré cap remains the only screen cue. Its margin on `*_fill` is the risk to watch: the
+  median moiré of the `selfie_fill` takes is 1.44–1.49, against the 1.40 cap.
+- **Next step.** The multi-device recordings of section 4, with a lossless or high-quality 30 fps recording and PWM
+  phones at low brightness, would show whether banding exists at all in the field.
+- **Next cue.** Fine-tuning MiniFASNet on close-up screens (section 3.4) is the most direct fix for the case that
+  fills the view, and needs the multi-subject dataset.
