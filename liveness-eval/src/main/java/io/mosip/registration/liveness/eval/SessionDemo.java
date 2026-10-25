@@ -1,6 +1,7 @@
 package io.mosip.registration.liveness.eval;
 
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
 import io.mosip.registration.liveness.api.ChallengeType;
 import io.mosip.registration.liveness.api.ConfigProvider;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
@@ -13,6 +14,7 @@ import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.DefaultLivenessService;
+import io.mosip.registration.liveness.core.EngineTuning;
 import io.mosip.registration.liveness.core.detect.FaceGeometry;
 import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
 
@@ -56,6 +58,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * Forced challenges = a ConfigProvider override of {@code mosip.registration.liveness.face.default.passiveThreshold}
  * (default 0.9999, {@code --force-threshold}) so a real face cannot pass passively; padRejectThreshold stays 0.30.
  * {@code --challenge-types TURN_LEFT,TURN_RIGHT,BLINK} narrows the forced runs' challenge pool (for a turn retest).
+ * {@code --config <full key>=<value>} (repeatable) overrides an engine setting for every case, for example
+ * {@code mosip.registration.liveness.face.default.padRejectThreshold=0.0}; {@code --set <analyzer setting>=<value>}
+ * (repeatable) changes an analyzer setting, as in PadEvaluation, for example {@code moireCapThreshold=off}. Each
+ * challenge line gives the pose drift the tilt guard sees ({@link #drift}).
  * Each run is logged (events, result, per-challenge timing and the analyzer features seen during each challenge) to
  * {@code liveness-eval/target/sessions-<time>.jsonl}; no images are stored.
  */
@@ -246,8 +252,12 @@ final class SessionDemo {
             plan.add(new Case("session", wf, a.has("--force-active"), "Look at the camera and follow the instructions"));
         }
         boolean autoRetry = series || a.has("--auto-retry");
+        final ConfigProvider overrides = overrides(a.all("--config"));
+        if (!a.all("--config").isEmpty()) System.out.println("engine config overrides: " + a.all("--config"));
+        if (!a.all("--set").isEmpty()) System.out.println("analyzer settings: " + a.all("--set"));
 
-        final OnnxFaceAnalyzerFactory real = new OnnxFaceAnalyzerFactory();
+        final OnnxFaceAnalyzerFactory real = new OnnxFaceAnalyzerFactory(new ClasspathBundleSource(),
+                PadEvaluation.analyzerConfig(a.all("--set")));
         real.preload();
         final DemoWindow w = new DemoWindow("Part 3 session with the Part 2 analyzer (" + real.modelVersion() + ")");
         w.mirrored(true); // selfie view, so "turn left" matches what the person sees
@@ -289,8 +299,14 @@ final class SessionDemo {
                 if (k == null) break;
                 if (k.equals("S")) continue;
                 RecordingFactory rf = new RecordingFactory(real);
-                ConfigProvider cfg = c.forceActive ? forcedConfig(threshold, types) : new ConfigProvider() {
+                final ConfigProvider base = c.forceActive ? forcedConfig(threshold, types) : new ConfigProvider() {
                     @Override public String get(String keyName) { return null; }
+                };
+                ConfigProvider cfg = new ConfigProvider() {
+                    @Override public String get(String keyName) {
+                        String v = overrides.get(keyName);
+                        return v != null ? v : base.get(keyName);
+                    }
                 };
                 DefaultLivenessService service = DefaultLivenessService.builder().config(cfg).analyzerFactory(rf).build();
                 RunLog r = new RunLog(w, autoRetry);
@@ -323,6 +339,21 @@ final class SessionDemo {
         System.exit(0);
     }
 
+    /** {@code --config <full key>=<value>} overrides, for every case and above the forced settings. */
+    static ConfigProvider overrides(List<String> pairs) {
+        final java.util.Map<String, String> m = new java.util.HashMap<String, String>();
+        for (String p : pairs) {
+            int eq = p.indexOf('=');
+            if (eq <= 0) throw new IllegalArgumentException("--config needs key=value, got '" + p + "'");
+            m.put(p.substring(0, eq).trim(), p.substring(eq + 1).trim());
+        }
+        return new ConfigProvider() {
+            @Override public String get(String key) {
+                return m.get(key);
+            }
+        };
+    }
+
     /** The passive threshold override, and the challenge pool override when types is not null. */
     static ConfigProvider forcedConfig(final String threshold, final String types) {
         return new ConfigProvider() {
@@ -341,15 +372,66 @@ final class SessionDemo {
         if (res == null) return sb.append("no result (timed out)").toString();
         sb.append(String.format("%s passPath %s failure %s passiveScore %.4f attempts %d duration %d ms challenges %s; ",
                 res.decision, res.passPath, res.failureCode, res.passiveScore, res.attempts, res.durationMs, res.challengesIssued));
+        float limit = new EngineTuning().actionMaxPoseDriftDeg;
         synchronized (r.challengeTimes) {
             for (int i = 0; i < r.challengeTimes.size(); i++) {
                 long[] ct = r.challengeTimes.get(i);
-                sb.append(String.format("%s %s in %d ms %s; ", r.challenges.get(i), ct[2] == 1 ? "DETECTED" : "not detected",
-                        ct[1] - ct[0], features(rf, ct[0], ct[1])));
+                long end = ct[1] < 0 ? Long.MAX_VALUE : ct[1];
+                sb.append(String.format("%s %s in %d ms %s %s; ", r.challenges.get(i), ct[2] == 1 ? "DETECTED" : "not detected",
+                        ct[1] - ct[0], features(rf, ct[0], end), drift(rf, ct[0], end, limit)));
             }
         }
         sb.append("events ").append(String.join(" > ", new ArrayList<String>(r.events)));
         return sb.toString();
+    }
+
+    /** The analysis rate's look-back for the drift baseline: the frames this long before a prompt. */
+    static final long DRIFT_BASELINE_MS = 600;
+
+    /**
+     * The tilt guard's view of one challenge (P3-3): the pose drift of each frame from a baseline, the median yaw and
+     * pitch of the frames in the {@value #DRIFT_BASELINE_MS} ms before the prompt (an approximation of the engine's
+     * baseline, which is not exposed); the frames over the guard's limit (the detectors ignore them), and the
+     * excursions over it (each one cancels a closure or smile in progress).
+     */
+    static String drift(RecordingFactory rf, long prompt, long end, float limitDeg) {
+        List<Float> by = new ArrayList<Float>(), bp = new ArrayList<Float>();
+        List<float[]> during = new ArrayList<float[]>();
+        synchronized (rf.samples) {
+            for (Sample s : rf.samples) {
+                if (s.faces != 1) continue;
+                if (s.t >= prompt - DRIFT_BASELINE_MS && s.t < prompt) {
+                    if (!Float.isNaN(s.yaw)) by.add(s.yaw);
+                    if (!Float.isNaN(s.pitch)) bp.add(s.pitch);
+                } else if (s.t >= prompt && s.t <= end) {
+                    during.add(new float[] {s.yaw, s.pitch});
+                }
+            }
+        }
+        if (by.isEmpty() || bp.isEmpty()) return "[drift: no baseline frames]";
+        float yaw0 = median(by), pitch0 = median(bp), max = 0;
+        int over = 0, excursions = 0, counted = 0;
+        boolean wasOver = false;
+        for (float[] p : during) {
+            float dy = Math.abs(p[0] - yaw0), dp = Math.abs(p[1] - pitch0);
+            float d = Float.isNaN(dy) ? dp : Float.isNaN(dp) ? dy : Math.max(dy, dp);
+            if (Float.isNaN(d)) continue;
+            counted++;
+            max = Math.max(max, d);
+            boolean isOver = d > limitDeg;
+            if (isOver) over++;
+            if (isOver && !wasOver) excursions++;
+            wasOver = isOver;
+        }
+        return String.format(Locale.ROOT, "[drift max %.1f deg; %d of %d frames over %.0f deg; %d excursions]", max,
+                over, counted, limitDeg, excursions);
+    }
+
+    private static float median(List<Float> v) {
+        List<Float> s = new ArrayList<Float>(v);
+        Collections.sort(s);
+        int n = s.size();
+        return n % 2 == 1 ? s.get(n / 2) : (s.get(n / 2 - 1) + s.get(n / 2)) / 2f;
     }
 
     /** Ranges of the engine-visible features between two times. */
