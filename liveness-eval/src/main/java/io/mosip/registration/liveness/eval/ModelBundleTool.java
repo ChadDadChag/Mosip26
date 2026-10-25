@@ -4,6 +4,7 @@ import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
 import io.mosip.registration.liveness.analyzer.integrity.Hex;
 import io.mosip.registration.liveness.analyzer.integrity.MiniJson;
 import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
+import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
 import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 import io.mosip.registration.liveness.analyzer.integrity.VerifiedBundle;
 import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
@@ -11,6 +12,7 @@ import io.mosip.registration.liveness.api.LivenessEngineException;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -41,10 +43,12 @@ import java.util.regex.Pattern;
  *   verify   --dir &lt;dir&gt;                      [--trust &lt;keyId&gt;=&lt;public hex&gt;]
  *   install  --store &lt;dir&gt; --from &lt;dir&gt;     [--trust &lt;keyId&gt;=&lt;public hex&gt;]
  *   rollback --store &lt;dir&gt;                    [--trust &lt;keyId&gt;=&lt;public hex&gt;]
+ *   pack     --dir &lt;signed bundle&gt; --out &lt;dir&gt; --base-url &lt;url&gt; [--trust &lt;keyId&gt;=&lt;public hex&gt;]
  * </pre>
  * The private key is written only outside any git working tree (default
- * {@code ~/.mosip-liveness/model-signing-key.p8}). verify/install/rollback use the production loader with the keys
- * compiled into {@link TrustedKeys}; {@code --trust} replaces them (tests and CI only).
+ * {@code ~/.mosip-liveness/model-signing-key.p8}). verify/install/rollback/pack use the production loader with the
+ * keys compiled into {@link TrustedKeys}; {@code --trust} replaces them (tests and CI only). pack writes
+ * {@code <version>.zip} and {@code latest.json} for {@link ModelUpdater}; host both on any static HTTPS server.
  * Exit codes: 0 success, 1 the operation or verification failed, 2 usage error.
  */
 public final class ModelBundleTool {
@@ -82,6 +86,7 @@ public final class ModelBundleTool {
                 case "verify": return tool.verify(a);
                 case "install": return tool.install(a);
                 case "rollback": return tool.rollback(a);
+                case "pack": return tool.pack(a);
                 default: return tool.usage("unknown command '" + args[0] + "'");
             }
         } catch (UsageException e) {
@@ -104,6 +109,7 @@ public final class ModelBundleTool {
         err.println("  verify   --dir <dir> [--trust <keyId>=<public hex>]");
         err.println("  install  --store <dir> --from <dir> [--trust <keyId>=<public hex>]");
         err.println("  rollback --store <dir> [--trust <keyId>=<public hex>]");
+        err.println("  pack     --dir <signed bundle> --out <dir> --base-url <url> [--trust <keyId>=<public hex>]");
         return 2;
     }
 
@@ -288,6 +294,40 @@ public final class ModelBundleTool {
             err.println("REFUSED: " + e.getMessage());
             return 1;
         }
+    }
+
+    // ---- pack ----
+
+    /**
+     * Verifies a signed bundle, then writes {@code <out>/<version>.zip} (from the verified bytes, in the layout
+     * {@link ModelUpdater} accepts) and {@code <out>/latest.json} pointing at {@code <base-url>/<version>.zip}.
+     */
+    private int pack(Args a) throws Exception {
+        File dir = existingDir(a.required("--dir"));
+        File outDir = new File(a.required("--out"));
+        String base = a.required("--base-url");
+        if (base.isEmpty()) throw new UsageException("--base-url must not be empty");
+        VerifiedBundle b = VerifiedBundle.load(new DirectoryBundleSource(dir), trust(a));
+        if (!outDir.isDirectory() && !outDir.mkdirs()) throw new IOException("cannot create " + outDir);
+        String zipName = b.version() + ".zip";
+        File zip = new File(outDir, zipName);
+        try (OutputStream o = Files.newOutputStream(zip.toPath())) {
+            ModelUpdater.writeZip(b, o);
+        }
+        byte[] bytes = Files.readAllBytes(zip.toPath());
+        if (bytes.length > ModelUpdater.MAX_ZIP_BYTES) {
+            Files.delete(zip.toPath());
+            err.println("REFUSED: the zip is larger than " + ModelUpdater.MAX_ZIP_BYTES + " bytes");
+            return 1;
+        }
+        String zipUrl = base.endsWith("/") ? base + zipName : base + "/" + zipName;
+        String sha = Hex.encode(MessageDigest.getInstance("SHA-256").digest(bytes));
+        File index = new File(outDir, "latest.json");
+        Files.write(index.toPath(), ModelUpdater.indexJson(b.version(), zipUrl, sha, bytes.length)
+                .getBytes(StandardCharsets.UTF_8));
+        out.println("wrote " + zip + " (" + bytes.length + " bytes, sha256 " + sha + ")");
+        out.println("wrote " + index + " -> " + zipUrl);
+        return 0;
     }
 
     private static TrustedKeys trust(Args a) {

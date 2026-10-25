@@ -1,15 +1,24 @@
 package io.mosip.registration.liveness.eval;
 
+import io.mosip.registration.liveness.analyzer.integrity.Hex;
+import io.mosip.registration.liveness.analyzer.integrity.MiniJson;
 import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -107,6 +116,44 @@ class ModelBundleToolTest {
         assertThat(run("rollback", "--store", store.getPath(), "--trust", trust)).isEqualTo(0);
         assertThat(out()).contains("current is now pad-2026.10.1");
         assertThat(run("rollback", "--store", store.getPath(), "--trust", trust)).isEqualTo(1);
+    }
+
+    @Test
+    void packWritesTheZipAndTheIndexForTheUpdater(@TempDir File tmp) throws Exception {
+        File key = new File(tmp, "k.p8");
+        String trust = "k1=" + keygen(key, "k1");
+        File d = new File(tmp, "bundle");
+        assertThat(d.mkdir()).isTrue();
+        fakeModels(d);
+        assertThat(run("manifest", "--dir", d.getPath(), "--version", "pad-2026.10.7", "--key-id", "k1")).isEqualTo(0);
+        assertThat(run("sign", "--dir", d.getPath(), "--key", key.getPath(), "--key-id", "k1")).isEqualTo(0);
+        File site = new File(tmp, "site");
+
+        assertThat(run("pack", "--dir", d.getPath(), "--out", site.getPath(), "--base-url", "http://127.0.0.1:8000/",
+                "--trust", trust)).isEqualTo(0);
+        byte[] zip = Files.readAllBytes(new File(site, "pad-2026.10.7.zip").toPath());
+        Map<String, Object> index = MiniJson.parseObject(
+                new String(Files.readAllBytes(new File(site, "latest.json").toPath()), StandardCharsets.UTF_8));
+        assertThat(index.get("schema")).isEqualTo(1.0);
+        assertThat(index.get("bundleVersion")).isEqualTo("pad-2026.10.7");
+        assertThat(index.get("zipUrl")).isEqualTo("http://127.0.0.1:8000/pad-2026.10.7.zip");
+        assertThat(index.get("zipSha256")).isEqualTo(Hex.encode(MessageDigest.getInstance("SHA-256").digest(zip)));
+        assertThat(index.get("zipSize")).isEqualTo((double) zip.length);
+        List<String> names = new ArrayList<String>();
+        try (ZipInputStream z = new ZipInputStream(new ByteArrayInputStream(zip))) {
+            for (ZipEntry e = z.getNextEntry(); e != null; e = z.getNextEntry()) names.add(e.getName());
+        }
+        assertThat(names).startsWith("manifest.json", "manifest.sig").hasSize(2 + ModelRole.values().length)
+                .contains(ModelRole.MATCHER.fileName());
+
+        // A tampered bundle is not packed; a missing option is a usage error.
+        Files.write(new File(d, ModelRole.PAD_V2.fileName()).toPath(), new byte[] {1});
+        File site2 = new File(tmp, "site2");
+        assertThat(run("pack", "--dir", d.getPath(), "--out", site2.getPath(), "--base-url", "https://example.org/m",
+                "--trust", trust)).isEqualTo(1);
+        assertThat(err()).contains("MODEL_INTEGRITY_FAILED");
+        assertThat(site2).doesNotExist();
+        assertThat(run("pack", "--dir", d.getPath(), "--out", site.getPath())).isEqualTo(2);
     }
 
     @Test
