@@ -330,10 +330,11 @@ sequenceDiagram
   alt does not verify
     VB-->>D: MODEL_INTEGRITY_FAILED, store untouched
   else verified
-    opt store empty
-      H->>MS: install(bundled assets) as the base for rollback
+    H->>MS: install(staged, bundled assets)
+    MS->>MS: verify both; staged newer than the bundled version? (else "not newer", refused)
+    opt store empty, or its current version older than the bundled one
+      MS->>MS: install the bundled assets as the rollback base, remove older bundles
     end
-    H->>MS: install(staged)
     MS->>MS: newer than current? (else "not newer", refused)<br/>write tmp + fsync, rename, re-verify from disk, switch "current"
     H->>AF: swap(new factory)
     H->>H: preload() → verifies again, builds sessions, MODEL_LOADED
@@ -350,6 +351,8 @@ uses. An installed bundle that is newer but fails verification fails closed: MOD
 with no fallback to unverified files. An installed bundle that is not newer is not read. After the
 app update to five models (F1), the phone's store still held the four-model `pad-2026.10.1` from
 the P5-5 install test. Before this rule that bundle failed verification and blocked the real engine.
+Since fix round 2 the next install seeds the bundled `pad-2026.10.4` as the rollback base and removes
+the older bundles, so a rollback lands on the bundled version.
 
 ## 4. Online and offline
 

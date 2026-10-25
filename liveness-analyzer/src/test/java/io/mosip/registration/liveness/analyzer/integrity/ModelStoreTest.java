@@ -146,6 +146,74 @@ class ModelStoreTest {
     }
 
     @Test
+    void anUpgradeFromAFourModelStoreSeedsTheBundledBaseSoARollbackLandsOnIt(@TempDir File root) throws Exception {
+        // The phone after FR-1: pad-2026.10.1 (current) and pad-2026.10.2, both four-model, from the P5-5 test.
+        File bundles = new File(root, "bundles");
+        TestBundles.writeDir(new File(bundles, V1), TestBundles.bundleWithoutMatcher(V1, kp, TestBundles.fakeModels(1)));
+        TestBundles.writeDir(new File(bundles, V2), TestBundles.bundleWithoutMatcher(V2, kp, TestBundles.fakeModels(2)));
+        write(new File(root, "current"), V1 + "\n");
+        ModelStore store = new ModelStore(root);
+        String bundled = "pad-2026.10.4", update = "pad-2026.10.5";
+        // Loading never prunes.
+        assertThat(store.loadCurrentIfNewerThan(bundled, trust)).isNull();
+        assertThat(store.installedVersions()).containsExactly(V1, V2);
+        // Not newer than the bundled version: refused before the store is touched.
+        assertThatThrownBy(() -> store.install(staged("pad-2026.10.3"), staged(bundled), trust))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("not newer than " + bundled);
+        assertThat(store.installedVersions()).containsExactly(V1, V2);
+        assertThat(store.currentVersion()).isEqualTo(V1);
+
+        assertThat(store.install(staged(update), staged(bundled), trust)).isEqualTo(update);
+        assertThat(store.installedVersions()).containsExactly(bundled, update);
+        assertThat(store.loadCurrent(trust).version()).isEqualTo(update);
+        assertThat(store.rollback(trust)).isEqualTo(bundled);
+        VerifiedBundle base = store.loadCurrent(trust);
+        assertThat(base.version()).isEqualTo(bundled);
+        assertThat(base.modelBytes().get(ModelRole.MATCHER))
+                .isEqualTo(TestBundles.fakeModels(bundled.hashCode()).get(ModelRole.MATCHER));
+    }
+
+    @Test
+    void theBundledBaseIsSeededOnlyIntoAnEmptyOrOlderStore(@TempDir File root) throws Exception {
+        ModelStore newer = new ModelStore(new File(root, "newer"));
+        newer.install(staged(V3), trust);
+        assertThat(newer.install(staged("pad-2026.12.1"), staged(V2), trust)).isEqualTo("pad-2026.12.1");
+        assertThat(newer.installedVersions()).containsExactly(V3, "pad-2026.12.1");
+        assertThatThrownBy(() -> newer.install(staged(V3), staged(V2), trust))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("not newer than pad-2026.12.1");
+
+        ModelStore empty = new ModelStore(new File(root, "empty"));
+        assertThat(empty.install(staged(V3), staged(V2), trust)).isEqualTo(V3);
+        assertThat(empty.installedVersions()).containsExactly(V2, V3);
+        assertThat(empty.rollback(trust)).isEqualTo(V2);
+
+        ModelStore same = new ModelStore(new File(root, "same"));
+        same.install(staged(V2), trust);
+        same.install(staged(V3), staged(V2), trust);
+        assertThat(same.installedVersions()).containsExactly(V2, V3);
+    }
+
+    @Test
+    void aBadStagedOrBundledBundleLeavesTheStoreUntouched(@TempDir File root) throws Exception {
+        ModelStore store = new ModelStore(root);
+        store.install(staged(V1), trust);
+        assertThatThrownBy(() -> store.install(tampered(V3), staged(V2), trust)).isInstanceOf(LivenessEngineException.class)
+                .satisfies(e -> assertThat(((LivenessEngineException) e).code()).isEqualTo(ErrorCode.MODEL_INTEGRITY_FAILED));
+        assertThatThrownBy(() -> store.install(staged(V3), tampered(V2), trust)).isInstanceOf(LivenessEngineException.class)
+                .satisfies(e -> assertThat(((LivenessEngineException) e).code()).isEqualTo(ErrorCode.MODEL_INTEGRITY_FAILED));
+        assertThat(store.currentVersion()).isEqualTo(V1);
+        assertThat(new File(root, "bundles").list()).containsExactly(V1);
+    }
+
+    private static MapSource tampered(String version) throws Exception {
+        Map<String, byte[]> files = TestBundles.bundle(version, kp, TestBundles.fakeModels(7), "{}");
+        byte[] model = files.get(ModelRole.PAD_V2.fileName()).clone();
+        model[3] ^= 1;
+        files.put(ModelRole.PAD_V2.fileName(), model);
+        return new MapSource(files);
+    }
+
+    @Test
     void rollbackIsAnExplicitOperatorAction(@TempDir File root) throws Exception {
         ModelStore store = new ModelStore(root);
         store.install(staged(V1), trust);

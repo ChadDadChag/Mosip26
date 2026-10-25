@@ -28,6 +28,9 @@ import java.util.List;
  * with fsync; rename to {@code bundles/<v>}; re-verify from disk; switch {@code current} via {@code current.tmp}
  * (fsync, delete, rename); keep only the current and the previous bundle.
  *
+ * <p>{@link #install(BundleSource, BundleSource, TrustedKeys)} also takes the app's own bundle: when the store is empty
+ * or older than it, it becomes the rollback base first, and older installed bundles are removed.
+ *
  * <p>{@link #loadCurrent} fails closed: the pointer, the directory name and the manifest version must all agree and
  * the bundle must verify, otherwise MODEL_INTEGRITY_FAILED (a tampered disk is treated as an attack).
  *
@@ -109,10 +112,52 @@ public final class ModelStore {
         VerifiedBundle bundle = VerifiedBundle.load(staged, keys);
         recoverPointer(keys);
         String previous = readPointer();
-        String v = bundle.version();
-        if (previous != null && VerifiedBundle.compareVersions(v, previous) <= 0) {
-            throw new IllegalArgumentException("not newer than " + previous);
+        refuseNotNewer(bundle.version(), previous);
+        String v = writeAndSwitch(bundle, keys);
+        prune(v, previous);
+        return v;
+    }
+
+    /**
+     * Installs a staged bundle with the app's own bundle as the rollback base. Both are verified before the store is
+     * touched, and the staged one must be newer than the bundled one. If the store is empty, or its current version is
+     * older than the bundled one (an app update brought newer models), the bundled bundle is first installed as the
+     * base, and every installed bundle older than it is removed: an app update may have made them unusable (four-model
+     * bundles after F1). Then the staged bundle is installed as by {@link #install(BundleSource, TrustedKeys)}, so a
+     * {@link #rollback} lands on the bundled version. Pruning happens here only, never when loading.
+     *
+     * @return the installed version
+     * @throws LivenessEngineException  MODEL_INTEGRITY_FAILED if either bundle (or a written copy) does not verify
+     * @throws IllegalArgumentException if the staged bundle is not newer than the bundled or the current one
+     * @throws IOException              on a disk error
+     */
+    public synchronized String install(BundleSource staged, BundleSource bundled, TrustedKeys keys)
+            throws LivenessEngineException, IOException {
+        VerifiedBundle bundle = VerifiedBundle.load(staged, keys);
+        VerifiedBundle base = VerifiedBundle.load(bundled, keys);
+        refuseNotNewer(bundle.version(), base.version());
+        recoverPointer(keys);
+        String previous = readPointer();
+        if (previous == null || VerifiedBundle.compareVersions(previous, base.version()) < 0) {
+            writeAndSwitch(base, keys);
+            pruneOlderThan(base.version());
+            previous = base.version();
         }
+        refuseNotNewer(bundle.version(), previous);
+        String v = writeAndSwitch(bundle, keys);
+        prune(v, previous);
+        return v;
+    }
+
+    private static void refuseNotNewer(String v, String than) {
+        if (than != null && VerifiedBundle.compareVersions(v, than) <= 0) {
+            throw new IllegalArgumentException("not newer than " + than);
+        }
+    }
+
+    /** Writes a verified bundle as bundles/v (tmp, fsync, rename, re-verify from disk) and makes it current. */
+    private String writeAndSwitch(VerifiedBundle bundle, TrustedKeys keys) throws LivenessEngineException, IOException {
+        String v = bundle.version();
         if (!bundles.isDirectory() && !bundles.mkdirs()) throw new IOException("cannot create " + bundles);
 
         File tmp = new File(bundles, v + TMP_MARK + Hex.encode(randomBytes()));
@@ -137,7 +182,6 @@ public final class ModelStore {
             if (tmp != null) deleteRecursively(tmp);
         }
         writePointer(v);
-        prune(v, previous);
         return v;
     }
 
@@ -210,6 +254,16 @@ public final class ModelStore {
         writeSynced(tmp, (v + "\n").getBytes(StandardCharsets.US_ASCII));
         if (current.exists() && !current.delete()) throw new IOException("cannot replace " + current);
         if (!tmp.renameTo(current)) throw new IOException("cannot rename " + tmp + " to " + current);
+    }
+
+    /** Removes every installed bundle older than {@code version} (install with a base only). */
+    private void pruneOlderThan(String version) {
+        File[] dirs = bundles.listFiles();
+        if (dirs == null) return;
+        for (File d : dirs) {
+            String n = d.getName();
+            if (VerifiedBundle.isValidVersion(n) && VerifiedBundle.compareVersions(n, version) < 0) deleteRecursively(d);
+        }
     }
 
     /** Keeps the current and the previous bundle; removes older bundles and leftover temporary directories. */

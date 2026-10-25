@@ -170,6 +170,12 @@ fallback. A store bundle that is older than or equal to the bundled one is not r
 matters after an app update: a device that installed `pad-2026.10.1` (four models) keeps it in its store, and that
 bundle no longer verifies against the five roles. Before this rule it blocked the app's newer `pad-2026.10.4`.
 
+Hosts install updates with `install(staged, bundledSource, keys)`, which takes the app's own bundle as well. Both are
+verified before the store is touched, and the staged bundle must be newer than the bundled one. If the store is empty,
+or its current version is older than the bundled one, the bundled bundle is installed first as the rollback base, and
+every installed bundle older than it is removed. A later `rollback()` therefore lands on the bundled version, which
+verifies, and never on a bundle an app update made unusable. Pruning happens only in install, never when loading.
+
 ## 8. Signing keys: development vs production
 
 | | Development key (today) | Production key (before release) |
