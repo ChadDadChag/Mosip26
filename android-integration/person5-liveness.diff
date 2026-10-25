@@ -903,22 +903,23 @@ index 0000000..686d49a
 +-keep class ai.onnxruntime.** { *; }
 diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
 new file mode 100644
-index 0000000..847064e
+index 0000000..5c70777
 --- /dev/null
 +++ b/android/liveness/engine-sync.txt
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
-+engine commit 16d5ce9
-+libs/liveness-api-1.2.0.2.jar d5f45e3267e6394ccfaa245f1a985b50f4a7f92ca785b9b02b746c180daa0686
-+libs/liveness-core-1.2.0.2.jar 533a38221feffd10c2664778b5e3c849d5c03300a50ea25fe64b7166169c0563
-+libs/liveness-fake-1.2.0.2.jar 16e866cb6883920c40f606414ef44aa0501cadcd5bd6ec4e0bed1978d0ae95b8
-+libs/liveness-analyzer-1.2.0.2.jar 4271108872d61a1d3f1e47c1514fa96c93c6eab09a61a0aa9b28c44d3e747486
-+assets/liveness/models/manifest.json 14c761555d23bfcc147cf772556bc22cdba16a515f3af484c95bf5b8778a4c13
-+assets/liveness/models/manifest.sig c9fc221a1cb95632cdfa742b2496d50c2d8b94296794eed320f81311cb50d19a
++engine commit 74317e6
++libs/liveness-api-1.2.0.2.jar 57a932e19b7eb0c4ade9a3e190862fed0e1cd412bc85912d9b8d86c87c04aeca
++libs/liveness-core-1.2.0.2.jar d3dbd5fdfcc8ff5e265752307790ed77725dbe4bfb66102d9674d63919c5ed02
++libs/liveness-fake-1.2.0.2.jar 65af759ba71f7af7a77831bfc84a0a9fb13c4d40fe0a9c0e05026bc0b613fc48
++libs/liveness-analyzer-1.2.0.2.jar aca2eee22e56fce84c0ed9aad157f4c6c230aec4bab3e9c113992f61f0be507f
++assets/liveness/models/manifest.json 8c97e8fffd197d4f7a96607c5eb5b43d028d003926934a607651475c04033731
++assets/liveness/models/manifest.sig a2bc1f07ae28ed1103c6ac3cf60e02da6fe31f683589a2261cc667b614c7ac6d
 +assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
 +assets/liveness/models/face_mesh_v2.onnx 4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb
 +assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
 +assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
++assets/liveness/models/face_recognition_sface_2021dec.onnx 0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79
 +src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java d354bc01ddfd9bd2152be655b80598520b495c93842291253e5edd58f5a07ab0
 diff --git a/android/liveness/src/main/AndroidManifest.xml b/android/liveness/src/main/AndroidManifest.xml
 new file mode 100644

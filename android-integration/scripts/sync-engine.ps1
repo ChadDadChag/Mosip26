@@ -7,7 +7,7 @@ Installs the engine modules (liveness-api, -core, -fake, -analyzer) with JDK 11 
 %USERPROFILE%\tools\liveness-env.ps1, then copies into <Clone>\android\liveness:
 
   libs\                                  the four engine jars
-  src\main\assets\liveness\models\       the signed model bundle: 4 ONNX files, manifest.json, manifest.sig
+  src\main\assets\liveness\models\       the signed model bundle: the ONNX files listed in manifest.json (5 since F1), manifest.json, manifest.sig
   src\main\java\...\CameraXFrameSource.java   Part 1's camera source (android-liveness-frame-source)
 
 The model files are copied byte for byte. Each ONNX file is checked against manifest.json
