@@ -2,7 +2,7 @@
 
 Development tool only; results and decision: docs/part2-f2-screen-cue-design.md section 6.2.
 
-    python -I models/tools/f2_banding_prototype.py [--eval-data DIR]
+    python -I models/tools/f2_banding_prototype.py [--eval-data DIR] [--jpeg-test THRESHOLD] [--takes DIR ...]
 
 Per frame with exactly one face, for two regions: the V1SE 4.0x region (get_new_box on pad_box) and the face box's
 central 60% columns. Row profile = the mean BT.601 luma of each frame row of the region, in native frame rows (no
@@ -152,15 +152,74 @@ def jpeg_test(eval_dir, threshold):
         print(f"| {amp:.1f} | " + " | ".join(cells) + " |")
 
 
+ROUND1_BONA_FIDE_MAX = {"region": 10.28, "face": 19.54, "drift": 7.07}  # section 6.2, s01 JPEG takes
+
+
+def analyse_takes(take_dirs):
+    """The lossless banding takes (DatasetSession --only f2_banding): per take, the effective frame rate (exact
+    repeats of the previous frame dropped), the take-average whitened spectrum's strongest narrow peaks for the 4.0x
+    region, the face and the whole frame, and the session statistics against the round-1 bona fide maxima."""
+    yunet = rp.YuNet(rp.MODELS / rp.YUNET_FILE)
+    print("| take | frames (unique) | effective fps | region peaks | face peaks | whole-frame peaks | "
+          "region / face / drift session max |")
+    print("|---|---|---|---|---|---|---|")
+    for d in take_dirs:
+        d = Path(d)
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        files = sorted(list(d.glob("frame_*.png")) + list(d.glob("frame_*.jpg")))
+        per, prev, unique = [], None, 0
+        acc = {"region": None, "face": None, "frame": None}
+        for path in files:
+            bgr = rp.imread_bgr(str(path))
+            if prev is not None and np.array_equal(bgr, prev):
+                continue
+            prev, unique = bgr, unique + 1
+            n, primary = rp.count_faces(yunet.detect(bgr))
+            if n != 1:
+                per.append(None)
+                continue
+            f = frame_features(bgr, primary["box"])
+            _, wp = profile_spectrum(luma(bgr).mean(axis=1))
+            f["frame"] = {"white": wp}
+            per.append(f)
+            for k in acc:
+                if f[k] is not None:
+                    acc[k] = f[k]["white"] if acc[k] is None else acc[k] + f[k]["white"]
+        s = session(per)
+        dur = meta.get("durationMs", 0) / 1000.0
+        fps = (unique - 1) / dur if dur > 0 else float("nan")
+        scored = max(1, sum(1 for p in per if p is not None))
+        peaks = {}
+        for k, a in acc.items():
+            if a is None:
+                peaks[k] = "n/a"
+                continue
+            m = a / scored
+            idx = np.argsort(m[BAND])[::-1][:3]
+            fb = FREQS[BAND]
+            peaks[k] = " ".join(f"{1 / fb[i]:.1f}r {m[BAND][i]:.1f}x" for i in idx)
+        mx = {k: (max(v) if v else float("nan")) for k, v in s.items()}
+        print(f"| {meta.get('label')}/{meta.get('condition')} | {len(files)} ({unique}) | {fps:.1f} | {peaks['region']} | "
+              f"{peaks['face']} | {peaks['frame']} | {mx['region']:.2f} / {mx['face']:.2f} / {mx['drift']:.2f} |")
+    print(f"\nRound-1 bona fide maxima (JPEG, 10 fps): region {ROUND1_BONA_FIDE_MAX['region']}, face "
+          f"{ROUND1_BONA_FIDE_MAX['face']}, drift {ROUND1_BONA_FIDE_MAX['drift']}. A PWM band shows as the same period "
+          f"among the screen takes' strongest peaks, well above about 3x, and not in the bona fide take.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--eval-data", default=str(rp.MODELS.parent / "eval-data"))
     ap.add_argument("--jpeg-test", type=float, metavar="THRESHOLD",
                     help="only run the synthetic JPEG test at this bandScore threshold")
+    ap.add_argument("--takes", nargs="+", metavar="DIR",
+                    help="only analyse these take folders (the lossless banding takes, eval-data/f2-banding/...)")
     args = ap.parse_args()
     eval_dir = Path(args.eval_data)
     if args.jpeg_test is not None:
         jpeg_test(eval_dir, args.jpeg_test)
+        return 0
+    if args.takes:
+        analyse_takes(args.takes)
         return 0
     moire = {}
     scatter = eval_dir / "reports" / "pad-eval-20261024-cap" / "scatter.csv"
