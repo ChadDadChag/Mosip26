@@ -59,7 +59,8 @@ covers every stage. The production analyzer skips them for multi-face frames.
 
 ## binding.json (face binding, F1)
 
-`make_golden.py --binding` writes the SFace features that `SFaceEmbedderParityTest` and `FaceMatcherTest` check:
+`make_golden.py --binding` writes the SFace features (the bundled int8 SFace since fix round 2) that
+`SFaceEmbedderParityTest` and `FaceMatcherTest` check:
 - **Faces:** every face YuNet finds in the portrait (`portrait`), its mirror (`portrait_flipped`) and the crew photo
   (`crew0`..`crew3`, in YuNet's order).
 - **Per face:**
@@ -67,9 +68,11 @@ covers every stage. The production analyzer skips them for multi-face frames.
   - `feature`, the 128 raw SFace values, not normalised;
   - `featureNorm`;
   - `alignedStats`, the statistics of the 112 x 112 input;
-  - `cosineWithOpenCv`, the cosine with OpenCV's FaceRecognizerSF given the same detection. It is at least
-    0.9999995 for all six faces.
-- **`cosines`:** every pair. The portrait matches its mirror (0.956). All other pairs are between -0.03 and 0.15,
+  - `alignedMaxDiffWithOpenCv`, the largest difference between our aligned crop and OpenCV's `alignCrop`: 1 grey
+    level for all six faces (OpenCV quantises sub-pixel positions to 1/32 px);
+  - `cosineWithOpenCv`, the cosine with OpenCV's FaceRecognizerSF given the same detection: 0.9916 to 0.9952. OpenCV's
+    DNN and ONNX Runtime run the int8 operators with different kernels; the fp32 file agreed to 0.9999995.
+- **`cosines`:** every pair. The portrait matches its mirror (0.946). All other pairs are between -0.04 and 0.19,
   far below `threshold`, OpenCV's 0.363. The engine's default threshold is 0.45 (fix round 2).
 
 The features are derived from the public-domain fixture images only.

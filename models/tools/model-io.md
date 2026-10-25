@@ -75,19 +75,19 @@ PAD, MiniFASNetV1SE, crop scale 4.0 (Silent-Face, exported)
 
 Sample run: logits [-3.1623, 4.5181, -1.3578], softmax [0.0005, 0.9967, 0.0028] (index 1 = real)
 
-## `face_recognition_sface_2021dec.onnx`
+## `face_recognition_sface_2021dec_int8.onnx`
 
-face binding (F1): SFace face recognition, MobileFaceNet (OpenCV Zoo 2021dec, unmodified)
+face binding (F1): SFace face recognition, MobileFaceNet (OpenCV Zoo 2021dec int8, unmodified)
 
-- size: 38,696,353 bytes
-- sha256: `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79`
-- IR version 6; opset ai.onnx 11; producer
+- size: 9,896,933 bytes
+- sha256: `2b0e941e6f16cc048c20aee0c8e31f569118f65d702914540f7bfdc14048d78a`
+- IR version 6; opset ai.onnx 11, com.microsoft 1, com.microsoft.nchwc 1, ai.onnx.training 1, ai.onnx.preview.training 1, com.microsoft.experimental 1, ai.onnx.ml 2; producer onnx.quantize 0.1.0
 
 | kind | name | declared shape | dtype | sample-run shape |
 |---|---|---|---|---|
 | input | `data` | [1, 3, 112, 112] | tensor(float) | [1, 3, 112, 112] |
 | output | `fc1` | [1, 128] | tensor(float) | [1, 128] |
 
-Sample run: feature L2 norm 14.775; first values [-2.1255, 0.0207, -0.6833, 3.4608]
+Sample run: feature L2 norm 12.467; first values [-2.1689, -0.3447, -0.6387, 1.7942]
 
-Total size of the 5 models: 47,333,310 bytes (45.14 MiB).
+Total size of the 5 models: 18,533,890 bytes (17.68 MiB).

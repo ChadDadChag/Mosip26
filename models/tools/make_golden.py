@@ -22,8 +22,9 @@ works (PD-USGov-NASA) from Wikimedia Commons; never put team faces here.
                             (a ~51 px face in a 640 px group photo is correctly too small)
    livenessScore is printed, never asserted: a digital photo may legitimately score as a spoof.
 4. binding.json (face binding, F1; also alone with --binding): the SFace feature of every face in the portrait,
-   its mirror and the crew photo, the cosines between them and with OpenCV's FaceRecognizerSF. Asserted: cosine
-   with cv2 >= 0.9999 per face; the portrait matches its mirror; every other pair stays below the threshold.
+   its mirror and the crew photo, the cosines between them and with OpenCV's FaceRecognizerSF. Asserted: the
+   aligned crop within 1 grey level of cv2's and the feature cosine with cv2 >= 0.99 per face (int8 SFace: see
+   binding()); the portrait matches its mirror; every other pair stays below the threshold.
 5. tracking.json (landmark tracking, F7; also alone with --tracking): the portrait and its mirror analysed twice in
    one session; the second frame's tracked ROI, presence, landmarks and pose. Asserted: frame 2 is tracked without
    fallback and its landmarks stay close to frame 1's (mean < 2.5 px, max < 8 px: a different crop).
@@ -136,12 +137,15 @@ def binding(failures):
             for k, f in enumerate(pipe.yunet.detect(img)):
                 feat, aligned = rp.sface_embed(pipe.sface, img, f)
                 row = np.array([f["box"] + [v for p in f["kps"] for v in p] + [f["score"]]], dtype=np.float32)
-                feat_cv = rec.feature(rec.alignCrop(img, row)).ravel()
+                crop_cv = rec.alignCrop(img, row)
+                feat_cv = rec.feature(crop_cv).ravel()
+                crop_diff = int(np.abs(aligned.astype(np.int16) - crop_cv.astype(np.int16)).max())
                 ident = ("portrait" if fx["name"] == "portrait_frontal" else f"crew{k}") + ("_flipped" if flipped else "")
                 faces.append({"id": ident, "image": fx["name"] + ".png", "flipped": flipped, "box": f["box"],
                               "score": f["score"], "kps": f["kps"], "feature": [float(v) for v in feat],
                               "featureNorm": float(np.linalg.norm(feat)),
                               "alignedStats": rp.tensor_stats(rp.sface_input(aligned)),
+                              "alignedMaxDiffWithOpenCv": crop_diff,
                               "cosineWithOpenCv": rp.sface_cosine(feat, feat_cv)})
     cos = {}
     for i, a in enumerate(faces):
@@ -155,7 +159,13 @@ def binding(failures):
     out.write_text(rp.to_json({"meta": meta, "faces": faces, "cosines": cos}), encoding="utf-8")
     print(f"{out.name}: {len(faces)} faces")
     for f in faces:
-        check(f["cosineWithOpenCv"] >= 0.9999, f"{f['id']} feature cosine with cv2 >= 0.9999 "
+        # The preprocessing (alignment, warp) mirrors OpenCV exactly: the 112 x 112 crops differ by at most 1 grey
+        # level (OpenCV quantises sub-pixel positions to 1/32 px). The network is the int8 SFace since fix round 2:
+        # OpenCV's DNN and ONNX Runtime run its quantised operators with different kernels and rounding, so the
+        # features agree to a cosine of about 0.99 (the fp32 file agreed to 0.9999995).
+        check(f["alignedMaxDiffWithOpenCv"] <= 1, f"{f['id']} aligned crop within 1 grey level of cv2's alignCrop "
+              f"(got {f['alignedMaxDiffWithOpenCv']})", failures)
+        check(f["cosineWithOpenCv"] >= 0.99, f"{f['id']} feature cosine with cv2 >= 0.99 "
               f"(got {f['cosineWithOpenCv']:.7f})", failures)
     # OpenCV's threshold: this fixture is the parity reference against FaceRecognizerSF. The engine's default
     # (rp.BINDING_THRESHOLD, 0.45) is stricter for a match and looser for a non-match; both hold here.

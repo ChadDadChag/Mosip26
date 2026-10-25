@@ -269,7 +269,7 @@ Part 2 is the face analyzer behind Part 3's engine. For each frame it detects th
 | Module | What | Ships in the apps |
 |---|---|---|
 | `liveness-analyzer/` | `OnnxFaceAnalyzerFactory` / `OnnxFaceAnalyzer`. YuNet detection, FaceMesh V2 landmarks (tracked between frames) and pose, quality checks (including relative motion blur), MiniFASNet V2 + V1SE passive PAD, and the session moiré cap. `FaceMatcher`: SFace face binding. Also signed-bundle verification (`VerifiedBundle`, `TrustedKeys`) and offline updates (`ModelStore`). Java 8 / Android API 21 clean. | yes |
-| `models/` | The five ONNX models (45.1 MiB: the four liveness models and SFace for face binding), the signed `manifest.json` / `manifest.sig` (`pad-2026.10.4`), provenance and licences. `models/tools/` holds the Python reference pipeline (the executable spec), the conversion scripts and the golden-fixture scripts. | bundled into the analyzer jar |
+| `models/` | The five ONNX models (17.7 MiB: the four liveness models and the int8 SFace for face binding), the signed `manifest.json` / `manifest.sig` (`pad-2026.10.5`), provenance and licences. `models/tools/` holds the Python reference pipeline (the executable spec), the conversion scripts and the golden-fixture scripts. | bundled into the analyzer jar |
 | `liveness-eval/` | Dev tools: `ModelBundleTool` (keygen, sign, verify, install, rollback), the live webcam demo, `AnalyzerBenchmark`, `DatasetRecorder`, `PadEvaluation` (ISO/IEC 30107-3 metrics), `BindingEvaluation` (face binding similarity and error rates) | no |
 
 ## Build and test (Part 2)

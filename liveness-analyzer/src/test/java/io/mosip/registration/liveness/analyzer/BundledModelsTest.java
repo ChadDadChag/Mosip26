@@ -16,8 +16,9 @@ import static org.assertj.core.api.Assertions.within;
 /** The committed, signed bundle (models/manifest.json + manifest.sig) with the built-in dev key. */
 class BundledModelsTest {
 
-    // 10.2 and 10.3 were local test bundles (P5-5); 10.4 adds the face binding model (F1).
-    static final String VERSION = "pad-2026.10.4";
+    // 10.2 and 10.3 were local test bundles (P5-5); 10.4 added the face binding model (F1, fp32 SFace); 10.5 has the
+    // zoo's int8 SFace instead (fix round 2).
+    static final String VERSION = "pad-2026.10.5";
 
     @Test
     void theCommittedBundleVerifiesWithTheBuiltInKey() throws Exception {
@@ -29,7 +30,7 @@ class BundledModelsTest {
         assertThat(b.sha256().get(ModelRole.LANDMARKS)).isEqualTo("4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb");
         assertThat(b.sha256().get(ModelRole.PAD_V2)).isEqualTo("7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665");
         assertThat(b.sha256().get(ModelRole.PAD_V1SE)).isEqualTo("d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84");
-        assertThat(b.sha256().get(ModelRole.MATCHER)).isEqualTo("0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79");
+        assertThat(b.sha256().get(ModelRole.MATCHER)).isEqualTo("2b0e941e6f16cc048c20aee0c8e31f569118f65d702914540f7bfdc14048d78a");
         assertThat(TrustedKeys.builtIn().keyIds()).containsExactly("mosip-liveness-dev-2026-10");
     }
 

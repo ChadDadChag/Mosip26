@@ -6,8 +6,11 @@ public enum ModelRole {
     LANDMARKS("face_mesh_v2.onnx"),
     PAD_V2("minifasnet_v2_s2.7.onnx"),
     PAD_V1SE("minifasnet_v1se_s4.0.onnx"),
-    /** Face binding (F1): SFace, used by {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}. */
-    MATCHER("face_recognition_sface_2021dec.onnx");
+    /**
+     * Face binding (F1): SFace, OpenCV Zoo's int8 file since pad-2026.10.5 (fp32 before), used by
+     * {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}.
+     */
+    MATCHER("face_recognition_sface_2021dec_int8.onnx");
 
     private final String fileName;
 

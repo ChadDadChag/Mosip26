@@ -124,10 +124,10 @@ stays small and fixed in shape.
 
 **Contents.** `manifest.json`, `manifest.sig` and the five ONNX files: the four liveness models and SFace for face
 binding (section 12). They are packaged in the jar under `liveness/models/` (`ClasspathBundleSource`), or kept in a
-`ModelStore` directory. The current bundle is `pad-2026.10.4`.
+`ModelStore` directory. The current bundle is `pad-2026.10.5` (the int8 SFace; `pad-2026.10.4` had the fp32 one).
 
 ```json
-{ "schema": 1, "bundleVersion": "pad-2026.10.4", "keyId": "mosip-liveness-dev-2026-10",
+{ "schema": 1, "bundleVersion": "pad-2026.10.5", "keyId": "mosip-liveness-dev-2026-10",
   "createdUtc": "2026-10-23T15:17:10Z", "params": { "pitchBiasDeg": -9.5 },
   "files": [ { "role": "DETECTOR", "name": "yunet_2026may.onnx", "size": 229738, "sha256": "ebafce4e..." }, ... ] }
 ```
@@ -168,7 +168,7 @@ With a store, the factory verifies the bundled bundle and uses the store's curre
 then that one must verify too. A tampered disk is treated as an attack: `MODEL_INTEGRITY_FAILED`, with no silent
 fallback. A store bundle that is older than or equal to the bundled one is not read, since it would not be used. This
 matters after an app update: a device that installed `pad-2026.10.1` (four models) keeps it in its store, and that
-bundle no longer verifies against the five roles. Before this rule it blocked the app's newer `pad-2026.10.4`.
+bundle no longer verifies against the five roles. Before this rule it blocked the app's newer five-model bundle.
 
 Hosts install updates with `install(staged, bundledSource, keys)`, which takes the app's own bundle as well. Both are
 verified before the store is touched, and the staged bundle must be newer than the bundled one. If the store is empty,
@@ -248,21 +248,25 @@ per frame, the analyzer easily covers Part 3's 8 fps passive rate and 15 fps cha
 
 These figures predate face binding. Since `pad-2026.10.4` the bundle has five files. `preload()` verifies all five and
 builds the four per-frame sessions. The SFace session is built on the matcher's first call, or earlier by
-`warmUpMatcher()` on a background thread (fix round 2). Fresh JVM on the laptop, five runs:
+`warmUpMatcher()` on a background thread (fix round 2). `pad-2026.10.5` replaced the fp32 SFace with the zoo's int8
+file (section 12).
 
-| step | time |
-|---|---|
-| load ONNX Runtime's native library (first use in the process) | 1.6–1.9 s |
-| read and verify the five files (SFace is 82% of the 45 MiB) | 0.59–0.94 s |
-| build the four per-frame sessions | 0.19–0.28 s |
-| build the SFace session (`warmUpMatcher`) | 67–98 ms |
-| first comparison of two images, without warm-up (builds the SFace session) | 234–255 ms |
-| first comparison after `warmUpMatcher` (first inferences) | 152–205 ms |
-| comparison, warm (two images) | 64–70 ms |
+| | fp32 SFace (`pad-2026.10.4`) | int8 SFace (`pad-2026.10.5`) |
+|---|---|---|
+| laptop, fresh JVM: `preload()` | 2.2–2.9 s: ONNX Runtime's native library 1.6–1.9 s, reading and verifying the files 0.59–0.94 s, the four sessions 0.19–0.28 s | 1.6–2.1 s (28.8 MB less to verify) |
+| laptop: SFace session (`warmUpMatcher`) | 67–98 ms | 50–52 ms |
+| laptop: first comparison of two images, without / after the warm-up | 234–255 / 152–205 ms | 531–574 / 461–519 ms |
+| laptop: comparison, warm / one face, warm | 64–70 / 29–34 ms | 404–422 / 204–211 ms |
+| phone (S23 FE, debug build): app preload, then the matcher warm-up | 427–526 ms, then 42–61 ms (504 ms when preload built all five sessions) | see section 12 |
+| phone: first comparison without / after the warm-up | 203 / 89 ms | 140 / 75 ms |
+| phone: comparison, warm / one-face embedding p50 | 128 / 45.6 ms | 76 / 36.8 ms |
 
-So deferring the SFace session saves about 80 ms of preload on the laptop; the rest is the runtime and the
-verification of the bytes, which preload must still do. A match runs once per capture, not per frame. Per-frame times
-are unchanged, apart from the occasional F7 fallback, which re-runs the mesh.
+Laptop runs: 3 fresh JVMs each (`BindingEvaluation --speed [--warm-up]`); the breakdown of the fp32 preload from 5
+more. Phone: the debug page's matcher benchmark (`MatcherBenchmark`, two live frames with one face, fresh factories).
+Deferring the SFace session saves about 80 ms of preload on the laptop; the rest is the runtime and the verification
+of the bytes, which preload must still do. On this laptop's x86 CPU the int8 SFace is about 6 times slower than fp32;
+on the phone's ARM CPU it is faster. A match runs once per capture, not per frame. Per-frame times are unchanged,
+apart from the occasional F7 fallback, which re-runs the mesh.
 
 ## 11. Android notes (Person 5)
 
@@ -286,9 +290,10 @@ are unchanged, apart from the occasional F7 fallback, which re-runs the mesh.
 between the two, a live person could pass liveness while a photo, or another person, is captured. Face binding
 compares `LivenessResult.bestFrame` with the captured face and accepts the capture only if both show the same person.
 
-**Model.** SFace from OpenCV Zoo (`face_recognition_sface_2021dec.onnx`, a MobileFaceNet trained with the SFace loss).
-- Licence: Apache-2.0, byte-identical to upstream (38.7 MB). The training-data provenance is in `models/LICENSES.md`.
-- It is the fifth role of the signed bundle (`MATCHER`, bundle `pad-2026.10.4`).
+**Model.** SFace from OpenCV Zoo, a MobileFaceNet trained with the SFace loss: since `pad-2026.10.5` the zoo's own
+int8 file `face_recognition_sface_2021dec_int8.onnx` (9.9 MB). `pad-2026.10.4` had the fp32 file (38.7 MB).
+- Licence: Apache-2.0, byte-identical to upstream. The training-data provenance is in `models/LICENSES.md`.
+- It is the fifth role of the signed bundle (`MATCHER`).
 
 **Method.** This is OpenCV's `FaceRecognizerSF`, mirrored from `modules/objdetect/src/face_recognize.cpp` (OpenCV
 5.0.0); line numbers are in `reference_pipeline.py`:
@@ -308,50 +313,62 @@ try (FaceMatcher matcher = factory.createMatcher()) {          // shares the fac
 ```
 
 **Parity.**
-- **Python vs OpenCV:** the Python spec's features have a cosine of at least 0.9999995 with `cv2.FaceRecognizerSF` on
-  every golden face. The aligned crops differ by at most 1 grey level, because OpenCV quantises sub-pixel positions to
-  1/32 pixel.
-- **Java vs Python:** feature cosine 1.0000000, and pairwise similarities within 1e-15 (`golden/binding.json`).
+- **Preprocessing vs OpenCV:** our aligned 112 × 112 crops differ from `cv2.FaceRecognizerSF.alignCrop` by at most
+  1 grey level on every golden face (OpenCV quantises sub-pixel positions to 1/32 pixel).
+- **Features vs OpenCV:** fp32 file 0.9999995 or more; int8 file 0.9916 to 0.9952. OpenCV's DNN and ONNX Runtime run
+  the int8 operators with different kernels and rounding; the engine and its Python spec both use ONNX Runtime.
+- **Java vs Python** (`SFaceEmbedderParityTest`, `golden/binding.json` regenerated for the int8 file): feature cosine
+  at least 0.9999 and pairwise similarities within 1e-3, the test's bounds; the fp32 file measured 1.0000000 and
+  1.3e-15.
 
-**Evaluation** (`BindingEvaluation`; single subject s01, provisional; aggregates only):
+**Evaluation** (`BindingEvaluation`; single subject s01, provisional; aggregates only). Both files on the same pairs,
+with the best frames the current analyzer picks per take (F6 and F7 changed some of them since FR-1, whose fp32 s01
+minimum was 0.742). Cells: min / median / max.
 
-| set | pairs | min | median | max |
-|---|---|---|---|---|
-| genuine: s01's bona fide takes, pairwise | 55 | 0.742 | 0.810 | 0.973 |
-| genuine: the same NASA person in different photos | 12 | 0.672 | 0.797 | 0.945 |
-| same person via a photo: s01 vs screen photos of s01's selfie | 99 | 0.295 | 0.645 | 0.806 |
-| impostor: s01 vs 49 public portraits | 539 | -0.321 | 0.033 | 0.253 |
-| impostor: s01 vs screen photos of NASA portraits | 99 | -0.065 | 0.025 | 0.137 |
-| impostor: NASA vs NASA, different people | 1159 | -0.182 | 0.112 | 0.376 |
-| impostor: crew faces vs each other and vs the portraits | 202 | -0.176 | 0.083 | 0.383 |
+| set | pairs | fp32 | int8 |
+|---|---|---|---|
+| genuine: s01's bona fide takes, pairwise | 55 | 0.686 / 0.800 / 0.973 | 0.648 / 0.782 / 0.955 |
+| genuine: the same NASA person in different photos | 12 | 0.672 / 0.797 / 0.945 | 0.646 / 0.778 / 0.926 |
+| same person via a photo: s01 vs screen photos of s01's selfie | 99 | 0.295 / 0.623 / 0.806 | 0.268 / 0.585 / 0.769 |
+| impostor: s01 vs 49 public portraits | 539 | -0.321 / 0.035 / 0.253 | -0.268 / 0.030 / 0.282 |
+| impostor: s01 vs screen photos of NASA portraits | 99 | -0.066 / 0.037 / 0.146 | -0.076 / -0.001 / 0.154 |
+| impostor: NASA vs NASA, different people | 1159 | -0.182 / 0.112 / 0.376 | -0.178 / 0.111 / 0.364 |
+| impostor: crew faces vs each other and vs the portraits | 202 | -0.176 / 0.083 / 0.383 | -0.157 / 0.080 / 0.335 |
 
 **What the numbers show.**
-- **At 0.363:** FNMR is 0 on both genuine sets. Two of the 1,999 impostor pairs match (0.376 and 0.383, both
-  between public NASA photos).
-- **At 0.40 and above:** no impostor pair matches. FNMR on the genuine sets stays 0 up to 0.60.
+- **At 0.363 (OpenCV's value):** FNMR is 0 on both genuine sets for both files. Impostors that match: fp32 2 of 1,999
+  (0.376 and 0.383, both between public NASA photos), int8 1 (0.364).
+- **At 0.40 and above:** no impostor pair matches with either file. FNMR on the genuine sets stays 0 up to 0.60.
 - **Default: 0.45** (decided in fix round 2).
-  - It leaves a margin of 0.067 above the highest impostor and 0.22 below the lowest genuine pair.
-  - It still matches the person's own photo on a screen (median 0.645).
+  - With int8 it leaves a margin of 0.086 above the highest impostor and 0.196 below the lowest genuine pair.
+  - It still matches the person's own photo on a screen (int8 median 0.585; 12 of 99 such pairs fall below 0.45).
   - The setting is `mosip.registration.liveness.face.binding.cosineThreshold`; OpenCV's 0.363 can be set there.
+- **int8 adopted** (fix round 2, `pad-2026.10.5`). The criteria, all met: impostor maximum at most 0.40 (0.364),
+  genuine minimum at least 0.60 (0.646), FNMR and FMR 0 at 0.45, and a one-face embedding on the phone at most
+  150 ms (36.8 ms, against 45.6 ms for fp32). Every APK and the analyzer jar shrink by 28.8 MB. The cost is the laptop,
+  where an x86 CPU runs it about 6 times slower than fp32 (a comparison 0.40–0.42 s, once per capture).
+- **Live check on the phone** (debug page binding test, fp32 bundle, the tester's face in the gate): the tester in the
+  still MATCH 0.92; a NASA portrait on the laptop screen in the still NO_MATCH 0.15; an empty wall NO_FACE_B.
 - **The trade-off:**
   - A false match lets a different person's face be stored. That is the security error.
   - A false non-match only asks the operator to recapture.
   - With one subject, the genuine side is thin: a lower-quality SBI image (other lighting, older photo) would move
     genuine scores down.
 
-**Binding is not presentation attack detection.** A photo of the same person on a screen still matches (median
-0.645). Binding must run after liveness passed, never instead of it.
+**Binding is not presentation attack detection.** A photo of the same person on a screen still matches (int8 median
+0.585). Binding must run after liveness passed, never instead of it.
 
 **Cost.**
-- One face (detection, alignment, SFace) takes 28–34 ms on the laptop; a comparison of two images 64–70 ms warm.
-- The bundle grows from 8.2 MiB to 45.1 MiB.
+- One face (detection, alignment, SFace): laptop 204–211 ms, phone 36.8 ms (int8); a comparison of two images takes
+  0.40–0.42 s on the laptop and 76 ms on the phone, once per capture.
+- The bundle grows from 8.2 MiB (four models) to 17.7 MiB (45.1 MiB with the fp32 SFace).
 - Preload verifies all five files but builds the SFace session only on first use or in `warmUpMatcher()`: see the
   timings in section 10.
 
 **Integration.**
 - **Desktop (Person 4):** call `compare(bestFrame, capturedFace)` before accepting the capture; see
   `part2-findings-for-other-parts.md`.
-- **Android:** fix round 2.
+- **Android:** built in fix round 2; see `docs/ui-liveness-spec.md` section 6, "Face binding (F1)".
 
 ## 13. Known limitations
 

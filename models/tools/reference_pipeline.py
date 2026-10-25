@@ -28,7 +28,7 @@ YUNET_FILE = "yunet_2026may.onnx"
 MESH_FILE = "face_mesh_v2.onnx"
 PAD_V2_FILE = "minifasnet_v2_s2.7.onnx"
 PAD_V1SE_FILE = "minifasnet_v1se_s4.0.onnx"
-SFACE_FILE = "face_recognition_sface_2021dec.onnx"
+SFACE_FILE = "face_recognition_sface_2021dec_int8.onnx"  # the zoo's int8 SFace (fix round 2); fp32 until pad-2026.10.4
 
 YUNET_TARGET_WIDTH = 320
 YUNET_STRIDES = (8, 16, 32)

@@ -1,11 +1,12 @@
 # Third-party licences for the Part 2 models
 
 The five model files in `models/` are third-party works, redistributed under their original
-licences. **The weights are unmodified apart from format conversion**: there was no retraining,
+licences. **The weights are unmodified apart from format conversion**: we did no retraining,
 fine-tuning, pruning or quantisation.
 - `face_mesh_v2.onnx` was converted from TFLite to ONNX.
 - The two MiniFASNet files were exported from the PyTorch `.pth` weights to ONNX.
-- `yunet_2026may.onnx` and `face_recognition_sface_2021dec.onnx` are byte-identical to upstream.
+- `yunet_2026may.onnx` and `face_recognition_sface_2021dec_int8.onnx` are byte-identical to upstream. The SFace file
+  is OpenCV Zoo's own int8 quantisation of the 2021dec model, published in the same zoo directory.
 
 The conversions were done by the MOSIP Decode Part 2 team with the scripts in `tools/`. That
 statement is the notice of change required by Apache-2.0 section 4(b) for the three converted files.
@@ -15,7 +16,7 @@ statement is the notice of change required by Apache-2.0 section 4(b) for the th
 | `yunet_2026may.onnx` | YuNet face detector, [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_detection_yunet) | Copyright (c) 2020 Shiqi Yu | MIT (text below) |
 | `face_mesh_v2.onnx` | MediaPipe FaceMesh V2 (`face_landmarks_detector.tflite` from the Face Landmarker task bundle `face_landmarker/float16/1`), [Google MediaPipe](https://github.com/google-ai-edge/mediapipe) | Copyright The MediaPipe Authors (Google LLC) | Apache-2.0 (text below) |
 | `minifasnet_v2_s2.7.onnx`, `minifasnet_v1se_s4.0.onnx` | MiniFASNetV2 / MiniFASNetV1SE, [Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing/tree/b6d5f04ad78778917853b25c778acef6d5626d15) | Copyright 2020 Minivision | Apache-2.0 (text below) |
-| `face_recognition_sface_2021dec.onnx` | SFace face recognition (MobileFaceNet trained with the SFace loss), [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_recognition_sface); contributed by Yaoyao Zhong, ONNX conversion by Chengrui Wang | No copyright holder named (the zoo's LICENSE keeps the Apache template line "Copyright [yyyy] [name of copyright owner]") | Apache-2.0: the directory's own `LICENSE`, and its README says "All files in this directory are licensed under Apache 2.0 License" |
+| `face_recognition_sface_2021dec_int8.onnx` | SFace face recognition (MobileFaceNet trained with the SFace loss), int8 quantised by OpenCV Zoo, [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_recognition_sface); contributed by Yaoyao Zhong, ONNX conversion by Chengrui Wang | No copyright holder named (the zoo's LICENSE keeps the Apache template line "Copyright [yyyy] [name of copyright owner]") | Apache-2.0: the directory's own `LICENSE`, and its README says "All files in this directory are licensed under Apache 2.0 License" |
 | `tools/third_party/silent_face/MiniFASNet.py` | Silent-Face-Anti-Spoofing `src/model_lib/MiniFASNet.py`, unmodified | Copyright 2020 Minivision | Apache-2.0; see the `LICENSE` and `NOTICE` files in that directory |
 
 ## Attribution
@@ -33,9 +34,10 @@ statement is the notice of change required by Apache-2.0 section 4(b) for the th
   contributors, distributed through OpenCV Zoo (https://github.com/opencv/opencv_zoo), licensed
   under the MIT License.
 - **SFace (OpenCV Zoo).** This product includes the SFace face recognition model
-  (`face_recognition_sface_2021dec.onnx`) by Yaoyao Zhong, distributed through OpenCV Zoo
+  (`face_recognition_sface_2021dec_int8.onnx`, the zoo's int8 file) by Yaoyao Zhong, distributed through OpenCV Zoo
   (https://github.com/opencv/opencv_zoo), licensed under the Apache License 2.0. It is used only for face
-  binding (F1): comparing the face that passed liveness with the captured face.
+  binding (F1): comparing the face that passed liveness with the captured face. Bundle `pad-2026.10.4` shipped the
+  fp32 file of the same directory (`face_recognition_sface_2021dec.onnx`); the provenance below covers both.
 
   **Provenance of the training data.** The zoo states only that the files are "MobileFaceNet instances
   trained on the SFace loss function". It does not say which dataset this checkpoint was trained on.

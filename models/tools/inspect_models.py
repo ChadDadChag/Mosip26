@@ -25,7 +25,7 @@ ROLES = {
     rp.MESH_FILE: "478-point face mesh with irises (MediaPipe FaceMesh V2, face_landmarker.task float16/1, converted)",
     rp.PAD_V2_FILE: "PAD, MiniFASNetV2, crop scale 2.7 (Silent-Face, exported)",
     rp.PAD_V1SE_FILE: "PAD, MiniFASNetV1SE, crop scale 4.0 (Silent-Face, exported)",
-    rp.SFACE_FILE: "face binding (F1): SFace face recognition, MobileFaceNet (OpenCV Zoo 2021dec, unmodified)",
+    rp.SFACE_FILE: "face binding (F1): SFace face recognition, MobileFaceNet (OpenCV Zoo 2021dec int8, unmodified)",
 }
 
 
