@@ -51,4 +51,28 @@ class RecordingAuditManager implements AuditManagerService {
 	Call last() {
 		return calls.get(calls.size() - 1);
 	}
+
+	synchronized List<AuditEvent> events() {
+		List<AuditEvent> events = new ArrayList<>();
+		for (Call c : calls) {
+			events.add(c.event);
+		}
+		return events;
+	}
+
+	/** Waits for an {@code event} record whose description contains {@code text} (the sink writes in the background). */
+	String await(AuditEvent event, String text) throws InterruptedException {
+		long deadline = System.currentTimeMillis() + 90_000;
+		while (System.currentTimeMillis() < deadline) {
+			synchronized (this) {
+				for (Call c : calls) {
+					if (c.event == event && c.description != null && c.description.contains(text)) {
+						return c.description;
+					}
+				}
+			}
+			Thread.sleep(50);
+		}
+		throw new AssertionError("no " + event + " audit with '" + text + "' in " + events());
+	}
 }

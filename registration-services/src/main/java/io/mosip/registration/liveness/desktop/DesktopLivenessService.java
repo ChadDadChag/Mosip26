@@ -19,6 +19,7 @@ import io.mosip.registration.constants.AuditEvent;
 import io.mosip.registration.constants.RegistrationConstants;
 import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
 import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
 import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
 import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
@@ -83,6 +84,8 @@ public class DesktopLivenessService {
 
 	private DesktopAuditSink auditSink;
 	private OnnxFaceAnalyzerFactory analyzers;
+	private BundleSource bundledModels = new ClasspathBundleSource();
+	private TrustedKeys trustedKeys = TrustedKeys.builtIn();
 	private LivenessService engine;
 	private FaceBinding binding;
 	private String configFingerprint;
@@ -108,36 +111,63 @@ public class DesktopLivenessService {
 		return config;
 	}
 
+	/** Tests: another bundled model source and its trusted keys (bundles signed with a throwaway key). */
+	synchronized DesktopLivenessService withModels(BundleSource bundled, TrustedKeys keys) {
+		this.bundledModels = bundled;
+		this.trustedKeys = keys;
+		return this;
+	}
+
 	/**
 	 * Verifies the model bundle and builds the analyzer sessions in the background (about 1 s), so that the first
 	 * liveness check does not wait for it. Called once at start-up. A failure is audited and retried by the first
 	 * session, which then fails closed with MODEL_INTEGRITY_FAILED or ENGINE_ERROR.
 	 */
 	public void preloadAsync() {
-		background.execute(() -> {
-			long start = System.currentTimeMillis();
-			try {
+		background.execute(this::preload);
+	}
+
+	/**
+	 * The preload itself: verifies the bundle and builds the per-frame sessions (audited as MODEL_LOADED, or
+	 * MODEL_INTEGRITY_FAILED on failure), then builds the face matcher's session. A matcher warm-up failure is only
+	 * logged: that session is built on the first face binding anyway, and it is not a model integrity failure (as on
+	 * Android).
+	 *
+	 * @return true when the models verified and loaded
+	 */
+	boolean preload() {
+		long start = System.currentTimeMillis();
+		OnnxFaceAnalyzerFactory factory;
+		try {
+			synchronized (this) {
 				engine();
-				if (analyzers == null) {
-					return;
-				}
-				analyzers.preload();
-				Map<String, String> d = new LinkedHashMap<>();
-				d.put("modelVersion", analyzers.modelVersion());
-				d.put("accelerator", String.valueOf(analyzers.activeAccelerator()));
-				d.put("loadMs", String.valueOf(System.currentTimeMillis() - start));
-				d.put("phase", "preload");
-				auditSink().record(AuditEvent.LIVENESS_MODEL_LOADED, null, null, d);
-				analyzers.warmUpMatcher();
-			} catch (LivenessEngineException | RuntimeException e) {
-				Map<String, String> d = new LinkedHashMap<>();
-				d.put("errorCode", e instanceof LivenessEngineException
-						? String.valueOf(((LivenessEngineException) e).code()) : "ENGINE_ERROR");
-				d.put("reason", e.getClass().getSimpleName());
-				d.put("phase", "preload");
-				auditSink().record(AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED, null, null, d);
+				factory = analyzers;
 			}
-		});
+			if (factory == null) {
+				return false;
+			}
+			factory.preload();
+			Map<String, String> d = new LinkedHashMap<>();
+			d.put("modelVersion", factory.modelVersion());
+			d.put("accelerator", String.valueOf(factory.activeAccelerator()));
+			d.put("loadMs", String.valueOf(System.currentTimeMillis() - start));
+			d.put("phase", "preload");
+			auditSink().record(AuditEvent.LIVENESS_MODEL_LOADED, null, null, d);
+		} catch (LivenessEngineException | RuntimeException e) {
+			Map<String, String> d = new LinkedHashMap<>();
+			d.put("errorCode", e instanceof LivenessEngineException
+					? String.valueOf(((LivenessEngineException) e).code()) : "ENGINE_ERROR");
+			d.put("reason", e.getClass().getSimpleName());
+			d.put("phase", "preload");
+			auditSink().record(AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED, null, null, d);
+			return false;
+		}
+		try {
+			factory.warmUpMatcher();
+		} catch (LivenessEngineException | RuntimeException e) {
+			LOGGER.warn("Face matcher warm-up failed ({}); the first face binding builds it", e.getClass().getSimpleName());
+		}
+		return true;
 	}
 
 	/** A new session, or null when liveness is disabled for the workflow (the caller keeps the legacy flow). */
@@ -274,8 +304,8 @@ public class DesktopLivenessService {
 			}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, true);
 			return fake;
 		}
-		analyzers = new OnnxFaceAnalyzerFactory(new ClasspathBundleSource(), new ModelStore(modelStoreDir()),
-				TrustedKeys.builtIn(), AnalyzerConfig.fromConfig(config));
+		analyzers = new OnnxFaceAnalyzerFactory(bundledModels, new ModelStore(modelStoreDir()), trustedKeys,
+				AnalyzerConfig.fromConfig(config));
 		final OnnxFaceAnalyzerFactory matcherSource = analyzers;
 		binding = new FaceBinding(this::isEnabled, config, (live, captured) -> {
 			try (FaceMatcher matcher = matcherSource.createMatcher()) {

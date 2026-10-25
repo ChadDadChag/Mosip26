@@ -531,6 +531,7 @@ liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tes
 | `DesktopAuditSinkTest` | event mapping, description format, sanitising (image-like data dropped), splitting, audit failures contained |
 | `DesktopLivenessConfigTest` | synced config over bundled defaults, workflow policies, JVM-only dev switches, change fingerprint |
 | `DeferredFrameSourceTest` | unplugged device = recoverable DEVICE_UNAVAILABLE; Retry opens it again |
+| `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
 | `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
 | `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
 | `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text |
