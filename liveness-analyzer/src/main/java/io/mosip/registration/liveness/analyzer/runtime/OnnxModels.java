@@ -2,6 +2,7 @@ package io.mosip.registration.liveness.analyzer.runtime;
 
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
+import ai.onnxruntime.OrtLoggingLevel;
 import ai.onnxruntime.OrtSession;
 import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.AnalyzerConfig.Accelerator;
@@ -101,6 +102,9 @@ public final class OnnxModels implements AutoCloseable {
         Map<ModelRole, OrtSession> sessions = new EnumMap<ModelRole, OrtSession>(ModelRole.class);
         try (OrtSession.SessionOptions options = new OrtSession.SessionOptions()) {
             options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+            // SFace lists its 174 initializers as graph inputs, and ONNX Runtime warns once per initializer on every
+            // load (as in the Python spec, only errors are logged).
+            options.setSessionLogLevel(OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR);
             switch (accelerator) {
                 case XNNPACK:
                     options.addXnnpack(Collections.singletonMap("intra_op_num_threads", String.valueOf(threads)));
