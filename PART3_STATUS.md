@@ -270,3 +270,31 @@ How these fit with rounds 3 and 4:
 - P3-1 helps the round-4 19794-5 tier. After a turn or look, `GUIDANCE(LOOK_AT_CAMERA)` brings the head back toward ±5° for the hold.
 - P3-3 adds to D21 (BLINK is never the only challenge). D21 stops a replayed natural blink; P3-3 stops a tilted photo from faking a blink or smile.
 - All four changes were re-applied on top of rounds 3 and 4, and every Part 3 test passes with both sets of changes.
+
+### Live proof of the tilt guard, P3-3 (fix round 2, 2026-10-25)
+
+The 2026-10-24 live check never reached a BLINK or SMILE prompt with a photo: passive PAD or PadMonitor stopped it
+first. This run removes those layers so that only the detectors and the guard decide.
+- **Setup:** Part 2's `SessionDemo` (`LiveAnalyzerDemo --mode series`, pushed with Part 2) on the laptop webcam, mirrored preview, the
+  real analyzer (bundle `pad-2026.10.5`, pushed with Part 2). Overrides for every run:
+  - `passiveThreshold` 0.9999: no passive pass, so every run gets challenges;
+  - `padRejectThreshold` 0.0: no PAD_FAILURE, and PadMonitor never ends a challenge;
+  - the analyzer's `moireCapThreshold` off;
+  - challenge pool BLINK and SMILE.
+- **Drift:** the largest yaw or pitch change from the median pose of the 0.6 s before each prompt, the frames over
+  the guard's 12° (BLINK and SMILE ignore them), and the excursions over 12° (each one cancels a closure or smile in
+  progress). This approximates the engine's baseline, which is not exposed.
+- **Subject:** single subject, provisional. The photo was a phone photo of the subject, held about 10 cm from the
+  webcam, with the subject's own face out of view.
+
+| Run | Presented | Result | Challenges (a photo run has 4 prompts: each attempt failed at its first; counts are over the two runs) |
+|---|---|---|---|
+| b1 | real face | **PASSED** on the first attempt | BLINK detected in 0.98 s (drift 0.7°, EAR down to 0.085); SMILE detected in 0.96 s (drift 2.6°) |
+| q2, q3 | the photo, tipped back gently | **FAILED**, MAX_RETRIES_EXCEEDED | 0 of 8 detected; drift at most 11.0°, so the guard never fired; the photo's EAR stayed at 0.180 or more |
+| q1, q2 (second series) | the photo, tipped back hard (about 45°) | **FAILED**, MAX_RETRIES_EXCEEDED | 0 of 8 detected; drift up to 21.8°; 6 of 8 prompts went over 12°: 15 frames ignored, 8 excursions (guard cancellations) |
+
+Result: the real face passes BLINK and SMILE within 1 s at under 3° of drift. A tilted photo of the same person is
+never detected, either with small tilts (the eye and mouth changes stay below the detectors' thresholds) or with large
+ones (the guard discards the tilted frames and cancels in-progress actions). Before P3-3, a tilted close-up photo
+passed BLINK and SMILE. The per-frame features of these runs are in `liveness-eval/target/sessions-*.jsonl` (numbers
+only, never committed).
