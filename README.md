@@ -199,8 +199,9 @@ order and byte-identical through `MjpegFrameReader`.
 ## Test status (be aware)
 
 - **Real build.** The suite runs inside the real Registration Client v1.2.0.2 build (JDK 11, the upstream MOSIP
-  classes, no stubs), with the "Build and test" command above. The `registration-services` liveness tests total 96,
-  all passing: the original 83, plus 13 new.
+  classes, no stubs), with the "Build and test" command above. The Part 1 liveness tests total 96, all passing: the
+  original 83, plus 13 new. 72 of them run in `registration-services`. The other 24 test the Part 2 heuristic
+  analyzer and moved with it to `liveness-analyzer`.
 - **New tests:**
   - preview tee
   - harness model and headless run
