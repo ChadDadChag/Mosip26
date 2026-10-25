@@ -57,7 +57,11 @@ eval-data/                                   (gitignored)
   attack/<species>/<subject>/<take>/         same
   reports/                                   PadEvaluation output (pad-eval-<yyyyMMdd>/)
   traces/                                    Part 3 TraceRecorder traces (features only)
+  f16-clips/<name>/                          regression clips before review (NASA portrait only, section 8)
+  f2-banding/<subject>/<condition>/          lossless 30 fps banding takes (section 8)
 ```
+
+`PadEvaluation` reads only `bona_fide/` and `attack/`.
 
 The species is taken from the directory and never guessed from the content. `meta.json` holds `label`, `kind`
 (`bona_fide` or `attack`), `subject`, `take`, `condition`, `fps`, `frames`, `durationMs`, `format`, `jpegQuality`,
@@ -125,6 +129,26 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
   - Single takes also work: `DatasetRecorder --consent --label print_flat --subject s01 --take 1 --condition selfie`.
 - Rerun `PadEvaluation`. Species without takes stay marked "not yet evaluated". The exact commands are in
   `docs/part2-iso30107-evaluation.md`, section 7.
+- **Regression clips (F16), `--only f16`.** Four 5-second clips at 15 fps of the public-domain NASA portrait only:
+  `nasa-print-normal`, `nasa-print-close`, `nasa-phone-normal` and `nasa-phone-close-fill`.
+  - **No person may be in view:** no face, no body, no face reflected in the phone, nobody in the background. A hand
+    holding the print or phone is the only exception. These clips are the only recordings that get committed.
+  - Before committing, each clip goes through three steps:
+    1. `ClipPacker` turns it into MJPEG under 2 MB.
+    2. `models/tools/clip_privacy_check.py` counts the faces in every frame and writes contact sheets outside the
+       repository. Every frame is then looked at.
+    3. `scripts/probe-regression-clips.ps1` plays it through `RecordedVideoE2ETest` three times.
+  - Only a clip that FAILED in all three runs is committed, to `registration-services/src/test/resources/liveness/videos/`
+    as `<name>__expect-FAILED-<CODE>.mjpeg`, or as `<name>__expect-FAILED.mjpeg` if the code varies. A clip that
+    PASSES is a finding to report, not a test.
+- **Banding takes (F2), `--only f2_banding`.** Three 3-second takes at 30 fps in lossless PNG:
+  - the phone close (filling the view) with the NASA portrait, at 30% brightness (PWM dimming on, `nasa_fill_pwm30`)
+    and at 100% (`nasa_fill_100`), with automatic brightness off;
+  - the subject's own face, `close_whole_30fps`.
+  - `meta.json` counts the frames the camera repeated (`duplicates`). The banding tool's `--takes` mode reports
+    their spectra (`docs/part2-f2-screen-cue-design.md`, section 6.2).
+- **Starting a block:** `scripts\dataset-session.ps1 -Consent -Subject s01 -Only <block>` runs the session with this
+  repository's build. Without `-Consent` it refuses.
 
 ## 9. Evaluation
 
