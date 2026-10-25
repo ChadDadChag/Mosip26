@@ -67,7 +67,7 @@ flowchart LR
 | `LivenessScreenModel` | client | Maps `LivenessEvent`s to message keys, oval colour + icon, progress, step, attempts, tips and buttons: the spec's state table. Pure Java, unit tested. |
 | `LivenessView` | client | Renders the model (`fxml/LivenessCheck.fxml`, `liveness.css`); live preview mirrored for display only; screen-reader notifications. |
 | `LivenessMessages` | client | Message lookup: app language, then English, then the built-in English catalogue (identical to the spec, checked by a test). |
-| `LivenessScreenDemo` | client | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. |
+| `LivenessScreenDemo` | client (test sources) | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. Not in the client jar (§10). |
 | `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, metrics. |
 | `FaceBinding` | services | F1: the next face capture of the workflow must match the PASSED session's best frame. |
 | `DesktopLivenessConfig` | services | `ConfigProvider` over `ApplicationContext.map()` (synced global config + local preferences) with bundled Desktop defaults. |
@@ -535,11 +535,13 @@ liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tes
 | `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
 | `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text |
 
-**Screen demo** (classpath from `mvn -pl registration-client dependency:build-classpath`):
+**Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
+can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
+`install -DskipTests`:
 
-    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png
-    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator
-    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --live webcam
+    mvn -pl registration-client test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo "-Dexec.args=--snapshots ../docs/images/part4 --face ../liveness-analyzer/src/test/resources/golden/portrait_frontal.png"
+    mvn -pl registration-client test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo "-Dexec.args=--scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator"
+    mvn -pl registration-client test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo "-Dexec.args=--live webcam"
 
 **In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 (real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).
