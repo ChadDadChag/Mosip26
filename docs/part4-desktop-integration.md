@@ -544,12 +544,13 @@ The screen and texts are identical online and offline.
 From `registration-client/registration` (JDK 11; first build online):
 
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip -Dmaven.gitcommitid.skip=true
-    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip -Dmaven.gitcommitid.skip=true
+    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip -Dmaven.gitcommitid.skip=true
 
 (`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 
-**Results (2026-10-26):** `registration-services` 129 tests pass: the 27 new Desktop tests plus the existing Part 1
-liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tests pass. No failures, nothing skipped.
+**Results (2026-10-26, with the follow-ups):** `registration-services` 147 tests pass: the 33 Desktop tests plus the
+existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
+`registration-client` 28 tests pass. No failures, nothing skipped.
 
 | Test | What it proves |
 |---|---|
@@ -567,11 +568,12 @@ liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tes
 
 **Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
 can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
-`install -DskipTests`:
+`install -DskipTests` (paths are relative to `registration/`; the quotes keep PowerShell from splitting the `-D`
+arguments):
 
-    mvn -pl registration-client test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo "-Dexec.args=--snapshots ../docs/images/part4 --face ../liveness-analyzer/src/test/resources/golden/portrait_frontal.png"
-    mvn -pl registration-client test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo "-Dexec.args=--scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator"
-    mvn -pl registration-client test-compile exec:java -Dexec.classpathScope=test -Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo "-Dexec.args=--live webcam"
+    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png"
+    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator"
+    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--live webcam"
 
 **In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 (real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).

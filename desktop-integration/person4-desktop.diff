@@ -1,3 +1,14 @@
+diff --git a/.gitattributes b/.gitattributes
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -18,3 +18,7 @@
+ *.jpeg   binary
+ *.png    binary
+ *.mjpeg  binary
++# Part 4: overlay copies of the Registration Client's message bundles keep the upstream bytes (CRLF, no final
++# newline), so the overlay changes only the appended liveness block.
++registration-client/src/main/resources/messages_ar.properties -text
++registration-client/src/main/resources/messages_fr.properties -text
 diff --git a/README.md b/README.md
 --- a/README.md
 +++ b/README.md
@@ -21,7 +32,7 @@ diff --git a/README.md b/README.md
 +
 +| Path | What |
 +|---|---|
-+| `registration-client/.../controller/liveness/` | `LivenessGate` (the one call each flow makes), `LivenessScreenModel` (spec state table), `LivenessView` + `fxml/LivenessCheck.fxml` + `liveness.css` (the screen), `LivenessMessages`, `LivenessScreenDemo` (screens as PNG, interactive demo) |
++| `registration-client/.../controller/liveness/` | `LivenessGate` (the one call each flow makes), `LivenessScreenModel` (spec state table), `LivenessView` + `fxml/LivenessCheck.fxml` + `liveness.css` (the screen), `LivenessMessages`; in the test sources, `LivenessScreenDemo` (screens as PNG, interactive demo; not in the client jar) |
 +| `registration-services/.../liveness/desktop/` | `DesktopLivenessService` (engine, device, preload, config reload, metrics), `FaceBinding`, `DesktopLivenessConfig` (synced global config), `DesktopAuditSink` (audit module, `REG-LIV-001..011`) |
 +| hooks | `GenericBiometricsController`, `BiometricsController`, `LoginController`, `AuthenticationController`, `EODAuthenticationController`, `BaseController.captureAndValidateFace`, `SessionContext.validateFace`, `ClientApplication` (preload) |
 +| `docs/part4-registration-default.properties` | the liveness block for the server's `registration-default.properties` |
@@ -40,13 +51,14 @@ diff --git a/desktop-integration/README.md b/desktop-integration/README.md
 new file mode 100644
 --- /dev/null
 +++ b/desktop-integration/README.md
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +# Part 4: Desktop integration patch
 +
 +`person4-desktop.diff` is every Part 4 change as one diff, relative to `registration-client/registration` at
-+v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 45 text files: new liveness classes,
-+tests and docs, plus small additive hooks in existing client classes. The 14 screen images in `docs/images/part4/` are
-+binary and are shipped as files, not in the diff.
++v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 55 text files: new liveness classes,
++tests and docs, the liveness block appended to the Arabic and French message bundles, plus small additive hooks in
++existing client classes. The 14 screen images in `docs/images/part4/` are binary and are shipped as files, not in the
++diff.
 +
 +Apply, from `registration-client/registration` after copying this repository over it:
 +
@@ -58,7 +70,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,575 @@
+@@ -0,0 +1,616 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -128,11 +140,12 @@ new file mode 100644
 +| `LivenessScreenModel` | client | Maps `LivenessEvent`s to message keys, oval colour + icon, progress, step, attempts, tips and buttons: the spec's state table. Pure Java, unit tested. |
 +| `LivenessView` | client | Renders the model (`fxml/LivenessCheck.fxml`, `liveness.css`); live preview mirrored for display only; screen-reader notifications. |
 +| `LivenessMessages` | client | Message lookup: app language, then English, then the built-in English catalogue (identical to the spec, checked by a test). |
-+| `LivenessScreenDemo` | client | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. |
-+| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, metrics. |
++| `LivenessScreenDemo` | client (test sources) | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. Not in the client jar (§10). |
++| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, checks for a newer signed model bundle after a sync (when enabled), metrics. |
 +| `FaceBinding` | services | F1: the next face capture of the workflow must match the PASSED session's best frame. |
 +| `DesktopLivenessConfig` | services | `ConfigProvider` over `ApplicationContext.map()` (synced global config + local preferences) with bundled Desktop defaults. |
-+| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..011`. |
++| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..012`. |
++| `ConfigSyncedEvent`, `SwappableAnalyzerFactory` | services | Told after a successful config sync (starts the online model update); the analyzer factory that a model update replaces while running sessions keep theirs. |
 +| `DeferredFrameSource`, `IdleFrameSource`, `CapturedFaceDecoder` | services | Device opened on start (unplugged device = recoverable error with Retry); no-op source for the scripted engine; ISO 19794-5 → RGB frame for binding. |
 +
 +**What changed in existing client code** (all additive, the legacy path stays when liveness is disabled):
@@ -146,6 +159,7 @@ new file mode 100644
 +| `AuthenticationController`, `EODAuthenticationController` | Face validation: gate first (OPERATOR, or SUPERVISOR for the reviewer and EOD approval). |
 +| `ClientApplication` | `preloadAsync()` after device discovery at start-up. |
 +| `AuditEvent`, `Components`, `AuditReferenceIdTypes`, `AuditManagerService(Impl)` | New events `REG-LIV-*`, component `REG-MOD-153`, reference type `LIVENESS_SESSION_ID`, and an `audit(..., description)` overload that stores the details. |
++| `GlobalParamServiceImpl` (services) | After a successful config sync, publishes a `ConfigSyncedEvent` (the online model update listens). A failing listener never reaches the sync. |
 +| `messages_en.properties` | The shared liveness catalogue (spec §5), English. |
 +| poms | `registration-services` → `liveness-fake` (dev engine); `registration-client` → JUnit (tests). |
 +
@@ -424,7 +438,15 @@ new file mode 100644
 +        S->>E: reloadConfig() → LIVENESS_CONFIG_LOADED (running sessions keep their policy)
 +    end
 +    Note over S: offline: the last synced values in GLOBAL_PARAM, else the bundled defaults
-+    Note over S: model update: a newer SIGNED bundle in desktop.modelStoreDir is used by the next start;<br/>tampered or unsigned = MODEL_INTEGRITY_FAILED, no fallback to unverified models
++    Sync-->>S: ConfigSyncedEvent (successful sync only)
++    opt model.update.enabled=true and model.update.url set
++        S->>S: background thread: ModelUpdater.check(url, ModelStore, bundled, keys)
++        S->>S: LIVENESS_MODEL_UPDATE (outcome, version, reason, durationMs, trigger)
++        alt INSTALLED
++            S->>E: new sessions use the new bundle (MODEL_LOADED); running sessions keep theirs
++        end
++    end
++    Note over S: the sync never waits for the update and never fails because of it;<br/>tampered or unsigned = refused, the current models stay
 +```
 +
 +## 4. UI screens
@@ -490,11 +512,25 @@ new file mode 100644
 +| `operator.gatePasswordLogin` | true | OPERATOR liveness after a successful password login (skipped when a face login step follows) |
 +| `animations` | true | challenge icon pulse (false = reduced motion) |
 +| `metricsAuditEvery` | 20 | audit a metrics snapshot every N sessions (0 = never) |
-+| `modelStoreDir` | `<client folder>/.liveness-models` | offline model store (signed bundles only) |
++| `modelStoreDir` | `<client folder>/.liveness-models` | model store (signed bundles only); the online model update installs here |
++
++**Online model update** (the same keys as Android, [part5-android-integration.md](part5-android-integration.md)):
++
++| Key | Default | Meaning |
++|---|---|---|
++| `mosip.registration.liveness.model.update.enabled` | false | `true`: after every successful config sync, check the URL for a newer signed bundle |
++| `mosip.registration.liveness.model.update.url` | none | the index, `latest.json` (Part 2 `ModelBundleTool pack`), over HTTPS |
++
++The check is Part 2's `ModelUpdater` on the service's background thread: HTTPS only, size limits, SHA-256, then
++`ModelStore.install` (signature, anti-rollback, atomic switch; the client's own bundle becomes the rollback base). On
++INSTALLED, new sessions use the new bundle; a running session keeps its models. Any failure is audited and the current
++models stay. Without a sync (offline) nothing is checked.
 +
 +**Development only, JVM properties** (never read from synced config, so no config push can weaken liveness):
 +`-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine, `...desktop.fake.scenario=PASS_ACTIVE` etc.),
-+`-Dmosip.registration.liveness.face.desktop.source=webcam|video:<file.mjpeg>|images:<dir>` (mock device instead of SBI).
++`-Dmosip.registration.liveness.face.desktop.source=webcam|video:<file.mjpeg>|images:<dir>` (mock device instead of SBI),
++`-Dmosip.registration.liveness.model.update.allowInsecureLocalhost=true` (model update over plain HTTP, to localhost
++only, for a local test server).
 +
 +## 6. Audit and diagnostic logging
 +
@@ -516,8 +552,10 @@ new file mode 100644
 +| REG-LIV-009 | LIVENESS_CONFIG_LOADED | policy resolved (start, after a sync) | policy summary, configError |
 +| REG-LIV-010 | LIVENESS_FACE_BINDING | Desktop: capture compared with the live face | outcome, similarity, threshold, accepted |
 +| REG-LIV-011 | LIVENESS_METRICS | Desktop: every `metricsAuditEvery` sessions | anonymised counters and rates (§7) |
++| REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5) | outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point) |
 +
-+The names are the Android client's; the ids differ because the Desktop's `REG-EVT-009..018` were already taken.
++The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019); the ids differ because the Desktop's
++`REG-EVT-009..018` were already taken.
 +
 +**Scores, PAD reasons and challenge outcomes** are therefore in the audit trail; **raw face images never are**: the
 +engine passes only codes and numbers, and `DesktopAuditSink` enforces it again (keys must be short identifiers, values
@@ -543,6 +581,8 @@ new file mode 100644
 +client jars), so the network never decides whether liveness is enforced. Config comes from `GLOBAL_PARAM`, which holds
 +the last synced values offline; a sync while online is picked up by the next session. Model updates are installed only
 +as signed bundles (Part 2 `ModelStore`: verified, never older, atomic switch); without one the bundled models are used.
++When enabled, a successful sync also checks for a newer bundle online (§5); offline, the installed or bundled models
++keep working.
 +The screen and texts are identical online and offline.
 +
 +## 9. Security and privacy
@@ -577,12 +617,13 @@ new file mode 100644
 +From `registration-client/registration` (JDK 11; first build online):
 +
 +    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip -Dmaven.gitcommitid.skip=true
-+    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip -Dmaven.gitcommitid.skip=true
++    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip -Dmaven.gitcommitid.skip=true
 +
 +(`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 +
-+**Results (2026-10-26):** `registration-services` 129 tests pass: the 27 new Desktop tests plus the existing Part 1
-+liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tests pass. No failures, nothing skipped.
++**Results (2026-10-26, with the follow-ups):** `registration-services` 147 tests pass: the 33 Desktop tests plus the
++existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
++`registration-client` 28 tests pass. No failures, nothing skipped.
 +
 +| Test | What it proves |
 +|---|---|
@@ -592,15 +633,20 @@ new file mode 100644
 +| `DesktopAuditSinkTest` | event mapping, description format, sanitising (image-like data dropped), splitting, audit failures contained |
 +| `DesktopLivenessConfigTest` | synced config over bundled defaults, workflow policies, JVM-only dev switches, change fingerprint |
 +| `DeferredFrameSourceTest` | unplugged device = recoverable DEVICE_UNAVAILABLE; Retry opens it again |
++| `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
++| `DesktopModelUpdateTest` | online model update after a config sync, against a local HTTP server: enabled + newer bundle → INSTALLED with the bundled base kept for rollback, and the reload audits MODEL_LOADED with the new version; disabled or no URL → no request; a failure → audited as FAILED, the sync returns at once, the models stay; a running session keeps its analyzer until it ends |
 +| `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
 +| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
-+| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text |
++| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
 +
-+**Screen demo** (classpath from `mvn -pl registration-client dependency:build-classpath`):
++**Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
++can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
++`install -DskipTests` (paths are relative to `registration/`; the quotes keep PowerShell from splitting the `-D`
++arguments):
 +
-+    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png
-+    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator
-+    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --live webcam
++    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png"
++    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator"
++    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--live webcam"
 +
 +**In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 +(real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).
@@ -615,8 +661,15 @@ new file mode 100644
 +  clips, MockMDS 45/45 frames).
 +- **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was
 +  not tried with Narrator/NVDA.
-+- **Translations:** only English is in `messages_en.properties`. French and Arabic fall back to the built-in English
-+  texts until translated (`LivenessMessages`).
++- **Translations:** the liveness keys are in `messages_en`, `messages_ar` and `messages_fr.properties`, the three
++  languages Registration Client v1.2.0.2 ships.
++  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated and need a native
++    speaker's review.
++  - The overlay copies are the upstream files with the block appended, byte for byte (`.gitattributes` `-text`). The
++    block is `\u`-escaped: the French file is ISO-8859-1, and the Arabic file is all escapes too.
++  - Hindi, Kannada and Tamil are not added. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its other screens, so
++    a file with only the liveness keys would leave all the client's other keys missing in that language. Their
++    blocks stay in the spec's Appendix A for when the client gets full translations.
 +
 +**Behaviour to know:**
 +- A face-login binding rejection is handled by the existing login code as a failed face login (its "face not matched"
@@ -632,13 +685,13 @@ new file mode 100644
 +   the tip text). Desktop follows the spec; change it in the spec and both apps together if wanted.
 +2. **Turn prompt.** Part 2's findings recommend "Please turn your head to the left, then look back at the camera"; the
 +   spec keeps the problem statement's "Please turn your head to the left". Desktop follows the spec.
-+3. **Audit ids.** Desktop uses `REG-LIV-001..011` with the Android event names (the Desktop's `REG-EVT-009..018` are
++3. **Audit ids.** Desktop uses `REG-LIV-001..012` with the Android event names (the Desktop's `REG-EVT-009..018` are
 +   taken).
 diff --git a/docs/part4-registration-default.properties b/docs/part4-registration-default.properties
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-registration-default.properties
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,66 @@
 +# ----------------------------------------------------------------------------------------------------------------
 +# Face liveness / PAD for the Registration Client (Desktop Part 4, Android Part 5).
 +# Append to registration-default.properties in mosip-config. The client syncs it into its local GLOBAL_PARAM table,
@@ -699,6 +752,42 @@ new file mode 100644
 +mosip.registration.liveness.face.desktop.metricsAuditEvery=20
 +# Offline model store (signed bundles only). Empty = <client folder>/.liveness-models
 +mosip.registration.liveness.face.desktop.modelStoreDir=
++
++# --- Online model update (as on Android) ---------------------------------------------------------------------------
++# true = after each successful config sync, download a newer signed bundle from the index (latest.json, HTTPS) into
++# the model store above. New sessions use it; running sessions keep their models. Off until MOSIP hosts the bundles.
++mosip.registration.liveness.model.update.enabled=false
++mosip.registration.liveness.model.update.url=
+diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
+--- a/docs/ui-liveness-spec.md
++++ b/docs/ui-liveness-spec.md
+@@ -366,6 +366,10 @@
+   also opens the app's settings. No session is started without the permission.
+ - **Config after a sync**: the client re-reads the liveness config after every global-param refresh (sync). New
+   sessions use it; a running session keeps its policy and analyzer.
++- **Online model update** (off by default, `mosip.registration.liveness.model.update.enabled` and `.url`): Android
++  checks in a periodic background job; the Desktop checks after every successful config sync, on a background thread,
++  and the sync never waits for it. A newer signed bundle is used by new sessions; a running session keeps its models.
++  Nothing changes on screen; the outcome is audited (Android REG-EVT-019, Desktop REG-LIV-012).
+ - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
+   and there is no best frame.
+ 
+@@ -470,9 +474,12 @@
+   - Registration Client v1.2.0.2 loads `messages_<alpha-2 code>.properties` with
+     `ResourceBundle.getBundle("messages", locale)`. It maps each configured language's alpha-3 code to alpha-2 (`ara`
+     to `ar`).
+-  - It ships `messages_ar`, `messages_en` and `messages_fr`.
+-  - Hindi, Kannada and Tamil need new `messages_hi`, `messages_kn` and `messages_ta` files. The client also looks up
+-    `labels_<code>` for every configured language.
++  - It ships `messages_ar`, `messages_en` and `messages_fr`. Part 4's overlay has the Arabic and French blocks below
++    appended to the upstream files.
++  - Hindi, Kannada and Tamil are **not** added to the Desktop. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its
++    other screens, so a file with only the liveness keys would leave all the client's other keys missing in that
++    language. The blocks stay here for when the client gets full translations; it also looks up `labels_<code>` for
++    every configured language.
+ - **Encoding.** Java 11 reads a `.properties` resource bundle as UTF-8. If the file is not valid UTF-8, it reads the
+   whole file as ISO-8859-1 instead.
+   - `messages_ar.properties` is ASCII (`\u` escapes), so the Arabic block can be pasted as it is.
 diff --git a/registration-client/pom.xml b/registration-client/pom.xml
 --- a/registration-client/pom.xml
 +++ b/registration-client/pom.xml
@@ -1569,270 +1658,6 @@ new file mode 100644
 +		}
 +	}
 +}
-diff --git a/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
-new file mode 100644
---- /dev/null
-+++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
-@@ -0,0 +1,259 @@
-+package io.mosip.registration.controller.liveness;
-+
-+import java.awt.image.BufferedImage;
-+import java.io.File;
-+import java.io.IOException;
-+import java.nio.file.Paths;
-+import java.util.HashMap;
-+import java.util.LinkedHashMap;
-+import java.util.Map;
-+import java.util.concurrent.CountDownLatch;
-+import java.util.concurrent.atomic.AtomicReference;
-+import java.util.function.Consumer;
-+
-+import javax.imageio.ImageIO;
-+
-+import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
-+import io.mosip.registration.liveness.api.ChallengeType;
-+import io.mosip.registration.liveness.api.ConfigProvider;
-+import io.mosip.registration.liveness.api.ErrorCode;
-+import io.mosip.registration.liveness.api.Frame;
-+import io.mosip.registration.liveness.api.FrameSource;
-+import io.mosip.registration.liveness.api.LivenessEvent;
-+import io.mosip.registration.liveness.api.LivenessEvent.Guidance;
-+import io.mosip.registration.liveness.api.LivenessEvent.Type;
-+import io.mosip.registration.liveness.api.LivenessListener;
-+import io.mosip.registration.liveness.api.LivenessResult;
-+import io.mosip.registration.liveness.api.LivenessService;
-+import io.mosip.registration.liveness.api.LivenessSession;
-+import io.mosip.registration.liveness.api.WorkflowType;
-+import io.mosip.registration.liveness.core.DefaultLivenessService;
-+import io.mosip.registration.liveness.device.mock.MockFrameSource;
-+import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
-+import io.mosip.registration.liveness.device.util.PreviewFrameSource;
-+import io.mosip.registration.liveness.fake.FakeLivenessService;
-+import io.mosip.registration.liveness.fake.FakeScenario;
-+import javafx.application.Platform;
-+import javafx.embed.swing.SwingFXUtils;
-+import javafx.scene.Scene;
-+import javafx.scene.SnapshotParameters;
-+import javafx.scene.image.WritableImage;
-+import javafx.stage.Stage;
-+
-+/**
-+ * Development tool for the Desktop liveness screen, outside the Registration Client (no login, no database, no SBI):
-+ * <pre>
-+ *   LivenessScreenDemo --snapshots &lt;dir&gt; [--face &lt;image&gt;]     every screen state as PNG (the UI deliverable)
-+ *   LivenessScreenDemo --scenario PASS_ACTIVE [--workflow operator] the scripted engine, interactive
-+ *   LivenessScreenDemo --live webcam|video:&lt;file.mjpeg&gt;          the real engine and models on a webcam or clip
-+ * </pre>
-+ * It drives exactly the classes the client uses ({@link LivenessScreenModel}, {@link LivenessView}); only the
-+ * Spring wiring of {@link LivenessGate} is replaced.
-+ */
-+public final class LivenessScreenDemo {
-+
-+	private LivenessScreenDemo() {
-+	}
-+
-+	public static void main(String[] args) throws Exception {
-+		Map<String, String> a = new HashMap<>();
-+		for (int i = 0; i + 1 < args.length; i += 2) {
-+			a.put(args[i], args[i + 1]);
-+		}
-+		CountDownLatch started = new CountDownLatch(1);
-+		Platform.startup(started::countDown);
-+		started.await();
-+		if (a.containsKey("--snapshots")) {
-+			snapshots(new File(a.get("--snapshots")), a.get("--face"));
-+			Platform.exit();
-+			return;
-+		}
-+		WorkflowType workflow = WorkflowType.valueOf(a.getOrDefault("--workflow", "resident").toUpperCase());
-+		Platform.setImplicitExit(true);
-+		Platform.runLater(() -> {
-+			try {
-+				interactive(workflow, a.get("--scenario"), a.get("--live"));
-+			} catch (Exception e) {
-+				e.printStackTrace();
-+				Platform.exit();
-+			}
-+		});
-+	}
-+
-+	// ------------------------------------------------------------------ interactive
-+
-+	private static void interactive(WorkflowType workflow, String scenario, String live) throws Exception {
-+		Map<String, String> cfg = new HashMap<>();
-+		ConfigProvider config = cfg::get;
-+		LivenessService service;
-+		FrameSource device;
-+		if (live != null) {
-+			OnnxFaceAnalyzerFactory analyzers = new OnnxFaceAnalyzerFactory();
-+			analyzers.preload();
-+			service = DefaultLivenessService.builder().config(config).analyzerFactory(analyzers)
-+					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
-+			device = live.startsWith("video:") ? MockFrameSource.ofVideoFile(Paths.get(live.substring(6)), 15.0, true)
-+					: MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), 15.0);
-+		} else {
-+			service = FakeLivenessService.builder(config)
-+					.scenario(scenario == null ? FakeScenario.RANDOM : FakeScenario.valueOf(scenario.toUpperCase()))
-+					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
-+			device = new FrameSource() {
-+				@Override public DeviceInfo info() { return new DeviceInfo("none", "", "", "", "NONE", 0, 0, 0); }
-+				@Override public void start(Listener l) { }
-+				@Override public void stop() { }
-+				@Override public boolean isRunning() { return false; }
-+			};
-+		}
-+		LivenessSession session = service.newSession(workflow);
-+		LivenessScreenModel model = new LivenessScreenModel(workflow, service.policy(workflow).maxRetries);
-+		LivenessView view = LivenessView.load(LivenessMessages.english(), true);
-+		Stage stage = new Stage();
-+		stage.setTitle(LivenessMessages.english().text(model.title()));
-+		stage.setScene(new Scene(view.root()));
-+		view.render(model);
-+		PreviewFrameSource source = new PreviewFrameSource(device);
-+		if (live != null) {
-+			source.addPreviewListener(view);
-+		} else {
-+			view.showPreview(false, "Scripted liveness engine: no camera preview");
-+		}
-+		view.setOnRetry(session::retry);
-+		view.setOnCancel(session::cancel);
-+		view.setOnClose(stage::close);
-+		stage.setOnHidden(e -> {
-+			session.cancel();
-+			view.dispose();
-+			Platform.exit();
-+			System.exit(0);
-+		});
-+		stage.show();
-+		session.start(source, new LivenessListener() {
-+			@Override
-+			public void onEvent(LivenessEvent e) {
-+				long now = System.currentTimeMillis();
-+				Platform.runLater(() -> {
-+					model.onEvent(e, now);
-+					view.render(model);
-+				});
-+			}
-+
-+			@Override
-+			public void onComplete(LivenessResult r) {
-+				System.out.println("RESULT " + r.decision + " " + (r.failureCode == null ? r.passPath : r.failureCode));
-+				Platform.runLater(() -> {
-+					model.onComplete(r);
-+					view.render(model);
-+				});
-+			}
-+		});
-+	}
-+
-+	// ------------------------------------------------------------------ snapshots
-+
-+	private static void snapshots(File dir, String face) throws Exception {
-+		if (!dir.isDirectory() && !dir.mkdirs()) {
-+			throw new IOException("cannot create " + dir);
-+		}
-+		Frame still = face == null ? null : still(new File(face));
-+		Map<String, Consumer<LivenessScreenModel>> states = new LinkedHashMap<>();
-+		states.put("01-checking", m -> {
-+			ev(m, LivenessEvent.of(Type.STARTED, 1));
-+			ev(m, LivenessEvent.of(Type.CHECKING_PASSIVE, 1));
-+		});
-+		states.put("02-guidance", m -> {
-+			ev(m, LivenessEvent.of(Type.CHECKING_PASSIVE, 1));
-+			ev(m, LivenessEvent.guidance(Guidance.MOVE_CLOSER, 1));
-+		});
-+		states.put("03-challenge-blink", m -> ev(m, LivenessEvent.prompt(ChallengeType.BLINK, 1, 2, 6000, 1)));
-+		states.put("04-challenge-progress", m -> {
-+			ev(m, LivenessEvent.prompt(ChallengeType.TURN_LEFT, 2, 2, 6000, 1));
-+			ev(m, LivenessEvent.progress(ChallengeType.TURN_LEFT, 2, 2, 0.55f, 1));
-+		});
-+		states.put("05-action-detected", m -> {
-+			ev(m, LivenessEvent.prompt(ChallengeType.TURN_LEFT, 2, 2, 6000, 1));
-+			ev(m, LivenessEvent.of(Type.ACTION_DETECTED, 1));
-+		});
-+		states.put("06-hold-still-look-at-camera", m -> {
-+			ev(m, LivenessEvent.of(Type.HOLD_STILL, 1));
-+			ev(m, LivenessEvent.guidance(Guidance.LOOK_AT_CAMERA, 1));
-+		});
-+		states.put("07-passed", m -> ev(m, LivenessEvent.of(Type.PASSED, 1)));
-+		states.put("08-attempt-failed-retry", m -> ev(m,
-+				LivenessEvent.failure(Type.ATTEMPT_FAILED, ErrorCode.CHALLENGE_TIMEOUT, 1, 3, true)));
-+		states.put("09-pad-failure-generic", m -> ev(m,
-+				LivenessEvent.failure(Type.ATTEMPT_FAILED, ErrorCode.PAD_FAILURE, 2, 2, true)));
-+		states.put("10-device-error", m -> ev(m,
-+				LivenessEvent.failure(Type.DEVICE_ERROR, ErrorCode.DEVICE_DISCONNECTED, 1, 0, true)));
-+		states.put("11-max-attempts-resident", m -> ev(m,
-+				LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.MAX_RETRIES_EXCEEDED, 4, 0, false)));
-+
-+		for (Map.Entry<String, Consumer<LivenessScreenModel>> s : states.entrySet()) {
-+			boolean noFrames = s.getKey().startsWith("10-");
-+			snap(new File(dir, s.getKey() + ".png"), WorkflowType.RESIDENT, s.getValue(), noFrames ? null : still);
-+		}
-+		snap(new File(dir, "12-operator-login-challenge.png"), WorkflowType.OPERATOR,
-+				m -> ev(m, LivenessEvent.prompt(ChallengeType.SMILE, 1, 1, 6000, 1)), still);
-+		snap(new File(dir, "13-supervisor-final-failure.png"), WorkflowType.SUPERVISOR,
-+				m -> ev(m, LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.PAD_FAILURE, 3, 0, false)), still);
-+		snap(new File(dir, "14-unavailable-fail-closed.png"), WorkflowType.OPERATOR,
-+				LivenessScreenModel::showUnavailable, null);
-+		System.out.println("Wrote liveness screens to " + dir.getAbsolutePath());
-+	}
-+
-+	private static void ev(LivenessScreenModel m, LivenessEvent e) {
-+		m.onEvent(e, System.nanoTime() / 1_000_000 + 10_000);
-+	}
-+
-+	private static void snap(File out, WorkflowType workflow, Consumer<LivenessScreenModel> drive, Frame still)
-+			throws Exception {
-+		AtomicReference<Exception> failure = new AtomicReference<>();
-+		CountDownLatch done = new CountDownLatch(1);
-+		Platform.runLater(() -> {
-+			try {
-+				LivenessScreenModel model = new LivenessScreenModel(workflow, 3);
-+				drive.accept(model);
-+				LivenessView view = LivenessView.load(LivenessMessages.english(), false);
-+				Scene scene = new Scene(view.root());
-+				if (still != null) {
-+					view.showStill(still);
-+				} else {
-+					view.showPreview(false, ""); // no frames from the device
-+				}
-+				view.render(model);
-+				view.root().applyCss();
-+				view.root().layout();
-+				WritableImage img = scene.snapshot(null);
-+				view.dispose();
-+				ImageIO.write(SwingFXUtils.fromFXImage(img, null), "png", out);
-+			} catch (Exception e) {
-+				failure.set(e);
-+			} finally {
-+				done.countDown();
-+			}
-+		});
-+		done.await();
-+		if (failure.get() != null) {
-+			throw failure.get();
-+		}
-+	}
-+
-+	/** A 4:3 crop around the top of the picture, as a camera would frame a face. */
-+	private static Frame still(File image) throws IOException {
-+		BufferedImage src = ImageIO.read(image);
-+		int w = src.getWidth();
-+		int h = Math.min(src.getHeight(), w * 3 / 4);
-+		int y0 = Math.max(0, (int) (src.getHeight() * 0.06));
-+		h = Math.min(h, src.getHeight() - y0);
-+		byte[] rgb = new byte[w * h * 3];
-+		for (int y = 0, o = 0; y < h; y++) {
-+			for (int x = 0; x < w; x++) {
-+				int p = src.getRGB(x, y0 + y);
-+				rgb[o++] = (byte) (p >> 16);
-+				rgb[o++] = (byte) (p >> 8);
-+				rgb[o++] = (byte) p;
-+			}
-+		}
-+		return new Frame(rgb, w, h, 0, 0, "demo");
-+	}
-+}
 diff --git a/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessScreenModel.java b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessScreenModel.java
 new file mode 100644
 --- /dev/null
@@ -2678,6 +2503,63 @@ new file mode 100644
 +
 +.tone-failure .liveness-oval { -fx-stroke: #c62828; }
 +.tone-failure .liveness-badge, .tone-failure .liveness-status-badge { -fx-background-color: #c62828; }
+diff --git a/registration-client/src/main/resources/messages_ar.properties b/registration-client/src/main/resources/messages_ar.properties
+--- a/registration-client/src/main/resources/messages_ar.properties
++++ b/registration-client/src/main/resources/messages_ar.properties
+@@ -473,4 +473,50 @@
+ ADDITIONAL_INFO_REQ_ID_MISSING=\u0645\u0639\u0631\u0641 \u0637\u0644\u0628 \u0645\u0639\u0644\u0648\u0645\u0627\u062a \u0625\u0636\u0627\u0641\u064a\u0629 \u0645\u0637\u0644\u0648\u0628 \u0644\u0644\u0645\u062a\u0627\u0628\u0639\u0629\u002e
+ LOGOUT_ALERT = \u062A\u0645 \u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0623\u062F\u0648\u0627\u0631 \u0627\u0644\u062E\u0627\u0635\u0629 \u0628\u0643. \u0633\u064A\u062A\u0645 \u062A\u0633\u062C\u064A\u0644 \u062E\u0631\u0648\u062C \u0627\u0644\u062C\u0644\u0633\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629. \u0627\u0644\u0631\u062C\u0627\u0621 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649 \u0644\u0644\u0645\u062A\u0627\u0628\u0639\u0629.
+ 
+-TOKEN_SAVE_FAILED=\u0641\u0634\u0644 \u062d\u0641\u0638 \u0631\u0645\u0632 \u0627\u0644\u0645\u0635\u0627\u062f\u0642\u0629 \u060c \u0627\u0644\u0631\u0645\u0632 \u002f \u0627\u0644\u0631\u0645\u0632 \u0627\u0644\u0645\u0645\u064a\u0632 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d \u0643\u0628\u064a\u0631 \u062c\u062f\u064b\u0627#TYPE#ERROR
+\ No newline at end of file
++TOKEN_SAVE_FAILED=\u0641\u0634\u0644 \u062d\u0641\u0638 \u0631\u0645\u0632 \u0627\u0644\u0645\u0635\u0627\u062f\u0642\u0629 \u060c \u0627\u0644\u0631\u0645\u0632 \u002f \u0627\u0644\u0631\u0645\u0632 \u0627\u0644\u0645\u0645\u064a\u0632 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d \u0643\u0628\u064a\u0631 \u062c\u062f\u064b\u0627#TYPE#ERROR
++
++# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; needs native-speaker review.
++liveness.title.resident=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647
++liveness.title.operator=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0648\u062C\u0647 \u0627\u0644\u0645\u0634\u063A\u0644
++liveness.title.supervisor=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0648\u062C\u0647 \u0627\u0644\u0645\u0634\u0631\u0641
++liveness.status.starting=\u062C\u0627\u0631\u064D \u0628\u062F\u0621 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647\u2026
++liveness.status.checking=\u062C\u0627\u0631\u064D \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647\u2026
++liveness.status.passed=\u062C\u064A\u062F\u060C \u062A\u0645 \u0627\u0644\u062A\u0642\u0627\u0637 \u0627\u0644\u0648\u062C\u0647 \u0628\u0646\u062C\u0627\u062D
++liveness.status.cancelled=\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647.
++liveness.challenge.blink=\u064A\u0631\u062C\u0649 \u0631\u0645\u0634 \u0639\u064A\u0646\u064A\u0643
++liveness.challenge.smile=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u0628\u062A\u0633\u0627\u0645
++liveness.challenge.turn_left=\u064A\u0631\u062C\u0649 \u0625\u062F\u0627\u0631\u0629 \u0631\u0623\u0633\u0643 \u0625\u0644\u0649 \u0627\u0644\u064A\u0633\u0627\u0631
++liveness.challenge.turn_right=\u064A\u0631\u062C\u0649 \u0625\u062F\u0627\u0631\u0629 \u0631\u0623\u0633\u0643 \u0625\u0644\u0649 \u0627\u0644\u064A\u0645\u064A\u0646
++liveness.challenge.look_up=\u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0623\u0639\u0644\u0649
++liveness.challenge.look_down=\u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0623\u0633\u0641\u0644
++liveness.feedback.continue=\u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629
++liveness.feedback.action_detected=\u062A\u0645 \u0627\u0643\u062A\u0634\u0627\u0641 \u0627\u0644\u062D\u0631\u0643\u0629
++liveness.feedback.hold_still=\u0644\u0627 \u062A\u062A\u062D\u0631\u0643
++liveness.guidance.no_face=\u0644\u0645 \u064A\u062A\u0645 \u0627\u0643\u062A\u0634\u0627\u0641 \u0623\u064A \u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
++liveness.guidance.multiple_faces=\u064A\u062C\u0628 \u0623\u0646 \u064A\u0638\u0647\u0631 \u0634\u062E\u0635 \u0648\u0627\u062D\u062F \u0641\u0642\u0637.
++liveness.guidance.move_closer=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u0642\u062A\u0631\u0627\u0628 \u0623\u0643\u062B\u0631.
++liveness.guidance.move_back=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u0628\u062A\u0639\u0627\u062F \u0642\u0644\u064A\u0644\u064B\u0627.
++liveness.guidance.center_face=\u064A\u0631\u062C\u0649 \u0648\u0636\u0639 \u0648\u062C\u0647\u0643 \u0641\u064A \u0648\u0633\u0637 \u0627\u0644\u0634\u0643\u0644 \u0627\u0644\u0628\u064A\u0636\u0627\u0648\u064A.
++liveness.guidance.improve_lighting=\u064A\u0631\u062C\u0649 \u062A\u062D\u0633\u064A\u0646 \u0627\u0644\u0625\u0636\u0627\u0621\u0629.
++liveness.guidance.hold_steady=\u064A\u0631\u062C\u0649 \u0627\u0644\u062B\u0628\u0627\u062A.
++liveness.guidance.look_at_camera=\u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
++liveness.error.liveness_not_verified=\u062A\u0639\u0630\u0651\u0631 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
++liveness.error.verification_not_completed=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
++liveness.error.max_attempts_reached=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647.
++liveness.error.device_problem=\u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0623\u0648 \u0627\u0644\u062C\u0647\u0627\u0632 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D. \u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0648\u062D\u0627\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
++liveness.tips.title=\u0646\u0635\u0627\u0626\u062D:
++liveness.tips.look_at_camera=\u0627\u0646\u0638\u0631 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
++liveness.tips.face_visible=\u062A\u0623\u0643\u062F \u0645\u0646 \u0623\u0646 \u0648\u062C\u0647\u0643 \u0638\u0627\u0647\u0631 \u0628\u0648\u0636\u0648\u062D.
++liveness.tips.lighting=\u062D\u0633\u0651\u0646 \u0627\u0644\u0625\u0636\u0627\u0621\u0629.
++liveness.tips.capture_area=\u0623\u0628\u0642\u0650 \u0648\u062C\u0647\u0643 \u062F\u0627\u062E\u0644 \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u0627\u0644\u062A\u0642\u0627\u0637.
++liveness.tips.follow_prompt=\u0646\u0641\u0651\u0630 \u0627\u0644\u062D\u0631\u0643\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.
++liveness.retry.attempts_left=\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0627\u062A \u0627\u0644\u0645\u062A\u0628\u0642\u064A\u0629: {0}
++liveness.progress.step=\u0627\u0644\u062E\u0637\u0648\u0629 {0} \u0645\u0646 {1}
++liveness.progress.attempt=\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 {0} \u0645\u0646 {1}
++liveness.recovery.resident=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0627\u0644\u0645\u0634\u0631\u0641. \u064A\u0645\u0643\u0646 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0645\u0642\u064A\u0645 \u0628\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0625\u062C\u0631\u0627\u0621 \u0627\u0644\u0627\u0633\u062A\u062B\u0646\u0627\u0621 \u0627\u0644\u0628\u064A\u0648\u0645\u062A\u0631\u064A.
++liveness.recovery.operator=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0627\u0644\u0645\u0633\u0624\u0648\u0644 \u0623\u0648 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649 \u0644\u0627\u062D\u0642\u064B\u0627.
++liveness.recovery.supervisor=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0627\u0644\u0645\u0633\u0624\u0648\u0644.
++liveness.button.retry=\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629
++liveness.button.cancel=\u0625\u0644\u063A\u0627\u0621
++liveness.button.close=\u0625\u063A\u0644\u0627\u0642
++liveness.button.open_settings=\u0641\u062A\u062D \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A
+\ No newline at end of file
 diff --git a/registration-client/src/main/resources/messages_en.properties b/registration-client/src/main/resources/messages_en.properties
 --- a/registration-client/src/main/resources/messages_en.properties
 +++ b/registration-client/src/main/resources/messages_en.properties
@@ -2732,6 +2614,63 @@ diff --git a/registration-client/src/main/resources/messages_en.properties b/reg
 +liveness.button.cancel=Cancel
 +liveness.button.close=Close
 +liveness.button.open_settings=Open settings
+diff --git a/registration-client/src/main/resources/messages_fr.properties b/registration-client/src/main/resources/messages_fr.properties
+--- a/registration-client/src/main/resources/messages_fr.properties
++++ b/registration-client/src/main/resources/messages_fr.properties
+@@ -468,4 +468,50 @@
+ INVALID_FLOW_TYPE=Type de flux d'enregistrement non valide�!
+ ADDITIONAL_INFO_REQ_ID_MISSING=L'identifiant de la demande AdditionalInfo est requis pour continuer.
+ 
+-TOKEN_SAVE_FAILED=�chec de l'enregistrement du jeton d'authentification, jeton invalide / jeton trop volumineux.#TYPE#ERROR
+\ No newline at end of file
++TOKEN_SAVE_FAILED=�chec de l'enregistrement du jeton d'authentification, jeton invalide / jeton trop volumineux.#TYPE#ERROR
++
++# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; needs native-speaker review.
++liveness.title.resident=Test de vivacit\u00E9 du visage
++liveness.title.operator=V\u00E9rification faciale de l'op\u00E9rateur
++liveness.title.supervisor=V\u00E9rification faciale du superviseur
++liveness.status.starting=D\u00E9marrage du test de vivacit\u00E9 du visage\u2026
++liveness.status.checking=V\u00E9rification de la vivacit\u00E9 du visage\u2026
++liveness.status.passed=Parfait, visage captur\u00E9 avec succ\u00E8s
++liveness.status.cancelled=Test de vivacit\u00E9 du visage annul\u00E9.
++liveness.challenge.blink=Veuillez cligner des yeux
++liveness.challenge.smile=Veuillez sourire
++liveness.challenge.turn_left=Veuillez tourner la t\u00EAte vers la gauche
++liveness.challenge.turn_right=Veuillez tourner la t\u00EAte vers la droite
++liveness.challenge.look_up=Veuillez regarder vers le haut
++liveness.challenge.look_down=Veuillez regarder vers le bas
++liveness.feedback.continue=Veuillez continuer
++liveness.feedback.action_detected=Action d\u00E9tect\u00E9e
++liveness.feedback.hold_still=Ne bougez plus
++liveness.guidance.no_face=Aucun visage d\u00E9tect\u00E9. Veuillez regarder la cam\u00E9ra.
++liveness.guidance.multiple_faces=Une seule personne doit \u00EAtre visible.
++liveness.guidance.move_closer=Veuillez vous rapprocher.
++liveness.guidance.move_back=Veuillez reculer.
++liveness.guidance.center_face=Veuillez centrer votre visage dans l'ovale.
++liveness.guidance.improve_lighting=Veuillez am\u00E9liorer l'\u00E9clairage.
++liveness.guidance.hold_steady=Veuillez rester immobile.
++liveness.guidance.look_at_camera=Veuillez regarder la cam\u00E9ra.
++liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00E9rifier la vivacit\u00E9 du visage. Veuillez r\u00E9essayer.
++liveness.error.verification_not_completed=La v\u00E9rification faciale n'a pas pu \u00EAtre effectu\u00E9e. Veuillez r\u00E9essayer.
++liveness.error.max_attempts_reached=La v\u00E9rification faciale n'a pas pu \u00EAtre effectu\u00E9e.
++liveness.error.device_problem=Cam\u00E9ra ou appareil indisponible. V\u00E9rifiez la connexion et r\u00E9essayez.
++liveness.tips.title=Conseils\u00A0:
++liveness.tips.look_at_camera=Regardez directement la cam\u00E9ra.
++liveness.tips.face_visible=Assurez-vous que votre visage est bien visible.
++liveness.tips.lighting=Am\u00E9liorez l'\u00E9clairage.
++liveness.tips.capture_area=Gardez votre visage dans la zone de capture.
++liveness.tips.follow_prompt=Effectuez l'action demand\u00E9e.
++liveness.retry.attempts_left={0} tentative(s) restante(s)
++liveness.progress.step=\u00C9tape {0} sur {1}
++liveness.progress.attempt=Tentative {0} sur {1}
++liveness.recovery.resident=Veuillez contacter le superviseur. Le r\u00E9sident peut \u00EAtre enregistr\u00E9 \u00E0 l'aide de la proc\u00E9dure d'exception biom\u00E9trique.
++liveness.recovery.operator=Veuillez contacter votre administrateur ou r\u00E9essayer plus tard.
++liveness.recovery.supervisor=Veuillez contacter votre administrateur.
++liveness.button.retry=R\u00E9essayer
++liveness.button.cancel=Annuler
++liveness.button.close=Fermer
++liveness.button.open_settings=Ouvrir les param\u00E8tres
+\ No newline at end of file
 diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java
 new file mode 100644
 --- /dev/null
@@ -2772,7 +2711,7 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessMessagesTest.java
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,120 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import static org.junit.Assert.assertEquals;
@@ -2787,8 +2726,13 @@ new file mode 100644
 +import java.nio.file.Files;
 +import java.nio.file.Path;
 +import java.nio.file.Paths;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.List;
++import java.util.Locale;
 +import java.util.Map;
 +import java.util.Properties;
++import java.util.ResourceBundle;
 +import java.util.regex.Matcher;
 +import java.util.regex.Pattern;
 +
@@ -2827,6 +2771,49 @@ new file mode 100644
 +	}
 +
 +	@Test
++	public void arabicAndFrenchHaveEveryKeyAsInTheSpecAppendixWithTheEnglishPlaceholders() throws IOException {
++		Path spec = Paths.get("..", "docs", "ui-liveness-spec.md");
++		String md = Files.isRegularFile(spec) ? new String(Files.readAllBytes(spec), StandardCharsets.UTF_8) : null;
++		for (String lang : new String[] { "ar", "fr" }) {
++			// As the client loads them: Java 11 reads UTF-8, else the whole file as ISO-8859-1 (messages_fr).
++			ResourceBundle bundle = ResourceBundle.getBundle("messages", new Locale(lang), getClass().getClassLoader(),
++					ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES));
++			assertEquals(new Locale(lang), bundle.getLocale());
++			assertTrue(lang + ": the client's own texts are still there",
++					bundle.containsKey("UNABLE_LOAD_LOGIN_SCREEN_LANGUAGE_NOT_SET"));
++			Properties appendix = md == null ? null : appendixBlock(md, lang);
++			for (Map.Entry<String, String> e : LivenessMessages.ENGLISH.entrySet()) {
++				String text = bundle.getString(e.getKey());
++				assertEquals(lang + " " + e.getKey(), placeholders(e.getValue()), placeholders(text));
++				assertFalse(lang + " " + e.getKey() + " is still English", text.equals(e.getValue()));
++				if (appendix != null) {
++					assertEquals(lang + " " + e.getKey(), appendix.getProperty(e.getKey()), text);
++				}
++			}
++		}
++	}
++
++	/** The Desktop block of {@code docs/ui-liveness-spec.md} Appendix A for a language. */
++	private static Properties appendixBlock(String md, String lang) throws IOException {
++		Matcher m = Pattern.compile("\\*\\*Desktop, `messages_" + lang + "\\.properties`\\*\\*.*?```properties\\R(.*?)```",
++				Pattern.DOTALL).matcher(md);
++		assertTrue("no " + lang + " block in the spec's Appendix A", m.find());
++		Properties p = new Properties();
++		p.load(new StringReader(m.group(1)));
++		return p;
++	}
++
++	private static List<String> placeholders(String text) {
++		List<String> found = new ArrayList<>();
++		Matcher m = Pattern.compile("\\{\\d+\\}").matcher(text);
++		while (m.find()) {
++			found.add(m.group());
++		}
++		Collections.sort(found);
++		return found;
++	}
++
++	@Test
 +	public void formatsArgumentsAndFallsBackToTheKey() {
 +		LivenessMessages msg = LivenessMessages.english();
 +		assertEquals("Step 1 of 2", msg.text("liveness.progress.step", 1, 2));
@@ -2843,6 +2830,271 @@ new file mode 100644
 +			assertFalse(text, t.contains("score") || t.contains("pad") || t.contains("model")
 +					|| t.contains("threshold") || t.contains("attack") || t.contains("spoof"));
 +		}
++	}
++}
+diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
+new file mode 100644
+--- /dev/null
++++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
+@@ -0,0 +1,260 @@
++package io.mosip.registration.controller.liveness;
++
++import java.awt.image.BufferedImage;
++import java.io.File;
++import java.io.IOException;
++import java.nio.file.Paths;
++import java.util.HashMap;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.atomic.AtomicReference;
++import java.util.function.Consumer;
++
++import javax.imageio.ImageIO;
++
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.api.ChallengeType;
++import io.mosip.registration.liveness.api.ConfigProvider;
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameSource;
++import io.mosip.registration.liveness.api.LivenessEvent;
++import io.mosip.registration.liveness.api.LivenessEvent.Guidance;
++import io.mosip.registration.liveness.api.LivenessEvent.Type;
++import io.mosip.registration.liveness.api.LivenessListener;
++import io.mosip.registration.liveness.api.LivenessResult;
++import io.mosip.registration.liveness.api.LivenessService;
++import io.mosip.registration.liveness.api.LivenessSession;
++import io.mosip.registration.liveness.api.WorkflowType;
++import io.mosip.registration.liveness.core.DefaultLivenessService;
++import io.mosip.registration.liveness.device.mock.MockFrameSource;
++import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
++import io.mosip.registration.liveness.device.util.PreviewFrameSource;
++import io.mosip.registration.liveness.fake.FakeLivenessService;
++import io.mosip.registration.liveness.fake.FakeScenario;
++import javafx.application.Platform;
++import javafx.embed.swing.SwingFXUtils;
++import javafx.scene.Scene;
++import javafx.scene.SnapshotParameters;
++import javafx.scene.image.WritableImage;
++import javafx.stage.Stage;
++
++/**
++ * Development tool for the Desktop liveness screen, outside the Registration Client (no login, no database, no SBI):
++ * <pre>
++ *   LivenessScreenDemo --snapshots &lt;dir&gt; [--face &lt;image&gt;]     every screen state as PNG (the UI deliverable)
++ *   LivenessScreenDemo --scenario PASS_ACTIVE [--workflow operator] the scripted engine, interactive
++ *   LivenessScreenDemo --live webcam|video:&lt;file.mjpeg&gt;          the real engine and models on a webcam or clip
++ * </pre>
++ * It drives exactly the classes the client uses ({@link LivenessScreenModel}, {@link LivenessView}); only the
++ * Spring wiring of {@link LivenessGate} is replaced. It lives in the test sources, so it never ships in the client jar
++ * (it writes PNG files and can open a webcam); run it on the test classpath (docs/part4-desktop-integration.md §10).
++ */
++public final class LivenessScreenDemo {
++
++	private LivenessScreenDemo() {
++	}
++
++	public static void main(String[] args) throws Exception {
++		Map<String, String> a = new HashMap<>();
++		for (int i = 0; i + 1 < args.length; i += 2) {
++			a.put(args[i], args[i + 1]);
++		}
++		CountDownLatch started = new CountDownLatch(1);
++		Platform.startup(started::countDown);
++		started.await();
++		if (a.containsKey("--snapshots")) {
++			snapshots(new File(a.get("--snapshots")), a.get("--face"));
++			Platform.exit();
++			return;
++		}
++		WorkflowType workflow = WorkflowType.valueOf(a.getOrDefault("--workflow", "resident").toUpperCase());
++		Platform.setImplicitExit(true);
++		Platform.runLater(() -> {
++			try {
++				interactive(workflow, a.get("--scenario"), a.get("--live"));
++			} catch (Exception e) {
++				e.printStackTrace();
++				Platform.exit();
++			}
++		});
++	}
++
++	// ------------------------------------------------------------------ interactive
++
++	private static void interactive(WorkflowType workflow, String scenario, String live) throws Exception {
++		Map<String, String> cfg = new HashMap<>();
++		ConfigProvider config = cfg::get;
++		LivenessService service;
++		FrameSource device;
++		if (live != null) {
++			OnnxFaceAnalyzerFactory analyzers = new OnnxFaceAnalyzerFactory();
++			analyzers.preload();
++			service = DefaultLivenessService.builder().config(config).analyzerFactory(analyzers)
++					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
++			device = live.startsWith("video:") ? MockFrameSource.ofVideoFile(Paths.get(live.substring(6)), 15.0, true)
++					: MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), 15.0);
++		} else {
++			service = FakeLivenessService.builder(config)
++					.scenario(scenario == null ? FakeScenario.RANDOM : FakeScenario.valueOf(scenario.toUpperCase()))
++					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
++			device = new FrameSource() {
++				@Override public DeviceInfo info() { return new DeviceInfo("none", "", "", "", "NONE", 0, 0, 0); }
++				@Override public void start(Listener l) { }
++				@Override public void stop() { }
++				@Override public boolean isRunning() { return false; }
++			};
++		}
++		LivenessSession session = service.newSession(workflow);
++		LivenessScreenModel model = new LivenessScreenModel(workflow, service.policy(workflow).maxRetries);
++		LivenessView view = LivenessView.load(LivenessMessages.english(), true);
++		Stage stage = new Stage();
++		stage.setTitle(LivenessMessages.english().text(model.title()));
++		stage.setScene(new Scene(view.root()));
++		view.render(model);
++		PreviewFrameSource source = new PreviewFrameSource(device);
++		if (live != null) {
++			source.addPreviewListener(view);
++		} else {
++			view.showPreview(false, "Scripted liveness engine: no camera preview");
++		}
++		view.setOnRetry(session::retry);
++		view.setOnCancel(session::cancel);
++		view.setOnClose(stage::close);
++		stage.setOnHidden(e -> {
++			session.cancel();
++			view.dispose();
++			Platform.exit();
++			System.exit(0);
++		});
++		stage.show();
++		session.start(source, new LivenessListener() {
++			@Override
++			public void onEvent(LivenessEvent e) {
++				long now = System.currentTimeMillis();
++				Platform.runLater(() -> {
++					model.onEvent(e, now);
++					view.render(model);
++				});
++			}
++
++			@Override
++			public void onComplete(LivenessResult r) {
++				System.out.println("RESULT " + r.decision + " " + (r.failureCode == null ? r.passPath : r.failureCode));
++				Platform.runLater(() -> {
++					model.onComplete(r);
++					view.render(model);
++				});
++			}
++		});
++	}
++
++	// ------------------------------------------------------------------ snapshots
++
++	private static void snapshots(File dir, String face) throws Exception {
++		if (!dir.isDirectory() && !dir.mkdirs()) {
++			throw new IOException("cannot create " + dir);
++		}
++		Frame still = face == null ? null : still(new File(face));
++		Map<String, Consumer<LivenessScreenModel>> states = new LinkedHashMap<>();
++		states.put("01-checking", m -> {
++			ev(m, LivenessEvent.of(Type.STARTED, 1));
++			ev(m, LivenessEvent.of(Type.CHECKING_PASSIVE, 1));
++		});
++		states.put("02-guidance", m -> {
++			ev(m, LivenessEvent.of(Type.CHECKING_PASSIVE, 1));
++			ev(m, LivenessEvent.guidance(Guidance.MOVE_CLOSER, 1));
++		});
++		states.put("03-challenge-blink", m -> ev(m, LivenessEvent.prompt(ChallengeType.BLINK, 1, 2, 6000, 1)));
++		states.put("04-challenge-progress", m -> {
++			ev(m, LivenessEvent.prompt(ChallengeType.TURN_LEFT, 2, 2, 6000, 1));
++			ev(m, LivenessEvent.progress(ChallengeType.TURN_LEFT, 2, 2, 0.55f, 1));
++		});
++		states.put("05-action-detected", m -> {
++			ev(m, LivenessEvent.prompt(ChallengeType.TURN_LEFT, 2, 2, 6000, 1));
++			ev(m, LivenessEvent.of(Type.ACTION_DETECTED, 1));
++		});
++		states.put("06-hold-still-look-at-camera", m -> {
++			ev(m, LivenessEvent.of(Type.HOLD_STILL, 1));
++			ev(m, LivenessEvent.guidance(Guidance.LOOK_AT_CAMERA, 1));
++		});
++		states.put("07-passed", m -> ev(m, LivenessEvent.of(Type.PASSED, 1)));
++		states.put("08-attempt-failed-retry", m -> ev(m,
++				LivenessEvent.failure(Type.ATTEMPT_FAILED, ErrorCode.CHALLENGE_TIMEOUT, 1, 3, true)));
++		states.put("09-pad-failure-generic", m -> ev(m,
++				LivenessEvent.failure(Type.ATTEMPT_FAILED, ErrorCode.PAD_FAILURE, 2, 2, true)));
++		states.put("10-device-error", m -> ev(m,
++				LivenessEvent.failure(Type.DEVICE_ERROR, ErrorCode.DEVICE_DISCONNECTED, 1, 0, true)));
++		states.put("11-max-attempts-resident", m -> ev(m,
++				LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.MAX_RETRIES_EXCEEDED, 4, 0, false)));
++
++		for (Map.Entry<String, Consumer<LivenessScreenModel>> s : states.entrySet()) {
++			boolean noFrames = s.getKey().startsWith("10-");
++			snap(new File(dir, s.getKey() + ".png"), WorkflowType.RESIDENT, s.getValue(), noFrames ? null : still);
++		}
++		snap(new File(dir, "12-operator-login-challenge.png"), WorkflowType.OPERATOR,
++				m -> ev(m, LivenessEvent.prompt(ChallengeType.SMILE, 1, 1, 6000, 1)), still);
++		snap(new File(dir, "13-supervisor-final-failure.png"), WorkflowType.SUPERVISOR,
++				m -> ev(m, LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.PAD_FAILURE, 3, 0, false)), still);
++		snap(new File(dir, "14-unavailable-fail-closed.png"), WorkflowType.OPERATOR,
++				LivenessScreenModel::showUnavailable, null);
++		System.out.println("Wrote liveness screens to " + dir.getAbsolutePath());
++	}
++
++	private static void ev(LivenessScreenModel m, LivenessEvent e) {
++		m.onEvent(e, System.nanoTime() / 1_000_000 + 10_000);
++	}
++
++	private static void snap(File out, WorkflowType workflow, Consumer<LivenessScreenModel> drive, Frame still)
++			throws Exception {
++		AtomicReference<Exception> failure = new AtomicReference<>();
++		CountDownLatch done = new CountDownLatch(1);
++		Platform.runLater(() -> {
++			try {
++				LivenessScreenModel model = new LivenessScreenModel(workflow, 3);
++				drive.accept(model);
++				LivenessView view = LivenessView.load(LivenessMessages.english(), false);
++				Scene scene = new Scene(view.root());
++				if (still != null) {
++					view.showStill(still);
++				} else {
++					view.showPreview(false, ""); // no frames from the device
++				}
++				view.render(model);
++				view.root().applyCss();
++				view.root().layout();
++				WritableImage img = scene.snapshot(null);
++				view.dispose();
++				ImageIO.write(SwingFXUtils.fromFXImage(img, null), "png", out);
++			} catch (Exception e) {
++				failure.set(e);
++			} finally {
++				done.countDown();
++			}
++		});
++		done.await();
++		if (failure.get() != null) {
++			throw failure.get();
++		}
++	}
++
++	/** A 4:3 crop around the top of the picture, as a camera would frame a face. */
++	private static Frame still(File image) throws IOException {
++		BufferedImage src = ImageIO.read(image);
++		int w = src.getWidth();
++		int h = Math.min(src.getHeight(), w * 3 / 4);
++		int y0 = Math.max(0, (int) (src.getHeight() * 0.06));
++		h = Math.min(h, src.getHeight() - y0);
++		byte[] rgb = new byte[w * h * 3];
++		for (int y = 0, o = 0; y < h; y++) {
++			for (int x = 0; x < w; x++) {
++				int p = src.getRGB(x, y0 + y);
++				rgb[o++] = (byte) (p >> 16);
++				rgb[o++] = (byte) (p >> 8);
++				rgb[o++] = (byte) p;
++			}
++		}
++		return new Frame(rgb, w, h, 0, 0, "demo");
 +	}
 +}
 diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenModelTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenModelTest.java
@@ -3269,7 +3521,7 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/audit/Aud
 diff --git a/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java b/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java
 --- a/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java
 +++ b/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java
-@@ -312,7 +312,30 @@
+@@ -312,7 +312,32 @@
  			"Demographic Details : A blocklisted word has been accepted in Registration"),
  	REG_BLOCKLISTED_WORD_REJECTED("REG-EVT-103", USER_EVENT.getCode(), "REG_BLOCKLISTED_WORD_REJECTED",
  			"Demographic Details : A blocklisted word has been rejected in Registration"),
@@ -3297,6 +3549,8 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/constants
 +			"Face liveness: captured face compared with the live face"),
 +	LIVENESS_METRICS("REG-LIV-011", SYSTEM_EVENT.getCode(), "LIVENESS_METRICS",
 +			"Face liveness: anonymised operational metrics"),
++	LIVENESS_MODEL_UPDATE("REG-LIV-012", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_UPDATE",
++			"Face liveness: online model update checked"),
 +
  	CLIENT_UPGRADE_JARS_DOWNLOADED("REG-UPG-001", USER_EVENT.getCode(), "CLIENT_UPGRADE_JARS_DOWNLOADED",
  			"Client Upgrade: Successfully downloaded all the upgrade jars"),
@@ -3428,6 +3682,52 @@ new file mode 100644
 +		g.drawImage(img, 0, 0, w, h, null);
 +		g.dispose();
 +		return out;
++	}
++}
+diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/desktop/ConfigSyncedEvent.java b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/ConfigSyncedEvent.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/ConfigSyncedEvent.java
+@@ -0,0 +1,41 @@
++package io.mosip.registration.liveness.desktop;
++
++import org.springframework.context.ApplicationEvent;
++import org.springframework.context.ApplicationEventPublisher;
++
++import io.mosip.kernel.core.logger.spi.Logger;
++import io.mosip.registration.config.AppConfig;
++
++/**
++ * Published by the client's config sync ({@code GlobalParamServiceImpl.synchConfigData}) after the global params were
++ * synced successfully. {@link DesktopLivenessService} listens for it to run the online model update.
++ */
++public class ConfigSyncedEvent extends ApplicationEvent {
++
++	private static final long serialVersionUID = 1L;
++	private static final Logger LOGGER = AppConfig.getLogger(ConfigSyncedEvent.class);
++
++	private final String triggerPoint;
++
++	public ConfigSyncedEvent(Object source, String triggerPoint) {
++		super(source);
++		this.triggerPoint = triggerPoint;
++	}
++
++	/** System (the sync job) or User (a sync started by the operator). */
++	public String triggerPoint() {
++		return triggerPoint;
++	}
++
++	/** Publishes the event; a listener's failure is logged and never fails the sync. */
++	public static void publish(ApplicationEventPublisher publisher, Object source, String triggerPoint) {
++		if (publisher == null) {
++			return;
++		}
++		try {
++			publisher.publishEvent(new ConfigSyncedEvent(source, triggerPoint));
++		} catch (RuntimeException e) {
++			LOGGER.error("A config sync listener failed: {}", e.getMessage());
++		}
 +	}
 +}
 diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DeferredFrameSource.java b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DeferredFrameSource.java
@@ -3663,7 +3963,7 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DesktopLivenessConfig.java
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,155 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.io.IOException;
@@ -3717,6 +4017,14 @@ new file mode 100644
 +	public static final String METRICS_AUDIT_EVERY_KEY = PREFIX + "desktop.metricsAuditEvery";
 +	/** OPERATOR liveness right after a successful password login (as on Android). */
 +	public static final String GATE_PASSWORD_LOGIN_KEY = PREFIX + "desktop.operator.gatePasswordLogin";
++
++	/** Online model update after each successful config sync, as on Android: off by default (no server yet). */
++	public static final String MODEL_UPDATE_ENABLED_KEY = "mosip.registration.liveness.model.update.enabled";
++	/** The update index ({@code latest.json}), over HTTPS. */
++	public static final String MODEL_UPDATE_URL_KEY = "mosip.registration.liveness.model.update.url";
++	/** Plain HTTP to 127.0.0.1 or localhost for the update (development and tests only). JVM property only. */
++	public static final String MODEL_UPDATE_INSECURE_LOCALHOST_KEY =
++			"mosip.registration.liveness.model.update.allowInsecureLocalhost";
 +
 +	private final Supplier<Map<String, Object>> appConfig;
 +	private final Properties defaults;
@@ -3785,7 +4093,8 @@ new file mode 100644
 +	}
 +
 +	static boolean isJvmOnly(String key) {
-+		return ENGINE_KEY.equals(key) || SOURCE_KEY.equals(key) || FAKE_SCENARIO_KEY.equals(key);
++		return ENGINE_KEY.equals(key) || SOURCE_KEY.equals(key) || FAKE_SCENARIO_KEY.equals(key)
++				|| MODEL_UPDATE_INSECURE_LOCALHOST_KEY.equals(key);
 +	}
 +
 +	private static String trimToNull(String s) {
@@ -3814,10 +4123,12 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DesktopLivenessService.java
-@@ -0,0 +1,293 @@
+@@ -0,0 +1,423 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.io.File;
++import java.net.MalformedURLException;
++import java.net.URL;
 +import java.nio.file.Paths;
 +import java.util.LinkedHashMap;
 +import java.util.Locale;
@@ -3827,6 +4138,7 @@ new file mode 100644
 +import java.util.concurrent.atomic.AtomicInteger;
 +
 +import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.context.event.EventListener;
 +import org.springframework.stereotype.Service;
 +
 +import io.mosip.kernel.core.logger.spi.Logger;
@@ -3836,8 +4148,10 @@ new file mode 100644
 +import io.mosip.registration.constants.RegistrationConstants;
 +import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 +import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
 +import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
 +import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
 +import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 +import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
 +import io.mosip.registration.liveness.analyzer.match.MatchResult;
@@ -3871,6 +4185,8 @@ new file mode 100644
 + * up before the next session; a running session keeps its policy.</li>
 + * <li><b>Audit:</b> {@link DesktopAuditSink}, the client's audit module.</li>
 + * <li><b>Face binding:</b> {@link #binding()}.</li>
++ * <li><b>Online model update:</b> after each successful config sync ({@link ConfigSyncedEvent}), when enabled, a newer
++ * signed bundle is downloaded into the model store and new sessions use it ({@link #checkModelUpdateAsync}).</li>
 + * </ul>
 + * The JVM property {@code -Dmosip.registration.liveness.face.desktop.engine=fake} selects the scripted engine and
 + * {@code ...desktop.source=webcam|video:<file>|images:<dir>} a mock device, for development without an SBI device.
@@ -3899,7 +4215,10 @@ new file mode 100644
 +	private final AtomicInteger completedSessions = new AtomicInteger();
 +
 +	private DesktopAuditSink auditSink;
-+	private OnnxFaceAnalyzerFactory analyzers;
++	private SwappableAnalyzerFactory analyzers;
++	private BundleSource bundledModels = new ClasspathBundleSource();
++	private TrustedKeys trustedKeys = TrustedKeys.builtIn();
++	private ModelStore modelStore;
 +	private LivenessService engine;
 +	private FaceBinding binding;
 +	private String configFingerprint;
@@ -3925,36 +4244,145 @@ new file mode 100644
 +		return config;
 +	}
 +
++	/** Tests: another bundled model source and its trusted keys (bundles signed with a throwaway key). */
++	synchronized DesktopLivenessService withModels(BundleSource bundled, TrustedKeys keys) {
++		this.bundledModels = bundled;
++		this.trustedKeys = keys;
++		return this;
++	}
++
 +	/**
 +	 * Verifies the model bundle and builds the analyzer sessions in the background (about 1 s), so that the first
 +	 * liveness check does not wait for it. Called once at start-up. A failure is audited and retried by the first
 +	 * session, which then fails closed with MODEL_INTEGRITY_FAILED or ENGINE_ERROR.
 +	 */
 +	public void preloadAsync() {
-+		background.execute(() -> {
-+			long start = System.currentTimeMillis();
-+			try {
++		background.execute(this::preload);
++	}
++
++	/**
++	 * The preload itself: verifies the bundle and builds the per-frame sessions (audited as MODEL_LOADED, or
++	 * MODEL_INTEGRITY_FAILED on failure), then builds the face matcher's session. A matcher warm-up failure is only
++	 * logged: that session is built on the first face binding anyway, and it is not a model integrity failure (as on
++	 * Android).
++	 *
++	 * @return true when the models verified and loaded
++	 */
++	boolean preload() {
++		long start = System.currentTimeMillis();
++		OnnxFaceAnalyzerFactory factory;
++		try {
++			synchronized (this) {
 +				engine();
-+				if (analyzers == null) {
-+					return;
-+				}
-+				analyzers.preload();
-+				Map<String, String> d = new LinkedHashMap<>();
-+				d.put("modelVersion", analyzers.modelVersion());
-+				d.put("accelerator", String.valueOf(analyzers.activeAccelerator()));
-+				d.put("loadMs", String.valueOf(System.currentTimeMillis() - start));
-+				d.put("phase", "preload");
-+				auditSink().record(AuditEvent.LIVENESS_MODEL_LOADED, null, null, d);
-+				analyzers.warmUpMatcher();
-+			} catch (LivenessEngineException | RuntimeException e) {
-+				Map<String, String> d = new LinkedHashMap<>();
-+				d.put("errorCode", e instanceof LivenessEngineException
-+						? String.valueOf(((LivenessEngineException) e).code()) : "ENGINE_ERROR");
-+				d.put("reason", e.getClass().getSimpleName());
-+				d.put("phase", "preload");
-+				auditSink().record(AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED, null, null, d);
++				factory = analyzers == null ? null : analyzers.current();
 +			}
-+		});
++			if (factory == null) {
++				return false;
++			}
++			factory.preload();
++			Map<String, String> d = new LinkedHashMap<>();
++			d.put("modelVersion", factory.modelVersion());
++			d.put("accelerator", String.valueOf(factory.activeAccelerator()));
++			d.put("loadMs", String.valueOf(System.currentTimeMillis() - start));
++			d.put("phase", "preload");
++			auditSink().record(AuditEvent.LIVENESS_MODEL_LOADED, null, null, d);
++		} catch (LivenessEngineException | RuntimeException e) {
++			Map<String, String> d = new LinkedHashMap<>();
++			d.put("errorCode", e instanceof LivenessEngineException
++					? String.valueOf(((LivenessEngineException) e).code()) : "ENGINE_ERROR");
++			d.put("reason", e.getClass().getSimpleName());
++			d.put("phase", "preload");
++			auditSink().record(AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED, null, null, d);
++			return false;
++		}
++		try {
++			factory.warmUpMatcher();
++		} catch (LivenessEngineException | RuntimeException e) {
++			LOGGER.warn("Face matcher warm-up failed ({}); the first face binding builds it", e.getClass().getSimpleName());
++		}
++		return true;
++	}
++
++	/** After every successful config sync: the online model update, when enabled. Never blocks or fails the sync. */
++	@EventListener
++	public void onConfigSynced(ConfigSyncedEvent event) {
++		checkModelUpdateAsync(event.triggerPoint());
++	}
++
++	/**
++	 * The online model update ({@link ModelUpdater}), when {@value DesktopLivenessConfig#MODEL_UPDATE_ENABLED_KEY} is
++	 * true and {@value DesktopLivenessConfig#MODEL_UPDATE_URL_KEY} is set; otherwise nothing, and no network call. The
++	 * check runs on the background thread; this method returns at once and never throws.
++	 */
++	public void checkModelUpdateAsync(String trigger) {
++		try {
++			if (!config.getBoolean(DesktopLivenessConfig.MODEL_UPDATE_ENABLED_KEY, false)) {
++				return;
++			}
++			final String url = config.get(DesktopLivenessConfig.MODEL_UPDATE_URL_KEY);
++			if (url == null) {
++				LOGGER.warn("Face liveness model update is enabled but {} is not set",
++						DesktopLivenessConfig.MODEL_UPDATE_URL_KEY);
++				return;
++			}
++			background.execute(() -> checkModelUpdate(url, trigger));
++		} catch (RuntimeException e) {
++			LOGGER.error("Face liveness model update not started: {}", e.getMessage());
++		}
++	}
++
++	/**
++	 * One update check: the index, then a newer bundle's zip, then {@code ModelStore.install} (signature, sizes, hashes,
++	 * anti-rollback; the app's own bundle becomes the rollback base). Audits the outcome (codes and numbers only). On
++	 * INSTALLED, new sessions use the new models; running sessions keep theirs.
++	 */
++	ModelUpdater.UpdateResult checkModelUpdate(String url, String trigger) {
++		long start = System.currentTimeMillis();
++		Map<String, String> d = new LinkedHashMap<>();
++		ModelUpdater.UpdateResult r = null;
++		try {
++			BundleSource bundled;
++			TrustedKeys keys;
++			synchronized (this) {
++				bundled = bundledModels;
++				keys = trustedKeys;
++			}
++			r = ModelUpdater.builder()
++					.allowInsecureLocalhost(config.getBoolean(DesktopLivenessConfig.MODEL_UPDATE_INSECURE_LOCALHOST_KEY, false))
++					.build().check(new URL(url), modelStore(), bundled, keys);
++			d.put("outcome", r.status().name());
++			if (r.version() != null) {
++				d.put("version", r.version());
++			}
++			if (r.reason() != null) {
++				d.put("reason", r.reason().name());
++			}
++		} catch (MalformedURLException e) {
++			d.put("outcome", ModelUpdater.Status.FAILED.name());
++			d.put("reason", "INVALID_URL");
++		} catch (RuntimeException e) {
++			LOGGER.error("Face liveness model update failed: {}", e.getClass().getSimpleName());
++			d.put("outcome", ModelUpdater.Status.FAILED.name());
++			d.put("reason", "ERROR");
++		}
++		d.put("durationMs", String.valueOf(System.currentTimeMillis() - start));
++		d.put("trigger", trigger == null ? "NA" : trigger);
++		auditSink().record(AuditEvent.LIVENESS_MODEL_UPDATE, null, null, d);
++		if (r != null && r.status() == ModelUpdater.Status.INSTALLED) {
++			reloadModels();
++		}
++		return r;
++	}
++
++	/** New sessions use the newest verified bundle (store or bundled); running sessions keep their analyzers. */
++	private void reloadModels() {
++		synchronized (this) {
++			if (analyzers == null) {
++				return; // not built yet (or the scripted engine): the first build reads the store
++			}
++			analyzers.swap(newAnalyzerFactory());
++		}
++		preload();
 +	}
 +
 +	/** A new session, or null when liveness is disabled for the workflow (the caller keeps the legacy flow). */
@@ -4091,16 +4519,27 @@ new file mode 100644
 +			}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, true);
 +			return fake;
 +		}
-+		analyzers = new OnnxFaceAnalyzerFactory(new ClasspathBundleSource(), new ModelStore(modelStoreDir()),
-+				TrustedKeys.builtIn(), AnalyzerConfig.fromConfig(config));
-+		final OnnxFaceAnalyzerFactory matcherSource = analyzers;
++		analyzers = new SwappableAnalyzerFactory(newAnalyzerFactory());
++		final SwappableAnalyzerFactory matcherSource = analyzers;
 +		binding = new FaceBinding(this::isEnabled, config, (live, captured) -> {
-+			try (FaceMatcher matcher = matcherSource.createMatcher()) {
++			try (FaceMatcher matcher = matcherSource.current().createMatcher()) {
 +				MatchResult m = matcher.compare(live, captured);
 +				return new FaceBinding.Comparison(m.outcome.name(), m.similarity, m.threshold);
 +			}
 +		}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, false);
 +		return DefaultLivenessService.builder().config(config).analyzerFactory(analyzers).auditSink(audit).build();
++	}
++
++	private synchronized OnnxFaceAnalyzerFactory newAnalyzerFactory() {
++		return new OnnxFaceAnalyzerFactory(bundledModels, modelStore(), trustedKeys, AnalyzerConfig.fromConfig(config));
++	}
++
++	/** One store for the analyzers and the online update, so an install and a load never race. */
++	private synchronized ModelStore modelStore() {
++		if (modelStore == null) {
++			modelStore = new ModelStore(modelStoreDir());
++		}
++		return modelStore;
 +	}
 +
 +	private File modelStoreDir() {
@@ -4356,11 +4795,179 @@ new file mode 100644
 +		return running;
 +	}
 +}
+diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/desktop/SwappableAnalyzerFactory.java b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/SwappableAnalyzerFactory.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/SwappableAnalyzerFactory.java
+@@ -0,0 +1,121 @@
++package io.mosip.registration.liveness.desktop;
++
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.api.FaceAnalyzer;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameAnalysis;
++import io.mosip.registration.liveness.api.LivenessEngineException;
++import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
++
++/**
++ * The analyzer factory the engine uses, replaceable after an online model update (as Android's
++ * {@code SwappableAnalyzerFactory}). New sessions get analyzers from the current factory; a replaced factory is closed,
++ * releasing its ONNX sessions, once the analyzers created from it (those of a running session) are closed. So a running
++ * session keeps its models, as it keeps its policy.
++ */
++final class SwappableAnalyzerFactory implements FaceAnalyzerFactory {
++
++	static final class Entry {
++		final OnnxFaceAnalyzerFactory factory;
++		int users;
++		boolean retired;
++
++		Entry(OnnxFaceAnalyzerFactory factory) {
++			this.factory = factory;
++		}
++	}
++
++	private Entry current;
++
++	SwappableAnalyzerFactory(OnnxFaceAnalyzerFactory initial) {
++		if (initial == null) {
++			throw new IllegalArgumentException("initial factory is required");
++		}
++		this.current = new Entry(initial);
++	}
++
++	synchronized OnnxFaceAnalyzerFactory current() {
++		return current.factory;
++	}
++
++	/** Makes {@code next} current; the previous factory closes when its last analyzer does (at once if unused). */
++	void swap(OnnxFaceAnalyzerFactory next) {
++		if (next == null) {
++			throw new IllegalArgumentException("next factory is required");
++		}
++		Entry old;
++		synchronized (this) {
++			old = current;
++			current = new Entry(next);
++			old.retired = true;
++			if (old.users > 0) {
++				return;
++			}
++		}
++		old.factory.close();
++	}
++
++	@Override
++	public FaceAnalyzer create() throws LivenessEngineException {
++		Entry entry;
++		synchronized (this) {
++			entry = current;
++			entry.users++;
++		}
++		try {
++			return new Counted(this, entry.factory.create(), entry);
++		} catch (LivenessEngineException | RuntimeException e) {
++			release(entry);
++			throw e;
++		}
++	}
++
++	private void release(Entry entry) {
++		synchronized (this) {
++			entry.users--;
++			if (!entry.retired || entry.users > 0) {
++				return;
++			}
++		}
++		entry.factory.close();
++	}
++
++	/** An analyzer that releases its factory when closed. */
++	static final class Counted implements FaceAnalyzer {
++		private final SwappableAnalyzerFactory owner;
++		private final FaceAnalyzer analyzer;
++		private final Entry entry;
++		private boolean closed;
++
++		Counted(SwappableAnalyzerFactory owner, FaceAnalyzer analyzer, Entry entry) {
++			this.owner = owner;
++			this.analyzer = analyzer;
++			this.entry = entry;
++		}
++
++		@Override
++		public FrameAnalysis analyze(Frame frame) throws LivenessEngineException {
++			return analyzer.analyze(frame);
++		}
++
++		@Override
++		public String modelVersion() {
++			return analyzer.modelVersion();
++		}
++
++		@Override
++		public void close() {
++			synchronized (this) {
++				if (closed) {
++					return;
++				}
++				closed = true;
++			}
++			try {
++				analyzer.close();
++			} finally {
++				owner.release(entry);
++			}
++		}
++	}
++}
+diff --git a/registration-services/src/main/java/io/mosip/registration/service/config/impl/GlobalParamServiceImpl.java b/registration-services/src/main/java/io/mosip/registration/service/config/impl/GlobalParamServiceImpl.java
+--- a/registration-services/src/main/java/io/mosip/registration/service/config/impl/GlobalParamServiceImpl.java
++++ b/registration-services/src/main/java/io/mosip/registration/service/config/impl/GlobalParamServiceImpl.java
+@@ -14,6 +14,7 @@
+ import io.micrometer.core.annotation.Timed;
+ import io.mosip.kernel.clientcrypto.util.ClientCryptoUtils;
+ import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.context.ApplicationEventPublisher;
+ import org.springframework.stereotype.Service;
+ 
+ import com.fasterxml.jackson.databind.ObjectMapper;
+@@ -27,6 +28,7 @@
+ import io.mosip.registration.context.ApplicationContext;
+ import io.mosip.registration.dao.GlobalParamDAO;
+ import io.mosip.registration.dto.ResponseDTO;
++import io.mosip.registration.liveness.desktop.ConfigSyncedEvent;
+ import io.mosip.registration.dto.SuccessResponseDTO;
+ import io.mosip.registration.entity.GlobalParam;
+ import io.mosip.registration.entity.id.GlobalParamId;
+@@ -68,6 +70,10 @@
+ 	@Autowired
+ 	private ClientCryptoFacade clientCryptoFacade;
+ 
++	/** Part 4 (face liveness): told after a successful sync, for the online model update. */
++	@Autowired(required = false)
++	private ApplicationEventPublisher eventPublisher;
++
+ 	private static final ObjectMapper objectMapper = new ObjectMapper();
+ 
+ 	/*
+@@ -110,6 +116,11 @@
+ 				: RegistrationConstants.JOB_TRIGGER_POINT_USER;
+ 
+ 		saveGlobalParams(responseDTO, triggerPoint);
++		if (responseDTO.getSuccessResponseDTO() != null) {
++			// Part 4 (face liveness): listeners such as the online model update run after a successful sync and
++			// never fail it.
++			ConfigSyncedEvent.publish(eventPublisher, this, triggerPoint);
++		}
+ 
+ 		if (!isJob) {
+ 			/* If unable to fetch from server and no data in DB create error response */
 diff --git a/registration-services/src/main/resources/liveness-desktop-default.properties b/registration-services/src/main/resources/liveness-desktop-default.properties
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/resources/liveness-desktop-default.properties
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,35 @@
 +# Face liveness: Desktop defaults, used when the synced global config (the server's registration-default.properties)
 +# does not set a key. The policy keys (mosip.registration.liveness.face.<default|resident|operator|supervisor>.*)
 +# fall back to the engine's own liveness-default.properties; only Desktop-specific keys live here.
@@ -4391,6 +4998,11 @@ new file mode 100644
 +# Offline model updates: signed bundles installed here are used when newer than the bundled one.
 +# Empty = <user.dir>/.liveness-models
 +mosip.registration.liveness.face.desktop.modelStoreDir=
++
++# Online model update, as on Android: after each successful config sync, download a newer signed bundle from the
++# index (latest.json, HTTPS) into the model store above. Off until MOSIP hosts the bundles.
++mosip.registration.liveness.model.update.enabled=false
++mosip.registration.liveness.model.update.url=
 diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DeferredFrameSourceTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DeferredFrameSourceTest.java
 new file mode 100644
 --- /dev/null
@@ -4847,6 +5459,308 @@ new file mode 100644
 +		return Collections.singletonList(dto);
 +	}
 +}
+diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopModelPreloadTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopModelPreloadTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopModelPreloadTest.java
+@@ -0,0 +1,66 @@
++package io.mosip.registration.liveness.desktop;
++
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertTrue;
++
++import java.security.KeyPair;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.Random;
++
++import org.junit.Before;
++import org.junit.Rule;
++import org.junit.Test;
++import org.junit.rules.TemporaryFolder;
++
++import io.mosip.registration.constants.AuditEvent;
++import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
++
++/** The start-up preload: a model integrity failure is audited, a matcher warm-up failure only logged. */
++public class DesktopModelPreloadTest {
++
++	private static final String BUNDLED = "pad-2026.10.5";
++
++	@Rule
++	public TemporaryFolder tmp = new TemporaryFolder();
++
++	private final Map<String, Object> synced = new HashMap<>();
++	private final RecordingAuditManager audit = new RecordingAuditManager();
++
++	@Before
++	public void emptyStore() throws Exception {
++		synced.put(DesktopLivenessConfig.MODEL_STORE_KEY, tmp.newFolder("store").getAbsolutePath());
++	}
++
++	private DesktopLivenessService service(Map<String, byte[]> bundled, KeyPair trusted) {
++		return new DesktopLivenessService(new DesktopLivenessConfig(() -> synced, DesktopLivenessConfig.loadDefaults()),
++				audit, null, null).withModels(SignedTestBundles.source(bundled), SignedTestBundles.trust(trusted));
++	}
++
++	@Test(timeout = 120_000)
++	public void aMatcherWarmUpFailureIsLoggedNotAuditedAsAnIntegrityFailure() throws Exception {
++		KeyPair kp = SignedTestBundles.keyPair();
++		Map<ModelRole, byte[]> models = SignedTestBundles.realModels();
++		byte[] notAModel = new byte[4096];
++		new Random(1).nextBytes(notAModel);
++		models.put(ModelRole.MATCHER, notAModel); // signed and verified, but not an ONNX model: only the warm-up fails
++		DesktopLivenessService s = service(SignedTestBundles.bundle(BUNDLED, kp, models), kp);
++
++		assertTrue("the per-frame models verified and loaded", s.preload());
++		String loaded = audit.await(AuditEvent.LIVENESS_MODEL_LOADED, "");
++		assertTrue(loaded, loaded.contains("modelVersion=" + BUNDLED));
++		Thread.sleep(300);
++		assertFalse(audit.events().toString(), audit.events().contains(AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED));
++	}
++
++	@Test(timeout = 60_000)
++	public void aBundleThatDoesNotVerifyIsStillAnIntegrityFailure() throws Exception {
++		KeyPair signer = SignedTestBundles.keyPair();
++		DesktopLivenessService s = service(SignedTestBundles.bundle(BUNDLED, signer, SignedTestBundles.realModels()),
++				SignedTestBundles.keyPair()); // another key: the signature does not verify
++
++		assertFalse(s.preload());
++		String failed = audit.await(AuditEvent.LIVENESS_MODEL_INTEGRITY_FAILED, "");
++		assertTrue(failed, failed.contains("errorCode=MODEL_INTEGRITY_FAILED"));
++	}
++}
+diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopModelUpdateTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopModelUpdateTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopModelUpdateTest.java
+@@ -0,0 +1,226 @@
++package io.mosip.registration.liveness.desktop;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertSame;
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
++
++import java.io.ByteArrayOutputStream;
++import java.io.File;
++import java.io.OutputStream;
++import java.net.InetAddress;
++import java.net.InetSocketAddress;
++import java.nio.charset.StandardCharsets;
++import java.security.KeyPair;
++import java.security.MessageDigest;
++import java.util.Arrays;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.CopyOnWriteArrayList;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++
++import org.junit.After;
++import org.junit.Before;
++import org.junit.Rule;
++import org.junit.Test;
++import org.junit.rules.TemporaryFolder;
++import org.springframework.context.ApplicationEvent;
++import org.springframework.context.ApplicationEventPublisher;
++
++import com.sun.net.httpserver.HttpServer;
++
++import io.mosip.registration.constants.AuditEvent;
++import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
++import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.analyzer.integrity.VerifiedBundle;
++import io.mosip.registration.liveness.api.FaceAnalyzer;
++import io.mosip.registration.liveness.api.LivenessEngineException;
++
++/**
++ * The online model update after a config sync: a local HTTP server, bundles signed with a throwaway key, and the reload
++ * that leaves running sessions alone.
++ */
++public class DesktopModelUpdateTest {
++
++	private static final String BUNDLED = "pad-2026.10.5";
++	private static final String NEWER = "pad-2099.01.1";
++
++	@Rule
++	public TemporaryFolder tmp = new TemporaryFolder();
++
++	private final Map<String, Object> synced = new HashMap<>();
++	private final RecordingAuditManager audit = new RecordingAuditManager();
++	private final Map<String, byte[]> routes = new ConcurrentHashMap<>();
++	private final List<String> hits = new CopyOnWriteArrayList<>();
++	private HttpServer server;
++	private ExecutorService executor;
++	private File storeDir;
++	private KeyPair kp;
++	private TrustedKeys trust;
++
++	@Before
++	public void start() throws Exception {
++		server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
++		executor = Executors.newCachedThreadPool();
++		server.setExecutor(executor);
++		server.createContext("/", x -> {
++			String path = x.getRequestURI().getPath();
++			hits.add(path);
++			byte[] body = routes.get(path);
++			if (body == null) {
++				x.sendResponseHeaders(404, -1);
++				x.close();
++				return;
++			}
++			x.sendResponseHeaders(200, body.length);
++			try (OutputStream o = x.getResponseBody()) {
++				o.write(body);
++			}
++		});
++		server.start();
++		storeDir = tmp.newFolder("store");
++		synced.put(DesktopLivenessConfig.MODEL_STORE_KEY, storeDir.getAbsolutePath());
++		System.setProperty(DesktopLivenessConfig.MODEL_UPDATE_INSECURE_LOCALHOST_KEY, "true");
++		kp = SignedTestBundles.keyPair();
++		trust = SignedTestBundles.trust(kp);
++	}
++
++	@After
++	public void stop() {
++		server.stop(0);
++		executor.shutdownNow();
++		System.clearProperty(DesktopLivenessConfig.MODEL_UPDATE_INSECURE_LOCALHOST_KEY);
++	}
++
++	private DesktopLivenessService service() throws Exception {
++		return new DesktopLivenessService(new DesktopLivenessConfig(() -> synced, DesktopLivenessConfig.loadDefaults()),
++				audit, null, null).withModels(
++						SignedTestBundles.source(SignedTestBundles.bundle(BUNDLED, kp, SignedTestBundles.realModels())),
++						trust);
++	}
++
++	private String url(String path) {
++		return "http://127.0.0.1:" + server.getAddress().getPort() + path;
++	}
++
++	/** Serves a packed bundle at /m/<version>.zip with its index at /m/latest.json, as ModelBundleTool pack writes. */
++	private void serve(String version) throws Exception {
++		ByteArrayOutputStream zip = new ByteArrayOutputStream();
++		ModelUpdater.writeZip(VerifiedBundle.load(
++				SignedTestBundles.source(SignedTestBundles.bundle(version, kp, SignedTestBundles.realModels())), trust), zip);
++		byte[] z = zip.toByteArray();
++		StringBuilder sha = new StringBuilder();
++		for (byte b : MessageDigest.getInstance("SHA-256").digest(z)) {
++			sha.append(String.format("%02x", b & 0xff));
++		}
++		routes.put("/m/" + version + ".zip", z);
++		routes.put("/m/latest.json", ModelUpdater.indexJson(version, version + ".zip", sha.toString(), z.length)
++				.getBytes(StandardCharsets.UTF_8));
++	}
++
++	private void enable(String indexPath) {
++		synced.put(DesktopLivenessConfig.MODEL_UPDATE_ENABLED_KEY, "true");
++		synced.put(DesktopLivenessConfig.MODEL_UPDATE_URL_KEY, url(indexPath));
++	}
++
++	@Test(timeout = 180_000)
++	public void anEnabledNewerBundleIsInstalledAfterASyncAndNewSessionsUseIt() throws Exception {
++		serve(NEWER);
++		DesktopLivenessService s = service();
++		assertTrue(s.preload());
++		audit.await(AuditEvent.LIVENESS_MODEL_LOADED, "modelVersion=" + BUNDLED);
++		enable("/m/latest.json");
++
++		s.onConfigSynced(new ConfigSyncedEvent(this, "System"));
++
++		String update = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "");
++		assertTrue(update, update.contains("outcome=INSTALLED") && update.contains("version=" + NEWER)
++				&& update.contains("trigger=System"));
++		audit.await(AuditEvent.LIVENESS_MODEL_LOADED, "modelVersion=" + NEWER);
++		ModelStore store = new ModelStore(storeDir);
++		assertEquals(NEWER, store.currentVersion());
++		assertEquals("the client's own bundle is the rollback base", Arrays.asList(BUNDLED, NEWER),
++				store.installedVersions());
++		assertTrue(hits.toString(), hits.contains("/m/" + NEWER + ".zip"));
++	}
++
++	@Test(timeout = 60_000)
++	public void disabledOrWithoutAUrlTheSyncMakesNoNetworkCall() throws Exception {
++		serve(NEWER);
++		DesktopLivenessService s = service();
++		synced.put(DesktopLivenessConfig.MODEL_UPDATE_URL_KEY, url("/m/latest.json"));
++
++		s.onConfigSynced(new ConfigSyncedEvent(this, "System")); // enabled is false by default
++		synced.put(DesktopLivenessConfig.MODEL_UPDATE_ENABLED_KEY, "true");
++		synced.remove(DesktopLivenessConfig.MODEL_UPDATE_URL_KEY);
++		s.onConfigSynced(new ConfigSyncedEvent(this, "User")); // enabled, but no URL
++		Thread.sleep(1000);
++
++		assertTrue(hits.toString(), hits.isEmpty());
++		assertFalse(audit.events().contains(AuditEvent.LIVENESS_MODEL_UPDATE));
++		assertNull(new ModelStore(storeDir).currentVersion());
++	}
++
++	@Test(timeout = 120_000)
++	public void aFailedUpdateNeverFailsTheSyncAndKeepsTheModels() throws Exception {
++		DesktopLivenessService s = service();
++		enable("/missing/latest.json");
++
++		long start = System.currentTimeMillis();
++		s.onConfigSynced(new ConfigSyncedEvent(this, "System"));
++		assertTrue("the sync never waits for the update", System.currentTimeMillis() - start < 1000);
++
++		String update = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "");
++		assertTrue(update, update.contains("outcome=FAILED") && update.contains("reason=HTTP_STATUS"));
++		assertNull(new ModelStore(storeDir).currentVersion());
++		assertTrue(s.preload());
++		audit.await(AuditEvent.LIVENESS_MODEL_LOADED, "modelVersion=" + BUNDLED);
++
++		// A listener that throws never reaches the sync.
++		ApplicationEventPublisher failing = new ApplicationEventPublisher() {
++			@Override
++			public void publishEvent(ApplicationEvent event) {
++				throw new IllegalStateException("listener failed");
++			}
++
++			@Override
++			public void publishEvent(Object event) {
++				throw new IllegalStateException("listener failed");
++			}
++		};
++		ConfigSyncedEvent.publish(failing, this, "System");
++		ConfigSyncedEvent.publish(null, this, "System");
++	}
++
++	@Test(timeout = 120_000)
++	public void aRunningSessionKeepsItsModelsUntilItEnds() throws Exception {
++		OnnxFaceAnalyzerFactory first = new OnnxFaceAnalyzerFactory(new ClasspathBundleSource(), null,
++				TrustedKeys.builtIn(), AnalyzerConfig.defaults());
++		OnnxFaceAnalyzerFactory second = new OnnxFaceAnalyzerFactory(new ClasspathBundleSource(), null,
++				TrustedKeys.builtIn(), AnalyzerConfig.defaults());
++		SwappableAnalyzerFactory factory = new SwappableAnalyzerFactory(first);
++		FaceAnalyzer running = factory.create();
++
++		factory.swap(second);
++		assertSame(second, factory.current());
++		first.create().close(); // still open: the running session uses it
++		running.close();
++		try {
++			first.create();
++			fail("the replaced factory closes with its last analyzer");
++		} catch (LivenessEngineException expected) {
++			// closed
++		}
++		factory.create().close();
++		second.close();
++	}
++}
 diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/FaceBindingTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/FaceBindingTest.java
 new file mode 100644
 --- /dev/null
@@ -5116,7 +6030,7 @@ diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RecordingAuditManager.java
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,78 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.util.ArrayList;
@@ -5169,5 +6083,136 @@ new file mode 100644
 +
 +	Call last() {
 +		return calls.get(calls.size() - 1);
++	}
++
++	synchronized List<AuditEvent> events() {
++		List<AuditEvent> events = new ArrayList<>();
++		for (Call c : calls) {
++			events.add(c.event);
++		}
++		return events;
++	}
++
++	/** Waits for an {@code event} record whose description contains {@code text} (the sink writes in the background). */
++	String await(AuditEvent event, String text) throws InterruptedException {
++		long deadline = System.currentTimeMillis() + 90_000;
++		while (System.currentTimeMillis() < deadline) {
++			synchronized (this) {
++				for (Call c : calls) {
++					if (c.event == event && c.description != null && c.description.contains(text)) {
++						return c.description;
++					}
++				}
++			}
++			Thread.sleep(50);
++		}
++		throw new AssertionError("no " + event + " audit with '" + text + "' in " + events());
++	}
++}
+diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/SignedTestBundles.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/SignedTestBundles.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/SignedTestBundles.java
+@@ -0,0 +1,102 @@
++package io.mosip.registration.liveness.desktop;
++
++import java.io.FileNotFoundException;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.security.KeyPair;
++import java.security.KeyPairGenerator;
++import java.security.MessageDigest;
++import java.security.Signature;
++import java.security.spec.ECGenParameterSpec;
++import java.util.Collections;
++import java.util.EnumMap;
++import java.util.LinkedHashMap;
++import java.util.Map;
++
++import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
++import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
++
++/**
++ * TEST ONLY: model bundles signed with a throwaway key, made in memory from the real bundled models, so that the
++ * update and preload paths run end to end without the development signing key.
++ */
++final class SignedTestBundles {
++
++	static final String KEY_ID = "desktop-test-key";
++
++	private SignedTestBundles() {
++	}
++
++	static KeyPair keyPair() throws Exception {
++		KeyPairGenerator g = KeyPairGenerator.getInstance("EC");
++		g.initialize(new ECGenParameterSpec("secp256r1"));
++		return g.generateKeyPair();
++	}
++
++	static TrustedKeys trust(KeyPair kp) {
++		return new TrustedKeys(Collections.singletonMap(KEY_ID, kp.getPublic()));
++	}
++
++	/** The five model files of the signed bundle in the analyzer jar. */
++	static Map<ModelRole, byte[]> realModels() throws IOException {
++		ClasspathBundleSource bundled = new ClasspathBundleSource();
++		Map<ModelRole, byte[]> models = new EnumMap<>(ModelRole.class);
++		for (ModelRole role : ModelRole.values()) {
++			models.put(role, bundled.read(role.fileName()));
++		}
++		return models;
++	}
++
++	/** manifest.json, manifest.sig and the models of a bundle {@code version}, signed with {@code kp}. */
++	static Map<String, byte[]> bundle(String version, KeyPair kp, Map<ModelRole, byte[]> models) throws Exception {
++		StringBuilder files = new StringBuilder();
++		for (ModelRole role : ModelRole.values()) {
++			byte[] b = models.get(role);
++			files.append(files.length() == 0 ? "" : ",\n").append("    {\"role\": \"").append(role.name())
++					.append("\", \"name\": \"").append(role.fileName()).append("\", \"size\": ").append(b.length)
++					.append(", \"sha256\": \"").append(hex(MessageDigest.getInstance("SHA-256").digest(b))).append("\"}");
++		}
++		byte[] manifest = ("{\n  \"schema\": 1,\n  \"bundleVersion\": \"" + version + "\",\n  \"keyId\": \"" + KEY_ID
++				+ "\",\n  \"createdUtc\": \"2026-10-26T00:00:00Z\",\n  \"params\": { \"pitchBiasDeg\": -9.5 },\n"
++				+ "  \"files\": [\n" + files + "\n  ]\n}\n").getBytes(StandardCharsets.UTF_8);
++		Signature s = Signature.getInstance("SHA256withECDSA");
++		s.initSign(kp.getPrivate());
++		s.update(manifest);
++		Map<String, byte[]> out = new LinkedHashMap<>();
++		out.put("manifest.json", manifest);
++		out.put("manifest.sig", (KEY_ID + ":" + hex(s.sign()) + "\n").getBytes(StandardCharsets.US_ASCII));
++		for (ModelRole role : ModelRole.values()) {
++			out.put(role.fileName(), models.get(role));
++		}
++		return out;
++	}
++
++	/** An in-memory bundle source. */
++	static BundleSource source(final Map<String, byte[]> files) {
++		return new BundleSource() {
++			@Override
++			public byte[] read(String name) throws IOException {
++				byte[] b = files.get(name);
++				if (b == null) {
++					throw new FileNotFoundException(name);
++				}
++				return b.clone();
++			}
++
++			@Override
++			public String describe() {
++				return "test bundle";
++			}
++		};
++	}
++
++	private static String hex(byte[] b) {
++		StringBuilder sb = new StringBuilder();
++		for (byte x : b) {
++			sb.append(String.format("%02x", x & 0xff));
++		}
++		return sb.toString();
 +	}
 +}
