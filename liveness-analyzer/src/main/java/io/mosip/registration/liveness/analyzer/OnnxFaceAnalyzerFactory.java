@@ -7,6 +7,7 @@ import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
 import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 import io.mosip.registration.liveness.analyzer.integrity.VerifiedBundle;
 import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
+import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
 import io.mosip.registration.liveness.analyzer.runtime.OnnxModels;
 import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
@@ -72,7 +73,8 @@ public final class OnnxFaceAnalyzerFactory implements FaceAnalyzerFactory, AutoC
 
     /**
      * A face matcher (F1, face binding) on this factory's verified sessions and effective config (loads them if
-     * needed). Closing the factory makes the matcher fail with ENGINE_ERROR.
+     * needed). Its first call builds the MATCHER session unless {@link #warmUpMatcher} already did. Closing the
+     * factory makes the matcher fail with ENGINE_ERROR.
      */
     public FaceMatcher createMatcher() throws LivenessEngineException {
         synchronized (this) {
@@ -81,9 +83,32 @@ public final class OnnxFaceAnalyzerFactory implements FaceAnalyzerFactory, AutoC
         }
     }
 
-    /** Verifies the bundle and builds the sessions now instead of on the first create(). */
+    /**
+     * Verifies the bundle (all five files) and builds the per-frame sessions now instead of on the first create().
+     * The MATCHER session is not built here: the matcher's first call, or {@link #warmUpMatcher}, builds it from the
+     * verified bytes kept since this load.
+     */
     public synchronized void preload() throws LivenessEngineException {
         ensureLoaded();
+    }
+
+    /**
+     * Builds the MATCHER session now (after {@link #preload}, on a background thread), so that the first face binding
+     * does not pay for it. Does not hold the factory's lock while building: {@link #create()} is not delayed.
+     * Idempotent.
+     */
+    public void warmUpMatcher() throws LivenessEngineException {
+        OnnxModels m;
+        synchronized (this) {
+            ensureLoaded();
+            m = models;
+        }
+        m.ensureSession(ModelRole.MATCHER);
+    }
+
+    /** Whether the MATCHER session exists (warmed up, or built by a first binding). Never loads anything. */
+    public synchronized boolean matcherReady() {
+        return models != null && models.lazySessionBuilt();
     }
 
     /** The version of the bundle in use (loads it if needed). */

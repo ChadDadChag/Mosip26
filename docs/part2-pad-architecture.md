@@ -240,9 +240,23 @@ Development laptop: AMD Ryzen AI 7 350, JDK 11, ONNX Runtime 1.31.0 CPU, 20 warm
 The breakdown at p50: detect 5 ms, mesh 7.5 ms, PAD (both models) 4.7 ms, everything else under 1 ms. At 18–22 ms
 per frame, the analyzer easily covers Part 3's 8 fps passive rate and 15 fps challenge rate on one core.
 
-These figures predate face binding. Since `pad-2026.10.4`, preload also builds the SFace session: 2.4 s in a fresh
-JVM on the laptop. A match takes 28 ms per face and runs once per capture, not per frame. Per-frame times are
-unchanged, apart from the occasional F7 fallback, which re-runs the mesh.
+These figures predate face binding. Since `pad-2026.10.4` the bundle has five files. `preload()` verifies all five and
+builds the four per-frame sessions. The SFace session is built on the matcher's first call, or earlier by
+`warmUpMatcher()` on a background thread (fix round 2). Fresh JVM on the laptop, five runs:
+
+| step | time |
+|---|---|
+| load ONNX Runtime's native library (first use in the process) | 1.6–1.9 s |
+| read and verify the five files (SFace is 82% of the 45 MiB) | 0.59–0.94 s |
+| build the four per-frame sessions | 0.19–0.28 s |
+| build the SFace session (`warmUpMatcher`) | 67–98 ms |
+| first comparison of two images, without warm-up (builds the SFace session) | 234–255 ms |
+| first comparison after `warmUpMatcher` (first inferences) | 152–205 ms |
+| comparison, warm (two images) | 64–70 ms |
+
+So deferring the SFace session saves about 80 ms of preload on the laptop; the rest is the runtime and the
+verification of the bytes, which preload must still do. A match runs once per capture, not per frame. Per-frame times
+are unchanged, apart from the occasional F7 fallback, which re-runs the mesh.
 
 ## 11. Android notes (Person 5)
 
@@ -323,10 +337,10 @@ try (FaceMatcher matcher = factory.createMatcher()) {          // shares the fac
 0.645). Binding must run after liveness passed, never instead of it.
 
 **Cost.**
-- One face (detection, alignment, SFace) takes 28 ms on the laptop.
+- One face (detection, alignment, SFace) takes 28–34 ms on the laptop; a comparison of two images 64–70 ms warm.
 - The bundle grows from 8.2 MiB to 45.1 MiB.
-- A fresh-JVM preload of the five sessions took 2.4 s on the laptop. Android effects (APK size, memory) come with the
-  round-2 integration.
+- Preload verifies all five files but builds the SFace session only on first use or in `warmUpMatcher()`: see the
+  timings in section 10.
 
 **Integration.**
 - **Desktop (Person 4):** call `compare(bestFrame, capturedFace)` before accepting the capture; see

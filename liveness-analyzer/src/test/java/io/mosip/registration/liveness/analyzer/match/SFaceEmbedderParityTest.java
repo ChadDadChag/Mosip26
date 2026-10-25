@@ -37,7 +37,7 @@ class SFaceEmbedderParityTest {
         faces = new ArrayList<Map<String, Object>>();
         for (Object o : MiniJson.getArray(golden, "faces")) faces.add((Map<String, Object>) o);
         OnnxModels models = TestModels.shared();
-        embedder = new SFaceEmbedder(models.env(), models.session(ModelRole.MATCHER));
+        embedder = new SFaceEmbedder(models.env(), models.ensureSession(ModelRole.MATCHER));
         detector = new YuNetDetector(models.env(), models.session(ModelRole.DETECTOR), DetectorConfig.defaults());
     }
 

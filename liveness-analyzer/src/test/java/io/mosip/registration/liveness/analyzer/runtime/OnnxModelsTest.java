@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class OnnxModelsTest {
 
     @Test
-    void createsOneSessionPerRoleAndClosesThem() throws Exception {
+    void createsOneSessionPerPerFrameRoleAndClosesThem() throws Exception {
         OnnxModels models = OnnxModels.create(TestModels.load(), 1);
         assertThat(models.env()).isNotNull();
         assertThat(models.session(ModelRole.DETECTOR).getInputNames()).containsExactly("input");
@@ -23,6 +23,47 @@ class OnnxModelsTest {
         models.close();
         assertThatThrownBy(() -> models.session(ModelRole.DETECTOR)).isInstanceOf(IllegalStateException.class);
         models.close(); // idempotent
+    }
+
+    @Test
+    void theMatcherSessionIsBuiltOnFirstUseFromTheKeptBytes() throws Exception {
+        OnnxModels models = OnnxModels.create(TestModels.load(), 1);
+        assertThat(models.lazySessionBuilt()).isFalse();
+        assertThat(models.lazyBytesRetained()).isTrue();
+        assertThatThrownBy(() -> models.session(ModelRole.MATCHER)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not built yet");
+        ai.onnxruntime.OrtSession s = models.ensureSession(ModelRole.MATCHER);
+        assertThat(s.getInputNames()).containsExactly("data");
+        assertThat(models.lazySessionBuilt()).isTrue();
+        assertThat(models.lazyBytesRetained()).as("released once the session exists").isFalse();
+        assertThat(models.ensureSession(ModelRole.MATCHER)).isSameAs(s);
+        assertThat(models.session(ModelRole.MATCHER)).isSameAs(s);
+        assertThat(models.ensureSession(ModelRole.DETECTOR)).isSameAs(models.session(ModelRole.DETECTOR));
+        models.close();
+        assertThat(models.lazySessionBuilt()).isFalse();
+        assertThatThrownBy(() -> models.ensureSession(ModelRole.MATCHER)).isInstanceOf(LivenessEngineException.class)
+                .satisfies(e -> assertThat(((LivenessEngineException) e).code()).isEqualTo(ErrorCode.ENGINE_ERROR));
+        assertThatThrownBy(() -> models.ensureSession(ModelRole.DETECTOR)).isInstanceOf(LivenessEngineException.class);
+        // Closed before first use: the bytes are dropped too.
+        OnnxModels unused = OnnxModels.create(TestModels.load(), 1);
+        unused.close();
+        assertThat(unused.lazyBytesRetained()).isFalse();
+    }
+
+    @Test
+    void anUnloadableMatcherFailsOnFirstUseAndKeepsItsBytes() throws Exception {
+        Map<ModelRole, byte[]> bytes = TestModels.load();
+        bytes.put(ModelRole.MATCHER, new byte[] {1, 2, 3, 4});
+        OnnxModels models = OnnxModels.create(bytes, 1); // the per-frame sessions do not depend on it
+        try {
+            assertThatThrownBy(() -> models.ensureSession(ModelRole.MATCHER))
+                    .isInstanceOf(LivenessEngineException.class)
+                    .satisfies(e -> assertThat(((LivenessEngineException) e).code()).isEqualTo(ErrorCode.ENGINE_ERROR))
+                    .hasMessageContaining("MATCHER");
+            assertThat(models.lazyBytesRetained()).as("a later call retries").isTrue();
+        } finally {
+            models.close();
+        }
     }
 
     @Test

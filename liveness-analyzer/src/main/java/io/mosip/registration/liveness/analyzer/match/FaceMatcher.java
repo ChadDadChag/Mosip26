@@ -24,24 +24,32 @@ import java.util.List;
  * Spec: {@code reference_pipeline.face_match}.
  *
  * <p>Created by {@code OnnxFaceAnalyzerFactory.createMatcher()} and sharing the factory's verified sessions;
- * {@link #close()} does not close them. Binding is not presentation attack detection: a photo of the same person
- * matches. Use it after liveness passed, between {@code LivenessResult.bestFrame} and the captured face. Thread-safe
- * (calls are serialised). Nothing is kept between calls.
+ * {@link #close()} does not close them. Creating a matcher is cheap: its first call builds the MATCHER session unless
+ * the factory warmed it up ({@code warmUpMatcher}). Binding is not presentation attack detection: a photo of the same
+ * person matches. Use it after liveness passed, between {@code LivenessResult.bestFrame} and the captured face.
+ * Thread-safe (calls are serialised). Nothing is kept between calls.
  */
 public final class FaceMatcher implements AutoCloseable {
 
+    private final OnnxModels models;
     private final YuNetDetector detector;
-    private final SFaceEmbedder embedder;
     private final double secondFaceMinAreaRatio;
     private final double threshold;
+    private SFaceEmbedder embedder; // built on first use: the MATCHER session is lazy (OnnxModels.ensureSession)
     private boolean closed;
 
     public FaceMatcher(OnnxModels models, AnalyzerConfig config) {
         if (models == null || config == null) throw new IllegalArgumentException("null argument");
+        this.models = models;
         this.detector = new YuNetDetector(models.env(), models.session(ModelRole.DETECTOR), config.detector);
-        this.embedder = new SFaceEmbedder(models.env(), models.session(ModelRole.MATCHER));
         this.secondFaceMinAreaRatio = config.detector.secondFaceMinAreaRatio;
         this.threshold = config.bindingCosineThreshold;
+    }
+
+    /** The embedder; the first call builds the MATCHER session unless the factory warmed it up. */
+    private SFaceEmbedder embedder() throws LivenessEngineException {
+        if (embedder == null) embedder = new SFaceEmbedder(models.env(), models.ensureSession(ModelRole.MATCHER));
+        return embedder;
     }
 
     public MatchResult compare(Frame a, Frame b) throws LivenessEngineException {
@@ -55,6 +63,7 @@ public final class FaceMatcher implements AutoCloseable {
         if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");
         check(rgbA, wA, hA, "A");
         check(rgbB, wB, hB, "B");
+        SFaceEmbedder embedder = embedder();
         try {
             List<FaceDetection> facesA = detector.detect(rgbA, wA, hA);
             int nA = YuNetDetector.countFaces(facesA, secondFaceMinAreaRatio);
@@ -81,6 +90,7 @@ public final class FaceMatcher implements AutoCloseable {
     public synchronized float[] featureOfSingleFace(byte[] rgb, int w, int h) throws LivenessEngineException {
         if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");
         check(rgb, w, h, "A");
+        SFaceEmbedder embedder = embedder();
         try {
             List<FaceDetection> faces = detector.detect(rgb, w, h);
             if (YuNetDetector.countFaces(faces, secondFaceMinAreaRatio) != 1) return null;
@@ -94,6 +104,7 @@ public final class FaceMatcher implements AutoCloseable {
     public synchronized List<float[]> featuresOfAllFaces(byte[] rgb, int w, int h) throws LivenessEngineException {
         if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");
         check(rgb, w, h, "A");
+        SFaceEmbedder embedder = embedder();
         try {
             List<float[]> out = new ArrayList<float[]>();
             for (FaceDetection f : detector.detect(rgb, w, h)) out.add(embedder.embed(rgb, w, h, f));

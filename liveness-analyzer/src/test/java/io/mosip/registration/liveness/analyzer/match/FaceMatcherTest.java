@@ -3,6 +3,7 @@ package io.mosip.registration.liveness.analyzer.match;
 import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 import io.mosip.registration.liveness.analyzer.integrity.MiniJson;
+import io.mosip.registration.liveness.analyzer.runtime.OnnxModels;
 import io.mosip.registration.liveness.analyzer.testing.GoldenFixtures;
 import io.mosip.registration.liveness.analyzer.testing.TestModels;
 import io.mosip.registration.liveness.api.ErrorCode;
@@ -126,6 +127,37 @@ class FaceMatcherTest {
         try (OnnxFaceAnalyzerFactory f = new OnnxFaceAnalyzerFactory(); FaceMatcher m = f.createMatcher()) {
             assertThat(m.compare(frame(portrait), frame(mirrored)).outcome).isEqualTo(MatchResult.Outcome.MATCH);
         }
+    }
+
+    @Test
+    void theMatcherSessionIsBuiltByTheFirstCallOrByTheWarmUp() throws Exception {
+        OnnxModels own = OnnxModels.create(TestModels.load(), AnalyzerConfig.defaults());
+        try (FaceMatcher m = matcher(own)) {
+            assertThat(own.lazySessionBuilt()).as("creating a matcher builds nothing").isFalse();
+            assertThat(m.compare(frame(portrait), frame(mirrored)).outcome).isEqualTo(MatchResult.Outcome.MATCH);
+            assertThat(own.lazySessionBuilt()).isTrue();
+            assertThat(own.lazyBytesRetained()).isFalse();
+        } finally {
+            own.close();
+        }
+        try (OnnxFaceAnalyzerFactory f = new OnnxFaceAnalyzerFactory()) {
+            assertThat(f.matcherReady()).isFalse();
+            f.preload();
+            assertThat(f.matcherReady()).as("preload builds only the per-frame sessions").isFalse();
+            f.warmUpMatcher();
+            assertThat(f.matcherReady()).isTrue();
+            f.warmUpMatcher(); // idempotent
+            try (FaceMatcher m = f.createMatcher()) {
+                assertThat(m.compare(frame(portrait), frame(mirrored)).outcome).isEqualTo(MatchResult.Outcome.MATCH);
+            }
+            f.close();
+            assertThat(f.matcherReady()).isFalse();
+            assertThatThrownBy(f::warmUpMatcher).isInstanceOf(LivenessEngineException.class);
+        }
+    }
+
+    static FaceMatcher matcher(OnnxModels models) {
+        return new FaceMatcher(models, AnalyzerConfig.defaults());
     }
 
     static byte[] fill(int n, byte v) {

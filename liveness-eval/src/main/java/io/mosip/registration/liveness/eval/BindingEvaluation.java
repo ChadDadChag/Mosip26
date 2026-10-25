@@ -1,7 +1,11 @@
 package io.mosip.registration.liveness.eval;
 
+import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzer;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
+import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
+import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
 import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
 import io.mosip.registration.liveness.analyzer.match.SFaceEmbedder;
 import io.mosip.registration.liveness.analyzer.quality.QualityReport;
@@ -30,7 +34,12 @@ import java.util.regex.Pattern;
  *   BindingEvaluation [--data eval-data] [--portraits models/tools/.cache/pitch-calibration]
  *                     [--list models/tools/pitch_calibration_urls.txt]
  *                     [--golden liveness-analyzer/src/test/resources/golden] [--out eval-data/reports/binding-yyyyMMdd]
+ *                     [--bundle &lt;signed bundle dir&gt;] [--speed] [--warm-up]
  * </pre>
+ * {@code --bundle} evaluates another signed bundle (for example a local test bundle with the int8 SFace), verified
+ * against the built-in keys as the bundled one is. {@code --speed} only times: preload, the first comparison, and warm
+ * comparisons on the golden portrait and its mirror (run it in a fresh JVM). {@code --warm-up} calls
+ * {@code warmUpMatcher} before the first comparison and times it.
  * Faces:
  * <ul>
  *   <li>each recorded bona fide take: its best frame (one face, no quality issue; the sharpest frame (lapVar) with
@@ -128,23 +137,41 @@ public final class BindingEvaluation {
 
     static int run(String[] args, PrintStream out, PrintStream err) {
         try {
-            ModelBundleTool.Args a = ModelBundleTool.Args.parse(args, 0, java.util.Collections.<String>emptyList());
+            ModelBundleTool.Args a = ModelBundleTool.Args.parse(args, 0, Arrays.asList("--speed", "--warm-up"));
             File data = new File(a.has("--data") ? a.single("--data") : "eval-data");
             File portraits = new File(a.has("--portraits") ? a.single("--portraits") : "models/tools/.cache/pitch-calibration");
             File list = new File(a.has("--list") ? a.single("--list") : "models/tools/pitch_calibration_urls.txt");
             File golden = new File(a.has("--golden") ? a.single("--golden") : "liveness-analyzer/src/test/resources/golden");
             String date = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
             File outDir = new File(a.has("--out") ? a.single("--out") : "eval-data/reports/binding-" + date);
+            BundleSource source = a.has("--bundle") ? new DirectoryBundleSource(new File(a.single("--bundle")))
+                    : new ClasspathBundleSource();
 
+            // Decoded before timing starts, so the image reader's start-up is not counted.
+            Frame portrait = PadEvaluation.load(new File(golden, "portrait_frontal.png"), 0, 0, "golden");
+            Frame mirrored = mirror(portrait);
+            Speed speed = new Speed();
             long t0 = System.nanoTime();
-            OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory();
+            OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory(source, AnalyzerConfig.defaults());
             factory.preload();
-            double preloadMs = (System.nanoTime() - t0) / 1e6;
+            speed.preloadMs = ms(t0);
             Map<String, Scores> sets = new LinkedHashMap<String, Scores>();
             Map<String, String> notes = new LinkedHashMap<String, String>();
-            double embedMs;
             String version = factory.modelVersion();
             try (FaceMatcher matcher = factory.createMatcher()) {
+                if (a.has("--warm-up")) {
+                    long w0 = System.nanoTime();
+                    factory.warmUpMatcher();
+                    speed.warmUpMs = ms(w0);
+                }
+                long c0 = System.nanoTime();
+                matcher.compare(portrait, mirrored);
+                speed.firstCompareMs = ms(c0);
+                if (a.has("--speed")) {
+                    speed.measureWarm(matcher, portrait, mirrored);
+                    out.print(speed.lines(version));
+                    return 0;
+                }
                 // Recorded takes: best frame per take.
                 List<float[]> bonaFide = new ArrayList<float[]>(), selfiePhotos = new ArrayList<float[]>(),
                         nasaPhotos = new ArrayList<float[]>();
@@ -210,17 +237,11 @@ public final class BindingEvaluation {
                 pairs(crew, i3);
                 for (float[] c : crew) for (Portrait p : people) i3.values.add(SFaceEmbedder.cosine(c, p.feature));
 
-                // Speed: one face, detection + alignment + network, averaged after a warm-up.
-                Frame portrait = PadEvaluation.load(new File(golden, "portrait_frontal.png"), 0, 0, "golden");
-                for (int i = 0; i < 3; i++) matcher.featureOfSingleFace(portrait.rgb(), portrait.width(), portrait.height());
-                int runs = 20;
-                long s0 = System.nanoTime();
-                for (int i = 0; i < runs; i++) matcher.featureOfSingleFace(portrait.rgb(), portrait.width(), portrait.height());
-                embedMs = (System.nanoTime() - s0) / 1e6 / runs;
+                speed.measureWarm(matcher, portrait, mirrored);
             } finally {
                 factory.close();
             }
-            String report = report(sets, notes, version, preloadMs, embedMs, date);
+            String report = report(sets, notes, version, speed, date);
             out.print(report);
             if (!outDir.isDirectory() && !outDir.mkdirs()) throw new IOException("cannot create " + outDir);
             Files.write(new File(outDir, "report.md").toPath(), report.getBytes(StandardCharsets.UTF_8));
@@ -296,8 +317,55 @@ public final class BindingEvaluation {
         }
     }
 
-    static String report(Map<String, Scores> sets, Map<String, String> notes, String version, double preloadMs,
-                         double embedMs, String date) {
+    /** Timings on this computer (ms). The first comparison builds the MATCHER session unless --warm-up did. */
+    static final class Speed {
+        static final int RUNS = 20;
+        double preloadMs = Double.NaN, warmUpMs = Double.NaN, firstCompareMs = Double.NaN, compareMs = Double.NaN,
+                embedMs = Double.NaN;
+
+        /** Warm figures: means of RUNS after 3 unmeasured calls. */
+        void measureWarm(FaceMatcher matcher, Frame a, Frame b) throws Exception {
+            for (int i = 0; i < 3; i++) matcher.compare(a, b);
+            long s0 = System.nanoTime();
+            for (int i = 0; i < RUNS; i++) matcher.compare(a, b);
+            compareMs = ms(s0) / RUNS;
+            long e0 = System.nanoTime();
+            for (int i = 0; i < RUNS; i++) matcher.featureOfSingleFace(a.rgb(), a.width(), a.height());
+            embedMs = ms(e0) / RUNS;
+        }
+
+        String lines(String version) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format(Locale.ROOT, "- model bundle %s%n", version));
+            sb.append(String.format(Locale.ROOT, "- factory preload (verify the 5 files, build the 4 per-frame sessions): "
+                    + "%.0f ms%n", preloadMs));
+            if (!Double.isNaN(warmUpMs)) {
+                sb.append(String.format(Locale.ROOT, "- warmUpMatcher (build the MATCHER session): %.0f ms%n", warmUpMs));
+            }
+            sb.append(String.format(Locale.ROOT, "- first comparison (two images)%s: %.0f ms%n",
+                    Double.isNaN(warmUpMs) ? ", which builds the MATCHER session" : ", after the warm-up", firstCompareMs));
+            sb.append(String.format(Locale.ROOT, "- comparison, warm: %.1f ms (mean of %d)%n", compareMs, RUNS));
+            sb.append(String.format(Locale.ROOT, "- one face (detection + alignment + SFace), warm: %.1f ms (mean of %d)%n",
+                    embedMs, RUNS));
+            return sb.toString();
+        }
+    }
+
+    static double ms(long since) {
+        return (System.nanoTime() - since) / 1e6;
+    }
+
+    /** The frame mirrored horizontally (the golden fixtures' "_flipped" twin; there is no flipped PNG). */
+    static Frame mirror(Frame f) {
+        int w = f.width(), h = f.height();
+        byte[] src = f.rgb(), out = new byte[src.length];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) System.arraycopy(src, (y * w + x) * 3, out, (y * w + (w - 1 - x)) * 3, 3);
+        }
+        return new Frame(out, w, h, f.timestampMs(), f.sequence(), f.deviceId());
+    }
+
+    static String report(Map<String, Scores> sets, Map<String, String> notes, String version, Speed speed, String date) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Face binding (F1) evaluation: PROVISIONAL, SINGLE SUBJECT\n\n");
         sb.append("Generated ").append(date).append(" by `liveness-eval` `BindingEvaluation`, model bundle ").append(version)
@@ -322,8 +390,7 @@ public final class BindingEvaluation {
             }
             sb.append('\n');
         }
-        sb.append(String.format(Locale.ROOT, "%n## Speed (this computer)%n%n- factory preload (verify the bundle, build 5 sessions): "
-                + "%.0f ms%n- one face: detection + alignment + SFace: %.1f ms (mean of 20 after warm-up)%n", preloadMs, embedMs));
+        sb.append(String.format(Locale.ROOT, "%n## Speed (this computer)%n%n")).append(speed.lines(version));
         return sb.toString();
     }
 

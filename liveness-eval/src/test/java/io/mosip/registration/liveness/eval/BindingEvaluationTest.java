@@ -41,10 +41,21 @@ class BindingEvaluationTest {
         sets.put(impostor.name, impostor);
         Map<String, String> notes = new LinkedHashMap<String, String>();
         notes.put("faces", "test");
-        String md = BindingEvaluation.report(sets, notes, "pad-test", 100, 12.5, "20261025");
+        BindingEvaluation.Speed speed = new BindingEvaluation.Speed();
+        speed.preloadMs = 100;
+        speed.firstCompareMs = 900;
+        speed.compareMs = 25.5;
+        speed.embedMs = 12.5;
+        String md = BindingEvaluation.report(sets, notes, "pad-test", speed, "20261025");
         assertThat(md).contains("| genuine: g | 4 | 0.300 | 0.300 | 0.500 | 0.900 | 0.900 |");
         assertThat(md).contains("| 0.363 | 1/4 (25.0%) | 2/4 (50.0%) |");
         assertThat(md).contains("12.5 ms").contains("no images, features or per-take values");
+        assertThat(md).contains("preload (verify the 5 files, build the 4 per-frame sessions): 100 ms")
+                .contains("first comparison (two images), which builds the MATCHER session: 900 ms")
+                .doesNotContain("warmUpMatcher");
+        speed.warmUpMs = 800;
+        assertThat(speed.lines("pad-test")).contains("warmUpMatcher (build the MATCHER session): 800 ms")
+                .contains("first comparison (two images), after the warm-up: 900 ms");
         assertThat(BindingEvaluation.f(new double[0], 50)).isEqualTo("-");
     }
 }
