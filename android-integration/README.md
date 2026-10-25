@@ -189,7 +189,7 @@ bundled version.
 
    For a byte-identical result, use `sync-engine.ps1 -SkipBuild` with the jars that were synced
    into the branch.
-2. **Tests:**
+2. **Tests** (counts as of 2026-10-26):
    - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 95 tests, all passing. The face
      binding tests run the real matcher: the module's unit-test classpath swaps in the desktop
      ONNX Runtime (`android/liveness/build.gradle`).
