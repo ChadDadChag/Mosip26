@@ -124,6 +124,28 @@ class ModelStoreTest {
     }
 
     @Test
+    void onlyACurrentBundleNewerThanTheGivenVersionIsRead(@TempDir File root) throws Exception {
+        ModelStore store = new ModelStore(root);
+        assertThat(store.loadCurrentIfNewerThan(V1, trust)).isNull();
+        store.install(staged(V2), trust);
+        // An interrupted switch is finished first.
+        assertThat(new File(root, "current").delete()).isTrue();
+        write(new File(root, "current.tmp"), V2 + "\n");
+        assertThat(store.loadCurrentIfNewerThan(V1, trust).version()).isEqualTo(V2);
+        assertThat(new File(root, "current")).exists();
+        assertThat(store.loadCurrentIfNewerThan(V2, trust)).isNull();
+        assertThat(store.loadCurrentIfNewerThan(V3, trust)).isNull();
+        // A pre-F1 bundle (no MATCHER) is not read when the given version is newer, and fails closed otherwise.
+        File dir = new File(new File(root, "bundles"), V2);
+        ModelStore.deleteRecursively(dir);
+        TestBundles.writeDir(dir, TestBundles.bundleWithoutMatcher(V2, kp, TestBundles.fakeModels(3)));
+        assertThat(store.loadCurrentIfNewerThan(V3, trust)).isNull();
+        assertThatThrownBy(() -> store.loadCurrentIfNewerThan(V1, trust)).isInstanceOf(LivenessEngineException.class)
+                .hasMessageContaining("not exactly the required roles")
+                .satisfies(e -> assertThat(((LivenessEngineException) e).code()).isEqualTo(ErrorCode.MODEL_INTEGRITY_FAILED));
+    }
+
+    @Test
     void rollbackIsAnExplicitOperatorAction(@TempDir File root) throws Exception {
         ModelStore store = new ModelStore(root);
         store.install(staged(V1), trust);

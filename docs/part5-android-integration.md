@@ -345,9 +345,11 @@ sequenceDiagram
   H->>AF: swap + preload
 ```
 
-The factory always uses the newer of the bundled and installed bundles, and both are verified.
-A store that fails verification fails closed: MODEL_INTEGRITY_FAILED, with no fallback to
-unverified files.
+The factory always uses the newer of the bundled and installed bundles, and verifies the one it
+uses. An installed bundle that is newer but fails verification fails closed: MODEL_INTEGRITY_FAILED,
+with no fallback to unverified files. An installed bundle that is not newer is not read. After the
+app update to five models (F1), the phone's store still held the four-model `pad-2026.10.1` from
+the P5-5 install test. Before this rule that bundle failed verification and blocked the real engine.
 
 ## 4. Online and offline
 

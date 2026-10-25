@@ -87,6 +87,20 @@ public final class TestBundles {
         return withManifest(models, manifest, sigLine(KEY_ID, manifest, kp.getPrivate()));
     }
 
+    /** A signed pre-F1 bundle: four models, no MATCHER (what a device's store may still hold after the app update). */
+    public static Map<String, byte[]> bundleWithoutMatcher(String version, KeyPair kp, Map<ModelRole, byte[]> models)
+            throws Exception {
+        Map<ModelRole, byte[]> four = new LinkedHashMap<ModelRole, byte[]>(models);
+        four.remove(ModelRole.MATCHER);
+        StringBuilder files = new StringBuilder();
+        for (Map.Entry<ModelRole, byte[]> e : four.entrySet()) {
+            if (files.length() > 0) files.append(",\n");
+            files.append(fileEntry(e.getKey().name(), e.getKey().fileName(), e.getValue().length, sha256(e.getValue())));
+        }
+        byte[] manifest = manifest(version, KEY_ID, "{}", files.toString(), 1).getBytes(StandardCharsets.UTF_8);
+        return withManifest(four, manifest, sigLine(KEY_ID, manifest, kp.getPrivate()));
+    }
+
     public static Map<String, byte[]> withManifest(Map<ModelRole, byte[]> models, byte[] manifest, byte[] sig) {
         Map<String, byte[]> files = new LinkedHashMap<String, byte[]>();
         files.put("manifest.json", manifest);

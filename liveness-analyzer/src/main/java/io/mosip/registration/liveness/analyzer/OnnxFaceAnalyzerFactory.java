@@ -21,9 +21,10 @@ import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
  * a failure is re-tried, and re-thrown as MODEL_INTEGRITY_FAILED or ENGINE_ERROR, on every create(). There is no
  * fallback to unverified models.
  *
- * <p>With a {@link ModelStore}, both the bundled bundle and the store's current one must verify; the higher version
- * is used. The bundle's signed {@code params.pitchBiasDeg} replaces the config's pitch bias unless the host set it
- * explicitly ({@link AnalyzerConfig#pitchBiasExplicit}).
+ * <p>With a {@link ModelStore}, the bundled bundle must verify, and the store's current one is used, and must verify,
+ * only if its version is higher. An older or equal store bundle is not read: it would not be used, and after an app
+ * update it may lack a model role the app now requires. The bundle's signed {@code params.pitchBiasDeg} replaces the
+ * config's pitch bias unless the host set it explicitly ({@link AnalyzerConfig#pitchBiasExplicit}).
  */
 public final class OnnxFaceAnalyzerFactory implements FaceAnalyzerFactory, AutoCloseable {
 
@@ -108,8 +109,8 @@ public final class OnnxFaceAnalyzerFactory implements FaceAnalyzerFactory, AutoC
         if (models != null) return;
         VerifiedBundle chosen = VerifiedBundle.load(bundled, keys);
         if (store != null) {
-            VerifiedBundle stored = store.loadCurrent(keys);
-            if (stored != null && VerifiedBundle.compareVersions(stored.version(), chosen.version()) > 0) chosen = stored;
+            VerifiedBundle stored = store.loadCurrentIfNewerThan(chosen.version(), keys);
+            if (stored != null) chosen = stored;
         }
         AnalyzerConfig eff = config;
         Double bias = chosen.params().get(PITCH_BIAS_PARAM);

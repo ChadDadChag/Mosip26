@@ -18,7 +18,7 @@ import java.util.List;
 /**
  * Offline model updates. Layout under {@code root}:
  * <pre>
- *   bundles/&lt;version&gt;/   manifest.json, manifest.sig and the four model files
+ *   bundles/&lt;version&gt;/   manifest.json, manifest.sig and one model file per role
  *   current               text file holding the active version
  * </pre>
  * Downloading is the host app's job; the store only accepts already-staged files, and only after verifying them.
@@ -63,7 +63,19 @@ public final class ModelStore {
         return loadInstalled(v, keys);
     }
 
-    /** The version in {@code current} (after pointer recovery), or null. Does not verify the bundle. */
+    /**
+     * The active bundle, verified, if its version is strictly newer than {@code version}; otherwise null, and the
+     * bundle is not read. A store bundle that would not be used (for example one installed before an app update that
+     * added a model role) then cannot block the app's own models; a newer one still fails closed.
+     */
+    public synchronized VerifiedBundle loadCurrentIfNewerThan(String version, TrustedKeys keys) throws LivenessEngineException {
+        recoverPointer(keys);
+        String v = readPointer();
+        if (v == null || VerifiedBundle.compareVersions(v, version) <= 0) return null;
+        return loadInstalled(v, keys);
+    }
+
+    /** The version in {@code current}, or null. Does not verify the bundle or finish an interrupted switch. */
     public synchronized String currentVersion() throws LivenessEngineException {
         return readPointer();
     }

@@ -118,6 +118,24 @@ class OnnxFaceAnalyzerFactoryTest {
     }
 
     @Test
+    void anOlderStoreBundleIsNotReadSoAPreF1OneDoesNotBlockTheApp(@TempDir File root) throws Exception {
+        // A device that installed pad-2026.10.1 (four models), then got the app whose bundled models have five roles.
+        TestBundles.writeDir(new File(new File(root, "bundles"), "pad-2026.10.1"),
+                TestBundles.bundleWithoutMatcher("pad-2026.10.1", kp, TestBundles.fakeModels(1)));
+        TestBundles.writeDir(root, java.util.Collections.singletonMap("current",
+                "pad-2026.10.1\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+        ModelStore store = new ModelStore(root);
+        try (OnnxFaceAnalyzerFactory f = new OnnxFaceAnalyzerFactory(bundle("pad-2026.10.4", "{}"), store, trust,
+                AnalyzerConfig.defaults())) {
+            assertThat(f.modelVersion()).isEqualTo("pad-2026.10.4");
+        }
+        // Were the store bundle newer than the app's, it would be used, so it must verify.
+        OnnxFaceAnalyzerFactory older = new OnnxFaceAnalyzerFactory(bundle("pad-2026.09.1", "{}"), store, trust,
+                AnalyzerConfig.defaults());
+        assertCode(older::create, ErrorCode.MODEL_INTEGRITY_FAILED);
+    }
+
+    @Test
     void thePitchBiasComesFromTheSignedParamUnlessSetExplicitly() throws Exception {
         try (OnnxFaceAnalyzerFactory f = new OnnxFaceAnalyzerFactory(bundle("pad-2026.10.1", "{\"pitchBiasDeg\": -7.25}"),
                 null, trust, AnalyzerConfig.defaults())) {

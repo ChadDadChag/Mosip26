@@ -164,8 +164,11 @@ sequenceDiagram
     Host->>Store: rollback() is an explicit operator action, to the previous bundle, which must still verify
 ```
 
-With a store, the factory verifies both the bundled bundle and the store's current one, and uses the higher version.
-A tampered disk is treated as an attack: `MODEL_INTEGRITY_FAILED`, with no silent fallback.
+With a store, the factory verifies the bundled bundle and uses the store's current one only if its version is higher;
+then that one must verify too. A tampered disk is treated as an attack: `MODEL_INTEGRITY_FAILED`, with no silent
+fallback. A store bundle that is older than or equal to the bundled one is not read, since it would not be used. This
+matters after an app update: a device that installed `pad-2026.10.1` (four models) keeps it in its store, and that
+bundle no longer verifies against the five roles. Before this rule it blocked the app's newer `pad-2026.10.4`.
 
 ## 8. Signing keys: development vs production
 
