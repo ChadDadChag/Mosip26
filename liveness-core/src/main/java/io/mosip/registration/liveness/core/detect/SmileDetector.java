@@ -8,7 +8,8 @@ import io.mosip.registration.liveness.core.EngineTuning;
  * Smile = mouth width / inter-ocular distance rises {@code smileWidthIncrease} over baseline (or a smaller
  * {@code smileWidthIncreaseWithLift} together with the corners lifting by {@code smileLiftIncrease}), held for
  * {@code actionHoldMs} over at least {@code actionHoldFrames} frames. Normalising by inter-ocular distance makes it
- * independent of distance to the camera.
+ * independent of distance to the camera. Frames whose pose drifts more than {@code actionMaxPoseDriftDeg} from the
+ * baseline are not counted and restart the hold (tilt-spoof guard: perspective changes a photo's mouth ratios).
  */
 public final class SmileDetector implements ActionDetector {
 
@@ -40,6 +41,11 @@ public final class SmileDetector implements ActionDetector {
     public DetectorStatus update(FrameAnalysis a, long nowMs) {
         float width = FaceGeometry.mouthWidthRatio(a.landmarks);
         if (a.faceCount != 1 || Float.isNaN(width) || !(baseline.mouthWidth > 0)) {
+            return armed ? DetectorStatus.IN_PROGRESS : DetectorStatus.ARMING;
+        }
+        if (FaceGeometry.poseDrift(a, baseline) > t.actionMaxPoseDriftDeg) {
+            smilingSinceMs = -1;
+            smilingFrames = 0;
             return armed ? DetectorStatus.IN_PROGRESS : DetectorStatus.ARMING;
         }
         float increase = width / baseline.mouthWidth - 1f;

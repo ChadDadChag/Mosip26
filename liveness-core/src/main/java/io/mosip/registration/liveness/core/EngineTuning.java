@@ -104,8 +104,20 @@ public final class EngineTuning {
     public float blinkClosedRatio = 0.6f;
     /** TUNE: eyes count as reopened above this fraction of the baseline EAR. */
     public float blinkReopenRatio = 0.85f;
-    /** TUNE: closures longer than this are not blinks (eyes shut, closed-eye photo). */
-    public long blinkMaxClosedMs = 400;
+    /**
+     * TUNE: closures longer than this are not blinks (eyes shut, closed-eye photo). Was 400 ms. Part 2 traces (single
+     * subject) showed deliberate blinks on request take 400-600 ms to reopen to blinkReopenRatio; replay at 600 ms
+     * detected 3/3 with the fewest extra firings.
+     */
+    public long blinkMaxClosedMs = 600;
+
+    /**
+     * TUNE: during BLINK/SMILE, frames whose |yaw| or |pitch| differ from baseline by more than this are not counted;
+     * a closure or smile in progress is cancelled. Tilting a photo fakes EAR and mouth changes by perspective (a
+     * phone photo passed BLINK and SMILE that way in Part 2's tests); a real blink or smile barely moves the head.
+     * NaN disables.
+     */
+    public float actionMaxPoseDriftDeg = 12f;
 
     // ---- smile
     /** TUNE: mouth width / IOD must rise this much over baseline... */
@@ -124,6 +136,14 @@ public final class EngineTuning {
     public float lookMinDeg = 13f;
     /** TUNE: pitch within this of baseline counts as returned. */
     public float lookReturnDeg = 8f;
+
+    /**
+     * TUNE: true restores the original turn/look rule (move, hold, then come back within turnReturnDeg /
+     * lookReturnDeg). Default false: detected when the hold completes, then LOOK_AT_CAMERA asks the user to face the
+     * camera again. Part 2 review: with the product prompt alone 0/9 turns passed; users held 52-63 deg and never
+     * came back.
+     */
+    public boolean axisRequireReturn = false;
 
     // ---- shared hold rule (smile, turn, look)
     /** TUNE: an action must be held at least this long... */

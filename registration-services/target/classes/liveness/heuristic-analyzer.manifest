@@ -1,5 +1,0 @@
-# Expected SHA-256 (hex) of heuristic-analyzer.properties, computed at packaging
-# time. ModelManifest recomputes the checksum on load and compares against this
-# value, failing closed (LivenessEngineException/MODEL_INTEGRITY_FAILED) on any
-# mismatch - the same pattern a real model-file manifest would use.
-sha256=805ecbbbef448b972dbd74beb6a149c3c4c7d34baeaf7c8212b1533464c8dcc4

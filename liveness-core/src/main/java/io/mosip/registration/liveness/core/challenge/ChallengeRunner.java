@@ -220,6 +220,7 @@ public final class ChallengeRunner implements ActivePhase {
     }
 
     private void next(long nowMs, List<ActiveStep> out) {
+        ChallengeType done = current();
         index++;
         baselineWindow.clear(); // the next baseline comes from fresh neutral frames after this action
         if (index < sequence.size()) {
@@ -229,6 +230,13 @@ public final class ChallengeRunner implements ActivePhase {
             subStartMs = nowMs;
             out.add(ActiveStep.holdStill());
         }
+        // A turn/look is detected while the head is still away: ask for the camera again (next baseline, final hold).
+        if (!t.axisRequireReturn && isAxis(done)) out.add(ActiveStep.guidance(Guidance.LOOK_AT_CAMERA));
+    }
+
+    private static boolean isAxis(ChallengeType c) {
+        return c == ChallengeType.TURN_LEFT || c == ChallengeType.TURN_RIGHT
+                || c == ChallengeType.LOOK_UP || c == ChallengeType.LOOK_DOWN;
     }
 
     private void hold(long nowMs, List<ActiveStep> out) {

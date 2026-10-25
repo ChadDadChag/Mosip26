@@ -155,6 +155,21 @@ class EngineScenarioTest {
     }
 
     @Test
+    void turnWithoutComingBackPassesAndAsksToLookAtTheCamera() {
+        // Part 2 review: real users turn far and hold, waiting for confirmation; they never come back on their own.
+        ScenarioDriver d = ScenarioDriver.with(WorkflowType.RESIDENT, ONLY_TURN_LEFT);
+        d.autoRetry = false;
+        Shape heldLeft = new Shape() { @Override public Fa apply(Fa f) { return f.score(0.6f).yaw(45); } };
+        d.frames(45, d.score(0.6f)).untilPrompt().frames(9, d.score(0.6f)).frames(20, heldLeft);
+        assertThat(d.count(Type.ACTION_DETECTED)).as("detected while still turned").isEqualTo(1);
+        assertThat(d.lastEvent(Type.GUIDANCE).guidance).isEqualTo(LivenessEvent.Guidance.LOOK_AT_CAMERA);
+        d.untilDone(d.score(0.6f)); // the cue brings the user back to the camera for the best frame
+        wellFormed(d);
+        assertThat(d.result.passed()).isTrue();
+        assertThat(d.result.passPath).isEqualTo(PassPath.ACTIVE_CHALLENGE);
+    }
+
+    @Test
     void doingNothingIsChallengeTimeout() {
         ScenarioDriver d = ScenarioDriver.resident();
         d.autoRetry = false;

@@ -168,6 +168,49 @@ class TraceToolsTest {
     }
 
     @Test
+    void allZeroTprIsInsufficientEvidenceNotAnFprPick() throws Exception {
+        // Real traces once gave TPR 0 at every blinkClosedRatio and the report "recommended" 0.45 on FPR alone.
+        List<DetectorTuningReport.Row> zero = java.util.Arrays.asList(
+                new DetectorTuningReport.Row(0.45f, 0, 0.0, 0, -1, 3, 8),
+                new DetectorTuningReport.Row(0.60f, 0, 0.13, 0, -1, 3, 8),
+                new DetectorTuningReport.Row(0.75f, 0, 0.5, 0, -1, 3, 8));
+        assertThat(DetectorTuningReport.insufficient(zero)).isTrue();
+        assertThat(DetectorTuningReport.recommend(zero, 0.60f).value).as("keeps the current value").isEqualTo(0.60f);
+        assertThat(DetectorTuningReport.recommend(zero, 0.50f)).as("current value not swept").isNull();
+        assertThat(DetectorTuningReport.insufficient(java.util.Arrays.asList(
+                new DetectorTuningReport.Row(0.6f, 1.0, 0, 0, 300, 1, 8)))).as("one positive").isTrue();
+
+        // A report over "blink" traces that never blink (EAR flattened) says so instead of recommending a value.
+        List<Trace> traces = new java.util.ArrayList<Trace>();
+        for (Trace t : Trace.readDir(traceDir())) {
+            if (!t.label.equals("neutral")) continue;
+            traces.add(t);
+            StringWriter w = new StringWriter();
+            t.write(w);
+            String flat = w.toString().replaceAll("\"ear\":[-0-9.Ee]+", "\"ear\":0.3")
+                    .replace("\"label\":\"neutral\"", "\"label\":\"blink\"");
+            Trace noBlink = Trace.read(new StringReader(flat));
+            assertThat(noBlink.label).isEqualTo("blink");
+            traces.add(noBlink);
+        }
+        String r = DetectorTuningReport.report(traces);
+        assertThat(r).contains("insufficient positive evidence: keep current blinkClosedRatio = 0.60")
+                .contains("blinkReopenRatio = 0.85 (unchanged; insufficient positive evidence)")
+                .contains("blinkMaxClosedMs = 600.00 (unchanged; insufficient positive evidence)");
+    }
+
+    @Test
+    void newKnobsAreSwept() throws Exception {
+        List<Trace> traces = Trace.readDir(traceDir());
+        assertThat(DetectorTuningReport.sweep(traces, DetectorTuningReport.BLINK_REOPEN)).hasSize(3);
+        assertThat(DetectorTuningReport.sweep(traces, DetectorTuningReport.BLINK_MAX_CLOSED)).hasSize(4);
+        List<DetectorTuningReport.Row> drift = DetectorTuningReport.sweep(traces, DetectorTuningReport.POSE_DRIFT);
+        assertThat(drift).hasSize(3);
+        assertThat(drift.get(0).positives).as("blink and smile traces").isEqualTo(4);
+        assertThat(DetectorTuningReport.report(traces)).contains("actionMaxPoseDriftDeg").contains("blinkMaxClosedMs");
+    }
+
+    @Test
     void recommendationPrefersBetterSeparation() {
         List<DetectorTuningReport.Row> rows = java.util.Arrays.asList(
                 new DetectorTuningReport.Row(10, 1.0, 0.5, 0, 500, 4, 4),

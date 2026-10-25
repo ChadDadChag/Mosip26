@@ -16,7 +16,9 @@ import java.util.Locale;
  * <p>For each challenge type T: positives are traces labelled T; negatives are live traces with any other label
  * (neutral and the other actions: a smile must not count as a blink). Per candidate value it reports the detection
  * rate (TPR), false detection rate (FPR), wrong-action rate on positives and mean time to detect. The recommendation
- * maximises TPR - FPR, then prefers faster detection. Attack traces are excluded here: they are PAD's job.
+ * maximises TPR - FPR, then prefers faster detection. With fewer than 2 positives, or no detection at any value, it
+ * says "insufficient positive evidence" and keeps the current value: FPR alone never picks a threshold. Attack
+ * traces are excluded here: they are PAD's job.
  *
  * <p>A second table shows the passive threshold trade-off on the traces' window medians (ISO/IEC 30107-3 terms):
  * APCER = attack presentations accepted without a challenge (median ≥ passiveThreshold); challenge rate = bona fide
@@ -66,7 +68,31 @@ public final class DetectorTuningReport {
         public void set(EngineTuning t, float v) { t.lookMinDeg = v; }
         public float[] candidates() { return new float[] {8, 10, 12, 13, 15, 18, 21}; }
     };
-    static final Knob[] KNOBS = {BLINK, SMILE, TURN, LOOK};
+    static final Knob BLINK_REOPEN = new Knob() {
+        public String name() { return "blinkReopenRatio"; }
+        public ChallengeType[] types() { return new ChallengeType[] {ChallengeType.BLINK}; }
+        public float current(EngineTuning t) { return t.blinkReopenRatio; }
+        public void set(EngineTuning t, float v) { t.blinkReopenRatio = v; }
+        public float[] candidates() { return new float[] {0.75f, 0.80f, 0.85f}; }
+    };
+    static final Knob BLINK_MAX_CLOSED = new Knob() {
+        public String name() { return "blinkMaxClosedMs"; }
+        public ChallengeType[] types() { return new ChallengeType[] {ChallengeType.BLINK}; }
+        public float current(EngineTuning t) { return t.blinkMaxClosedMs; }
+        public void set(EngineTuning t, float v) { t.blinkMaxClosedMs = (long) v; }
+        public float[] candidates() { return new float[] {400, 500, 600, 700}; }
+    };
+    static final Knob POSE_DRIFT = new Knob() {
+        public String name() { return "actionMaxPoseDriftDeg"; }
+        public ChallengeType[] types() { return new ChallengeType[] {ChallengeType.BLINK, ChallengeType.SMILE}; }
+        public float current(EngineTuning t) { return t.actionMaxPoseDriftDeg; }
+        public void set(EngineTuning t, float v) { t.actionMaxPoseDriftDeg = v; }
+        public float[] candidates() { return new float[] {8, 12, 16}; }
+    };
+    static final Knob[] KNOBS = {BLINK, BLINK_REOPEN, BLINK_MAX_CLOSED, SMILE, POSE_DRIFT, TURN, LOOK};
+
+    /** Below this many positive traces a sweep cannot justify a change. */
+    static final int MIN_POSITIVES = 2;
 
     /** One row of the sweep. */
     public static final class Row {
@@ -122,11 +148,23 @@ public final class DetectorTuningReport {
         return rows;
     }
 
+    /** Fewer than {@link #MIN_POSITIVES} positives, or TPR 0 at every value: nothing to recommend from. */
+    public static boolean insufficient(List<Row> rows) {
+        if (rows.isEmpty() || rows.get(0).positives < MIN_POSITIVES) return true;
+        for (Row r : rows) if (r.tpr > 0) return false;
+        return true;
+    }
+
     /**
      * Best row by TPR - FPR. Ties keep the current default (never loosen a threshold without evidence), otherwise
-     * prefer faster detection. Null when there are no positives.
+     * prefer faster detection. With {@link #insufficient} evidence: the current value's row (null if it was not
+     * swept), never a value picked by FPR alone. Null when there are no positives.
      */
     public static Row recommend(List<Row> rows, float current) {
+        if (!rows.isEmpty() && rows.get(0).positives > 0 && insufficient(rows)) {
+            for (Row r : rows) if (Math.abs(r.value - current) < 1e-6) return r;
+            return null;
+        }
         double bestScore = Double.NEGATIVE_INFINITY;
         for (Row r : rows) if (!Double.isNaN(r.tpr)) bestScore = Math.max(bestScore, score(r));
         if (bestScore == Double.NEGATIVE_INFINITY) return null;
@@ -167,6 +205,13 @@ public final class DetectorTuningReport {
             for (Row r : rows) {
                 b.append(String.format(Locale.ROOT, "  %6.2f  %5.2f  %5.2f  %5.2f  %6s%n", r.value, r.tpr, r.fpr,
                         r.wrongRate, r.meanTtdMs < 0 ? "-" : r.meanTtdMs + "ms"));
+            }
+            if (insufficient(rows)) {
+                b.append(String.format(Locale.ROOT, "  -> insufficient positive evidence: keep current %s = %.2f%n",
+                        k.name(), k.current(defaults)));
+                recommended.append(String.format(Locale.ROOT, "  %s = %.2f (unchanged; insufficient positive evidence)%n",
+                        k.name(), k.current(defaults)));
+                continue;
             }
             Row best = recommend(rows, k.current(defaults));
             if (best != null) {

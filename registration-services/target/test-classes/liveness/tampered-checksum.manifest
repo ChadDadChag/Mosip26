@@ -1,3 +1,0 @@
-# Test fixture: deliberately wrong checksum, used by ModelManifestTest to verify
-# that a mismatch is correctly detected and fails closed with MODEL_INTEGRITY_FAILED.
-sha256=0000000000000000000000000000000000000000000000000000000000000000

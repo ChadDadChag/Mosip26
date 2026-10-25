@@ -1,7 +1,7 @@
 // Minimal Android library module config for CameraXFrameSource.
-// NOT part of the Desktop Maven reactor. Not built or resolved in the authoring
-// environment (no Android SDK / Google Maven access) - versions are recorded for
-// a real Android build to confirm against the app's compile/target SDK.
+// NOT part of the Desktop Maven reactor and not built from here: the Android
+// Registration Client's android/liveness module compiles the synced copy of the
+// source (Person 5's android-integration/scripts/sync-engine.ps1, pushed separately) with these CameraX versions.
 plugins {
     id 'com.android.library'
 }

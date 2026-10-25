@@ -245,7 +245,7 @@ Rules:
 | `GUIDANCE` | `PositioningHintFilter` output: the hint must persist ≥300 ms, may change at most every 500 ms, and has a priority order: NO_FACE > MULTIPLE_FACES > IMPROVE_LIGHTING > MOVE_CLOSER/MOVE_BACK > CENTER_FACE > HOLD_STEADY > LOOK_AT_CAMERA | guidance |
 | `CHALLENGE_PROMPT` | after the pre-prompt jitter, once a stable neutral baseline exists | challenge, index (1-based), count, timeoutMs |
 | `CHALLENGE_PROGRESS` | the detector's progress rises past a 0.25 step; also a heartbeat every 1.5 s with no progress (the "Please continue" nudge) | challenge, index, count, progress |
-| `ACTION_DETECTED` | detector returns DETECTED (including return-to-neutral for turns and looks) | attemptNumber |
+| `ACTION_DETECTED` | detector returns DETECTED (turns and looks: when the hold completes, followed by `GUIDANCE(LOOK_AT_CAMERA)`; with `axisRequireReturn`, after the return) | attemptNumber |
 | `HOLD_STILL` | on entering FINALISING after an active pass. Not emitted for a passive pass, because the best frame already comes from the window. | attemptNumber |
 | `ATTEMPT_FAILED` | an attempt fails and retries remain | error, retriesLeft, recoverable=true |
 | `PASSED` | just before `onComplete(PASSED)` | attemptNumber |
@@ -293,10 +293,23 @@ stateDiagram-v2
 
 | Challenge | Signal | Detected when | Wrong action |
 |---|---|---|---|
-| BLINK | mean EAR (p1..p6) | < 0.6× baseline, then ≥ 0.85× within 400 ms (one closed frame at 15 fps is enough). Longer closures (eyes shut, closed-eye photo) restart detection. | — |
+| BLINK | mean EAR (p1..p6) | < 0.6× baseline, then ≥ 0.85× within 600 ms (`blinkMaxClosedMs`; was 400 ms until Part 2's traces showed deliberate blinks on request take 400–600 ms to reopen). One closed frame at 15 fps is enough. Longer closures (eyes shut, closed-eye photo) restart detection. | — |
 | SMILE | mouth width ÷ IOD, and corner lift ÷ IOD | +18% width, or +10% width with +0.03 corner lift, held ≥ 200 ms over ≥ 3 frames | — |
-| TURN_LEFT / TURN_RIGHT | `userYaw` (+ = the user's left) | ≥ 20° in the requested direction, held ≥ 200 ms over ≥ 3 frames, then back within 10° | ≥ 20° the opposite way at any time (wiggles fail) |
-| LOOK_UP / LOOK_DOWN | `userPitch` (+ = up, assumed, P2) | ≥ 13°, held, then back within 8° | ≥ 13° the opposite way |
+| TURN_LEFT / TURN_RIGHT | `userYaw` (+ = the user's left) | ≥ 20° in the requested direction, held ≥ 200 ms over ≥ 3 frames. Then `GUIDANCE(LOOK_AT_CAMERA)` asks the user to face the camera again. With `axisRequireReturn` the head must also come back within 10° (the original rule). | ≥ 20° the opposite way at any time (wiggles fail) |
+| LOOK_UP / LOOK_DOWN | `userPitch` (+ = up; confirmed by Part 2, P2) | ≥ 13°, held, then `LOOK_AT_CAMERA` (with `axisRequireReturn`: back within 8°) | ≥ 13° the opposite way |
+
+- **Why turns no longer need the return (Part 2 review, 2026-10-24).** In live sessions with only the product prompt
+  ("Please turn your head to the left"), 0 of 9 turns passed. Users reached 20° in 1.5–2.1 s, then held 52–63° and
+  never came back, because nothing asked them to. Coached users passed 2 of 4. Turn traces with a full return were
+  detected 6 of 6 at 20°. Detecting at hold completion and then cueing LOOK_AT_CAMERA fixes this. The replay
+  defences (hold, random prompt, arming, wrong-way failure) are unchanged. Set `EngineTuning.axisRequireReturn = true`
+  to restore the old rule.
+- **Tilt-spoof guard (Part 2 review).** In Part 2's tests a close-up phone photo, tilted by hand, once passed BLINK
+  and SMILE: perspective changes the photo's eye height and mouth ratios. A real blink or smile barely moves the
+  head. During BLINK and SMILE, frames whose |yaw| or |pitch| drift more than `actionMaxPoseDriftDeg` (12°) from
+  the baseline are not counted. A closure or smile in progress is cancelled, and after a drift the eyes must be seen
+  open at a stable pose before a new closure counts. TURN and LOOK are pose changes by design, so they are not
+  guarded. Set the value to NaN to disable the guard.
 
 - **Final hold and best frame:** a frame qualifies when it has one face, no quality issue, |yaw| and |pitch| ≤ 10°, eyes open, and the mouth within 8% of baseline. It is chosen from the passive window plus the post-challenge hold. Mid-action frames are never offered, and tests assert this. Among qualifying frames the best is the highest of 0.45·sharpness + 0.35·frontal + 0.2·size. Sharpness is the Laplacian variance on the face box (at most 96 samples per side), mapped as v/(v+100). Without pose, frontal is 0.5 (D22). Before that score, frames are ranked by ISO/IEC 19794-5 tier (D26, §12b): compliant frames first, then frames with nothing measurably wrong, then the rest. If nothing qualifies by the end of the hold, the latest single-face frame is handed back and flagged as a fallback; the hold is never extended for photo quality.
 
@@ -495,7 +508,7 @@ It contains no session ids, individual scores, images or device identity. It is 
 | Printed photo / screen replay passes passively | Passive decision uses the **median** over a window, and median < `padRejectThreshold` fails with **no fallback to challenges**. |
 | Attacker performs the requested action with a mask, photo cut-out or video | **Continuous PAD** during every challenge and the final hold: a 3-frame rolling median below `padRejectThreshold` fails immediately. The action cannot compensate (tested end to end). |
 | Pre-recorded video of the actions | **Unpredictable challenges** (SecureRandom; a retry never reuses the previous sequence) and a **random 0–400 ms prompt jitter**. Only motion **after** the prompt plus 150 ms human reaction time counts, and only once the face was seen back at neutral, so motion already under way at the prompt never counts. |
-| Head wiggling or random motion from a replay | Actions must be **held** (≥ 200 ms, ≥ 3 frames) and turns and looks must **return**. Moving the **opposite** way is WRONG_ACTION and fails the attempt. |
+| Head wiggling or random motion from a replay | Actions must be **held** (≥ 200 ms, ≥ 3 frames); quick swings never hold. Moving the **opposite** way is WRONG_ACTION and fails the attempt. (The return-to-neutral requirement is now optional, `axisRequireReturn`: real users did not return without being told to.) |
 | Swapping faces or photos mid-session | **FaceContinuityGuard**: IoU, centre-jump and size-ratio checks between consecutive frames (looser across short gaps). The face lost for 1 s, or 2 frames with more than one face, fails. |
 | Frame injection / frozen or replayed streams | **FrameSanity**: sequence and timestamps must strictly increase and be plausibly spaced. Three violations mean INVALID_FRAME, which consumes a retry. |
 | Probing the PAD model | A PAD failure only ever shows the generic "Face verification could not be completed" (contract `userMessage()`). PAD scores go to audit only. |
