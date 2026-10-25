@@ -70,6 +70,48 @@ index 8e17558..f7a0764 100644
  
      androidTestImplementation "androidx.test.ext:junit:${rootProject.ext.androidxJunitVersion}"
      androidTestImplementation "androidx.test.espresso:espresso-core:${rootProject.ext.espressoVersion}"
+diff --git a/android/app/src/debug/AndroidManifest.xml b/android/app/src/debug/AndroidManifest.xml
+index 14a1bd3..6592348 100644
+--- a/android/app/src/debug/AndroidManifest.xml
++++ b/android/app/src/debug/AndroidManifest.xml
+@@ -1,8 +1,14 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools"
+     package="io.mosip.registration_client">
+     <!-- The INTERNET permission is required for development. Specifically,
+          the Flutter tool needs it to communicate with the running application
+          to allow setting breakpoints, to provide hot reload, etc.
+     -->
+     <uses-permission android:name="android.permission.INTERNET"/>
++    <!-- Liveness model-update test: clientmanager's config plus plain HTTP to 127.0.0.1 and localhost
++         (debug and profile builds only). -->
++    <application
++        android:networkSecurityConfig="@xml/liveness_network_security_config"
++        tools:replace="android:networkSecurityConfig" />
+ </manifest>
+diff --git a/android/app/src/debug/res/xml/liveness_network_security_config.xml b/android/app/src/debug/res/xml/liveness_network_security_config.xml
+new file mode 100644
+index 0000000..2ba2b5e
+--- /dev/null
++++ b/android/app/src/debug/res/xml/liveness_network_security_config.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Debug and profile builds only, never release. It replaces clientmanager's network_security_config.xml (used in
++     all builds) and keeps what that file sets: no plain HTTP. The one difference: plain HTTP to this phone itself
++     (127.0.0.1, localhost), for testing the liveness model update against a laptop server through
++     `adb reverse tcp:8000 tcp:8000`. -->
++<network-security-config>
++    <base-config cleartextTrafficPermitted="false" />
++    <!-- As in clientmanager's network_security_config.xml. -->
++    <domain-config cleartextTrafficPermitted="false">
++        <domain includeSubdomains="true">jsonplaceholder.typicode.com</domain>
++        <domain includeSubdomains="true">dev.mosip.net</domain>
++    </domain-config>
++    <domain-config cleartextTrafficPermitted="true">
++        <domain includeSubdomains="false">127.0.0.1</domain>
++        <domain includeSubdomains="false">localhost</domain>
++    </domain-config>
++</network-security-config>
 diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
 index 7004ae5..906e1d9 100644
 --- a/android/app/src/main/AndroidManifest.xml
@@ -85,7 +127,7 @@ index 7004ae5..906e1d9 100644
          android:label="Registration Client"
          android:name="${applicationName}"
 diff --git a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
-index 2b9c15b..2a46d51 100644
+index 2b9c15b..4e805b6 100644
 --- a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
 +++ b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
 @@ -66,6 +66,7 @@ import io.mosip.registration_client.api_services.DocumentDetailsApi;
@@ -115,7 +157,7 @@ index 2b9c15b..2a46d51 100644
  
      }
  
-@@ -286,5 +288,18 @@ public class HostApiModule {
+@@ -286,5 +288,19 @@ public class HostApiModule {
      SecureScreenApi getSecureScreenApi() {
          return new SecureScreenApi();
      }
@@ -124,7 +166,8 @@ index 2b9c15b..2a46d51 100644
 +    @Singleton
 +    LivenessServiceHolder provideLivenessServiceHolder(GlobalParamRepository globalParamRepository,
 +                                                       AuditManagerService auditManagerService) {
-+        return new LivenessServiceHolder(appContext, globalParamRepository, auditManagerService);
++        return new LivenessServiceHolder(appContext, globalParamRepository, auditManagerService,
++                BuildConfig.LIVENESS_DIAGNOSTICS);
 +    }
 +
 +    @Provides
@@ -335,10 +378,10 @@ index 640ac66..48272d9 100644
              Log.e(TAG, "Failed to parse rcapture response", e);
 diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
 new file mode 100644
-index 0000000..8e12cc2
+index 0000000..95b95a2
 --- /dev/null
 +++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
-@@ -0,0 +1,621 @@
+@@ -0,0 +1,646 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -380,6 +423,8 @@ index 0000000..8e12cc2
 +import io.mosip.registration.liveness.android.FaceBinding;
 +import io.mosip.registration.liveness.android.LivenessMaps;
 +import io.mosip.registration.liveness.android.LivenessServiceHolder;
++import io.mosip.registration.liveness.android.ModelUpdates;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
 +import io.mosip.registration.liveness.api.ErrorCode;
 +import io.mosip.registration.liveness.api.Frame;
 +import io.mosip.registration.liveness.api.FrameSource;
@@ -639,6 +684,29 @@ index 0000000..8e12cc2
 +                main.post(() -> result.success(v));
 +            } catch (Exception e) {
 +                Log.w(TAG, "model bundle not installed: " + e);
++                main.post(() -> result.error(e));
++            }
++        });
++    }
++
++    /**
++     * Checks for an online model update now. A non-empty URL first becomes the update URL and enabled overrides, so
++     * the periodic job uses it too until the overrides are cleared.
++     */
++    @Override
++    public void checkModelUpdate(@NonNull String indexUrl, @NonNull LivenessPigeon.Result<String> result) {
++        if (!diagnostics(result)) return;
++        if (!indexUrl.trim().isEmpty()) {
++            holder.setOverride(ModelUpdates.URL_KEY, indexUrl.trim());
++            holder.setOverride(ModelUpdates.ENABLED_KEY, "true");
++        }
++        holder.background().execute(() -> {
++            try {
++                ModelUpdater.UpdateResult r = holder.checkModelUpdate("manual");
++                String text = r + "; store " + holder.modelStoreStatus();
++                main.post(() -> result.success(text));
++            } catch (Exception e) {
++                Log.w(TAG, "model update not checked: " + e);
 +                main.post(() -> result.error(e));
 +            }
 +        });
@@ -1022,11 +1090,53 @@ index 0000000..f5c4451
 +        };
 +    }
 +}
+diff --git a/android/app/src/profile/AndroidManifest.xml b/android/app/src/profile/AndroidManifest.xml
+index 14a1bd3..6592348 100644
+--- a/android/app/src/profile/AndroidManifest.xml
++++ b/android/app/src/profile/AndroidManifest.xml
+@@ -1,8 +1,14 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools"
+     package="io.mosip.registration_client">
+     <!-- The INTERNET permission is required for development. Specifically,
+          the Flutter tool needs it to communicate with the running application
+          to allow setting breakpoints, to provide hot reload, etc.
+     -->
+     <uses-permission android:name="android.permission.INTERNET"/>
++    <!-- Liveness model-update test: clientmanager's config plus plain HTTP to 127.0.0.1 and localhost
++         (debug and profile builds only). -->
++    <application
++        android:networkSecurityConfig="@xml/liveness_network_security_config"
++        tools:replace="android:networkSecurityConfig" />
+ </manifest>
+diff --git a/android/app/src/profile/res/xml/liveness_network_security_config.xml b/android/app/src/profile/res/xml/liveness_network_security_config.xml
+new file mode 100644
+index 0000000..2ba2b5e
+--- /dev/null
++++ b/android/app/src/profile/res/xml/liveness_network_security_config.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Debug and profile builds only, never release. It replaces clientmanager's network_security_config.xml (used in
++     all builds) and keeps what that file sets: no plain HTTP. The one difference: plain HTTP to this phone itself
++     (127.0.0.1, localhost), for testing the liveness model update against a laptop server through
++     `adb reverse tcp:8000 tcp:8000`. -->
++<network-security-config>
++    <base-config cleartextTrafficPermitted="false" />
++    <!-- As in clientmanager's network_security_config.xml. -->
++    <domain-config cleartextTrafficPermitted="false">
++        <domain includeSubdomains="true">jsonplaceholder.typicode.com</domain>
++        <domain includeSubdomains="true">dev.mosip.net</domain>
++    </domain-config>
++    <domain-config cleartextTrafficPermitted="true">
++        <domain includeSubdomains="false">127.0.0.1</domain>
++        <domain includeSubdomains="false">localhost</domain>
++    </domain-config>
++</network-security-config>
 diff --git a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
-index 921e4d4..f586f0b 100644
+index 921e4d4..fadea29 100644
 --- a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
 +++ b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
-@@ -191,7 +191,20 @@ public enum AuditEvent {
+@@ -191,7 +191,22 @@ public enum AuditEvent {
      BIO_SDK_QUALITY_SCORE_FAILED("REG-EVT-094", SYSTEM_EVENT.getCode(), "BIO_SDK_QUALITY_SCORE_FAILED", "Unable to fetch SDK quality score"),
      BIO_SDK_FILES_NOT_FOUND("REG-EVT-095", SYSTEM_EVENT.getCode(), "BIO_SDK_FILES_NOT_FOUND", "No biometric SDK files found in assets"),
      BIO_SDK_PROVIDER_REGISTERED("REG-EVT-096", SYSTEM_EVENT.getCode(), "BIO_SDK_PROVIDER_REGISTERED", "Biometric SDK provider registered"),
@@ -1044,7 +1154,9 @@ index 921e4d4..f586f0b 100644
 +    LIVENESS_MODEL_INTEGRITY_FAILED("REG-EVT-016", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_INTEGRITY_FAILED", "Face liveness: model bundle failed verification"),
 +    LIVENESS_CONFIG_LOADED("REG-EVT-017", SYSTEM_EVENT.getCode(), "LIVENESS_CONFIG_LOADED", "Face liveness: configuration loaded"),
 +    // Face binding (F1): the captured face compared with the face that passed liveness (outcome, similarity, threshold).
-+    LIVENESS_FACE_BINDING("REG-EVT-018", SYSTEM_EVENT.getCode(), "LIVENESS_FACE_BINDING", "Face liveness: captured face compared with the liveness face");
++    LIVENESS_FACE_BINDING("REG-EVT-018", SYSTEM_EVENT.getCode(), "LIVENESS_FACE_BINDING", "Face liveness: captured face compared with the liveness face"),
++    // Online model update: the outcome of one check (INSTALLED, UP_TO_DATE or FAILED with a reason code).
++    LIVENESS_MODEL_UPDATE("REG-EVT-019", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_UPDATE", "Face liveness: online model update checked");
  
      AuditEvent(String id, String type, String name, String description) {
          this.id = id;
@@ -1176,10 +1288,10 @@ index 0000000..0b39f38
 +libs/*.jar binary
 diff --git a/android/liveness/build.gradle b/android/liveness/build.gradle
 new file mode 100644
-index 0000000..bdb4eba
+index 0000000..a8853f0
 --- /dev/null
 +++ b/android/liveness/build.gradle
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,73 @@
 +plugins {
 +    id 'com.android.library'
 +}
@@ -1231,6 +1343,8 @@ index 0000000..bdb4eba
 +    implementation "androidx.camera:camera-lifecycle:1.3.4"
 +    api "androidx.camera:camera-view:1.3.4"
 +    implementation "androidx.core:core:1.12.0"
++    // The periodic online model update (ModelUpdateWorker); the same WorkManager the app uses.
++    implementation "androidx.work:work-runtime:${rootProject.ext.workVersion}"
 +
 +    implementation project(':clientmanager')
 +    // Face binding (F1): SBI faces in ISO 19794-5 are JPEG 2000; the same decoder (and version) the app uses.
@@ -1261,16 +1375,16 @@ index 0000000..686d49a
 +-keep class ai.onnxruntime.** { *; }
 diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
 new file mode 100644
-index 0000000..1548c2d
+index 0000000..6bbc892
 --- /dev/null
 +++ b/android/liveness/engine-sync.txt
 @@ -0,0 +1,14 @@
 +# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
-+engine commit 9bf9e83
-+libs/liveness-api-1.2.0.2.jar 1a483a6b77665e2fe56cec409036f4272909ee96fda574fa399a681c741646a3
-+libs/liveness-core-1.2.0.2.jar c0928f38456f6a3f979584288ea401c8ef142a307b9cf917bedd545f30fd235e
-+libs/liveness-fake-1.2.0.2.jar 590c214153c3c38ed83ea184ce764a6eef73fd3a4756a31c40476deb6a4e9226
-+libs/liveness-analyzer-1.2.0.2.jar 18caff937cbf1829a70f66b6737b2b29557c625163236d5602a3fbcc933ce153
++engine commit a080258
++libs/liveness-api-1.2.0.2.jar de4092be8feb1a46ddee8ad245f700877d99662d7a3fcd80bbd434d67502c464
++libs/liveness-core-1.2.0.2.jar 94abe7cf86426d0e0d356e8edcdd8785e69a8e29c6e7aa2a1c71ba4bfb21c721
++libs/liveness-fake-1.2.0.2.jar 442494922a2b411093532ea3d5ec05684f2374bc6d663fa8443d626ef1a50dab
++libs/liveness-analyzer-1.2.0.2.jar b957c8e743254030d897d53671bca54f7d28643327198913b142f169fdffa237
 +assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
 +assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
 +assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
@@ -1606,10 +1720,10 @@ index 0000000..1e80ea3
 +}
 diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
 new file mode 100644
-index 0000000..465167e
+index 0000000..e9aa848
 --- /dev/null
 +++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,164 @@
 +package io.mosip.registration.liveness.android;
 +
 +import android.util.Log;
@@ -1628,7 +1742,7 @@ index 0000000..465167e
 + * Writes the engine's audit records to the client's audit table through {@link AuditManagerService}.
 + *
 + * <p>Each {@link AuditSink.Event} has its own {@link AuditEvent} (REG-EVT-009..017); face binding writes
-+ * REG-EVT-018 ({@link #binding}). The workflow picks the
++ * REG-EVT-018 ({@link #binding}) and the online model update REG-EVT-019 ({@link #modelUpdate}). The workflow picks the
 + * module: RESIDENT is the registration, OPERATOR the operator's login and onboarding, SUPERVISOR the approval
 + * of packets in the packet list; records without a workflow (model loading at app start) go to HOME.
 + * The session id and the engine's details are appended to the event description as {@code key=value;...},
@@ -1690,6 +1804,25 @@ index 0000000..465167e
 +            executor.execute(() -> write(AuditEvent.LIVENESS_FACE_BINDING, component, text));
 +        } catch (RuntimeException e) {
 +            Log.w(TAG, "could not record the face binding", e);
++        }
++    }
++
++    /**
++     * Online model update: {@link AuditEvent#LIVENESS_MODEL_UPDATE} with the outcome, the version (installed, in use or
++     * offered), the reason code of a failure, the duration and what started the check. Codes and numbers only: no URL.
++     */
++    public void modelUpdate(String outcome, String version, String reason, long durationMs, String trigger) {
++        try {
++            Map<String, String> d = new java.util.LinkedHashMap<>();
++            d.put("outcome", outcome);
++            if (version != null) d.put("version", version);
++            if (reason != null) d.put("reason", reason);
++            d.put("durationMs", Long.toString(durationMs));
++            d.put("trigger", trigger);
++            String text = details(AuditEvent.LIVENESS_MODEL_UPDATE, null, d);
++            executor.execute(() -> write(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME, text));
++        } catch (RuntimeException e) {
++            Log.w(TAG, "could not record the model update", e);
 +        }
 +    }
 +
@@ -2529,10 +2662,10 @@ index 0000000..085dbae
 +}
 diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
 new file mode 100644
-index 0000000..66b1491
+index 0000000..91c2552
 --- /dev/null
 +++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
-@@ -0,0 +1,463 @@
+@@ -0,0 +1,543 @@
 +package io.mosip.registration.liveness.android;
 +
 +import android.content.Context;
@@ -2543,6 +2676,8 @@ index 0000000..66b1491
 +
 +import java.io.File;
 +import java.io.IOException;
++import java.net.MalformedURLException;
++import java.net.URL;
 +import java.lang.reflect.Field;
 +import java.lang.reflect.Modifier;
 +import java.util.ArrayList;
@@ -2563,6 +2698,7 @@ index 0000000..66b1491
 +import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 +import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
 +import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
 +import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 +import io.mosip.registration.liveness.api.AuditSink;
 +import io.mosip.registration.liveness.api.ConfigProvider;
@@ -2592,6 +2728,9 @@ index 0000000..66b1491
 + *   <li>The real engine's anonymised metrics are added to {@link LivenessMetricsStore} after each session.</li>
 + *   <li>Face binding (F1, {@link #binding()}): {@value FaceBinding#ENABLED_KEY} (default true) and
 + *       {@code mosip.registration.liveness.face.binding.cosineThreshold} (default 0.45).</li>
++ *   <li>Online model update ({@link #checkModelUpdate}, {@link ModelUpdates}): {@code
++ *       mosip.registration.liveness.model.update.enabled} (default false), {@code .url} and {@code .intervalHours}
++ *       (default 24); scheduled again after every config reload.</li>
 + * </ul>
 + */
 +public final class LivenessServiceHolder {
@@ -2615,7 +2754,11 @@ index 0000000..66b1491
 +        ANDROID_ANALYZER_DEFAULTS = Collections.unmodifiableMap(m);
 +    }
 +
++    private static volatile LivenessServiceHolder current;
++    private static ModelStore sharedStore; // guarded by the class
++
 +    private final Context context;
++    private final boolean diagnostics;
 +    private final AndroidAuditSink audit;
 +    private final ConfigProvider baseConfig;
 +    private final Map<String, String> overrides = new ConcurrentHashMap<>();
@@ -2647,7 +2790,17 @@ index 0000000..66b1491
 +    private final List<PreviewView> previews = new ArrayList<>();
 +
 +    public LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager) {
++        this(context, globalParams, auditManager, false);
++    }
++
++    /**
++     * @param diagnostics debug and profile builds ({@code BuildConfig.LIVENESS_DIAGNOSTICS}): the online model update
++     *                    may then use plain HTTP to 127.0.0.1 and localhost (the debug page's test server)
++     */
++    public LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager,
++                                 boolean diagnostics) {
 +        this.context = context.getApplicationContext();
++        this.diagnostics = diagnostics;
 +        this.audit = new AndroidAuditSink(auditManager);
 +        this.baseConfig = new AndroidConfigProvider(globalParams);
 +        AnalyzerConfig analyzerConfig = analyzerConfig(config);
@@ -2661,6 +2814,9 @@ index 0000000..66b1491
 +        this.fake = fakeService(1.0);
 +        // After a global-param sync (or any cache refresh), new sessions use the new config.
 +        globalParams.addRefreshListener(this::reloadConfig);
++        ModelUpdates.auditKept(this.context, audit); // checks the update job made while the engine was not running
++        scheduleModelUpdates();
++        current = this;
 +    }
 +
 +    private OnnxFaceAnalyzerFactory analyzerFactory(AnalyzerConfig analyzerConfig) {
@@ -2669,7 +2825,22 @@ index 0000000..66b1491
 +    }
 +
 +    private ModelStore modelStore() {
-+        return new ModelStore(new File(context.getFilesDir(), MODEL_STORE_DIR));
++        return sharedStore(context);
++    }
++
++    /**
++     * The process's one model store ({@code files/liveness-models}): the analyzer, the debug page's install and
++     * rollback, and the online update (also when WorkManager runs it without the engine) all go through its lock.
++     */
++    static synchronized ModelStore sharedStore(Context context) {
++        File root = new File(context.getApplicationContext().getFilesDir(), MODEL_STORE_DIR);
++        if (sharedStore == null || !sharedStore.root().equals(root)) sharedStore = new ModelStore(root); // tests
++        return sharedStore;
++    }
++
++    /** The engine, once the app has created it in this process; else null (the update worker then runs alone). */
++    static LivenessServiceHolder current() {
++        return current;
 +    }
 +
 +    private FakeLivenessService fakeService(double timeScale) {
@@ -2812,6 +2983,47 @@ index 0000000..66b1491
 +        return "installed " + store.installedVersions() + ", current " + (current == null ? "none (bundled)" : current);
 +    }
 +
++    /**
++     * Online model update ({@link ModelUpdates}): checks the configured index and installs a newer verified bundle
++     * into the store, then reloads as {@link #installModelBundle} does. Writes REG-EVT-019 with the outcome; the
++     * reload after an install writes MODEL_LOADED with the new version. The download runs on the calling thread
++     * (WorkManager's, or a background thread), without holding this object's lock.
++     *
++     * @param trigger "scheduled" (the periodic job) or "manual" (the debug page), for the audit record
++     * @throws IllegalStateException when updates are disabled or no index URL is configured
++     */
++    public ModelUpdater.UpdateResult checkModelUpdate(String trigger) {
++        ModelUpdates.Settings s = ModelUpdates.Settings.from(config);
++        if (!s.enabled) throw new IllegalStateException("model update is disabled (" + ModelUpdates.ENABLED_KEY + ")");
++        if (s.url == null) throw new IllegalStateException("no " + ModelUpdates.URL_KEY);
++        URL index;
++        try {
++            index = new URL(s.url);
++        } catch (MalformedURLException e) {
++            throw new IllegalStateException(ModelUpdates.URL_KEY + " is not a valid URL");
++        }
++        long start = SystemClock.elapsedRealtime();
++        ModelUpdater.UpdateResult r = ModelUpdates.updater(diagnostics).check(index, modelStore(),
++                new AssetBundleSource(context), TrustedKeys.builtIn());
++        onModelUpdate(r, SystemClock.elapsedRealtime() - start, trigger);
++        return r;
++    }
++
++    /** Logs and audits an update outcome; after an install, new sessions use the new bundle. */
++    void onModelUpdate(ModelUpdater.UpdateResult r, long ms, String trigger) {
++        Log.i(TAG, "model update (" + trigger + "): " + r + " in " + ms + " ms; store " + modelStoreStatus());
++        audit.modelUpdate(r.status().name(), r.version(), r.reason() == null ? null : r.reason().name(), ms, trigger);
++        if (r.status() == ModelUpdater.Status.INSTALLED) {
++            synchronized (this) {
++                reloadModels();
++            }
++        }
++    }
++
++    private void scheduleModelUpdates() {
++        ModelUpdates.schedule(context, ModelUpdates.Settings.from(config), diagnostics);
++    }
++
 +    /** New sessions use the newest verified bundle (store or assets); running sessions keep theirs. */
 +    private void reloadModels() {
 +        modelVersion = "";
@@ -2907,6 +3119,7 @@ index 0000000..66b1491
 +    public synchronized void reloadConfig() {
 +        real.reloadConfig(config);
 +        fake.reloadConfig(config);
++        scheduleModelUpdates();
 +        AnalyzerConfig next = analyzerConfig(config);
 +        String print = fingerprint(next);
 +        if (!print.equals(analyzerFingerprint)) {
@@ -3140,6 +3353,264 @@ index 0000000..cbc2277
 +        Arrays.sort(s);
 +        int n = s.length;
 +        return n % 2 == 1 ? s[n / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdateWorker.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdateWorker.java
+new file mode 100644
+index 0000000..616cabc
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdateWorker.java
+@@ -0,0 +1,41 @@
++package io.mosip.registration.liveness.android;
++
++import android.content.Context;
++import android.util.Log;
++
++import androidx.annotation.NonNull;
++import androidx.work.Worker;
++import androidx.work.WorkerParameters;
++
++/**
++ * The periodic online model update ({@link ModelUpdates}): checks the index and installs a newer verified bundle.
++ * A failed check leaves the store unchanged and waits for the next period, so the job always ends as success.
++ */
++public final class ModelUpdateWorker extends Worker {
++
++    private static final String TAG = "LivenessModelUpdate";
++
++    public ModelUpdateWorker(@NonNull Context context, @NonNull WorkerParameters params) {
++        super(context, params);
++    }
++
++    @NonNull
++    @Override
++    public Result doWork() {
++        LivenessServiceHolder holder = LivenessServiceHolder.current();
++        try {
++            if (holder != null) {
++                holder.checkModelUpdate("scheduled");
++            } else {
++                String url = getInputData().getString(ModelUpdates.INPUT_URL);
++                if (url != null) {
++                    ModelUpdates.checkWithoutEngine(getApplicationContext(), url,
++                            getInputData().getBoolean(ModelUpdates.INPUT_INSECURE_LOCALHOST, false));
++                }
++            }
++        } catch (IllegalStateException e) {
++            Log.i(TAG, "model update skipped: " + e.getMessage()); // disabled meanwhile
++        }
++        return Result.success();
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdates.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdates.java
+new file mode 100644
+index 0000000..17dd9e8
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdates.java
+@@ -0,0 +1,205 @@
++package io.mosip.registration.liveness.android;
++
++import android.content.Context;
++import android.content.SharedPreferences;
++import android.os.SystemClock;
++import android.util.Log;
++
++import androidx.work.Constraints;
++import androidx.work.Data;
++import androidx.work.ExistingPeriodicWorkPolicy;
++import androidx.work.NetworkType;
++import androidx.work.PeriodicWorkRequest;
++import androidx.work.WorkManager;
++
++import java.net.MalformedURLException;
++import java.net.URL;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.concurrent.TimeUnit;
++
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.api.ConfigProvider;
++
++/**
++ * Online model updates on Android, with the engine's {@link ModelUpdater}.
++ *
++ * <ul>
++ *   <li>Config: {@value #ENABLED_KEY} (default false: no update server exists yet), {@value #URL_KEY} (the index,
++ *       {@code latest.json}, over HTTPS) and {@value #INTERVAL_KEY} (default 24, at least 1).</li>
++ *   <li>{@link #schedule}: one unique periodic WorkManager job, {@value #WORK_NAME}, which needs a network
++ *       connection. It exists while updates are enabled with a URL, and is cancelled otherwise. It is replaced only
++ *       when the URL or the interval change.</li>
++ *   <li>{@link ModelUpdateWorker} checks through the running engine ({@link LivenessServiceHolder#checkModelUpdate}),
++ *       which reloads the analyzer after an install and writes REG-EVT-019.</li>
++ *   <li>When WorkManager started the process and the engine is not running, the worker checks with the same store,
++ *       assets and keys. It keeps the outcome for the engine to audit when it starts; the next preload uses an
++ *       installed bundle.</li>
++ * </ul>
++ * Plain HTTP to 127.0.0.1 and localhost is allowed only in diagnostics builds (debug and profile), as their network
++ * security config allows; release builds use HTTPS only.
++ */
++public final class ModelUpdates {
++
++    private static final String TAG = "LivenessModelUpdate";
++    public static final String KEY_PREFIX = "mosip.registration.liveness.model.update.";
++    public static final String ENABLED_KEY = KEY_PREFIX + "enabled";
++    public static final String URL_KEY = KEY_PREFIX + "url";
++    public static final String INTERVAL_KEY = KEY_PREFIX + "intervalHours";
++    static final int DEFAULT_INTERVAL_HOURS = 24;
++    static final String WORK_NAME = "liveness-model-update";
++    static final String INPUT_URL = "url";
++    static final String INPUT_INSECURE_LOCALHOST = "allowInsecureLocalhost";
++    static final String PREFS = "liveness-model-update";
++    private static final String SCHEDULED = "scheduled";
++    private static final String PENDING = "pending";
++    private static final int MAX_PENDING = 20;
++
++    private ModelUpdates() { }
++
++    /** The update settings in the config. */
++    static final class Settings {
++        final boolean enabled;
++        final String url;
++        final int intervalHours;
++
++        Settings(boolean enabled, String url, int intervalHours) {
++            this.enabled = enabled;
++            this.url = url;
++            this.intervalHours = intervalHours;
++        }
++
++        static Settings from(ConfigProvider config) {
++            String enabled = trim(config.get(ENABLED_KEY));
++            String url = trim(config.get(URL_KEY));
++            int hours = DEFAULT_INTERVAL_HOURS;
++            String h = trim(config.get(INTERVAL_KEY));
++            if (h != null) {
++                try {
++                    hours = Math.max(1, Integer.parseInt(h));
++                } catch (NumberFormatException e) {
++                    Log.w(TAG, INTERVAL_KEY + " is not a number; using " + DEFAULT_INTERVAL_HOURS);
++                }
++            }
++            return new Settings("true".equalsIgnoreCase(enabled), url, hours);
++        }
++
++        /** Enabled, with a URL. */
++        boolean active() {
++            return enabled && url != null;
++        }
++
++        private static String trim(String s) {
++            if (s == null) return null;
++            s = s.trim();
++            return s.isEmpty() ? null : s;
++        }
++    }
++
++    static ModelUpdater updater(boolean allowInsecureLocalhost) {
++        return ModelUpdater.builder().allowInsecureLocalhost(allowInsecureLocalhost).build();
++    }
++
++    /** Schedules, replaces or cancels the periodic job for these settings. */
++    static void schedule(Context context, Settings s, boolean allowInsecureLocalhost) {
++        SharedPreferences prefs = prefs(context);
++        if (prefs == null) return; // no app storage (unit tests)
++        try {
++            WorkManager work = WorkManager.getInstance(context);
++            if (!s.active()) {
++                work.cancelUniqueWork(WORK_NAME);
++                prefs.edit().remove(SCHEDULED).apply();
++                return;
++            }
++            String fingerprint = s.url + "|" + s.intervalHours + "|" + allowInsecureLocalhost;
++            boolean same = fingerprint.equals(prefs.getString(SCHEDULED, null));
++            PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(ModelUpdateWorker.class,
++                    s.intervalHours, TimeUnit.HOURS)
++                    .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
++                    .setInputData(new Data.Builder()
++                            .putString(INPUT_URL, s.url)
++                            .putBoolean(INPUT_INSECURE_LOCALHOST, allowInsecureLocalhost)
++                            .build())
++                    .build();
++            work.enqueueUniquePeriodicWork(WORK_NAME,
++                    same ? ExistingPeriodicWorkPolicy.KEEP : ExistingPeriodicWorkPolicy.REPLACE, request);
++            prefs.edit().putString(SCHEDULED, fingerprint).apply();
++            if (!same) Log.i(TAG, "model update scheduled every " + s.intervalHours + " h");
++        } catch (RuntimeException e) {
++            Log.w(TAG, "model update not scheduled: " + e); // e.g. WorkManager not initialised
++        }
++    }
++
++    /**
++     * The worker's check while the engine is not running. The outcome goes to the engine if it started meanwhile,
++     * else it is kept for its audit at the next start.
++     */
++    static void checkWithoutEngine(Context context, String url, boolean allowInsecureLocalhost) {
++        URL index;
++        try {
++            index = new URL(url);
++        } catch (MalformedURLException e) {
++            Log.w(TAG, "model update: the index URL is invalid");
++            return;
++        }
++        long start = SystemClock.elapsedRealtime();
++        ModelUpdater.UpdateResult r = updater(allowInsecureLocalhost).check(index,
++                LivenessServiceHolder.sharedStore(context), new AssetBundleSource(context), TrustedKeys.builtIn());
++        long ms = SystemClock.elapsedRealtime() - start;
++        LivenessServiceHolder holder = LivenessServiceHolder.current();
++        if (holder != null) {
++            holder.onModelUpdate(r, ms, "scheduled");
++        } else {
++            Log.i(TAG, "model update (engine not running): " + r + " in " + ms + " ms");
++            keep(context, r, ms);
++        }
++    }
++
++    /** Keeps an outcome for the engine's audit (at most {@value #MAX_PENDING}, the newest). */
++    static synchronized void keep(Context context, ModelUpdater.UpdateResult r, long ms) {
++        SharedPreferences prefs = prefs(context);
++        if (prefs == null) return;
++        List<String> lines = split(prefs.getString(PENDING, ""));
++        lines.add(r.status() + "|" + nullable(r.version()) + "|" + nullable(r.reason() == null ? null : r.reason().name())
++                + "|" + ms);
++        while (lines.size() > MAX_PENDING) lines.remove(0);
++        prefs.edit().putString(PENDING, String.join("\n", lines)).apply();
++    }
++
++    /** Audits the kept outcomes once (trigger "scheduled-offline") and forgets them. */
++    static synchronized void auditKept(Context context, AndroidAuditSink audit) {
++        SharedPreferences prefs = prefs(context);
++        if (prefs == null) return;
++        List<String> lines = split(prefs.getString(PENDING, ""));
++        if (lines.isEmpty()) return;
++        prefs.edit().remove(PENDING).apply();
++        for (String line : lines) {
++            String[] f = line.split("\\|", -1);
++            if (f.length != 4) continue;
++            long ms;
++            try {
++                ms = Long.parseLong(f[3]);
++            } catch (NumberFormatException e) {
++                continue;
++            }
++            audit.modelUpdate(f[0], f[1].isEmpty() ? null : f[1], f[2].isEmpty() ? null : f[2], ms, "scheduled-offline");
++        }
++    }
++
++    private static List<String> split(String s) {
++        List<String> out = new ArrayList<>();
++        for (String line : s.split("\n")) {
++            if (!line.isEmpty()) out.add(line);
++        }
++        return out;
++    }
++
++    private static String nullable(String s) {
++        return s == null ? "" : s;
++    }
++
++    private static SharedPreferences prefs(Context context) {
++        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
 +    }
 +}
 diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactory.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactory.java
@@ -3516,10 +3987,10 @@ index 0000000..22fefbb
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
 new file mode 100644
-index 0000000..df7680d
+index 0000000..dfd5294
 --- /dev/null
 +++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,139 @@
 +package io.mosip.registration.liveness.android;
 +
 +import static org.junit.Assert.assertEquals;
@@ -3582,6 +4053,20 @@ index 0000000..df7680d
 +        assertEquals(Components.LOGIN, AndroidAuditSink.component(WorkflowType.OPERATOR));
 +        assertEquals(Components.REG_PACKET_LIST, AndroidAuditSink.component(WorkflowType.SUPERVISOR));
 +        assertEquals(Components.HOME, AndroidAuditSink.component(null));
++    }
++
++    @Test
++    public void modelUpdatesAreRegEvt019WithCodesOnly() {
++        assertEquals("REG-EVT-019", AuditEvent.LIVENESS_MODEL_UPDATE.getId());
++        for (AuditEvent a : AuditEvent.values()) {
++            if (a != AuditEvent.LIVENESS_MODEL_UPDATE) assertTrue(a.name(), !a.getId().equals("REG-EVT-019"));
++        }
++        sink.modelUpdate("FAILED", "pad-2026.11.1", "ZIP_HASH_MISMATCH", 812, "scheduled");
++        verify(audit).audit(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME,
++                "outcome=FAILED;version=pad-2026.11.1;reason=ZIP_HASH_MISMATCH;durationMs=812;trigger=scheduled");
++        sink.modelUpdate("UP_TO_DATE", "pad-2026.10.5", null, 40, "manual");
++        verify(audit).audit(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME,
++                "outcome=UP_TO_DATE;version=pad-2026.10.5;durationMs=40;trigger=manual");
 +    }
 +
 +    @Test
@@ -4543,10 +5028,10 @@ index 0000000..1096b15
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
 new file mode 100644
-index 0000000..0ab9e6d
+index 0000000..7ae0cd6
 --- /dev/null
 +++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,226 @@
 +package io.mosip.registration.liveness.android;
 +
 +import static org.junit.Assert.assertEquals;
@@ -4555,7 +5040,10 @@ index 0000000..0ab9e6d
 +import static org.junit.Assert.assertTrue;
 +import static org.junit.Assert.fail;
 +import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.ArgumentMatchers.startsWith;
 +import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.timeout;
 +import static org.mockito.Mockito.verify;
 +import static org.mockito.Mockito.when;
 +
@@ -4575,9 +5063,12 @@ index 0000000..0ab9e6d
 +import java.util.List;
 +import java.util.Map;
 +
++import io.mosip.registration.clientmanager.constant.AuditEvent;
++import io.mosip.registration.clientmanager.constant.Components;
 +import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
 +import io.mosip.registration.clientmanager.spi.AuditManagerService;
 +import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
 +import io.mosip.registration.liveness.api.ErrorCode;
 +import io.mosip.registration.liveness.api.LivenessEngineException;
 +import io.mosip.registration.liveness.api.WorkflowType;
@@ -4601,7 +5092,34 @@ index 0000000..0ab9e6d
 +        when(context.getAssets()).thenReturn(mock(AssetManager.class));
 +        when(context.getFilesDir()).thenReturn(files.getRoot());
 +        when(globalParams.getCachedStringGlobalParam(anyString())).thenAnswer(i -> synced.get(i.<String>getArgument(0)));
-+        holder = new LivenessServiceHolder(context, globalParams, mock(AuditManagerService.class));
++        holder = new LivenessServiceHolder(context, globalParams, auditManager);
++    }
++
++    private final AuditManagerService auditManager = mock(AuditManagerService.class);
++
++    @Test
++    public void aModelUpdateCheckNeedsUpdatesEnabledWithAValidUrl() {
++        assertUpdateRefused("disabled");
++        holder.setOverride(ModelUpdates.ENABLED_KEY, "true");
++        assertUpdateRefused("no " + ModelUpdates.URL_KEY);
++        holder.setOverride(ModelUpdates.URL_KEY, "not a url");
++        assertUpdateRefused("not a valid URL");
++        // Not a diagnostics build: plain HTTP is refused before any connection, and the outcome is audited.
++        holder.setOverride(ModelUpdates.URL_KEY, "http://127.0.0.1:9/latest.json");
++        ModelUpdater.UpdateResult r = holder.checkModelUpdate("manual");
++        assertEquals(ModelUpdater.Status.FAILED, r.status());
++        assertEquals(ModelUpdater.Reason.INSECURE_TRANSPORT, r.reason());
++        verify(auditManager, timeout(2000)).audit(eq(AuditEvent.LIVENESS_MODEL_UPDATE), eq(Components.HOME),
++                startsWith("outcome=FAILED;reason=INSECURE_TRANSPORT;durationMs="));
++    }
++
++    private void assertUpdateRefused(String message) {
++        try {
++            holder.checkModelUpdate("manual");
++            fail("expected a refusal: " + message);
++        } catch (IllegalStateException e) {
++            assertTrue(e.getMessage(), e.getMessage().contains(message));
++        }
 +    }
 +
 +    @Test
@@ -4792,6 +5310,125 @@ index 0000000..d207c09
 +    public void medianOfEvenAndOddCounts() {
 +        assertEquals(2.0, MatcherBenchmark.median(new double[] {3, 1, 2}), 0);
 +        assertEquals(2.5, MatcherBenchmark.median(new double[] {4, 1, 2, 3}), 0);
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/ModelUpdatesTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/ModelUpdatesTest.java
+new file mode 100644
+index 0000000..52543a6
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/ModelUpdatesTest.java
+@@ -0,0 +1,113 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertTrue;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.verifyNoMoreInteractions;
++
++import android.content.Context;
++
++import androidx.test.core.app.ApplicationProvider;
++
++import org.junit.Rule;
++import org.junit.Test;
++import org.junit.rules.TemporaryFolder;
++import org.junit.runner.RunWith;
++import org.robolectric.RobolectricTestRunner;
++import org.robolectric.annotation.Config;
++
++import java.io.IOException;
++import java.net.URL;
++import java.util.HashMap;
++import java.util.Map;
++
++import io.mosip.registration.clientmanager.constant.AuditEvent;
++import io.mosip.registration.clientmanager.constant.Components;
++import io.mosip.registration.clientmanager.spi.AuditManagerService;
++import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
++import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++
++/** The online update's settings, scheduling without WorkManager, and the outcomes kept while the engine is down. */
++@RunWith(RobolectricTestRunner.class)
++@Config(sdk = 34)
++public class ModelUpdatesTest {
++
++    @Rule
++    public TemporaryFolder tmp = new TemporaryFolder();
++
++    private final Context context = ApplicationProvider.getApplicationContext();
++
++    @Test
++    public void updatesAreOffByDefaultAndCheckDaily() {
++        Map<String, String> c = new HashMap<>();
++        ModelUpdates.Settings s = ModelUpdates.Settings.from(c::get);
++        assertFalse(s.enabled);
++        assertNull(s.url);
++        assertEquals(24, s.intervalHours);
++        assertFalse(s.active());
++
++        c.put(ModelUpdates.ENABLED_KEY, " TRUE ");
++        c.put(ModelUpdates.URL_KEY, " https://models.example.org/liveness/latest.json ");
++        c.put(ModelUpdates.INTERVAL_KEY, "6");
++        s = ModelUpdates.Settings.from(c::get);
++        assertTrue(s.active());
++        assertEquals("https://models.example.org/liveness/latest.json", s.url);
++        assertEquals(6, s.intervalHours);
++
++        c.put(ModelUpdates.INTERVAL_KEY, "0");
++        assertEquals(1, ModelUpdates.Settings.from(c::get).intervalHours);
++        c.put(ModelUpdates.INTERVAL_KEY, "daily");
++        assertEquals(24, ModelUpdates.Settings.from(c::get).intervalHours);
++        c.put(ModelUpdates.URL_KEY, "  ");
++        assertFalse(ModelUpdates.Settings.from(c::get).active());
++    }
++
++    @Test
++    public void schedulingWithoutWorkManagerIsHarmless() {
++        ModelUpdates.schedule(context, new ModelUpdates.Settings(true, "https://example.org/latest.json", 24), false);
++        ModelUpdates.schedule(context, new ModelUpdates.Settings(false, null, 24), false);
++    }
++
++    @Test
++    public void outcomesKeptWithoutTheEngineAreAuditedOnceWithCodesOnly() throws Exception {
++        ModelUpdater.UpdateResult failed = refusedCheck();
++        assertEquals(ModelUpdater.Reason.INSECURE_TRANSPORT, failed.reason());
++        for (int ms = 0; ms < 25; ms++) ModelUpdates.keep(context, failed, ms);
++
++        AuditManagerService audit = mock(AuditManagerService.class);
++        ModelUpdates.auditKept(context, new AndroidAuditSink(audit, Runnable::run));
++        for (int ms = 5; ms < 25; ms++) { // the newest 20
++            verify(audit).audit(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME,
++                    "outcome=FAILED;reason=INSECURE_TRANSPORT;durationMs=" + ms + ";trigger=scheduled-offline");
++        }
++        ModelUpdates.auditKept(context, new AndroidAuditSink(audit, Runnable::run));
++        verifyNoMoreInteractions(audit);
++    }
++
++    @Test
++    public void anInvalidUrlFromTheJobIsIgnored() {
++        ModelUpdates.checkWithoutEngine(context, "not a url", false);
++    }
++
++    /** A check refused before any connection (plain HTTP, not allowed). */
++    private ModelUpdater.UpdateResult refusedCheck() throws Exception {
++        BundleSource unreadable = new BundleSource() {
++            @Override
++            public byte[] read(String name) throws IOException {
++                throw new IOException("not used");
++            }
++
++            @Override
++            public String describe() {
++                return "none";
++            }
++        };
++        return ModelUpdates.updater(false).check(new URL("http://example.invalid/latest.json"),
++                new ModelStore(tmp.newFolder()), unreadable, TrustedKeys.builtIn());
 +    }
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactoryTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactoryTest.java
@@ -24740,6 +25377,63 @@ index 2ec4312..3ea212e 100644
  apply from: "$flutterSdkPath/packages/flutter_tools/gradle/app_plugin_loader.gradle"
  include ':transliterationmanager'
 +include ':liveness'
+diff --git a/assets/l10n/app_ar.arb b/assets/l10n/app_ar.arb
+index c3b216a..614fc30 100644
+--- a/assets/l10n/app_ar.arb
++++ b/assets/l10n/app_ar.arb
+@@ -368,6 +368,51 @@
+   "select_option": "اختر خياراً",
+   "cron_expression": "تعبير كرون",
+   "id": "بطاقة تعريف",
+-  "name": "اسم"
++  "name": "اسم",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "التحقق من حيوية الوجه",
++  "liveness_title_operator": "التحقق من وجه المشغل",
++  "liveness_title_supervisor": "التحقق من وجه المشرف",
++  "liveness_status_starting": "جارٍ بدء التحقق من حيوية الوجه…",
++  "liveness_status_checking": "جارٍ التحقق من حيوية الوجه…",
++  "liveness_status_passed": "جيد، تم التقاط الوجه بنجاح",
++  "liveness_status_cancelled": "تم إلغاء التحقق من حيوية الوجه.",
++  "liveness_challenge_blink": "يرجى رمش عينيك",
++  "liveness_challenge_smile": "يرجى الابتسام",
++  "liveness_challenge_turn_left": "يرجى إدارة رأسك إلى اليسار",
++  "liveness_challenge_turn_right": "يرجى إدارة رأسك إلى اليمين",
++  "liveness_challenge_look_up": "يرجى النظر إلى الأعلى",
++  "liveness_challenge_look_down": "يرجى النظر إلى الأسفل",
++  "liveness_feedback_continue": "يرجى المتابعة",
++  "liveness_feedback_action_detected": "تم اكتشاف الحركة",
++  "liveness_feedback_hold_still": "لا تتحرك",
++  "liveness_guidance_no_face": "لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.",
++  "liveness_guidance_multiple_faces": "يجب أن يظهر شخص واحد فقط.",
++  "liveness_guidance_move_closer": "يرجى الاقتراب أكثر.",
++  "liveness_guidance_move_back": "يرجى الابتعاد قليلًا.",
++  "liveness_guidance_center_face": "يرجى وضع وجهك في وسط الشكل البيضاوي.",
++  "liveness_guidance_improve_lighting": "يرجى تحسين الإضاءة.",
++  "liveness_guidance_hold_steady": "يرجى الثبات.",
++  "liveness_guidance_look_at_camera": "يرجى النظر إلى الكاميرا.",
++  "liveness_error_liveness_not_verified": "تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.",
++  "liveness_error_verification_not_completed": "تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.",
++  "liveness_error_max_attempts_reached": "تعذّر إكمال التحقق من الوجه.",
++  "liveness_error_device_problem": "الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.",
++  "liveness_tips_title": "نصائح:",
++  "liveness_tips_look_at_camera": "انظر مباشرة إلى الكاميرا.",
++  "liveness_tips_face_visible": "تأكد من أن وجهك ظاهر بوضوح.",
++  "liveness_tips_lighting": "حسّن الإضاءة.",
++  "liveness_tips_capture_area": "أبقِ وجهك داخل منطقة الالتقاط.",
++  "liveness_tips_follow_prompt": "نفّذ الحركة المطلوبة.",
++  "liveness_retry_attempts_left": "المحاولات المتبقية: {n}",
++  "liveness_progress_step": "الخطوة {i} من {n}",
++  "liveness_progress_attempt": "المحاولة {a} من {m}",
++  "liveness_recovery_resident": "يرجى الاتصال بالمشرف. يمكن تسجيل المقيم باستخدام إجراء الاستثناء البيومتري.",
++  "liveness_recovery_operator": "يرجى الاتصال بالمسؤول أو المحاولة مرة أخرى لاحقًا.",
++  "liveness_recovery_supervisor": "يرجى الاتصال بالمسؤول.",
++  "liveness_button_retry": "إعادة المحاولة",
++  "liveness_button_cancel": "إلغاء",
++  "liveness_button_close": "إغلاق",
++  "liveness_button_open_settings": "فتح الإعدادات"
+ }
+ 
 diff --git a/assets/l10n/app_en.arb b/assets/l10n/app_en.arb
 index 0012c53..90add56 100644
 --- a/assets/l10n/app_en.arb
@@ -24797,6 +25491,231 @@ index 0012c53..90add56 100644
 +  "liveness_button_cancel": "Cancel",
 +  "liveness_button_close": "Close",
 +  "liveness_button_open_settings": "Open settings"
+ }
+diff --git a/assets/l10n/app_fr.arb b/assets/l10n/app_fr.arb
+index 4935d25..0f2398e 100644
+--- a/assets/l10n/app_fr.arb
++++ b/assets/l10n/app_fr.arb
+@@ -368,6 +368,51 @@
+   "select_option": "Sélectionner une option",
+   "cron_expression": "Expression Cron",
+   "id": "IDENTIFIANT",
+-  "name": "Nom"
++  "name": "Nom",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "Test de vivacité du visage",
++  "liveness_title_operator": "Vérification faciale de l'opérateur",
++  "liveness_title_supervisor": "Vérification faciale du superviseur",
++  "liveness_status_starting": "Démarrage du test de vivacité du visage…",
++  "liveness_status_checking": "Vérification de la vivacité du visage…",
++  "liveness_status_passed": "Parfait, visage capturé avec succès",
++  "liveness_status_cancelled": "Test de vivacité du visage annulé.",
++  "liveness_challenge_blink": "Veuillez cligner des yeux",
++  "liveness_challenge_smile": "Veuillez sourire",
++  "liveness_challenge_turn_left": "Veuillez tourner la tête vers la gauche",
++  "liveness_challenge_turn_right": "Veuillez tourner la tête vers la droite",
++  "liveness_challenge_look_up": "Veuillez regarder vers le haut",
++  "liveness_challenge_look_down": "Veuillez regarder vers le bas",
++  "liveness_feedback_continue": "Veuillez continuer",
++  "liveness_feedback_action_detected": "Action détectée",
++  "liveness_feedback_hold_still": "Ne bougez plus",
++  "liveness_guidance_no_face": "Aucun visage détecté. Veuillez regarder la caméra.",
++  "liveness_guidance_multiple_faces": "Une seule personne doit être visible.",
++  "liveness_guidance_move_closer": "Veuillez vous rapprocher.",
++  "liveness_guidance_move_back": "Veuillez reculer.",
++  "liveness_guidance_center_face": "Veuillez centrer votre visage dans l'ovale.",
++  "liveness_guidance_improve_lighting": "Veuillez améliorer l'éclairage.",
++  "liveness_guidance_hold_steady": "Veuillez rester immobile.",
++  "liveness_guidance_look_at_camera": "Veuillez regarder la caméra.",
++  "liveness_error_liveness_not_verified": "Nous n'avons pas pu vérifier la vivacité du visage. Veuillez réessayer.",
++  "liveness_error_verification_not_completed": "La vérification faciale n'a pas pu être effectuée. Veuillez réessayer.",
++  "liveness_error_max_attempts_reached": "La vérification faciale n'a pas pu être effectuée.",
++  "liveness_error_device_problem": "Caméra ou appareil indisponible. Vérifiez la connexion et réessayez.",
++  "liveness_tips_title": "Conseils :",
++  "liveness_tips_look_at_camera": "Regardez directement la caméra.",
++  "liveness_tips_face_visible": "Assurez-vous que votre visage est bien visible.",
++  "liveness_tips_lighting": "Améliorez l'éclairage.",
++  "liveness_tips_capture_area": "Gardez votre visage dans la zone de capture.",
++  "liveness_tips_follow_prompt": "Effectuez l'action demandée.",
++  "liveness_retry_attempts_left": "{n} tentative(s) restante(s)",
++  "liveness_progress_step": "Étape {i} sur {n}",
++  "liveness_progress_attempt": "Tentative {a} sur {m}",
++  "liveness_recovery_resident": "Veuillez contacter le superviseur. Le résident peut être enregistré à l'aide de la procédure d'exception biométrique.",
++  "liveness_recovery_operator": "Veuillez contacter votre administrateur ou réessayer plus tard.",
++  "liveness_recovery_supervisor": "Veuillez contacter votre administrateur.",
++  "liveness_button_retry": "Réessayer",
++  "liveness_button_cancel": "Annuler",
++  "liveness_button_close": "Fermer",
++  "liveness_button_open_settings": "Ouvrir les paramètres"
+ }
+ 
+diff --git a/assets/l10n/app_hi.arb b/assets/l10n/app_hi.arb
+index fc09a47..8702af9 100644
+--- a/assets/l10n/app_hi.arb
++++ b/assets/l10n/app_hi.arb
+@@ -368,5 +368,50 @@
+   "select_option": "विकल्प चुनें",
+   "cron_expression": "क्रोन एक्सप्रेशन",
+   "id": "आईडी",
+-  "name": "नाम"
++  "name": "नाम",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "चेहरे की जीवंतता जाँच",
++  "liveness_title_operator": "ऑपरेटर का चेहरा सत्यापन",
++  "liveness_title_supervisor": "पर्यवेक्षक का चेहरा सत्यापन",
++  "liveness_status_starting": "चेहरे की जीवंतता जाँच शुरू हो रही है…",
++  "liveness_status_checking": "चेहरे की जीवंतता जाँची जा रही है…",
++  "liveness_status_passed": "बढ़िया, चेहरा सफलतापूर्वक कैप्चर हो गया",
++  "liveness_status_cancelled": "चेहरे की जीवंतता जाँच रद्द कर दी गई।",
++  "liveness_challenge_blink": "कृपया पलकें झपकाएँ",
++  "liveness_challenge_smile": "कृपया मुस्कुराएँ",
++  "liveness_challenge_turn_left": "कृपया अपना सिर बाईं ओर घुमाएँ",
++  "liveness_challenge_turn_right": "कृपया अपना सिर दाईं ओर घुमाएँ",
++  "liveness_challenge_look_up": "कृपया ऊपर देखें",
++  "liveness_challenge_look_down": "कृपया नीचे देखें",
++  "liveness_feedback_continue": "कृपया जारी रखें",
++  "liveness_feedback_action_detected": "क्रिया पहचानी गई",
++  "liveness_feedback_hold_still": "हिलें नहीं",
++  "liveness_guidance_no_face": "कोई चेहरा नहीं पहचाना गया। कृपया कैमरे की ओर देखें।",
++  "liveness_guidance_multiple_faces": "केवल एक व्यक्ति दिखाई देना चाहिए।",
++  "liveness_guidance_move_closer": "कृपया थोड़ा पास आएँ।",
++  "liveness_guidance_move_back": "कृपया थोड़ा पीछे हटें।",
++  "liveness_guidance_center_face": "कृपया अपना चेहरा अंडाकार के बीच में रखें।",
++  "liveness_guidance_improve_lighting": "कृपया रोशनी बेहतर करें।",
++  "liveness_guidance_hold_steady": "कृपया स्थिर रहें।",
++  "liveness_guidance_look_at_camera": "कृपया कैमरे की ओर देखें।",
++  "liveness_error_liveness_not_verified": "हम चेहरे की जीवंतता सत्यापित नहीं कर सके। कृपया पुनः प्रयास करें।",
++  "liveness_error_verification_not_completed": "चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।",
++  "liveness_error_max_attempts_reached": "चेहरा सत्यापन पूरा नहीं हो सका।",
++  "liveness_error_device_problem": "कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।",
++  "liveness_tips_title": "सुझाव:",
++  "liveness_tips_look_at_camera": "सीधे कैमरे की ओर देखें।",
++  "liveness_tips_face_visible": "सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।",
++  "liveness_tips_lighting": "रोशनी बेहतर करें।",
++  "liveness_tips_capture_area": "अपना चेहरा कैप्चर क्षेत्र के भीतर रखें।",
++  "liveness_tips_follow_prompt": "बताई गई क्रिया करें।",
++  "liveness_retry_attempts_left": "शेष प्रयास: {n}",
++  "liveness_progress_step": "चरण {i} / {n}",
++  "liveness_progress_attempt": "प्रयास {a} / {m}",
++  "liveness_recovery_resident": "कृपया पर्यवेक्षक से संपर्क करें। निवासी का पंजीकरण बायोमेट्रिक अपवाद प्रक्रिया से किया जा सकता है।",
++  "liveness_recovery_operator": "कृपया अपने व्यवस्थापक से संपर्क करें या बाद में पुनः प्रयास करें।",
++  "liveness_recovery_supervisor": "कृपया अपने व्यवस्थापक से संपर्क करें।",
++  "liveness_button_retry": "पुनः प्रयास करें",
++  "liveness_button_cancel": "रद्द करें",
++  "liveness_button_close": "बंद करें",
++  "liveness_button_open_settings": "सेटिंग्स खोलें"
+ }
+diff --git a/assets/l10n/app_kn.arb b/assets/l10n/app_kn.arb
+index 29bc909..ce8a2c1 100644
+--- a/assets/l10n/app_kn.arb
++++ b/assets/l10n/app_kn.arb
+@@ -368,5 +368,50 @@
+   "select_option": "ಆಯ್ಕೆಯನ್ನು ಆರಿಸಿ",
+   "cron_expression": "ಕ್ರಾನ್ ಎಕ್ಸ್‌ಪ್ರೆಶನ್",
+   "id": "ID",
+-  "name": "ಹೆಸರು"
++  "name": "ಹೆಸರು",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ",
++  "liveness_title_operator": "ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ",
++  "liveness_title_supervisor": "ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ",
++  "liveness_status_starting": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…",
++  "liveness_status_checking": "ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…",
++  "liveness_status_passed": "ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ",
++  "liveness_status_cancelled": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.",
++  "liveness_challenge_blink": "ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ",
++  "liveness_challenge_smile": "ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ",
++  "liveness_challenge_turn_left": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಎಡಕ್ಕೆ ತಿರುಗಿಸಿ",
++  "liveness_challenge_turn_right": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಬಲಕ್ಕೆ ತಿರುಗಿಸಿ",
++  "liveness_challenge_look_up": "ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ",
++  "liveness_challenge_look_down": "ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ",
++  "liveness_feedback_continue": "ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ",
++  "liveness_feedback_action_detected": "ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ",
++  "liveness_feedback_hold_still": "ಅಲುಗಾಡಬೇಡಿ",
++  "liveness_guidance_no_face": "ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
++  "liveness_guidance_multiple_faces": "ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.",
++  "liveness_guidance_move_closer": "ದಯವಿಟ್ಟು ಹತ್ತಿರ ಬನ್ನಿ.",
++  "liveness_guidance_move_back": "ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಹಿಂದೆ ಸರಿಯಿರಿ.",
++  "liveness_guidance_center_face": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಮುಖವನ್ನು ಅಂಡಾಕಾರದ ಮಧ್ಯದಲ್ಲಿ ಇರಿಸಿ.",
++  "liveness_guidance_improve_lighting": "ದಯವಿಟ್ಟು ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.",
++  "liveness_guidance_hold_steady": "ದಯವಿಟ್ಟು ಸ್ಥಿರವಾಗಿರಿ.",
++  "liveness_guidance_look_at_camera": "ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
++  "liveness_error_liveness_not_verified": "ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_error_verification_not_completed": "ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_error_max_attempts_reached": "ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.",
++  "liveness_error_device_problem": "ಕ್ಯಾಮರಾ/ಸಾಧನ ಲಭ್ಯವಿಲ್ಲ. ಸಂಪರ್ಕವನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_tips_title": "ಸಲಹೆಗಳು:",
++  "liveness_tips_look_at_camera": "ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
++  "liveness_tips_face_visible": "ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.",
++  "liveness_tips_lighting": "ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.",
++  "liveness_tips_capture_area": "ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.",
++  "liveness_tips_follow_prompt": "ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.",
++  "liveness_retry_attempts_left": "ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {n}",
++  "liveness_progress_step": "ಹಂತ {i} / {n}",
++  "liveness_progress_attempt": "ಪ್ರಯತ್ನ {a} / {m}",
++  "liveness_recovery_resident": "ದಯವಿಟ್ಟು ಮೇಲ್ವಿಚಾರಕರನ್ನು ಸಂಪರ್ಕಿಸಿ. ಬಯೋಮೆಟ್ರಿಕ್ ವಿನಾಯಿತಿ ಪ್ರಕ್ರಿಯೆಯ ಮೂಲಕ ನಿವಾಸಿಯನ್ನು ನೋಂದಾಯಿಸಬಹುದು.",
++  "liveness_recovery_operator": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ ಅಥವಾ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_recovery_supervisor": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
++  "liveness_button_retry": "ಮರುಪ್ರಯತ್ನಿಸಿ",
++  "liveness_button_cancel": "ರದ್ದುಮಾಡಿ",
++  "liveness_button_close": "ಮುಚ್ಚಿ",
++  "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ"
+ }
+diff --git a/assets/l10n/app_ta.arb b/assets/l10n/app_ta.arb
+index 12ecdf7..f909d13 100644
+--- a/assets/l10n/app_ta.arb
++++ b/assets/l10n/app_ta.arb
+@@ -377,5 +377,50 @@
+   "select_option": "விருப்பத்தைத் தேர்ந்தெடுக்கவும்",
+   "cron_expression": "கிரான் வெளிப்பாடு",
+   "id": "ஐடி",
+-  "name": "பெயர்"
++  "name": "பெயர்",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "முக உயிர்ப்புச் சரிபார்ப்பு",
++  "liveness_title_operator": "ஆபரேட்டர் முக சரிபார்ப்பு",
++  "liveness_title_supervisor": "மேற்பார்வையாளர் முக சரிபார்ப்பு",
++  "liveness_status_starting": "முக உயிர்ப்புச் சரிபார்ப்பு தொடங்குகிறது…",
++  "liveness_status_checking": "முக உயிர்ப்பு சரிபார்க்கப்படுகிறது…",
++  "liveness_status_passed": "நன்று, முகம் வெற்றிகரமாகப் படம்பிடிக்கப்பட்டது",
++  "liveness_status_cancelled": "முக உயிர்ப்புச் சரிபார்ப்பு ரத்துசெய்யப்பட்டது.",
++  "liveness_challenge_blink": "தயவுசெய்து கண் சிமிட்டவும்",
++  "liveness_challenge_smile": "தயவுசெய்து புன்னகைக்கவும்",
++  "liveness_challenge_turn_left": "தயவுசெய்து உங்கள் தலையை இடது பக்கம் திருப்பவும்",
++  "liveness_challenge_turn_right": "தயவுசெய்து உங்கள் தலையை வலது பக்கம் திருப்பவும்",
++  "liveness_challenge_look_up": "தயவுசெய்து மேலே பார்க்கவும்",
++  "liveness_challenge_look_down": "தயவுசெய்து கீழே பார்க்கவும்",
++  "liveness_feedback_continue": "தயவுசெய்து தொடரவும்",
++  "liveness_feedback_action_detected": "செயல் கண்டறியப்பட்டது",
++  "liveness_feedback_hold_still": "அசையாதீர்கள்",
++  "liveness_guidance_no_face": "முகம் எதுவும் கண்டறியப்படவில்லை. தயவுசெய்து கேமராவைப் பார்க்கவும்.",
++  "liveness_guidance_multiple_faces": "ஒருவர் மட்டுமே தெரிய வேண்டும்.",
++  "liveness_guidance_move_closer": "தயவுசெய்து அருகில் வரவும்.",
++  "liveness_guidance_move_back": "தயவுசெய்து சற்றுப் பின்னால் நகரவும்.",
++  "liveness_guidance_center_face": "தயவுசெய்து உங்கள் முகத்தை நீள்வட்டத்தின் நடுவில் வைக்கவும்.",
++  "liveness_guidance_improve_lighting": "தயவுசெய்து வெளிச்சத்தை மேம்படுத்தவும்.",
++  "liveness_guidance_hold_steady": "தயவுசெய்து நிலையாக இருக்கவும்.",
++  "liveness_guidance_look_at_camera": "தயவுசெய்து கேமராவைப் பார்க்கவும்.",
++  "liveness_error_liveness_not_verified": "முக உயிர்ப்பைச் சரிபார்க்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
++  "liveness_error_verification_not_completed": "முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
++  "liveness_error_max_attempts_reached": "முக சரிபார்ப்பை முடிக்க முடியவில்லை.",
++  "liveness_error_device_problem": "கேமரா/சாதனம் கிடைக்கவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.",
++  "liveness_tips_title": "குறிப்புகள்:",
++  "liveness_tips_look_at_camera": "நேரடியாக கேமராவைப் பார்க்கவும்.",
++  "liveness_tips_face_visible": "உங்கள் முகம் தெளிவாகத் தெரிவதை உறுதிசெய்யவும்.",
++  "liveness_tips_lighting": "வெளிச்சத்தை மேம்படுத்தவும்.",
++  "liveness_tips_capture_area": "உங்கள் முகத்தைப் படம்பிடிப்புப் பகுதிக்குள் வைத்திருக்கவும்.",
++  "liveness_tips_follow_prompt": "கேட்கப்படும் செயலைச் செய்யவும்.",
++  "liveness_retry_attempts_left": "மீதமுள்ள முயற்சிகள்: {n}",
++  "liveness_progress_step": "படி {i} / {n}",
++  "liveness_progress_attempt": "முயற்சி {a} / {m}",
++  "liveness_recovery_resident": "தயவுசெய்து மேற்பார்வையாளரைத் தொடர்பு கொள்ளவும். பயோமெட்ரிக் விதிவிலக்கு செயல்முறையைப் பயன்படுத்தி குடியிருப்பாளரைப் பதிவு செய்யலாம்.",
++  "liveness_recovery_operator": "உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும் அல்லது பின்னர் மீண்டும் முயற்சிக்கவும்.",
++  "liveness_recovery_supervisor": "உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும்.",
++  "liveness_button_retry": "மீண்டும் முயற்சிக்கவும்",
++  "liveness_button_cancel": "ரத்துசெய்",
++  "liveness_button_close": "மூடு",
++  "liveness_button_open_settings": "அமைப்புகளைத் திற"
  }
 diff --git a/lib/platform_android/liveness_service_impl.dart b/lib/platform_android/liveness_service_impl.dart
 new file mode 100644
@@ -25661,10 +26580,10 @@ index 0000000..0f9f317
 +}
 diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
 new file mode 100644
-index 0000000..8426b3a
+index 0000000..d7c208b
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_debug_page.dart
-@@ -0,0 +1,890 @@
+@@ -0,0 +1,954 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -25677,8 +26596,10 @@ index 0000000..8426b3a
 +import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
 +import 'package:flutter/material.dart';
 +import 'package:flutter/services.dart';
++import 'package:provider/provider.dart';
 +import 'package:registration_client/pigeon/liveness_pigeon.dart';
 +import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/provider/global_provider.dart';
 +import 'package:registration_client/ui/liveness/liveness_gate.dart';
 +import 'package:registration_client/ui/liveness/liveness_page.dart';
 +
@@ -25721,6 +26642,16 @@ index 0000000..8426b3a
 +    'LOOK_DOWN',
 +  ];
 +  static const List<String> _workflows = ['RESIDENT', 'OPERATOR', 'SUPERVISOR'];
++  // The app's languages (languageCodeToLocale). Without a backend the login page offers English only,
++  // so this switches the app language for checking the liveness texts (until the app restarts).
++  static const Map<String, String> _uiLanguages = {
++    'eng': 'English',
++    'ara': 'العربية',
++    'fra': 'Français',
++    'hin': 'हिंदी',
++    'kan': 'ಕನ್ನಡ',
++    'tam': 'தமிழ்',
++  };
 +  static const List<String> _fakeScenarios = [
 +    'PASS_PASSIVE',
 +    'PASS_ACTIVE',
@@ -25762,6 +26693,11 @@ index 0000000..8426b3a
 +  final List<String> _log = [];
 +  final Stopwatch _clock = Stopwatch();
 +  final TextEditingController _overrideController = TextEditingController();
++  // The online model update test: a laptop server reached through `adb reverse tcp:8000 tcp:8000`.
++  final TextEditingController _updateUrlController =
++      TextEditingController(text: 'http://127.0.0.1:8000/latest.json');
++  static const String _updateUrlKey = 'mosip.registration.liveness.model.update.url';
++  static const String _updateEnabledKey = 'mosip.registration.liveness.model.update.enabled';
 +  StreamSubscription<LivenessMessage>? _subscription;
 +
 +  String _workflow = 'RESIDENT';
@@ -25935,6 +26871,7 @@ index 0000000..8426b3a
 +      _bundleBusy = false;
 +      _bundleMessage = message;
 +    });
++    _toast(message);
 +    await _refreshDiagnostics();
 +    // The new analyzer loads in the background; its version shows once loaded.
 +    await Future<void>.delayed(const Duration(seconds: 2));
@@ -25946,6 +26883,7 @@ index 0000000..8426b3a
 +    if (_running) _service.cancel();
 +    _subscription?.cancel();
 +    _overrideController.dispose();
++    _updateUrlController.dispose();
 +    super.dispose();
 +  }
 +
@@ -26214,6 +27152,20 @@ index 0000000..8426b3a
 +                ],
 +                onChanged: _running ? null : (f) => setState(() => _fake = f!),
 +              ),
++              DropdownButton<String>(
++                value: _uiLanguages.containsKey(context.watch<GlobalProvider>().selectedLanguage)
++                    ? context.watch<GlobalProvider>().selectedLanguage
++                    : 'eng',
++                items: _uiLanguages.entries
++                    .map((e) => DropdownMenuItem(value: e.key, child: Text('UI: ${e.value}')))
++                    .toList(),
++                onChanged: _running
++                    ? null
++                    : (code) {
++                        context.read<GlobalProvider>().toggleLocale(code!);
++                        _addLog('app language: $code');
++                      },
++              ),
 +              if (_fake)
 +                DropdownButton<String>(
 +                  value: _fakeScenario,
@@ -26463,6 +27415,37 @@ index 0000000..8426b3a
 +                          child: const Text('Rollback')),
 +                    ],
 +                  ),
++                  const SizedBox(height: 8),
++                  const Text('Online model update (the URL becomes a config override; empty: the synced config)'),
++                  TextField(
++                    controller: _updateUrlController,
++                    enabled: !busy,
++                    decoration: const InputDecoration(isDense: true, hintText: 'index URL (latest.json)'),
++                  ),
++                  Wrap(
++                    spacing: 8,
++                    children: [
++                      OutlinedButton(
++                          onPressed: busy
++                              ? null
++                              : () {
++                                  _toast('Checking for a model update…');
++                                  _bundleAction('Model update',
++                                      () => _api.checkModelUpdate(_updateUrlController.text.trim()));
++                                },
++                          child: const Text('Check for model update now')),
++                      OutlinedButton(
++                          onPressed: busy
++                              ? null
++                              : () async {
++                                  await _setOverride(_updateUrlKey, '');
++                                  await _setOverride(_updateEnabledKey, '');
++                                  _addLog('model update overrides cleared (periodic job cancelled)');
++                                  _toast('Model update overrides cleared; the periodic job is cancelled');
++                                },
++                          child: const Text('Stop model updates')),
++                    ],
++                  ),
 +                ],
 +              ),
 +            ),
@@ -26675,10 +27658,10 @@ index 0000000..790e511
 +}
 diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
 new file mode 100644
-index 0000000..f91a2ef
+index 0000000..9508ad6
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_page.dart
-@@ -0,0 +1,571 @@
+@@ -0,0 +1,579 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -26936,7 +27919,7 @@ index 0000000..f91a2ef
 +          actions: [
 +            if (kDebugMode && _debugModel.isNotEmpty)
 +              Padding(
-+                padding: const EdgeInsets.only(right: 8),
++                padding: const EdgeInsetsDirectional.only(end: 8),
 +                child: Center(
 +                  child: Chip(
 +                    visualDensity: VisualDensity.compact,
@@ -27021,7 +28004,7 @@ index 0000000..f91a2ef
 +                    shape: BoxShape.circle,
 +                    border: Border.all(color: Colors.white, width: 2),
 +                  ),
-+                  child: Icon(_iconData(s.icon), color: Colors.white, size: 26),
++                  child: _stateIcon(s.icon, color: Colors.white, size: 26),
 +                ),
 +              ),
 +            ),
@@ -27044,7 +28027,7 @@ index 0000000..f91a2ef
 +        ),
 +        child: Row(
 +          children: [
-+            ExcludeSemantics(child: Icon(_iconData(s.icon), color: tone, size: 32)),
++            ExcludeSemantics(child: _stateIcon(s.icon, color: tone, size: 32)),
 +            const SizedBox(width: 12),
 +            Expanded(
 +              child: Text(
@@ -27069,7 +28052,7 @@ index 0000000..f91a2ef
 +          children: [
 +            if (s.hintIsGuidance)
 +              Padding(
-+                padding: const EdgeInsets.only(right: 8),
++                padding: const EdgeInsetsDirectional.only(end: 8),
 +                child: Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
 +              ),
 +            Expanded(
@@ -27089,7 +28072,7 @@ index 0000000..f91a2ef
 +        children: [
 +          if (s.stepCount > 0)
 +            Padding(
-+              padding: const EdgeInsets.only(right: 12),
++              padding: const EdgeInsetsDirectional.only(end: 12),
 +              child: Text(
 +                livenessText(l, 'liveness.progress.step', i: s.stepIndex, n: s.stepCount),
 +                style: const TextStyle(fontSize: 16),
@@ -27177,6 +28160,14 @@ index 0000000..f91a2ef
 +        return Colors.red.shade600;
 +    }
 +  }
++
++  /// The state icon, never mirrored in a right-to-left language: the turn arrows show
++  /// the user's physical left and right, the same in every language.
++  static Widget _stateIcon(LivenessIcon icon, {required Color color, required double size}) =>
++      Directionality(
++        textDirection: TextDirection.ltr,
++        child: Icon(_iconData(icon), color: color, size: size),
++      );
 +
 +  static IconData _iconData(LivenessIcon icon) {
 +    switch (icon) {
@@ -27642,10 +28633,10 @@ index dea5aef..5bbebee 100644
 \ No newline at end of file
 diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
 new file mode 100644
-index 0000000..7afe2c3
+index 0000000..d8f6ea6
 --- /dev/null
 +++ b/pigeon/liveness.dart
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,132 @@
 +import 'package:pigeon/pigeon.dart';
 +
 +/// The parts of a workflow's liveness policy the UI needs (from the synced
@@ -27741,6 +28732,13 @@ index 0000000..7afe2c3
 +
 +  /// The model store's installed versions and its current one.
 +  String modelStoreStatus();
++
++  /// Diagnostics builds only: checks for an online model update now. A
++  /// non-empty [indexUrl] first sets the update URL and enabled overrides (in
++  /// these builds plain HTTP to 127.0.0.1 is allowed). Returns the outcome:
++  /// INSTALLED, UP_TO_DATE or FAILED with a reason.
++  @async
++  String checkModelUpdate(String indexUrl);
 +
 +  /// Face binding (F1), the hooks: before the SBI face capture, arms the
 +  /// comparison of the next face capture with the best frame of [sessionId]
@@ -28855,6 +29853,201 @@ index 0000000..c8cc535
 +    expect(result!.outcome!.failureCode, 'ENGINE_ERROR');
 +    expect(find.byType(LivenessPage), findsNothing);
 +  });
++}
+diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
+new file mode 100644
+index 0000000..3dc21e8
+--- /dev/null
++++ b/test/liveness/liveness_l10n_test.dart
+@@ -0,0 +1,63 @@
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:flutter/widgets.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
++
++/// The liveness strings in every ARB: all 44 keys, the English placeholders, and the
++/// machine-translation note in each translated file.
++void main() {
++  const languages = ['ar', 'fr', 'hi', 'kn', 'ta'];
++  final placeholder = RegExp(r'\{(\w+)\}');
++
++  Map<String, dynamic> arb(String lang) =>
++      jsonDecode(File('assets/l10n/app_$lang.arb').readAsStringSync()) as Map<String, dynamic>;
++
++  final en = arb('en');
++  final keys = en.keys.where((k) => k.startsWith('liveness_')).toList();
++
++  List<String> placeholders(String text) =>
++      placeholder.allMatches(text).map((m) => m.group(1)!).toList()..sort();
++
++  test('English has the 44 liveness keys', () {
++    expect(keys, hasLength(44));
++  });
++
++  for (final lang in languages) {
++    test('$lang: all 44 liveness keys, with the English placeholders', () {
++      final a = arb(lang);
++      final missing = keys.where((k) => !a.containsKey(k)).toList();
++      expect(missing, isEmpty, reason: 'untranslated liveness keys in app_$lang.arb');
++      for (final k in keys) {
++        final value = a[k] as String;
++        expect(value.trim(), isNotEmpty, reason: '$lang $k');
++        expect(placeholders(value), placeholders(en[k] as String), reason: '$lang $k');
++      }
++      expect(a.keys.where((k) => k.startsWith('liveness_')), hasLength(44), reason: 'no extra keys');
++    });
++
++    test('$lang: marked as machine-translated', () {
++      expect(arb(lang)['@@x-liveness-translation'], 'machine-translated; needs native-speaker review');
++    });
++  }
++
++  test('every locale resolves every spec key, with placeholders filled', () async {
++    final specKeys = keys.map((k) {
++      final parts = k.split('_');
++      return 'liveness.${parts[1]}.${parts.sublist(2).join('_')}';
++    }).toList();
++    for (final lang in ['en', ...languages]) {
++      final l = await AppLocalizations.delegate.load(Locale(lang));
++      for (final key in specKeys) {
++        final text = livenessText(l, key, i: 1, n: 2, a: 3, m: 4);
++        expect(text, isNot(key), reason: '$lang $key has no mapping');
++        expect(text, isNot(contains('{')), reason: '$lang $key: unfilled placeholder');
++      }
++      expect(livenessText(l, 'liveness.progress.step', i: 1, n: 2), allOf(contains('1'), contains('2')));
++      expect(livenessText(l, 'liveness.progress.attempt', a: 3, m: 4), allOf(contains('3'), contains('4')));
++      expect(livenessText(l, 'liveness.retry.attempts_left', n: 2), contains('2'));
++    }
++  });
++}
+diff --git a/test/liveness/liveness_page_locale_test.dart b/test/liveness/liveness_page_locale_test.dart
+new file mode 100644
+index 0000000..fe2a49b
+--- /dev/null
++++ b/test/liveness/liveness_page_locale_test.dart
+@@ -0,0 +1,120 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++
++import 'fake_liveness_service.dart';
++
++/// LivenessPage in Arabic (right to left), in Hindi, and in every language of the client.
++void main() {
++  late FakeLivenessService service;
++
++  setUp(() => service = FakeLivenessService());
++
++  Future<void> open(WidgetTester tester, String lang) async {
++    await tester.binding.setSurfaceSize(const Size(411, 891)); // a phone in portrait
++    addTearDown(() => tester.binding.setSurfaceSize(null));
++    await tester.pumpWidget(MaterialApp(
++      locale: Locale(lang),
++      localizationsDelegates: AppLocalizations.localizationsDelegates,
++      supportedLocales: AppLocalizations.supportedLocales,
++      home: LivenessPage(
++        workflow: 'RESIDENT',
++        service: service,
++        previewBuilder: () => const ColoredBox(color: Colors.grey),
++      ),
++    ));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400)); // the start-up calls
++  }
++
++  Future<void> send(WidgetTester tester, Map<String, Object?> m) async {
++    service.emit(m);
++    await tester.pump();
++    await tester.pump();
++  }
++
++  Finder stateIcon(IconData icon, double size) =>
++      find.byWidgetPredicate((w) => w is Icon && w.icon == icon && w.size == size);
++
++  void expectNotMirrored(WidgetTester tester, IconData icon) {
++    final icons = find.byIcon(icon);
++    expect(icons, findsNWidgets(2), reason: 'the oval badge and the status banner');
++    for (final e in icons.evaluate()) {
++      expect(Directionality.of(e), TextDirection.ltr);
++    }
++    // Icon paints a mirrored glyph through a Transform (matchTextDirection in a right-to-left context).
++    expect(find.descendant(of: icons, matching: find.byType(Transform)), findsNothing);
++  }
++
++  testWidgets('Arabic: right to left, and the turn arrows keep the user\'s physical direction', (tester) async {
++    await open(tester, 'ar');
++    expect(find.text('التحقق من حيوية الوجه'), findsOneWidget);
++    await send(tester, ev('STARTED'));
++    expect(find.text('المحاولة 1 من 4'), findsOneWidget);
++
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 1, count: 2));
++    final prompt = find.text('يرجى إدارة رأسك إلى اليسار');
++    expect(prompt, findsOneWidget);
++    expect(Directionality.of(tester.element(prompt)), TextDirection.rtl);
++    expectNotMirrored(tester, Icons.arrow_back);
++    // Right to left: the banner icon sits right of its text, the step text right of the progress bar.
++    expect(tester.getCenter(stateIcon(Icons.arrow_back, 32)).dx, greaterThan(tester.getCenter(prompt).dx));
++    expect(tester.getCenter(find.text('الخطوة 1 من 2')).dx,
++        greaterThan(tester.getCenter(find.byType(LinearProgressIndicator)).dx));
++
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_RIGHT', index: 2, count: 2));
++    expect(find.text('يرجى إدارة رأسك إلى اليمين'), findsOneWidget);
++    expectNotMirrored(tester, Icons.arrow_forward);
++
++    await send(tester, ev('ATTEMPT_FAILED',
++        error: 'CHALLENGE_TIMEOUT', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 2));
++    expect(find.text('تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.'), findsOneWidget);
++    expect(find.text('المحاولات المتبقية: 2'), findsOneWidget);
++    expect(find.text('نصائح:'), findsOneWidget);
++    // The tips start at the right edge; Retry (first) is right of Cancel.
++    final tip = find.textContaining('انظر مباشرة إلى الكاميرا.');
++    await tester.ensureVisible(tip);
++    await tester.pump();
++    expect(tester.getTopRight(tip).dx, greaterThan(411 - 16 - 1));
++    expect(tester.getCenter(find.text('إعادة المحاولة')).dx, greaterThan(tester.getCenter(find.text('إلغاء')).dx));
++  });
++
++  testWidgets('Hindi: the strings, left to right', (tester) async {
++    await open(tester, 'hi');
++    expect(find.text('चेहरे की जीवंतता जाँच'), findsOneWidget);
++    await send(tester, ev('STARTED'));
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
++    final prompt = find.text('कृपया पलकें झपकाएँ');
++    expect(prompt, findsOneWidget);
++    expect(Directionality.of(tester.element(prompt)), TextDirection.ltr);
++    expect(find.text('चरण 1 / 2'), findsOneWidget);
++    expect(find.text('प्रयास 1 / 4'), findsOneWidget);
++    expect(find.text('रद्द करें'), findsOneWidget);
++
++    await send(tester, ev('ATTEMPT_FAILED',
++        error: 'PAD_FAILURE', userMessage: 'VERIFICATION_NOT_COMPLETED', retriesLeft: 2));
++    expect(find.text('चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।'), findsOneWidget);
++    expect(find.text('शेष प्रयास: 2'), findsOneWidget);
++    expect(find.text('सुझाव:'), findsNothing, reason: 'no tips after a generic failure');
++    expect(find.text('पुनः प्रयास करें'), findsOneWidget);
++  });
++
++  for (final lang in ['en', 'ar', 'fr', 'hi', 'kn', 'ta']) {
++    testWidgets('$lang: every state renders without a layout error', (tester) async {
++      await open(tester, lang);
++      await send(tester, ev('STARTED'));
++      await send(tester, ev('CHECKING_PASSIVE'));
++      await send(tester, ev('GUIDANCE', guidance: 'CENTER_FACE'));
++      await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 1, count: 2));
++      await send(tester, ev('CHALLENGE_PROGRESS', challenge: 'TURN_LEFT', index: 1, count: 2, progress: 0.5));
++      await send(tester, ev('ATTEMPT_FAILED',
++          error: 'CHALLENGE_TIMEOUT', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 2));
++      await send(tester, ev('FAILED_FINAL',
++          attempt: 4, error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED', recoverable: false));
++      await send(tester, complete('FAILED', failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED'));
++      expect(tester.takeException(), isNull);
++      expect(find.byType(ElevatedButton), findsOneWidget, reason: 'Close');
++    });
++  }
 +}
 diff --git a/test/liveness/liveness_page_test.dart b/test/liveness/liveness_page_test.dart
 new file mode 100644

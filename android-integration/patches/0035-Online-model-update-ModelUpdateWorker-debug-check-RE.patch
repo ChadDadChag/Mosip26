@@ -1,0 +1,973 @@
+From beab1c860c5a0ccf7e185c4623d6ca4e98720c3e Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Mon, 26 Oct 2026 01:18:08 +0530
+Subject: [PATCH 35/35] Online model update: ModelUpdateWorker, debug check,
+ REG-EVT-019
+
+The engine's ModelUpdater, run on Android ("model updates securely
+synchronized when online"):
+- ModelUpdates: the keys mosip.registration.liveness.model.update.enabled
+  (default false: no server yet), .url and .intervalHours (default 24).
+  The holder schedules, replaces or cancels the unique periodic
+  WorkManager job (network connected) at start and after every config
+  reload. The job is replaced only when the URL or the interval change.
+- ModelUpdateWorker: checks through the running engine
+  (LivenessServiceHolder.checkModelUpdate: on INSTALLED a reload, so
+  MODEL_LOADED has the new version). If WorkManager started the process
+  without the engine, it checks alone, with the same store, assets and
+  keys, and keeps the outcome for the engine to audit at its next start.
+- One ModelStore instance per process, so installs, rollbacks, loads
+  and updates share its lock.
+- REG-EVT-019 LIVENESS_MODEL_UPDATE: outcome, version, reason code,
+  durationMs, trigger. Codes and numbers only, no URL.
+- Debug page: an index URL field, "Check for model update now" (the
+  URL and enabled become config overrides) and "Stop model updates".
+  Results show in the card and in a snack bar.
+- Debug and profile builds only: plain HTTP to 127.0.0.1 and localhost.
+  The updater's flag follows LIVENESS_DIAGNOSTICS, and their network
+  security config replaces clientmanager's there, keeping its rules.
+  Release builds are unchanged: HTTPS only.
+
+Tests: the audit record (1), the holder's refusals and audit (1), and
+ModelUpdatesTest (4: settings, scheduling without WorkManager, the kept
+outcomes audited once). Module tests 89 -> 95.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/app/src/debug/AndroidManifest.xml     |   6 +
+ .../xml/liveness_network_security_config.xml  |  17 ++
+ .../registration_client/HostApiModule.java    |   3 +-
+ .../api_services/LivenessApi.java             |  25 +++
+ android/app/src/profile/AndroidManifest.xml   |   6 +
+ .../xml/liveness_network_security_config.xml  |  17 ++
+ .../clientmanager/constant/AuditEvent.java    |   4 +-
+ android/liveness/build.gradle                 |   2 +
+ .../liveness/android/AndroidAuditSink.java    |  21 +-
+ .../android/LivenessServiceHolder.java        |  82 ++++++-
+ .../liveness/android/ModelUpdateWorker.java   |  41 ++++
+ .../liveness/android/ModelUpdates.java        | 205 ++++++++++++++++++
+ .../android/AndroidAuditSinkTest.java         |  14 ++
+ .../android/LivenessServiceHolderTest.java    |  35 ++-
+ .../liveness/android/ModelUpdatesTest.java    | 113 ++++++++++
+ lib/ui/liveness/liveness_debug_page.dart      |  38 ++++
+ pigeon/liveness.dart                          |   7 +
+ 17 files changed, 631 insertions(+), 5 deletions(-)
+ create mode 100644 android/app/src/debug/res/xml/liveness_network_security_config.xml
+ create mode 100644 android/app/src/profile/res/xml/liveness_network_security_config.xml
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdateWorker.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdates.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/ModelUpdatesTest.java
+
+diff --git a/android/app/src/debug/AndroidManifest.xml b/android/app/src/debug/AndroidManifest.xml
+index 14a1bd3..6592348 100644
+--- a/android/app/src/debug/AndroidManifest.xml
++++ b/android/app/src/debug/AndroidManifest.xml
+@@ -1,8 +1,14 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools"
+     package="io.mosip.registration_client">
+     <!-- The INTERNET permission is required for development. Specifically,
+          the Flutter tool needs it to communicate with the running application
+          to allow setting breakpoints, to provide hot reload, etc.
+     -->
+     <uses-permission android:name="android.permission.INTERNET"/>
++    <!-- Liveness model-update test: clientmanager's config plus plain HTTP to 127.0.0.1 and localhost
++         (debug and profile builds only). -->
++    <application
++        android:networkSecurityConfig="@xml/liveness_network_security_config"
++        tools:replace="android:networkSecurityConfig" />
+ </manifest>
+diff --git a/android/app/src/debug/res/xml/liveness_network_security_config.xml b/android/app/src/debug/res/xml/liveness_network_security_config.xml
+new file mode 100644
+index 0000000..2ba2b5e
+--- /dev/null
++++ b/android/app/src/debug/res/xml/liveness_network_security_config.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Debug and profile builds only, never release. It replaces clientmanager's network_security_config.xml (used in
++     all builds) and keeps what that file sets: no plain HTTP. The one difference: plain HTTP to this phone itself
++     (127.0.0.1, localhost), for testing the liveness model update against a laptop server through
++     `adb reverse tcp:8000 tcp:8000`. -->
++<network-security-config>
++    <base-config cleartextTrafficPermitted="false" />
++    <!-- As in clientmanager's network_security_config.xml. -->
++    <domain-config cleartextTrafficPermitted="false">
++        <domain includeSubdomains="true">jsonplaceholder.typicode.com</domain>
++        <domain includeSubdomains="true">dev.mosip.net</domain>
++    </domain-config>
++    <domain-config cleartextTrafficPermitted="true">
++        <domain includeSubdomains="false">127.0.0.1</domain>
++        <domain includeSubdomains="false">localhost</domain>
++    </domain-config>
++</network-security-config>
+diff --git a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
+index 2a46d51..4e805b6 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
++++ b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
+@@ -293,7 +293,8 @@ public class HostApiModule {
+     @Singleton
+     LivenessServiceHolder provideLivenessServiceHolder(GlobalParamRepository globalParamRepository,
+                                                        AuditManagerService auditManagerService) {
+-        return new LivenessServiceHolder(appContext, globalParamRepository, auditManagerService);
++        return new LivenessServiceHolder(appContext, globalParamRepository, auditManagerService,
++                BuildConfig.LIVENESS_DIAGNOSTICS);
+     }
+ 
+     @Provides
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index 8e12cc2..95b95a2 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -39,6 +39,8 @@ import io.mosip.registration.liveness.android.BindingImages;
+ import io.mosip.registration.liveness.android.FaceBinding;
+ import io.mosip.registration.liveness.android.LivenessMaps;
+ import io.mosip.registration.liveness.android.LivenessServiceHolder;
++import io.mosip.registration.liveness.android.ModelUpdates;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
+ import io.mosip.registration.liveness.api.ErrorCode;
+ import io.mosip.registration.liveness.api.Frame;
+ import io.mosip.registration.liveness.api.FrameSource;
+@@ -303,6 +305,29 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         });
+     }
+ 
++    /**
++     * Checks for an online model update now. A non-empty URL first becomes the update URL and enabled overrides, so
++     * the periodic job uses it too until the overrides are cleared.
++     */
++    @Override
++    public void checkModelUpdate(@NonNull String indexUrl, @NonNull LivenessPigeon.Result<String> result) {
++        if (!diagnostics(result)) return;
++        if (!indexUrl.trim().isEmpty()) {
++            holder.setOverride(ModelUpdates.URL_KEY, indexUrl.trim());
++            holder.setOverride(ModelUpdates.ENABLED_KEY, "true");
++        }
++        holder.background().execute(() -> {
++            try {
++                ModelUpdater.UpdateResult r = holder.checkModelUpdate("manual");
++                String text = r + "; store " + holder.modelStoreStatus();
++                main.post(() -> result.success(text));
++            } catch (Exception e) {
++                Log.w(TAG, "model update not checked: " + e);
++                main.post(() -> result.error(e));
++            }
++        });
++    }
++
+     @Override
+     public void rollbackModelBundle(@NonNull LivenessPigeon.Result<String> result) {
+         if (!diagnostics(result)) return;
+diff --git a/android/app/src/profile/AndroidManifest.xml b/android/app/src/profile/AndroidManifest.xml
+index 14a1bd3..6592348 100644
+--- a/android/app/src/profile/AndroidManifest.xml
++++ b/android/app/src/profile/AndroidManifest.xml
+@@ -1,8 +1,14 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:tools="http://schemas.android.com/tools"
+     package="io.mosip.registration_client">
+     <!-- The INTERNET permission is required for development. Specifically,
+          the Flutter tool needs it to communicate with the running application
+          to allow setting breakpoints, to provide hot reload, etc.
+     -->
+     <uses-permission android:name="android.permission.INTERNET"/>
++    <!-- Liveness model-update test: clientmanager's config plus plain HTTP to 127.0.0.1 and localhost
++         (debug and profile builds only). -->
++    <application
++        android:networkSecurityConfig="@xml/liveness_network_security_config"
++        tools:replace="android:networkSecurityConfig" />
+ </manifest>
+diff --git a/android/app/src/profile/res/xml/liveness_network_security_config.xml b/android/app/src/profile/res/xml/liveness_network_security_config.xml
+new file mode 100644
+index 0000000..2ba2b5e
+--- /dev/null
++++ b/android/app/src/profile/res/xml/liveness_network_security_config.xml
+@@ -0,0 +1,17 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Debug and profile builds only, never release. It replaces clientmanager's network_security_config.xml (used in
++     all builds) and keeps what that file sets: no plain HTTP. The one difference: plain HTTP to this phone itself
++     (127.0.0.1, localhost), for testing the liveness model update against a laptop server through
++     `adb reverse tcp:8000 tcp:8000`. -->
++<network-security-config>
++    <base-config cleartextTrafficPermitted="false" />
++    <!-- As in clientmanager's network_security_config.xml. -->
++    <domain-config cleartextTrafficPermitted="false">
++        <domain includeSubdomains="true">jsonplaceholder.typicode.com</domain>
++        <domain includeSubdomains="true">dev.mosip.net</domain>
++    </domain-config>
++    <domain-config cleartextTrafficPermitted="true">
++        <domain includeSubdomains="false">127.0.0.1</domain>
++        <domain includeSubdomains="false">localhost</domain>
++    </domain-config>
++</network-security-config>
+diff --git a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
+index f586f0b..fadea29 100644
+--- a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
++++ b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
+@@ -204,7 +204,9 @@ public enum AuditEvent {
+     LIVENESS_MODEL_INTEGRITY_FAILED("REG-EVT-016", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_INTEGRITY_FAILED", "Face liveness: model bundle failed verification"),
+     LIVENESS_CONFIG_LOADED("REG-EVT-017", SYSTEM_EVENT.getCode(), "LIVENESS_CONFIG_LOADED", "Face liveness: configuration loaded"),
+     // Face binding (F1): the captured face compared with the face that passed liveness (outcome, similarity, threshold).
+-    LIVENESS_FACE_BINDING("REG-EVT-018", SYSTEM_EVENT.getCode(), "LIVENESS_FACE_BINDING", "Face liveness: captured face compared with the liveness face");
++    LIVENESS_FACE_BINDING("REG-EVT-018", SYSTEM_EVENT.getCode(), "LIVENESS_FACE_BINDING", "Face liveness: captured face compared with the liveness face"),
++    // Online model update: the outcome of one check (INSTALLED, UP_TO_DATE or FAILED with a reason code).
++    LIVENESS_MODEL_UPDATE("REG-EVT-019", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_UPDATE", "Face liveness: online model update checked");
+ 
+     AuditEvent(String id, String type, String name, String description) {
+         this.id = id;
+diff --git a/android/liveness/build.gradle b/android/liveness/build.gradle
+index bdb4eba..a8853f0 100644
+--- a/android/liveness/build.gradle
++++ b/android/liveness/build.gradle
+@@ -49,6 +49,8 @@ dependencies {
+     implementation "androidx.camera:camera-lifecycle:1.3.4"
+     api "androidx.camera:camera-view:1.3.4"
+     implementation "androidx.core:core:1.12.0"
++    // The periodic online model update (ModelUpdateWorker); the same WorkManager the app uses.
++    implementation "androidx.work:work-runtime:${rootProject.ext.workVersion}"
+ 
+     implementation project(':clientmanager')
+     // Face binding (F1): SBI faces in ISO 19794-5 are JPEG 2000; the same decoder (and version) the app uses.
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
+index 465167e..e9aa848 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
+@@ -16,7 +16,7 @@ import io.mosip.registration.liveness.api.WorkflowType;
+  * Writes the engine's audit records to the client's audit table through {@link AuditManagerService}.
+  *
+  * <p>Each {@link AuditSink.Event} has its own {@link AuditEvent} (REG-EVT-009..017); face binding writes
+- * REG-EVT-018 ({@link #binding}). The workflow picks the
++ * REG-EVT-018 ({@link #binding}) and the online model update REG-EVT-019 ({@link #modelUpdate}). The workflow picks the
+  * module: RESIDENT is the registration, OPERATOR the operator's login and onboarding, SUPERVISOR the approval
+  * of packets in the packet list; records without a workflow (model loading at app start) go to HOME.
+  * The session id and the engine's details are appended to the event description as {@code key=value;...},
+@@ -81,6 +81,25 @@ public final class AndroidAuditSink implements AuditSink {
+         }
+     }
+ 
++    /**
++     * Online model update: {@link AuditEvent#LIVENESS_MODEL_UPDATE} with the outcome, the version (installed, in use or
++     * offered), the reason code of a failure, the duration and what started the check. Codes and numbers only: no URL.
++     */
++    public void modelUpdate(String outcome, String version, String reason, long durationMs, String trigger) {
++        try {
++            Map<String, String> d = new java.util.LinkedHashMap<>();
++            d.put("outcome", outcome);
++            if (version != null) d.put("version", version);
++            if (reason != null) d.put("reason", reason);
++            d.put("durationMs", Long.toString(durationMs));
++            d.put("trigger", trigger);
++            String text = details(AuditEvent.LIVENESS_MODEL_UPDATE, null, d);
++            executor.execute(() -> write(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME, text));
++        } catch (RuntimeException e) {
++            Log.w(TAG, "could not record the model update", e);
++        }
++    }
++
+     private void write(AuditEvent auditEvent, Components component, String text) {
+         try {
+             auditManager.audit(auditEvent, component, text);
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 66b1491..91c2552 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -8,6 +8,8 @@ import androidx.camera.view.PreviewView;
+ 
+ import java.io.File;
+ import java.io.IOException;
++import java.net.MalformedURLException;
++import java.net.URL;
+ import java.lang.reflect.Field;
+ import java.lang.reflect.Modifier;
+ import java.util.ArrayList;
+@@ -28,6 +30,7 @@ import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
+ import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+ import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
+ import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
+ import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
+ import io.mosip.registration.liveness.api.AuditSink;
+ import io.mosip.registration.liveness.api.ConfigProvider;
+@@ -57,6 +60,9 @@ import io.mosip.registration.liveness.fake.FakeLivenessService;
+  *   <li>The real engine's anonymised metrics are added to {@link LivenessMetricsStore} after each session.</li>
+  *   <li>Face binding (F1, {@link #binding()}): {@value FaceBinding#ENABLED_KEY} (default true) and
+  *       {@code mosip.registration.liveness.face.binding.cosineThreshold} (default 0.45).</li>
++ *   <li>Online model update ({@link #checkModelUpdate}, {@link ModelUpdates}): {@code
++ *       mosip.registration.liveness.model.update.enabled} (default false), {@code .url} and {@code .intervalHours}
++ *       (default 24); scheduled again after every config reload.</li>
+  * </ul>
+  */
+ public final class LivenessServiceHolder {
+@@ -80,7 +86,11 @@ public final class LivenessServiceHolder {
+         ANDROID_ANALYZER_DEFAULTS = Collections.unmodifiableMap(m);
+     }
+ 
++    private static volatile LivenessServiceHolder current;
++    private static ModelStore sharedStore; // guarded by the class
++
+     private final Context context;
++    private final boolean diagnostics;
+     private final AndroidAuditSink audit;
+     private final ConfigProvider baseConfig;
+     private final Map<String, String> overrides = new ConcurrentHashMap<>();
+@@ -112,7 +122,17 @@ public final class LivenessServiceHolder {
+     private final List<PreviewView> previews = new ArrayList<>();
+ 
+     public LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager) {
++        this(context, globalParams, auditManager, false);
++    }
++
++    /**
++     * @param diagnostics debug and profile builds ({@code BuildConfig.LIVENESS_DIAGNOSTICS}): the online model update
++     *                    may then use plain HTTP to 127.0.0.1 and localhost (the debug page's test server)
++     */
++    public LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager,
++                                 boolean diagnostics) {
+         this.context = context.getApplicationContext();
++        this.diagnostics = diagnostics;
+         this.audit = new AndroidAuditSink(auditManager);
+         this.baseConfig = new AndroidConfigProvider(globalParams);
+         AnalyzerConfig analyzerConfig = analyzerConfig(config);
+@@ -126,6 +146,9 @@ public final class LivenessServiceHolder {
+         this.fake = fakeService(1.0);
+         // After a global-param sync (or any cache refresh), new sessions use the new config.
+         globalParams.addRefreshListener(this::reloadConfig);
++        ModelUpdates.auditKept(this.context, audit); // checks the update job made while the engine was not running
++        scheduleModelUpdates();
++        current = this;
+     }
+ 
+     private OnnxFaceAnalyzerFactory analyzerFactory(AnalyzerConfig analyzerConfig) {
+@@ -134,7 +157,22 @@ public final class LivenessServiceHolder {
+     }
+ 
+     private ModelStore modelStore() {
+-        return new ModelStore(new File(context.getFilesDir(), MODEL_STORE_DIR));
++        return sharedStore(context);
++    }
++
++    /**
++     * The process's one model store ({@code files/liveness-models}): the analyzer, the debug page's install and
++     * rollback, and the online update (also when WorkManager runs it without the engine) all go through its lock.
++     */
++    static synchronized ModelStore sharedStore(Context context) {
++        File root = new File(context.getApplicationContext().getFilesDir(), MODEL_STORE_DIR);
++        if (sharedStore == null || !sharedStore.root().equals(root)) sharedStore = new ModelStore(root); // tests
++        return sharedStore;
++    }
++
++    /** The engine, once the app has created it in this process; else null (the update worker then runs alone). */
++    static LivenessServiceHolder current() {
++        return current;
+     }
+ 
+     private FakeLivenessService fakeService(double timeScale) {
+@@ -277,6 +315,47 @@ public final class LivenessServiceHolder {
+         return "installed " + store.installedVersions() + ", current " + (current == null ? "none (bundled)" : current);
+     }
+ 
++    /**
++     * Online model update ({@link ModelUpdates}): checks the configured index and installs a newer verified bundle
++     * into the store, then reloads as {@link #installModelBundle} does. Writes REG-EVT-019 with the outcome; the
++     * reload after an install writes MODEL_LOADED with the new version. The download runs on the calling thread
++     * (WorkManager's, or a background thread), without holding this object's lock.
++     *
++     * @param trigger "scheduled" (the periodic job) or "manual" (the debug page), for the audit record
++     * @throws IllegalStateException when updates are disabled or no index URL is configured
++     */
++    public ModelUpdater.UpdateResult checkModelUpdate(String trigger) {
++        ModelUpdates.Settings s = ModelUpdates.Settings.from(config);
++        if (!s.enabled) throw new IllegalStateException("model update is disabled (" + ModelUpdates.ENABLED_KEY + ")");
++        if (s.url == null) throw new IllegalStateException("no " + ModelUpdates.URL_KEY);
++        URL index;
++        try {
++            index = new URL(s.url);
++        } catch (MalformedURLException e) {
++            throw new IllegalStateException(ModelUpdates.URL_KEY + " is not a valid URL");
++        }
++        long start = SystemClock.elapsedRealtime();
++        ModelUpdater.UpdateResult r = ModelUpdates.updater(diagnostics).check(index, modelStore(),
++                new AssetBundleSource(context), TrustedKeys.builtIn());
++        onModelUpdate(r, SystemClock.elapsedRealtime() - start, trigger);
++        return r;
++    }
++
++    /** Logs and audits an update outcome; after an install, new sessions use the new bundle. */
++    void onModelUpdate(ModelUpdater.UpdateResult r, long ms, String trigger) {
++        Log.i(TAG, "model update (" + trigger + "): " + r + " in " + ms + " ms; store " + modelStoreStatus());
++        audit.modelUpdate(r.status().name(), r.version(), r.reason() == null ? null : r.reason().name(), ms, trigger);
++        if (r.status() == ModelUpdater.Status.INSTALLED) {
++            synchronized (this) {
++                reloadModels();
++            }
++        }
++    }
++
++    private void scheduleModelUpdates() {
++        ModelUpdates.schedule(context, ModelUpdates.Settings.from(config), diagnostics);
++    }
++
+     /** New sessions use the newest verified bundle (store or assets); running sessions keep theirs. */
+     private void reloadModels() {
+         modelVersion = "";
+@@ -372,6 +451,7 @@ public final class LivenessServiceHolder {
+     public synchronized void reloadConfig() {
+         real.reloadConfig(config);
+         fake.reloadConfig(config);
++        scheduleModelUpdates();
+         AnalyzerConfig next = analyzerConfig(config);
+         String print = fingerprint(next);
+         if (!print.equals(analyzerFingerprint)) {
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdateWorker.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdateWorker.java
+new file mode 100644
+index 0000000..616cabc
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdateWorker.java
+@@ -0,0 +1,41 @@
++package io.mosip.registration.liveness.android;
++
++import android.content.Context;
++import android.util.Log;
++
++import androidx.annotation.NonNull;
++import androidx.work.Worker;
++import androidx.work.WorkerParameters;
++
++/**
++ * The periodic online model update ({@link ModelUpdates}): checks the index and installs a newer verified bundle.
++ * A failed check leaves the store unchanged and waits for the next period, so the job always ends as success.
++ */
++public final class ModelUpdateWorker extends Worker {
++
++    private static final String TAG = "LivenessModelUpdate";
++
++    public ModelUpdateWorker(@NonNull Context context, @NonNull WorkerParameters params) {
++        super(context, params);
++    }
++
++    @NonNull
++    @Override
++    public Result doWork() {
++        LivenessServiceHolder holder = LivenessServiceHolder.current();
++        try {
++            if (holder != null) {
++                holder.checkModelUpdate("scheduled");
++            } else {
++                String url = getInputData().getString(ModelUpdates.INPUT_URL);
++                if (url != null) {
++                    ModelUpdates.checkWithoutEngine(getApplicationContext(), url,
++                            getInputData().getBoolean(ModelUpdates.INPUT_INSECURE_LOCALHOST, false));
++                }
++            }
++        } catch (IllegalStateException e) {
++            Log.i(TAG, "model update skipped: " + e.getMessage()); // disabled meanwhile
++        }
++        return Result.success();
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdates.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdates.java
+new file mode 100644
+index 0000000..17dd9e8
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/ModelUpdates.java
+@@ -0,0 +1,205 @@
++package io.mosip.registration.liveness.android;
++
++import android.content.Context;
++import android.content.SharedPreferences;
++import android.os.SystemClock;
++import android.util.Log;
++
++import androidx.work.Constraints;
++import androidx.work.Data;
++import androidx.work.ExistingPeriodicWorkPolicy;
++import androidx.work.NetworkType;
++import androidx.work.PeriodicWorkRequest;
++import androidx.work.WorkManager;
++
++import java.net.MalformedURLException;
++import java.net.URL;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.concurrent.TimeUnit;
++
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.api.ConfigProvider;
++
++/**
++ * Online model updates on Android, with the engine's {@link ModelUpdater}.
++ *
++ * <ul>
++ *   <li>Config: {@value #ENABLED_KEY} (default false: no update server exists yet), {@value #URL_KEY} (the index,
++ *       {@code latest.json}, over HTTPS) and {@value #INTERVAL_KEY} (default 24, at least 1).</li>
++ *   <li>{@link #schedule}: one unique periodic WorkManager job, {@value #WORK_NAME}, which needs a network
++ *       connection. It exists while updates are enabled with a URL, and is cancelled otherwise. It is replaced only
++ *       when the URL or the interval change.</li>
++ *   <li>{@link ModelUpdateWorker} checks through the running engine ({@link LivenessServiceHolder#checkModelUpdate}),
++ *       which reloads the analyzer after an install and writes REG-EVT-019.</li>
++ *   <li>When WorkManager started the process and the engine is not running, the worker checks with the same store,
++ *       assets and keys. It keeps the outcome for the engine to audit when it starts; the next preload uses an
++ *       installed bundle.</li>
++ * </ul>
++ * Plain HTTP to 127.0.0.1 and localhost is allowed only in diagnostics builds (debug and profile), as their network
++ * security config allows; release builds use HTTPS only.
++ */
++public final class ModelUpdates {
++
++    private static final String TAG = "LivenessModelUpdate";
++    public static final String KEY_PREFIX = "mosip.registration.liveness.model.update.";
++    public static final String ENABLED_KEY = KEY_PREFIX + "enabled";
++    public static final String URL_KEY = KEY_PREFIX + "url";
++    public static final String INTERVAL_KEY = KEY_PREFIX + "intervalHours";
++    static final int DEFAULT_INTERVAL_HOURS = 24;
++    static final String WORK_NAME = "liveness-model-update";
++    static final String INPUT_URL = "url";
++    static final String INPUT_INSECURE_LOCALHOST = "allowInsecureLocalhost";
++    static final String PREFS = "liveness-model-update";
++    private static final String SCHEDULED = "scheduled";
++    private static final String PENDING = "pending";
++    private static final int MAX_PENDING = 20;
++
++    private ModelUpdates() { }
++
++    /** The update settings in the config. */
++    static final class Settings {
++        final boolean enabled;
++        final String url;
++        final int intervalHours;
++
++        Settings(boolean enabled, String url, int intervalHours) {
++            this.enabled = enabled;
++            this.url = url;
++            this.intervalHours = intervalHours;
++        }
++
++        static Settings from(ConfigProvider config) {
++            String enabled = trim(config.get(ENABLED_KEY));
++            String url = trim(config.get(URL_KEY));
++            int hours = DEFAULT_INTERVAL_HOURS;
++            String h = trim(config.get(INTERVAL_KEY));
++            if (h != null) {
++                try {
++                    hours = Math.max(1, Integer.parseInt(h));
++                } catch (NumberFormatException e) {
++                    Log.w(TAG, INTERVAL_KEY + " is not a number; using " + DEFAULT_INTERVAL_HOURS);
++                }
++            }
++            return new Settings("true".equalsIgnoreCase(enabled), url, hours);
++        }
++
++        /** Enabled, with a URL. */
++        boolean active() {
++            return enabled && url != null;
++        }
++
++        private static String trim(String s) {
++            if (s == null) return null;
++            s = s.trim();
++            return s.isEmpty() ? null : s;
++        }
++    }
++
++    static ModelUpdater updater(boolean allowInsecureLocalhost) {
++        return ModelUpdater.builder().allowInsecureLocalhost(allowInsecureLocalhost).build();
++    }
++
++    /** Schedules, replaces or cancels the periodic job for these settings. */
++    static void schedule(Context context, Settings s, boolean allowInsecureLocalhost) {
++        SharedPreferences prefs = prefs(context);
++        if (prefs == null) return; // no app storage (unit tests)
++        try {
++            WorkManager work = WorkManager.getInstance(context);
++            if (!s.active()) {
++                work.cancelUniqueWork(WORK_NAME);
++                prefs.edit().remove(SCHEDULED).apply();
++                return;
++            }
++            String fingerprint = s.url + "|" + s.intervalHours + "|" + allowInsecureLocalhost;
++            boolean same = fingerprint.equals(prefs.getString(SCHEDULED, null));
++            PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(ModelUpdateWorker.class,
++                    s.intervalHours, TimeUnit.HOURS)
++                    .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
++                    .setInputData(new Data.Builder()
++                            .putString(INPUT_URL, s.url)
++                            .putBoolean(INPUT_INSECURE_LOCALHOST, allowInsecureLocalhost)
++                            .build())
++                    .build();
++            work.enqueueUniquePeriodicWork(WORK_NAME,
++                    same ? ExistingPeriodicWorkPolicy.KEEP : ExistingPeriodicWorkPolicy.REPLACE, request);
++            prefs.edit().putString(SCHEDULED, fingerprint).apply();
++            if (!same) Log.i(TAG, "model update scheduled every " + s.intervalHours + " h");
++        } catch (RuntimeException e) {
++            Log.w(TAG, "model update not scheduled: " + e); // e.g. WorkManager not initialised
++        }
++    }
++
++    /**
++     * The worker's check while the engine is not running. The outcome goes to the engine if it started meanwhile,
++     * else it is kept for its audit at the next start.
++     */
++    static void checkWithoutEngine(Context context, String url, boolean allowInsecureLocalhost) {
++        URL index;
++        try {
++            index = new URL(url);
++        } catch (MalformedURLException e) {
++            Log.w(TAG, "model update: the index URL is invalid");
++            return;
++        }
++        long start = SystemClock.elapsedRealtime();
++        ModelUpdater.UpdateResult r = updater(allowInsecureLocalhost).check(index,
++                LivenessServiceHolder.sharedStore(context), new AssetBundleSource(context), TrustedKeys.builtIn());
++        long ms = SystemClock.elapsedRealtime() - start;
++        LivenessServiceHolder holder = LivenessServiceHolder.current();
++        if (holder != null) {
++            holder.onModelUpdate(r, ms, "scheduled");
++        } else {
++            Log.i(TAG, "model update (engine not running): " + r + " in " + ms + " ms");
++            keep(context, r, ms);
++        }
++    }
++
++    /** Keeps an outcome for the engine's audit (at most {@value #MAX_PENDING}, the newest). */
++    static synchronized void keep(Context context, ModelUpdater.UpdateResult r, long ms) {
++        SharedPreferences prefs = prefs(context);
++        if (prefs == null) return;
++        List<String> lines = split(prefs.getString(PENDING, ""));
++        lines.add(r.status() + "|" + nullable(r.version()) + "|" + nullable(r.reason() == null ? null : r.reason().name())
++                + "|" + ms);
++        while (lines.size() > MAX_PENDING) lines.remove(0);
++        prefs.edit().putString(PENDING, String.join("\n", lines)).apply();
++    }
++
++    /** Audits the kept outcomes once (trigger "scheduled-offline") and forgets them. */
++    static synchronized void auditKept(Context context, AndroidAuditSink audit) {
++        SharedPreferences prefs = prefs(context);
++        if (prefs == null) return;
++        List<String> lines = split(prefs.getString(PENDING, ""));
++        if (lines.isEmpty()) return;
++        prefs.edit().remove(PENDING).apply();
++        for (String line : lines) {
++            String[] f = line.split("\\|", -1);
++            if (f.length != 4) continue;
++            long ms;
++            try {
++                ms = Long.parseLong(f[3]);
++            } catch (NumberFormatException e) {
++                continue;
++            }
++            audit.modelUpdate(f[0], f[1].isEmpty() ? null : f[1], f[2].isEmpty() ? null : f[2], ms, "scheduled-offline");
++        }
++    }
++
++    private static List<String> split(String s) {
++        List<String> out = new ArrayList<>();
++        for (String line : s.split("\n")) {
++            if (!line.isEmpty()) out.add(line);
++        }
++        return out;
++    }
++
++    private static String nullable(String s) {
++        return s == null ? "" : s;
++    }
++
++    private static SharedPreferences prefs(Context context) {
++        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
+index df7680d..dfd5294 100644
+--- a/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/AndroidAuditSinkTest.java
+@@ -62,6 +62,20 @@ public class AndroidAuditSinkTest {
+         assertEquals(Components.HOME, AndroidAuditSink.component(null));
+     }
+ 
++    @Test
++    public void modelUpdatesAreRegEvt019WithCodesOnly() {
++        assertEquals("REG-EVT-019", AuditEvent.LIVENESS_MODEL_UPDATE.getId());
++        for (AuditEvent a : AuditEvent.values()) {
++            if (a != AuditEvent.LIVENESS_MODEL_UPDATE) assertTrue(a.name(), !a.getId().equals("REG-EVT-019"));
++        }
++        sink.modelUpdate("FAILED", "pad-2026.11.1", "ZIP_HASH_MISMATCH", 812, "scheduled");
++        verify(audit).audit(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME,
++                "outcome=FAILED;version=pad-2026.11.1;reason=ZIP_HASH_MISMATCH;durationMs=812;trigger=scheduled");
++        sink.modelUpdate("UP_TO_DATE", "pad-2026.10.5", null, 40, "manual");
++        verify(audit).audit(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME,
++                "outcome=UP_TO_DATE;version=pad-2026.10.5;durationMs=40;trigger=manual");
++    }
++
+     @Test
+     public void detailsAreKeyValuePairsAfterTheSessionId() {
+         Map<String, String> d = new LinkedHashMap<>();
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+index 0ab9e6d..7ae0cd6 100644
+--- a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+@@ -6,7 +6,10 @@ import static org.junit.Assert.assertNotEquals;
+ import static org.junit.Assert.assertTrue;
+ import static org.junit.Assert.fail;
+ import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.ArgumentMatchers.startsWith;
+ import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.timeout;
+ import static org.mockito.Mockito.verify;
+ import static org.mockito.Mockito.when;
+ 
+@@ -26,9 +29,12 @@ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+ 
++import io.mosip.registration.clientmanager.constant.AuditEvent;
++import io.mosip.registration.clientmanager.constant.Components;
+ import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
+ import io.mosip.registration.clientmanager.spi.AuditManagerService;
+ import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
+ import io.mosip.registration.liveness.api.ErrorCode;
+ import io.mosip.registration.liveness.api.LivenessEngineException;
+ import io.mosip.registration.liveness.api.WorkflowType;
+@@ -52,7 +58,34 @@ public class LivenessServiceHolderTest {
+         when(context.getAssets()).thenReturn(mock(AssetManager.class));
+         when(context.getFilesDir()).thenReturn(files.getRoot());
+         when(globalParams.getCachedStringGlobalParam(anyString())).thenAnswer(i -> synced.get(i.<String>getArgument(0)));
+-        holder = new LivenessServiceHolder(context, globalParams, mock(AuditManagerService.class));
++        holder = new LivenessServiceHolder(context, globalParams, auditManager);
++    }
++
++    private final AuditManagerService auditManager = mock(AuditManagerService.class);
++
++    @Test
++    public void aModelUpdateCheckNeedsUpdatesEnabledWithAValidUrl() {
++        assertUpdateRefused("disabled");
++        holder.setOverride(ModelUpdates.ENABLED_KEY, "true");
++        assertUpdateRefused("no " + ModelUpdates.URL_KEY);
++        holder.setOverride(ModelUpdates.URL_KEY, "not a url");
++        assertUpdateRefused("not a valid URL");
++        // Not a diagnostics build: plain HTTP is refused before any connection, and the outcome is audited.
++        holder.setOverride(ModelUpdates.URL_KEY, "http://127.0.0.1:9/latest.json");
++        ModelUpdater.UpdateResult r = holder.checkModelUpdate("manual");
++        assertEquals(ModelUpdater.Status.FAILED, r.status());
++        assertEquals(ModelUpdater.Reason.INSECURE_TRANSPORT, r.reason());
++        verify(auditManager, timeout(2000)).audit(eq(AuditEvent.LIVENESS_MODEL_UPDATE), eq(Components.HOME),
++                startsWith("outcome=FAILED;reason=INSECURE_TRANSPORT;durationMs="));
++    }
++
++    private void assertUpdateRefused(String message) {
++        try {
++            holder.checkModelUpdate("manual");
++            fail("expected a refusal: " + message);
++        } catch (IllegalStateException e) {
++            assertTrue(e.getMessage(), e.getMessage().contains(message));
++        }
+     }
+ 
+     @Test
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/ModelUpdatesTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/ModelUpdatesTest.java
+new file mode 100644
+index 0000000..52543a6
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/ModelUpdatesTest.java
+@@ -0,0 +1,113 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertTrue;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.verifyNoMoreInteractions;
++
++import android.content.Context;
++
++import androidx.test.core.app.ApplicationProvider;
++
++import org.junit.Rule;
++import org.junit.Test;
++import org.junit.rules.TemporaryFolder;
++import org.junit.runner.RunWith;
++import org.robolectric.RobolectricTestRunner;
++import org.robolectric.annotation.Config;
++
++import java.io.IOException;
++import java.net.URL;
++import java.util.HashMap;
++import java.util.Map;
++
++import io.mosip.registration.clientmanager.constant.AuditEvent;
++import io.mosip.registration.clientmanager.constant.Components;
++import io.mosip.registration.clientmanager.spi.AuditManagerService;
++import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
++import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++
++/** The online update's settings, scheduling without WorkManager, and the outcomes kept while the engine is down. */
++@RunWith(RobolectricTestRunner.class)
++@Config(sdk = 34)
++public class ModelUpdatesTest {
++
++    @Rule
++    public TemporaryFolder tmp = new TemporaryFolder();
++
++    private final Context context = ApplicationProvider.getApplicationContext();
++
++    @Test
++    public void updatesAreOffByDefaultAndCheckDaily() {
++        Map<String, String> c = new HashMap<>();
++        ModelUpdates.Settings s = ModelUpdates.Settings.from(c::get);
++        assertFalse(s.enabled);
++        assertNull(s.url);
++        assertEquals(24, s.intervalHours);
++        assertFalse(s.active());
++
++        c.put(ModelUpdates.ENABLED_KEY, " TRUE ");
++        c.put(ModelUpdates.URL_KEY, " https://models.example.org/liveness/latest.json ");
++        c.put(ModelUpdates.INTERVAL_KEY, "6");
++        s = ModelUpdates.Settings.from(c::get);
++        assertTrue(s.active());
++        assertEquals("https://models.example.org/liveness/latest.json", s.url);
++        assertEquals(6, s.intervalHours);
++
++        c.put(ModelUpdates.INTERVAL_KEY, "0");
++        assertEquals(1, ModelUpdates.Settings.from(c::get).intervalHours);
++        c.put(ModelUpdates.INTERVAL_KEY, "daily");
++        assertEquals(24, ModelUpdates.Settings.from(c::get).intervalHours);
++        c.put(ModelUpdates.URL_KEY, "  ");
++        assertFalse(ModelUpdates.Settings.from(c::get).active());
++    }
++
++    @Test
++    public void schedulingWithoutWorkManagerIsHarmless() {
++        ModelUpdates.schedule(context, new ModelUpdates.Settings(true, "https://example.org/latest.json", 24), false);
++        ModelUpdates.schedule(context, new ModelUpdates.Settings(false, null, 24), false);
++    }
++
++    @Test
++    public void outcomesKeptWithoutTheEngineAreAuditedOnceWithCodesOnly() throws Exception {
++        ModelUpdater.UpdateResult failed = refusedCheck();
++        assertEquals(ModelUpdater.Reason.INSECURE_TRANSPORT, failed.reason());
++        for (int ms = 0; ms < 25; ms++) ModelUpdates.keep(context, failed, ms);
++
++        AuditManagerService audit = mock(AuditManagerService.class);
++        ModelUpdates.auditKept(context, new AndroidAuditSink(audit, Runnable::run));
++        for (int ms = 5; ms < 25; ms++) { // the newest 20
++            verify(audit).audit(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME,
++                    "outcome=FAILED;reason=INSECURE_TRANSPORT;durationMs=" + ms + ";trigger=scheduled-offline");
++        }
++        ModelUpdates.auditKept(context, new AndroidAuditSink(audit, Runnable::run));
++        verifyNoMoreInteractions(audit);
++    }
++
++    @Test
++    public void anInvalidUrlFromTheJobIsIgnored() {
++        ModelUpdates.checkWithoutEngine(context, "not a url", false);
++    }
++
++    /** A check refused before any connection (plain HTTP, not allowed). */
++    private ModelUpdater.UpdateResult refusedCheck() throws Exception {
++        BundleSource unreadable = new BundleSource() {
++            @Override
++            public byte[] read(String name) throws IOException {
++                throw new IOException("not used");
++            }
++
++            @Override
++            public String describe() {
++                return "none";
++            }
++        };
++        return ModelUpdates.updater(false).check(new URL("http://example.invalid/latest.json"),
++                new ModelStore(tmp.newFolder()), unreadable, TrustedKeys.builtIn());
++    }
++}
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index 19524ad..d7c208b 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -107,6 +107,11 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+   final List<String> _log = [];
+   final Stopwatch _clock = Stopwatch();
+   final TextEditingController _overrideController = TextEditingController();
++  // The online model update test: a laptop server reached through `adb reverse tcp:8000 tcp:8000`.
++  final TextEditingController _updateUrlController =
++      TextEditingController(text: 'http://127.0.0.1:8000/latest.json');
++  static const String _updateUrlKey = 'mosip.registration.liveness.model.update.url';
++  static const String _updateEnabledKey = 'mosip.registration.liveness.model.update.enabled';
+   StreamSubscription<LivenessMessage>? _subscription;
+ 
+   String _workflow = 'RESIDENT';
+@@ -280,6 +285,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+       _bundleBusy = false;
+       _bundleMessage = message;
+     });
++    _toast(message);
+     await _refreshDiagnostics();
+     // The new analyzer loads in the background; its version shows once loaded.
+     await Future<void>.delayed(const Duration(seconds: 2));
+@@ -291,6 +297,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+     if (_running) _service.cancel();
+     _subscription?.cancel();
+     _overrideController.dispose();
++    _updateUrlController.dispose();
+     super.dispose();
+   }
+ 
+@@ -822,6 +829,37 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+                           child: const Text('Rollback')),
+                     ],
+                   ),
++                  const SizedBox(height: 8),
++                  const Text('Online model update (the URL becomes a config override; empty: the synced config)'),
++                  TextField(
++                    controller: _updateUrlController,
++                    enabled: !busy,
++                    decoration: const InputDecoration(isDense: true, hintText: 'index URL (latest.json)'),
++                  ),
++                  Wrap(
++                    spacing: 8,
++                    children: [
++                      OutlinedButton(
++                          onPressed: busy
++                              ? null
++                              : () {
++                                  _toast('Checking for a model update…');
++                                  _bundleAction('Model update',
++                                      () => _api.checkModelUpdate(_updateUrlController.text.trim()));
++                                },
++                          child: const Text('Check for model update now')),
++                      OutlinedButton(
++                          onPressed: busy
++                              ? null
++                              : () async {
++                                  await _setOverride(_updateUrlKey, '');
++                                  await _setOverride(_updateEnabledKey, '');
++                                  _addLog('model update overrides cleared (periodic job cancelled)');
++                                  _toast('Model update overrides cleared; the periodic job is cancelled');
++                                },
++                          child: const Text('Stop model updates')),
++                    ],
++                  ),
+                 ],
+               ),
+             ),
+diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
+index 7afe2c3..d8f6ea6 100644
+--- a/pigeon/liveness.dart
++++ b/pigeon/liveness.dart
+@@ -94,6 +94,13 @@ abstract class LivenessApi {
+   /// The model store's installed versions and its current one.
+   String modelStoreStatus();
+ 
++  /// Diagnostics builds only: checks for an online model update now. A
++  /// non-empty [indexUrl] first sets the update URL and enabled overrides (in
++  /// these builds plain HTTP to 127.0.0.1 is allowed). Returns the outcome:
++  /// INSTALLED, UP_TO_DATE or FAILED with a reason.
++  @async
++  String checkModelUpdate(String indexUrl);
++
+   /// Face binding (F1), the hooks: before the SBI face capture, arms the
+   /// comparison of the next face capture with the best frame of [sessionId]
+   /// (the PASSED gate's session). Returns ARMED; DISABLED when
