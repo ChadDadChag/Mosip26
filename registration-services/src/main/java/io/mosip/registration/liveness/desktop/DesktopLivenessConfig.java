@@ -52,6 +52,14 @@ public class DesktopLivenessConfig implements ConfigProvider {
 	/** OPERATOR liveness right after a successful password login (as on Android). */
 	public static final String GATE_PASSWORD_LOGIN_KEY = PREFIX + "desktop.operator.gatePasswordLogin";
 
+	/** Online model update after each successful config sync, as on Android: off by default (no server yet). */
+	public static final String MODEL_UPDATE_ENABLED_KEY = "mosip.registration.liveness.model.update.enabled";
+	/** The update index ({@code latest.json}), over HTTPS. */
+	public static final String MODEL_UPDATE_URL_KEY = "mosip.registration.liveness.model.update.url";
+	/** Plain HTTP to 127.0.0.1 or localhost for the update (development and tests only). JVM property only. */
+	public static final String MODEL_UPDATE_INSECURE_LOCALHOST_KEY =
+			"mosip.registration.liveness.model.update.allowInsecureLocalhost";
+
 	private final Supplier<Map<String, Object>> appConfig;
 	private final Properties defaults;
 
@@ -119,7 +127,8 @@ public class DesktopLivenessConfig implements ConfigProvider {
 	}
 
 	static boolean isJvmOnly(String key) {
-		return ENGINE_KEY.equals(key) || SOURCE_KEY.equals(key) || FAKE_SCENARIO_KEY.equals(key);
+		return ENGINE_KEY.equals(key) || SOURCE_KEY.equals(key) || FAKE_SCENARIO_KEY.equals(key)
+				|| MODEL_UPDATE_INSECURE_LOCALHOST_KEY.equals(key);
 	}
 
 	private static String trimToNull(String s) {

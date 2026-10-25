@@ -1,6 +1,8 @@
 package io.mosip.registration.liveness.desktop;
 
 import java.io.File;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -10,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import io.mosip.kernel.core.logger.spi.Logger;
@@ -22,6 +25,7 @@ import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
 import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
 import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
+import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
 import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
 import io.mosip.registration.liveness.analyzer.match.MatchResult;
@@ -55,6 +59,8 @@ import io.mosip.registration.service.bio.BioService;
  * up before the next session; a running session keeps its policy.</li>
  * <li><b>Audit:</b> {@link DesktopAuditSink}, the client's audit module.</li>
  * <li><b>Face binding:</b> {@link #binding()}.</li>
+ * <li><b>Online model update:</b> after each successful config sync ({@link ConfigSyncedEvent}), when enabled, a newer
+ * signed bundle is downloaded into the model store and new sessions use it ({@link #checkModelUpdateAsync}).</li>
  * </ul>
  * The JVM property {@code -Dmosip.registration.liveness.face.desktop.engine=fake} selects the scripted engine and
  * {@code ...desktop.source=webcam|video:<file>|images:<dir>} a mock device, for development without an SBI device.
@@ -83,9 +89,10 @@ public class DesktopLivenessService {
 	private final AtomicInteger completedSessions = new AtomicInteger();
 
 	private DesktopAuditSink auditSink;
-	private OnnxFaceAnalyzerFactory analyzers;
+	private SwappableAnalyzerFactory analyzers;
 	private BundleSource bundledModels = new ClasspathBundleSource();
 	private TrustedKeys trustedKeys = TrustedKeys.builtIn();
+	private ModelStore modelStore;
 	private LivenessService engine;
 	private FaceBinding binding;
 	private String configFingerprint;
@@ -141,7 +148,7 @@ public class DesktopLivenessService {
 		try {
 			synchronized (this) {
 				engine();
-				factory = analyzers;
+				factory = analyzers == null ? null : analyzers.current();
 			}
 			if (factory == null) {
 				return false;
@@ -168,6 +175,88 @@ public class DesktopLivenessService {
 			LOGGER.warn("Face matcher warm-up failed ({}); the first face binding builds it", e.getClass().getSimpleName());
 		}
 		return true;
+	}
+
+	/** After every successful config sync: the online model update, when enabled. Never blocks or fails the sync. */
+	@EventListener
+	public void onConfigSynced(ConfigSyncedEvent event) {
+		checkModelUpdateAsync(event.triggerPoint());
+	}
+
+	/**
+	 * The online model update ({@link ModelUpdater}), when {@value DesktopLivenessConfig#MODEL_UPDATE_ENABLED_KEY} is
+	 * true and {@value DesktopLivenessConfig#MODEL_UPDATE_URL_KEY} is set; otherwise nothing, and no network call. The
+	 * check runs on the background thread; this method returns at once and never throws.
+	 */
+	public void checkModelUpdateAsync(String trigger) {
+		try {
+			if (!config.getBoolean(DesktopLivenessConfig.MODEL_UPDATE_ENABLED_KEY, false)) {
+				return;
+			}
+			final String url = config.get(DesktopLivenessConfig.MODEL_UPDATE_URL_KEY);
+			if (url == null) {
+				LOGGER.warn("Face liveness model update is enabled but {} is not set",
+						DesktopLivenessConfig.MODEL_UPDATE_URL_KEY);
+				return;
+			}
+			background.execute(() -> checkModelUpdate(url, trigger));
+		} catch (RuntimeException e) {
+			LOGGER.error("Face liveness model update not started: {}", e.getMessage());
+		}
+	}
+
+	/**
+	 * One update check: the index, then a newer bundle's zip, then {@code ModelStore.install} (signature, sizes, hashes,
+	 * anti-rollback; the app's own bundle becomes the rollback base). Audits the outcome (codes and numbers only). On
+	 * INSTALLED, new sessions use the new models; running sessions keep theirs.
+	 */
+	ModelUpdater.UpdateResult checkModelUpdate(String url, String trigger) {
+		long start = System.currentTimeMillis();
+		Map<String, String> d = new LinkedHashMap<>();
+		ModelUpdater.UpdateResult r = null;
+		try {
+			BundleSource bundled;
+			TrustedKeys keys;
+			synchronized (this) {
+				bundled = bundledModels;
+				keys = trustedKeys;
+			}
+			r = ModelUpdater.builder()
+					.allowInsecureLocalhost(config.getBoolean(DesktopLivenessConfig.MODEL_UPDATE_INSECURE_LOCALHOST_KEY, false))
+					.build().check(new URL(url), modelStore(), bundled, keys);
+			d.put("outcome", r.status().name());
+			if (r.version() != null) {
+				d.put("version", r.version());
+			}
+			if (r.reason() != null) {
+				d.put("reason", r.reason().name());
+			}
+		} catch (MalformedURLException e) {
+			d.put("outcome", ModelUpdater.Status.FAILED.name());
+			d.put("reason", "INVALID_URL");
+		} catch (RuntimeException e) {
+			LOGGER.error("Face liveness model update failed: {}", e.getClass().getSimpleName());
+			d.put("outcome", ModelUpdater.Status.FAILED.name());
+			d.put("reason", "ERROR");
+		}
+		d.put("durationMs", String.valueOf(System.currentTimeMillis() - start));
+		d.put("trigger", trigger == null ? "NA" : trigger);
+		auditSink().record(AuditEvent.LIVENESS_MODEL_UPDATE, null, null, d);
+		if (r != null && r.status() == ModelUpdater.Status.INSTALLED) {
+			reloadModels();
+		}
+		return r;
+	}
+
+	/** New sessions use the newest verified bundle (store or bundled); running sessions keep their analyzers. */
+	private void reloadModels() {
+		synchronized (this) {
+			if (analyzers == null) {
+				return; // not built yet (or the scripted engine): the first build reads the store
+			}
+			analyzers.swap(newAnalyzerFactory());
+		}
+		preload();
 	}
 
 	/** A new session, or null when liveness is disabled for the workflow (the caller keeps the legacy flow). */
@@ -304,16 +393,27 @@ public class DesktopLivenessService {
 			}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, true);
 			return fake;
 		}
-		analyzers = new OnnxFaceAnalyzerFactory(bundledModels, new ModelStore(modelStoreDir()), trustedKeys,
-				AnalyzerConfig.fromConfig(config));
-		final OnnxFaceAnalyzerFactory matcherSource = analyzers;
+		analyzers = new SwappableAnalyzerFactory(newAnalyzerFactory());
+		final SwappableAnalyzerFactory matcherSource = analyzers;
 		binding = new FaceBinding(this::isEnabled, config, (live, captured) -> {
-			try (FaceMatcher matcher = matcherSource.createMatcher()) {
+			try (FaceMatcher matcher = matcherSource.current().createMatcher()) {
 				MatchResult m = matcher.compare(live, captured);
 				return new FaceBinding.Comparison(m.outcome.name(), m.similarity, m.threshold);
 			}
 		}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, false);
 		return DefaultLivenessService.builder().config(config).analyzerFactory(analyzers).auditSink(audit).build();
+	}
+
+	private synchronized OnnxFaceAnalyzerFactory newAnalyzerFactory() {
+		return new OnnxFaceAnalyzerFactory(bundledModels, modelStore(), trustedKeys, AnalyzerConfig.fromConfig(config));
+	}
+
+	/** One store for the analyzers and the online update, so an install and a load never race. */
+	private synchronized ModelStore modelStore() {
+		if (modelStore == null) {
+			modelStore = new ModelStore(modelStoreDir());
+		}
+		return modelStore;
 	}
 
 	private File modelStoreDir() {

@@ -366,6 +366,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
   also opens the app's settings. No session is started without the permission.
 - **Config after a sync**: the client re-reads the liveness config after every global-param refresh (sync). New
   sessions use it; a running session keeps its policy and analyzer.
+- **Online model update** (off by default, `mosip.registration.liveness.model.update.enabled` and `.url`): Android
+  checks in a periodic background job; the Desktop checks after every successful config sync, on a background thread,
+  and the sync never waits for it. A newer signed bundle is used by new sessions; a running session keeps its models.
+  Nothing changes on screen; the outcome is audited (Android REG-EVT-019, Desktop REG-LIV-012).
 - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
   and there is no best frame.
 
