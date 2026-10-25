@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
@@ -42,18 +43,20 @@ import java.util.regex.Pattern;
  * {@code warmUpMatcher} before the first comparison and times it.
  * Faces:
  * <ul>
- *   <li>each recorded bona fide take: its best frame (one face, no quality issue; the sharpest frame (lapVar) with
- *       |yaw| and |pitch| at most 10 degrees, else the most frontal one);</li>
- *   <li>each screen-photo take: its best frame. "selfie" conditions show the recorded person's own photo,
+ *   <li>each recorded bona fide take, per subject: its best frame (one face, no quality issue; the sharpest frame
+ *       (lapVar) with |yaw| and |pitch| at most 10 degrees, else the most frontal one);</li>
+ *   <li>each screen-photo and print take: its best frame. "selfie" conditions show the recorded subject's own photo,
  *       "nasa" conditions a public NASA portrait;</li>
  *   <li>the 49 public-domain calibration portraits (pitch_calibration_urls.txt), each with an identity label: several
  *       people appear in more than one photo, and some files are crops of the same photo;</li>
  *   <li>the four faces of the golden crew photo.</li>
  * </ul>
- * Sets: genuine (the person's takes with each other; the same NASA person in different photos), same person via a
- * photo (bona fide vs the screen photos of the person's own selfie: binding is not PAD, a photo of the same person
- * matches), and impostors (the person vs the portraits and vs the NASA screen photos; NASA vs NASA, different
- * people; crew vs crew and vs the portraits). Crops of the same photo are left out.
+ * Sets ({@link #recordedSets} for the recorded ones; a subject is compared as the same person only with itself):
+ * genuine (each subject's takes with each other; the same NASA person in different photos), same person via a photo
+ * (each subject vs the screen photos and prints of their own selfie: binding is not PAD, a photo of the same person
+ * matches), and impostors (recorded subjects vs each other, live and vs photos of another subject's selfie; the
+ * subjects vs the portraits and vs the NASA screen photos and prints; NASA vs NASA, different people; crew vs crew and
+ * vs the portraits). Crops of the same photo are left out.
  *
  * <p>The report (aggregates only: similarity distributions, FNMR and FMR per threshold, timings) goes to the
  * gitignored eval-data/ folder. No image, feature or per-take value is written.
@@ -158,6 +161,7 @@ public final class BindingEvaluation {
             Map<String, Scores> sets = new LinkedHashMap<String, Scores>();
             Map<String, String> notes = new LinkedHashMap<String, String>();
             String version = factory.modelVersion();
+            int subjects = 0;
             try (FaceMatcher matcher = factory.createMatcher()) {
                 if (a.has("--warm-up")) {
                     long w0 = System.nanoTime();
@@ -172,28 +176,22 @@ public final class BindingEvaluation {
                     out.print(speed.lines(version));
                     return 0;
                 }
-                // Recorded takes: best frame per take.
-                List<float[]> bonaFide = new ArrayList<float[]>(), selfiePhotos = new ArrayList<float[]>(),
-                        nasaPhotos = new ArrayList<float[]>();
-                int noFace = 0;
+                // Recorded takes: best frame per take, by subject.
+                Recorded recorded = new Recorded();
                 for (EvalDataset.TakeRef t : EvalDataset.scan(data)) {
-                    boolean bf = EvalDataset.BONA_FIDE.equals(t.species);
-                    boolean screenPhoto = t.species.startsWith("screen_photo");
-                    if (!bf && !screenPhoto) continue;
+                    Recorded.Kind kind = Recorded.kind(t);
+                    if (kind == null) continue;
                     Frame best = bestFrame(factory, t);
                     float[] f = best == null ? null : matcher.featureOfSingleFace(best.rgb(), best.width(), best.height());
                     if (f == null) {
-                        noFace++;
+                        recorded.noFace++;
                         continue;
                     }
-                    if (bf) bonaFide.add(f);
-                    else if (t.condition.startsWith("selfie")) selfiePhotos.add(f);
-                    else if (t.condition.startsWith("nasa")) nasaPhotos.add(f);
+                    recorded.add(t.subject, kind, f);
                     out.println("embedded best frame of " + t);
                 }
-                notes.put("recorded takes", bonaFide.size() + " bona fide, " + selfiePhotos.size()
-                        + " screen photos of the person's own selfie, " + nasaPhotos.size()
-                        + " screen photos of a NASA portrait; " + noFace + " without a usable single-face frame");
+                subjects = recorded.live.size();
+                notes.put("recorded takes", recorded.summary());
 
                 // Public portraits.
                 List<Portrait> people = new ArrayList<Portrait>();
@@ -215,8 +213,7 @@ public final class BindingEvaluation {
                 List<float[]> crew = matcher.featuresOfAllFaces(crewFrame.rgb(), crewFrame.width(), crewFrame.height());
                 notes.put("crew photo", crew.size() + " faces");
 
-                Scores g1 = set(sets, "genuine: the person's bona fide takes, pairwise", true);
-                pairs(bonaFide, g1);
+                recordedSets(sets, recorded);
                 Scores g2 = set(sets, "genuine: the same NASA person in different photos", true);
                 Scores i2 = set(sets, "impostor: NASA vs NASA, different people", false);
                 for (int i = 0; i < people.size(); i++) {
@@ -227,12 +224,8 @@ public final class BindingEvaluation {
                         (p.identity.equals(q.identity) ? g2 : i2).values.add(s);
                     }
                 }
-                Scores photo = set(sets, "same person via a photo: bona fide vs screen photos of the person's selfie", true);
-                cross(bonaFide, selfiePhotos, photo);
-                Scores i1 = set(sets, "impostor: the person vs the public portraits", false);
-                for (float[] b : bonaFide) for (Portrait p : people) i1.values.add(SFaceEmbedder.cosine(b, p.feature));
-                Scores i4 = set(sets, "impostor: the person vs screen photos of NASA portraits", false);
-                cross(bonaFide, nasaPhotos, i4);
+                Scores i1 = set(sets, "impostor: the recorded subjects vs the public portraits", false);
+                for (float[] b : recorded.allLive()) for (Portrait p : people) i1.values.add(SFaceEmbedder.cosine(b, p.feature));
                 Scores i3 = set(sets, "impostor: crew faces vs each other and vs the public portraits", false);
                 pairs(crew, i3);
                 for (float[] c : crew) for (Portrait p : people) i3.values.add(SFaceEmbedder.cosine(c, p.feature));
@@ -241,7 +234,7 @@ public final class BindingEvaluation {
             } finally {
                 factory.close();
             }
-            String report = report(sets, notes, version, speed, date);
+            String report = report(sets, notes, version, speed, date, subjects);
             out.print(report);
             if (!outDir.isDirectory() && !outDir.mkdirs()) throw new IOException("cannot create " + outDir);
             Files.write(new File(outDir, "report.md").toPath(), report.getBytes(StandardCharsets.UTF_8));
@@ -255,6 +248,81 @@ public final class BindingEvaluation {
             e.printStackTrace(err);
             return 1;
         }
+    }
+
+    /** The recorded faces, by subject: live (bona fide) and photos of the subject's own selfie (screen or print). */
+    static final class Recorded {
+        enum Kind { LIVE, OWN_PHOTO, NASA_PHOTO }
+
+        final Map<String, List<float[]>> live = new TreeMap<String, List<float[]>>();
+        final Map<String, List<float[]>> ownPhotos = new TreeMap<String, List<float[]>>();
+        final List<float[]> nasaPhotos = new ArrayList<float[]>();
+        int noFace;
+
+        /** Bona fide; a screen photo or print of the subject's selfie or of a NASA portrait; else null (not used). */
+        static Kind kind(EvalDataset.TakeRef t) {
+            if (EvalDataset.BONA_FIDE.equals(t.species)) return Kind.LIVE;
+            boolean photo = t.species.startsWith("screen_photo") || t.species.startsWith("print_");
+            if (!photo || t.condition == null) return null;
+            if (t.condition.startsWith("selfie")) return Kind.OWN_PHOTO;
+            if (t.condition.startsWith("nasa")) return Kind.NASA_PHOTO;
+            return null;
+        }
+
+        void add(String subject, Kind kind, float[] feature) {
+            if (kind == Kind.NASA_PHOTO) {
+                nasaPhotos.add(feature);
+                return;
+            }
+            Map<String, List<float[]>> m = kind == Kind.LIVE ? live : ownPhotos;
+            List<float[]> l = m.get(subject);
+            if (l == null) m.put(subject, l = new ArrayList<float[]>());
+            l.add(feature);
+        }
+
+        List<float[]> allLive() {
+            List<float[]> all = new ArrayList<float[]>();
+            for (List<float[]> l : live.values()) all.addAll(l);
+            return all;
+        }
+
+        String summary() {
+            StringBuilder b = new StringBuilder().append(live.size()).append(live.size() == 1 ? " subject (" : " subjects (");
+            String sep = "";
+            for (Map.Entry<String, List<float[]>> e : live.entrySet()) {
+                List<float[]> own = ownPhotos.get(e.getKey());
+                b.append(sep).append(e.getKey()).append(": ").append(e.getValue().size()).append(" bona fide, ")
+                        .append(own == null ? 0 : own.size()).append(" photos of their own selfie");
+                sep = "; ";
+            }
+            return b.append("), ").append(nasaPhotos.size()).append(" photos of a NASA portrait; ").append(noFace)
+                    .append(" without a usable single-face frame").toString();
+        }
+    }
+
+    /**
+     * The sets of the recorded faces. A subject is the same person only as itself: genuine pairs are within a
+     * subject, every pair across subjects is an impostor, and a photo of a subject's selfie (screen or print) is the
+     * same person only for that subject.
+     */
+    static void recordedSets(Map<String, Scores> sets, Recorded r) {
+        Scores genuine = set(sets, "genuine: each recorded subject's bona fide takes, pairwise", true);
+        for (List<float[]> l : r.live.values()) pairs(l, genuine);
+        Scores between = set(sets, "impostor: recorded subjects vs each other", false);
+        List<String> subjects = new ArrayList<String>(r.live.keySet());
+        for (int i = 0; i < subjects.size(); i++) {
+            for (int j = i + 1; j < subjects.size(); j++) cross(r.live.get(subjects.get(i)), r.live.get(subjects.get(j)), between);
+        }
+        Scores photo = set(sets, "same person via a photo: each subject vs screen photos and prints of their own selfie",
+                true);
+        Scores otherPhoto = set(sets, "impostor: a subject vs photos of another subject's selfie", false);
+        for (Map.Entry<String, List<float[]>> s : r.live.entrySet()) {
+            for (Map.Entry<String, List<float[]>> p : r.ownPhotos.entrySet()) {
+                cross(s.getValue(), p.getValue(), s.getKey().equals(p.getKey()) ? photo : otherPhoto);
+            }
+        }
+        Scores nasa = set(sets, "impostor: the subjects vs screen photos and prints of NASA portraits", false);
+        cross(r.allLive(), r.nasaPhotos, nasa);
     }
 
     private static Scores set(Map<String, Scores> sets, String name, boolean genuine) {
@@ -365,9 +433,11 @@ public final class BindingEvaluation {
         return new Frame(out, w, h, f.timestampMs(), f.sequence(), f.deviceId());
     }
 
-    static String report(Map<String, Scores> sets, Map<String, String> notes, String version, Speed speed, String date) {
+    static String report(Map<String, Scores> sets, Map<String, String> notes, String version, Speed speed, String date,
+                         int subjects) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Face binding (F1) evaluation: PROVISIONAL, SINGLE SUBJECT\n\n");
+        sb.append("# Face binding (F1) evaluation: PROVISIONAL, ")
+                .append(subjects == 1 ? "SINGLE SUBJECT" : subjects + " SUBJECTS").append("\n\n");
         sb.append("Generated ").append(date).append(" by `liveness-eval` `BindingEvaluation`, model bundle ").append(version)
                 .append(", SFace cosine similarity. Aggregates only: no images, features or per-take values.\n\n");
         for (Map.Entry<String, String> e : notes.entrySet()) sb.append("- ").append(e.getKey()).append(": ").append(e.getValue()).append('\n');
