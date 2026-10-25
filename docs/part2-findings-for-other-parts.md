@@ -85,15 +85,31 @@ LivenessService liveness = DefaultLivenessService.builder()
 - **Face binding (F1).**
   - **Why.** Liveness runs on camera frames, but the stored face comes from the SBI capture. A live person could
     therefore pass liveness while a photo is captured.
-  - **What to do (Person 4, Desktop).** After liveness PASSED and the SBI face was captured, compare the two before
-    accepting the capture:
+  - **What to do (Person 4, Desktop).** After a PASSED gate and the device `/capture`, compare the two before
+    accepting the capture. Anything but MATCH rejects the capture: do not store it, show the generic
+    `liveness.error.verification_not_completed`, and run liveness again on the next Scan. Errors fail closed.
 
     ```java
-    try (FaceMatcher matcher = analyzers.createMatcher()) {        // shares the factory's verified sessions
+    analyzers.preload();                                   // verifies all five files
+    background.execute(() -> {                             // optional: so the first binding does not build the session
+        try { analyzers.warmUpMatcher(); } catch (LivenessEngineException e) { /* built on first use */ }
+    });
+
+    boolean bound;
+    try (FaceMatcher matcher = analyzers.createMatcher()) {        // cheap; shares the factory's verified sessions
         MatchResult m = matcher.compare(result.bestFrame, capturedFaceFrame);   // RGB888 frames
-        if (!m.matched()) { /* do not accept: recapture, or the exception process */ }
+        bound = m.matched();
+        // audit LIVENESS_FACE_BINDING: m.outcome, m.similarity (2 decimals), m.threshold, result.sessionId
+    } catch (LivenessEngineException | RuntimeException e) {
+        bound = false;
     }
+    if (!bound) { /* reject the capture; generic text; the next Scan runs liveness again */ }
     ```
+
+  - **Config keys.** `mosip.registration.liveness.face.binding.enabled` (default true; the host reads it: false
+    stores captures as before, audited SKIPPED) and `mosip.registration.liveness.face.binding.cosineThreshold`
+    (default 0.45, read by `AnalyzerConfig.fromConfig`). The full flow, as built on Android, is in
+    [ui-liveness-spec.md](ui-liveness-spec.md) §6 "Face binding (F1)".
 
   - **Outcomes.** Accept only `MATCH`. The other outcomes:
     - `NO_MATCH`: a different person;
@@ -105,7 +121,8 @@ LivenessService liveness = DefaultLivenessService.builder()
     [part2-pad-architecture.md](part2-pad-architecture.md) §12).
   - **Binding is not presentation attack detection.** A photo of the same person matches. Use it after liveness,
     not instead of it.
-  - **Android.** Person 5 adds it in fix round 2.
+  - **Android.** Built in fix round 2 (the capture handler stores an armed face capture only after a MATCH; see
+    the spec section above).
 
 ## Part 1: frame pipeline
 

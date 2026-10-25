@@ -348,9 +348,9 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
 
 | Hook (file) | Workflow | Proceed | Cancelled | Blocked |
 |---|---|---|---|---|
-| Resident face capture, Scan of the **Face** tile (`biometric_capture_scan_block_portrait.dart`; the landscape layout `biometric_scan_middle_block.dart`, Scan and Rescan) | RESIDENT | the SBI face capture as before | no capture, no capture attempt counted | the same as cancelled; the screen showed `liveness.recovery.resident` |
+| Resident face capture, Scan of the **Face** tile (`biometric_capture_scan_block_portrait.dart`; the landscape layout `biometric_scan_middle_block.dart`, Scan and Rescan) | RESIDENT | the SBI face capture, then face binding (below): stored only on MATCH | no capture, no capture attempt counted | the same as cancelled; the screen showed `liveness.recovery.resident` |
 | Operator login, after a successful password (`login_page.dart`) | OPERATOR | sync or home as before | log out again, stay on the login page | log out again, stay on the login page, snackbar with the failure text |
-| Operator onboarding, Scan of the **Face** tile (`operator_biometric_capture_scan_block_view.dart`) | OPERATOR | the SBI face capture as before | no capture | no capture |
+| Operator onboarding, Scan of the **Face** tile (`operator_biometric_capture_scan_block_view.dart`) | OPERATOR | the SBI face capture, then face binding (below): stored only on MATCH | no capture | no capture |
 | Packet authentication, between the password check and the packet submission (`generic_process.dart`) | OPERATOR: the officer signs the packet | the packet is submitted | nothing submitted, stay on the authentication step | nothing submitted, stay on the authentication step, snackbar |
 | Supervisor approval, between the password check and the approval (`authenticate_dialogbox.dart`) | SUPERVISOR | the approval is submitted and the dialog closes | nothing approved, the dialog stays | nothing approved, the dialog stays with the failure text |
 
@@ -364,6 +364,64 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
   sessions use it; a running session keeps its policy and analyzer.
 - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
   and there is no best frame.
+
+### Face binding (F1): the stored face must be the person who passed
+
+Liveness runs on the camera, but the face that is stored comes from the SBI capture. Without a check, a live person
+could pass liveness while a photo, or someone else, is captured. After a PASSED gate and the SBI face capture, the
+captured face is compared with the gate's best frame (`FaceMatcher`, SFace). **Only MATCH stores the capture.**
+Anything else (another person, no face, several faces, an undecodable image, an error) rejects it:
+- nothing is stored and no capture attempt is counted;
+- the screen shows the generic `liveness.error.verification_not_completed`;
+- the next Scan runs liveness again.
+
+Binding is not presentation attack detection (a photo of the same person matches), so it never replaces the liveness
+step. Both images stay in memory; neither is logged.
+
+| key | default | meaning |
+|---|---|---|
+| `mosip.registration.liveness.face.binding.enabled` | true | false: captures are stored as before, and each one is audited SKIPPED |
+| `mosip.registration.liveness.face.binding.cosineThreshold` | 0.45 | MATCH at or above this cosine (read by `AnalyzerConfig.fromConfig`) |
+
+Audit: `LIVENESS_FACE_BINDING` (REG-EVT-018) with the outcome, the similarity rounded to 2 decimals, the threshold and
+the session id.
+
+**Desktop (Person 4).** After a PASSED gate and the device `/capture`, compare before accepting the capture:
+
+```java
+// At start-up: preload() verifies all five files; the matcher session is built on first use, or here.
+analyzers.preload();
+background.execute(() -> {
+    try { analyzers.warmUpMatcher(); } catch (LivenessEngineException e) { /* the first comparison builds it */ }
+});
+
+// result: the PASSED LivenessResult; captured: the SBI face (ISO 19794-5, usually JPEG 2000) decoded to RGB888.
+boolean bound;
+try (FaceMatcher matcher = analyzers.createMatcher()) {   // cheap; shares the factory's verified sessions
+    MatchResult m = matcher.compare(result.bestFrame, captured);
+    bound = m.matched();                                   // MATCH only
+    audit("LIVENESS_FACE_BINDING", m.outcome, m.similarity, m.threshold, result.sessionId);
+} catch (LivenessEngineException | RuntimeException e) {
+    bound = false;                                         // fail closed
+}
+if (!bound) {
+    // Do not store the capture; show liveness.error.verification_not_completed; the next Scan runs liveness again.
+}
+```
+
+**Android (as built in fix round 2).** Each face hook calls `FaceBinding.captureFace` (`lib/ui/liveness/face_binding.dart`):
+1. `LivenessGate.run`. Cancelled or blocked: stop, as before.
+2. `armBinding(sessionId)`: the native side holds the PASSED session's best frame (one at most, 5 minutes at most). It
+   returns ARMED, DISABLED (binding off) or REJECTED (an unknown or expired session; the hook then blocks with the
+   generic text).
+3. `invokeDiscoverSbi`. The native capture handler (`BiometricsDetailsApi.parseRCaptureResponse`) consumes the arming.
+   An armed capture is decoded (JPEG 2000 from the ISO 19794-5 record) and compared on a background thread, and stored
+   only after a MATCH. Otherwise nothing is stored, and `invokeDiscoverSbi` returns `LIVENESS_BINDING_FAILED`; the hook
+   then shows the generic text and stops before counting an attempt or opening the scan dialog.
+
+The best frame is dropped after the comparison, when a new session starts, when the app goes to the background
+(unless an armed SBI capture is under way: the SBI app itself pauses the client) and after 5 minutes. An armed capture
+whose best frame was dropped meanwhile fails closed.
 
 ## 7. Accessibility
 
