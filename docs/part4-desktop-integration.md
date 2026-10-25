@@ -67,11 +67,12 @@ flowchart LR
 | `LivenessScreenModel` | client | Maps `LivenessEvent`s to message keys, oval colour + icon, progress, step, attempts, tips and buttons: the spec's state table. Pure Java, unit tested. |
 | `LivenessView` | client | Renders the model (`fxml/LivenessCheck.fxml`, `liveness.css`); live preview mirrored for display only; screen-reader notifications. |
 | `LivenessMessages` | client | Message lookup: app language, then English, then the built-in English catalogue (identical to the spec, checked by a test). |
-| `LivenessScreenDemo` | client | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. |
-| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, metrics. |
+| `LivenessScreenDemo` | client (test sources) | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. Not in the client jar (§10). |
+| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, checks for a newer signed model bundle after a sync (when enabled), metrics. |
 | `FaceBinding` | services | F1: the next face capture of the workflow must match the PASSED session's best frame. |
 | `DesktopLivenessConfig` | services | `ConfigProvider` over `ApplicationContext.map()` (synced global config + local preferences) with bundled Desktop defaults. |
-| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..011`. |
+| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..012`. |
+| `ConfigSyncedEvent`, `SwappableAnalyzerFactory` | services | Told after a successful config sync (starts the online model update); the analyzer factory that a model update replaces while running sessions keep theirs. |
 | `DeferredFrameSource`, `IdleFrameSource`, `CapturedFaceDecoder` | services | Device opened on start (unplugged device = recoverable error with Retry); no-op source for the scripted engine; ISO 19794-5 → RGB frame for binding. |
 
 **What changed in existing client code** (all additive, the legacy path stays when liveness is disabled):
@@ -85,6 +86,7 @@ flowchart LR
 | `AuthenticationController`, `EODAuthenticationController` | Face validation: gate first (OPERATOR, or SUPERVISOR for the reviewer and EOD approval). |
 | `ClientApplication` | `preloadAsync()` after device discovery at start-up. |
 | `AuditEvent`, `Components`, `AuditReferenceIdTypes`, `AuditManagerService(Impl)` | New events `REG-LIV-*`, component `REG-MOD-153`, reference type `LIVENESS_SESSION_ID`, and an `audit(..., description)` overload that stores the details. |
+| `GlobalParamServiceImpl` (services) | After a successful config sync, publishes a `ConfigSyncedEvent` (the online model update listens). A failing listener never reaches the sync. |
 | `messages_en.properties` | The shared liveness catalogue (spec §5), English. |
 | poms | `registration-services` → `liveness-fake` (dev engine); `registration-client` → JUnit (tests). |
 
@@ -363,7 +365,15 @@ sequenceDiagram
         S->>E: reloadConfig() → LIVENESS_CONFIG_LOADED (running sessions keep their policy)
     end
     Note over S: offline: the last synced values in GLOBAL_PARAM, else the bundled defaults
-    Note over S: model update: a newer SIGNED bundle in desktop.modelStoreDir is used by the next start;<br/>tampered or unsigned = MODEL_INTEGRITY_FAILED, no fallback to unverified models
+    Sync-->>S: ConfigSyncedEvent (successful sync only)
+    opt model.update.enabled=true and model.update.url set
+        S->>S: background thread: ModelUpdater.check(url, ModelStore, bundled, keys)
+        S->>S: LIVENESS_MODEL_UPDATE (outcome, version, reason, durationMs, trigger)
+        alt INSTALLED
+            S->>E: new sessions use the new bundle (MODEL_LOADED); running sessions keep theirs
+        end
+    end
+    Note over S: the sync never waits for the update and never fails because of it;<br/>tampered or unsigned = refused, the current models stay
 ```
 
 ## 4. UI screens
@@ -429,11 +439,25 @@ bundled defaults (audited in `LIVENESS_CONFIG_LOADED` as `configError`).
 | `operator.gatePasswordLogin` | true | OPERATOR liveness after a successful password login (skipped when a face login step follows) |
 | `animations` | true | challenge icon pulse (false = reduced motion) |
 | `metricsAuditEvery` | 20 | audit a metrics snapshot every N sessions (0 = never) |
-| `modelStoreDir` | `<client folder>/.liveness-models` | offline model store (signed bundles only) |
+| `modelStoreDir` | `<client folder>/.liveness-models` | model store (signed bundles only); the online model update installs here |
+
+**Online model update** (the same keys as Android, [part5-android-integration.md](part5-android-integration.md)):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `mosip.registration.liveness.model.update.enabled` | false | `true`: after every successful config sync, check the URL for a newer signed bundle |
+| `mosip.registration.liveness.model.update.url` | none | the index, `latest.json` (Part 2 `ModelBundleTool pack`), over HTTPS |
+
+The check is Part 2's `ModelUpdater` on the service's background thread: HTTPS only, size limits, SHA-256, then
+`ModelStore.install` (signature, anti-rollback, atomic switch; the client's own bundle becomes the rollback base). On
+INSTALLED, new sessions use the new bundle; a running session keeps its models. Any failure is audited and the current
+models stay. Without a sync (offline) nothing is checked.
 
 **Development only, JVM properties** (never read from synced config, so no config push can weaken liveness):
 `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine, `...desktop.fake.scenario=PASS_ACTIVE` etc.),
-`-Dmosip.registration.liveness.face.desktop.source=webcam|video:<file.mjpeg>|images:<dir>` (mock device instead of SBI).
+`-Dmosip.registration.liveness.face.desktop.source=webcam|video:<file.mjpeg>|images:<dir>` (mock device instead of SBI),
+`-Dmosip.registration.liveness.model.update.allowInsecureLocalhost=true` (model update over plain HTTP, to localhost
+only, for a local test server).
 
 ## 6. Audit and diagnostic logging
 
@@ -455,8 +479,10 @@ characters; longer records are split into numbered parts).
 | REG-LIV-009 | LIVENESS_CONFIG_LOADED | policy resolved (start, after a sync) | policy summary, configError |
 | REG-LIV-010 | LIVENESS_FACE_BINDING | Desktop: capture compared with the live face | outcome, similarity, threshold, accepted |
 | REG-LIV-011 | LIVENESS_METRICS | Desktop: every `metricsAuditEvery` sessions | anonymised counters and rates (§7) |
+| REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5) | outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point) |
 
-The names are the Android client's; the ids differ because the Desktop's `REG-EVT-009..018` were already taken.
+The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019); the ids differ because the Desktop's
+`REG-EVT-009..018` were already taken.
 
 **Scores, PAD reasons and challenge outcomes** are therefore in the audit trail; **raw face images never are**: the
 engine passes only codes and numbers, and `DesktopAuditSink` enforces it again (keys must be short identifiers, values
@@ -482,6 +508,8 @@ Liveness, PAD, challenge selection and action validation all run locally (the en
 client jars), so the network never decides whether liveness is enforced. Config comes from `GLOBAL_PARAM`, which holds
 the last synced values offline; a sync while online is picked up by the next session. Model updates are installed only
 as signed bundles (Part 2 `ModelStore`: verified, never older, atomic switch); without one the bundled models are used.
+When enabled, a successful sync also checks for a newer bundle online (§5); offline, the installed or bundled models
+keep working.
 The screen and texts are identical online and offline.
 
 ## 9. Security and privacy
@@ -516,12 +544,13 @@ The screen and texts are identical online and offline.
 From `registration-client/registration` (JDK 11; first build online):
 
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip -Dmaven.gitcommitid.skip=true
-    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip -Dmaven.gitcommitid.skip=true
+    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip -Dmaven.gitcommitid.skip=true
 
 (`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 
-**Results (2026-10-26):** `registration-services` 129 tests pass: the 27 new Desktop tests plus the existing Part 1
-liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tests pass. No failures, nothing skipped.
+**Results (2026-10-26, with the follow-ups):** `registration-services` 147 tests pass: the 33 Desktop tests plus the
+existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
+`registration-client` 28 tests pass. No failures, nothing skipped.
 
 | Test | What it proves |
 |---|---|
@@ -531,15 +560,20 @@ liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tes
 | `DesktopAuditSinkTest` | event mapping, description format, sanitising (image-like data dropped), splitting, audit failures contained |
 | `DesktopLivenessConfigTest` | synced config over bundled defaults, workflow policies, JVM-only dev switches, change fingerprint |
 | `DeferredFrameSourceTest` | unplugged device = recoverable DEVICE_UNAVAILABLE; Retry opens it again |
+| `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
+| `DesktopModelUpdateTest` | online model update after a config sync, against a local HTTP server: enabled + newer bundle → INSTALLED with the bundled base kept for rollback, and the reload audits MODEL_LOADED with the new version; disabled or no URL → no request; a failure → audited as FAILED, the sync returns at once, the models stay; a running session keeps its analyzer until it ends |
 | `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
 | `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
-| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text |
+| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
 
-**Screen demo** (classpath from `mvn -pl registration-client dependency:build-classpath`):
+**Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
+can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
+`install -DskipTests` (paths are relative to `registration/`; the quotes keep PowerShell from splitting the `-D`
+arguments):
 
-    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png
-    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator
-    java -cp <cp> io.mosip.registration.controller.liveness.LivenessScreenDemo --live webcam
+    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png"
+    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator"
+    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--live webcam"
 
 **In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 (real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).
@@ -554,8 +588,15 @@ liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tes
   clips, MockMDS 45/45 frames).
 - **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was
   not tried with Narrator/NVDA.
-- **Translations:** only English is in `messages_en.properties`. French and Arabic fall back to the built-in English
-  texts until translated (`LivenessMessages`).
+- **Translations:** the liveness keys are in `messages_en`, `messages_ar` and `messages_fr.properties`, the three
+  languages Registration Client v1.2.0.2 ships.
+  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated and need a native
+    speaker's review.
+  - The overlay copies are the upstream files with the block appended, byte for byte (`.gitattributes` `-text`). The
+    block is `\u`-escaped: the French file is ISO-8859-1, and the Arabic file is all escapes too.
+  - Hindi, Kannada and Tamil are not added. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its other screens, so
+    a file with only the liveness keys would leave all the client's other keys missing in that language. Their
+    blocks stay in the spec's Appendix A for when the client gets full translations.
 
 **Behaviour to know:**
 - A face-login binding rejection is handled by the existing login code as a failed face login (its "face not matched"
@@ -571,5 +612,5 @@ liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tes
    the tip text). Desktop follows the spec; change it in the spec and both apps together if wanted.
 2. **Turn prompt.** Part 2's findings recommend "Please turn your head to the left, then look back at the camera"; the
    spec keeps the problem statement's "Please turn your head to the left". Desktop follows the spec.
-3. **Audit ids.** Desktop uses `REG-LIV-001..011` with the Android event names (the Desktop's `REG-EVT-009..018` are
+3. **Audit ids.** Desktop uses `REG-LIV-001..012` with the Android event names (the Desktop's `REG-EVT-009..018` are
    taken).

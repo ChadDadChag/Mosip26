@@ -48,7 +48,8 @@ import javafx.stage.Stage;
  *   LivenessScreenDemo --live webcam|video:&lt;file.mjpeg&gt;          the real engine and models on a webcam or clip
  * </pre>
  * It drives exactly the classes the client uses ({@link LivenessScreenModel}, {@link LivenessView}); only the
- * Spring wiring of {@link LivenessGate} is replaced.
+ * Spring wiring of {@link LivenessGate} is replaced. It lives in the test sources, so it never ships in the client jar
+ * (it writes PNG files and can open a webcam); run it on the test classpath (docs/part4-desktop-integration.md §10).
  */
 public final class LivenessScreenDemo {
 
