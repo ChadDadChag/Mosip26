@@ -82,7 +82,7 @@ The species is taken from the directory and never guessed from the content. `met
 | `screen_photo_close` | The case missed in Phase 5: the phone photo held close, so the face fills much of the frame. `selfie` x3 and `nasa` x3 (phone held close, as the subject judges it), then `selfie_fill` x3 and `nasa_fill` x3 (phone about 10 cm from the camera, held until the live readout shows a face size of 20% or more) | 12 |
 | `screen_replay` | A selfie video of the subject playing on the phone, hand-held. `selfie_video` x6 | 6 |
 | `screen_replay_monitor` | Optional: the same video on a second screen (another laptop or a tablet). `selfie_video` x4 | 4 |
-| `print_flat`, `print_curved` | A printed photo held flat, and held curved around a finger or a cylinder. **Later**: the tools support them and the report marks them "not yet evaluated" until they are recorded | 6 + 6 |
+| `print_flat`, `print_curved` | A printed photo held flat, and held curved around a finger or a cylinder, hand-held. Per picture: `selfie` x2 and `nasa` x2 at normal distance, `selfie_close` x1 and `nasa_close` x1 close (face size 20% or more). **Later**: the tools support them and the report marks them "not yet evaluated" until they are recorded | 6 + 6 |
 
 **Before the session**, the subject uses their phone to take one selfie photo and one 10-second selfie video, both in
 normal light, and opens the NASA portrait on the phone. In every attack take, the subject's own face is out of the
@@ -110,12 +110,19 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
 
 ## 8. Adding subjects and prints later
 
-- **New subject:** read the consent text again, pick the next free code (`s02`, ...), and run the same session with
-  `--subject s02`. `PadEvaluation` picks up every subject under `eval-data/` and reports how many there are.
+- **New subject:** read the consent text again and pick the next free code (`s02`, ...).
+  - Record bona fide takes only: `LiveAnalyzerDemo --mode dataset --consent --subject s02 --only bona_fide`, which is
+    12 takes (10, plus 2 `close_whole`).
+  - Attacks with the new subject's own photo are optional; they need that person's selfie and consent for it.
+  - `PadEvaluation` and `BindingEvaluation` pick up every subject under `eval-data/` and report how many there are.
+  - `BindingEvaluation` compares a subject as the same person only with themselves; pairs across subjects are
+    impostors.
 - **Prints:** print the selfie and the NASA portrait in colour on plain A4 paper (or photo paper; record which in a
-  note kept off the repository). The guided session has 6 takes per species, `selfie` x3 and `nasa` x3:
-  `LiveAnalyzerDemo --mode dataset --consent --subject s01 --only print_flat,print_curved`.
-  Single takes also work: `DatasetRecorder --consent --label print_flat --subject s01 --take 1 --condition selfie`.
+  note kept off the repository).
+  - The guided session has 6 hand-held takes per species. For each picture, 2 are at normal distance (`selfie`,
+    `nasa`) and 1 is close, with a face size of 20% or more on the live readout (`selfie_close`, `nasa_close`):
+    `LiveAnalyzerDemo --mode dataset --consent --subject s01 --only print_flat,print_curved`.
+  - Single takes also work: `DatasetRecorder --consent --label print_flat --subject s01 --take 1 --condition selfie`.
 - Rerun `PadEvaluation`. Species without takes stay marked "not yet evaluated". The exact commands are in
   `docs/part2-iso30107-evaluation.md`, section 7.
 

@@ -64,11 +64,21 @@ final class DatasetSession {
                 "PHONE VERY CLOSE (~10 cm): your SELFIE PHOTO, face size 20% or more" + OUT_OF_VIEW);
         add(p, "screen_photo_close", 10, 3, "nasa_fill",
                 "PHONE VERY CLOSE (~10 cm): the NASA PORTRAIT, face size 20% or more" + OUT_OF_VIEW);
-        // Prints (added later; S skips them until they exist).
-        add(p, "print_flat", 1, 3, "selfie", "PRINT held FLAT: your SELFIE printed in colour" + OUT_OF_VIEW);
-        add(p, "print_flat", 4, 3, "nasa", "PRINT held FLAT: the NASA PORTRAIT printed in colour" + OUT_OF_VIEW);
-        add(p, "print_curved", 1, 3, "selfie", "PRINT CURVED around your hand: your SELFIE print" + OUT_OF_VIEW);
-        add(p, "print_curved", 4, 3, "nasa", "PRINT CURVED around your hand: the NASA PORTRAIT print" + OUT_OF_VIEW);
+        // Prints, hand-held (S skips them until they exist): per picture, 2 at normal distance and 1 close.
+        add(p, "print_flat", 1, 2, "selfie", "PRINT held FLAT, normal distance: your SELFIE printed in colour" + OUT_OF_VIEW);
+        add(p, "print_flat", 3, 1, "selfie_close",
+                "PRINT held FLAT, CLOSE: your SELFIE, face size 20% or more" + OUT_OF_VIEW);
+        add(p, "print_flat", 4, 2, "nasa", "PRINT held FLAT, normal distance: the NASA PORTRAIT in colour" + OUT_OF_VIEW);
+        add(p, "print_flat", 6, 1, "nasa_close",
+                "PRINT held FLAT, CLOSE: the NASA PORTRAIT, face size 20% or more" + OUT_OF_VIEW);
+        add(p, "print_curved", 1, 2, "selfie",
+                "PRINT CURVED around your hand, normal distance: your SELFIE print" + OUT_OF_VIEW);
+        add(p, "print_curved", 3, 1, "selfie_close",
+                "PRINT CURVED around your hand, CLOSE: your SELFIE, face size 20% or more" + OUT_OF_VIEW);
+        add(p, "print_curved", 4, 2, "nasa",
+                "PRINT CURVED around your hand, normal distance: the NASA PORTRAIT print" + OUT_OF_VIEW);
+        add(p, "print_curved", 6, 1, "nasa_close",
+                "PRINT CURVED around your hand, CLOSE: the NASA PORTRAIT, face size 20% or more" + OUT_OF_VIEW);
         return p;
     }
 
