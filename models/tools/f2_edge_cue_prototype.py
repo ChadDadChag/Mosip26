@@ -1,10 +1,12 @@
 """F2 prototype: the bezel/edge screen cue of docs/part2-f2-screen-cue-design.md section 3.1, evaluated offline.
 
+Development tool only; results and decision: docs/part2-f2-screen-cue-design.md section 6.1 (does not ship).
+
     python -I models/tools/f2_edge_cue_prototype.py [--eval-data DIR]
 
 RESULT (2026-10-26, single subject s01, provisional): the cue does NOT separate the close-up "fill" screen attacks
 (screen_photo_close *_fill, the moire-weak case) from bona fide at zero bona fide cost, so it was not ported to Java.
-See the planner report; the numbers are reproduced by this script (aggregates only).
+This script reproduces the section 6.1 tables (aggregates only).
 
 This is NOT part of the executable spec (reference_pipeline.py): no Java code mirrors it.
 

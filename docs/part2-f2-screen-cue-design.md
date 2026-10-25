@@ -1,7 +1,7 @@
 # F2: a second screen cue for close-up screen attacks (design note)
 
-Status: design only, no code yet. The numbers are from one subject (s01), one attack phone and one webcam, so they
-are provisional.
+Status: design. The bezel and edge cue (section 3.1) was prototyped offline and **does not ship** (section 6). The
+numbers are from one subject (s01), one attack phone and one webcam, so they are provisional.
 
 ## 1. The problem
 
@@ -85,6 +85,8 @@ shelf, a monitor behind the user), they stay still while the head moves. A scree
 
 **Data it needs.** Close-up screen takes on at least 3 phones with different bezel colours. Bona fide takes with
 cluttered backgrounds: door frames, shelves, a monitor behind the user.
+
+**Prototype result:** it does not separate the close-up attacks that fill the view from bona fide (section 6).
 
 ### 3.2 Temporal flicker and banding
 
@@ -224,3 +226,71 @@ Why this one first:
 
 Its known gap is a screen that fills the whole view. Moiré is strongest exactly there, and banding is the next cue
 to cover it.
+
+**Update after the prototype (section 6):** the bezel and edge cue does not ship. The gap above turned out to be
+exactly the case it needed to catch.
+
+## 6. Prototype results
+
+### 6.1 Bezel and edges with co-motion (section 3.1): does not ship
+
+**What was built.** `models/tools/f2_edge_cue_prototype.py`, a development tool only. It is not part of the
+executable spec, and no Java mirrors it. It implements section 3.1 without a Hough transform, using only arithmetic
+and comparisons:
+- **Lines, per frame.** The V1SE 4.0× region at 128 × 128 grey, then Sobel gradients. Strong pixels outside the face
+  box are split into near-vertical and near-horizontal families. Non-maximum suppression runs across the edge.
+  Sheared projections use slopes −0.4 to 0.4 and 2-pixel bins. A line needs votes over at least half the crop side.
+  Each line is placed in frame coordinates with its side of the face.
+- **Co-motion, between consecutive frames.** When the face moves at least 2 pixels, a matched line is "co-moving" if
+  its displacement is within half the face's displacement of it, and "static" if it moved less than half.
+- **Session statistic.** `edgeScore` is the number of sides of the face (0 to 4) with a co-moving line. The session
+  statistic is its rolling median over the last 10 single-face frames, as for moiré.
+
+**Data.** The 35 takes of s01 in `eval-data/` (2,100 frames). Aggregates only.
+
+**Results at the design setting** (Sobel magnitude at least 96, a clean step of 24 grey levels; a line needs 64
+votes). "Session max" and "session median" are the maximum and median of the rolling median over a take. The
+threshold with no bona fide cost is the bona fide maximum plus 0.5, which is 2.5.
+
+| Group | Takes | Session max | Session median | Takes caught at 2.5 | Moiré, median per take |
+|---|---|---|---|---|---|
+| Bona fide, close | 2 | 0.0 | 0.0 | 0/2 | 1.04–1.10 |
+| Bona fide, close_whole | 2 | 0.0 | 0.0 | 0/2 | 1.02–1.03 |
+| Bona fide, far | 2 | 2.0 | 1.0 | 0/2 | 1.21–1.29 |
+| Bona fide, moving | 2 | 0.5–1.0 | 0.0 | 0/2 | 1.27–1.31 |
+| Bona fide, normal | 3 | 0.0–1.0 | 0.0 | 0/3 | 1.18–1.22 |
+| Close-up, screen fills the view (`*_fill`) | 6 | 0.0 | 0.0 | 0/6 | 1.44–1.59 |
+| Close-up, small face on the screen | 6 | 2.0–4.0 | 1.0–2.2 | 3/6 | 1.54–1.58 |
+| `screen_photo` | 6 | 1.0–4.0 | 1.0–3.0 | 2/6 | 1.50–1.68 |
+| `screen_replay` | 6 | 1.5–2.0 | 1.0 | 0/6 | 1.20–1.44 |
+
+**More sensitive settings** rule out a threshold artefact:
+
+| Setting (Sobel, votes) | Bona fide max | Threshold, no bona fide cost | `*_fill` caught | `*_fill` session median |
+|---|---|---|---|---|
+| 64, 48 | 2.5 | 3.0 | 1/6 | 0.0–1.5 |
+| 48, 38 | 2.0 | 2.5 | 4/6 | 1.0–2.0 |
+| 32, 32 | 2.5 | 3.0 | 5/6 | 1.0–2.5 |
+
+At every setting, bona fide `far` has a session median (1.0–2.0) inside the `*_fill` range. So a catch is
+momentary, and there is no margin.
+
+**Why it fails.**
+1. **No edge to see.** When the screen fills the view, no bezel or screen edge is in the picture. There are no lines
+   in any `nasa_fill` frame, and none in 77–100% of the `selfie_fill` frames. Section 3.1 predicted this failure.
+2. **The wrong lines.** At the sensitive settings, the lines found in `*_fill` are low-contrast content of the
+   displayed photo, and they vanish at the 24-level step. They come from the chosen photo, not from screens, so they
+   would not generalise.
+3. **The body moves with the head.** The subject's torso and arms inside the 4.0× region move with the face. In the
+   bona fide `far` takes, the left or right side is co-moving in 25–83% of frames at the design setting, and in
+   57–95% at the sensitive ones. Section 3.1 did not foresee this.
+
+**Independence from moiré.** There is none that helps.
+- The cue fires where moiré is already strong: the small-face close-up and `screen_photo` takes, with moiré 1.50–1.68.
+- It is silent where moiré is weak: `*_fill`, 1.44–1.59.
+- On `screen_replay` (moiré 1.20–1.44) it reaches only the level of bona fide `far`, and those takes are already
+  rejected by the PAD models.
+
+**Decision.** It does not ship, and there is no `edgeCapThreshold`. A test of planar motion (the whole region
+moving under one homography, as a flat presentation does) would need a body mask because of reason 3. Banding
+(section 3.2) is next, since it targets the screen that fills the view.
