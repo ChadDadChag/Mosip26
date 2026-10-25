@@ -289,9 +289,13 @@ liveness.button.open_settings=Open settings
 "liveness_button_open_settings": "Open settings"
 ```
 
-**Other languages.** Add the same keys with translations. Until a language has them, each client falls back to
-English: Desktop through the ResourceBundle parent, Android through gen-l10n's handling of missing keys (Person 5
-checks this, see the P5-1 report).
+**Other languages.**
+- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated and
+  need a native speaker's review. Appendix A has the same texts for the Desktop client.
+- A language without them falls back to English: on the Desktop through the ResourceBundle parent, on Android
+  through gen-l10n's handling of missing keys.
+- Arabic is right to left. The turn arrows still point to the user's physical left and right, so they are never
+  mirrored.
 
 **Key lookup from events:**
 
@@ -440,3 +444,291 @@ whose best frame was dropped meanwhile fails closed.
 `policy.diagnosticMode = true` adds detail to logs and the audit trail only (scores, model version, timings). It
 **never** changes what is on screen. Production screens look identical whatever the setting. Developer overlays such
 as frame times or scores are allowed only on separate debug-only screens that are not reachable in release builds.
+
+## Appendix A. The liveness texts in five more languages (machine-translated)
+
+The Android client has the 44 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
+`app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
+paste. **All five languages are machine-translated and need a review by a native speaker before release.** The ARB
+files carry the same note, as `"@@x-liveness-translation"`.
+
+How the translations were made:
+- **Existing terms.** Each language reuses the client's existing terms where they are correct: face, operator,
+  supervisor, administrator, retry, try again, left, right, exception and biometric.
+  - A few existing entries are wrong and were not reused. For example, Arabic "attempts left" is محاولات اليسار
+    ("attempts of the left side").
+  - The fix round 4 report lists each of these.
+- **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
+- **Liveness** is حيوية الوجه (Arabic), vivacité du visage (French), जीवंतता (Hindi), ಜೀವಂತಿಕೆ (Kannada) and
+  உயிர்ப்பு (Tamil).
+- **No plural forms.**
+  - In Arabic, Hindi, Kannada and Tamil, "{n} attempt(s) left" becomes "attempts left: {n}".
+  - In Hindi, Kannada and Tamil, "Step {i} of {n}" becomes "Step {i} / {n}".
+
+For the Desktop client (Person 4):
+- **File names.**
+  - Registration Client v1.2.0.2 loads `messages_<alpha-2 code>.properties` with
+    `ResourceBundle.getBundle("messages", locale)`. It maps each configured language's alpha-3 code to alpha-2 (`ara`
+    to `ar`).
+  - It ships `messages_ar`, `messages_en` and `messages_fr`.
+  - Hindi, Kannada and Tamil need new `messages_hi`, `messages_kn` and `messages_ta` files. The client also looks up
+    `labels_<code>` for every configured language.
+- **Encoding.** Java 11 reads a `.properties` resource bundle as UTF-8. If the file is not valid UTF-8, it reads the
+  whole file as ISO-8859-1 instead.
+  - `messages_ar.properties` is ASCII (`\u` escapes), so the Arabic block can be pasted as it is.
+  - `messages_fr.properties` is ISO-8859-1, so the French block below uses `\u` escapes. UTF-8 lines pasted into that
+    file would show garbled characters, because the file would no longer be valid UTF-8.
+  - New files are UTF-8.
+- **`MessageFormat`.** Only the three keys with placeholders go through `MessageFormat`, and none of their
+  translations contains an apostrophe. Do not pass the other texts through `MessageFormat`: it drops a single
+  apostrophe (French "l'ovale").
+
+**Desktop, `messages_ar.properties`** (Arabic):
+
+```properties
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+liveness.title.resident=التحقق من حيوية الوجه
+liveness.title.operator=التحقق من وجه المشغل
+liveness.title.supervisor=التحقق من وجه المشرف
+liveness.status.starting=جارٍ بدء التحقق من حيوية الوجه…
+liveness.status.checking=جارٍ التحقق من حيوية الوجه…
+liveness.status.passed=جيد، تم التقاط الوجه بنجاح
+liveness.status.cancelled=تم إلغاء التحقق من حيوية الوجه.
+liveness.challenge.blink=يرجى رمش عينيك
+liveness.challenge.smile=يرجى الابتسام
+liveness.challenge.turn_left=يرجى إدارة رأسك إلى اليسار
+liveness.challenge.turn_right=يرجى إدارة رأسك إلى اليمين
+liveness.challenge.look_up=يرجى النظر إلى الأعلى
+liveness.challenge.look_down=يرجى النظر إلى الأسفل
+liveness.feedback.continue=يرجى المتابعة
+liveness.feedback.action_detected=تم اكتشاف الحركة
+liveness.feedback.hold_still=لا تتحرك
+liveness.guidance.no_face=لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.
+liveness.guidance.multiple_faces=يجب أن يظهر شخص واحد فقط.
+liveness.guidance.move_closer=يرجى الاقتراب أكثر.
+liveness.guidance.move_back=يرجى الابتعاد قليلًا.
+liveness.guidance.center_face=يرجى وضع وجهك في وسط الشكل البيضاوي.
+liveness.guidance.improve_lighting=يرجى تحسين الإضاءة.
+liveness.guidance.hold_steady=يرجى الثبات.
+liveness.guidance.look_at_camera=يرجى النظر إلى الكاميرا.
+liveness.error.liveness_not_verified=تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.
+liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
+liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
+liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
+liveness.tips.title=نصائح:
+liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
+liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
+liveness.tips.lighting=حسّن الإضاءة.
+liveness.tips.capture_area=أبقِ وجهك داخل منطقة الالتقاط.
+liveness.tips.follow_prompt=نفّذ الحركة المطلوبة.
+liveness.retry.attempts_left=المحاولات المتبقية: {0}
+liveness.progress.step=الخطوة {0} من {1}
+liveness.progress.attempt=المحاولة {0} من {1}
+liveness.recovery.resident=يرجى الاتصال بالمشرف. يمكن تسجيل المقيم باستخدام إجراء الاستثناء البيومتري.
+liveness.recovery.operator=يرجى الاتصال بالمسؤول أو المحاولة مرة أخرى لاحقًا.
+liveness.recovery.supervisor=يرجى الاتصال بالمسؤول.
+liveness.button.retry=إعادة المحاولة
+liveness.button.cancel=إلغاء
+liveness.button.close=إغلاق
+liveness.button.open_settings=فتح الإعدادات
+```
+
+**Desktop, `messages_fr.properties`** (French, non-ASCII as `\u` escapes because the v1.2.0.2 file is ISO-8859-1):
+
+```properties
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+liveness.title.resident=Test de vivacit\u00e9 du visage
+liveness.title.operator=V\u00e9rification faciale de l'op\u00e9rateur
+liveness.title.supervisor=V\u00e9rification faciale du superviseur
+liveness.status.starting=D\u00e9marrage du test de vivacit\u00e9 du visage\u2026
+liveness.status.checking=V\u00e9rification de la vivacit\u00e9 du visage\u2026
+liveness.status.passed=Parfait, visage captur\u00e9 avec succ\u00e8s
+liveness.status.cancelled=Test de vivacit\u00e9 du visage annul\u00e9.
+liveness.challenge.blink=Veuillez cligner des yeux
+liveness.challenge.smile=Veuillez sourire
+liveness.challenge.turn_left=Veuillez tourner la t\u00eate vers la gauche
+liveness.challenge.turn_right=Veuillez tourner la t\u00eate vers la droite
+liveness.challenge.look_up=Veuillez regarder vers le haut
+liveness.challenge.look_down=Veuillez regarder vers le bas
+liveness.feedback.continue=Veuillez continuer
+liveness.feedback.action_detected=Action d\u00e9tect\u00e9e
+liveness.feedback.hold_still=Ne bougez plus
+liveness.guidance.no_face=Aucun visage d\u00e9tect\u00e9. Veuillez regarder la cam\u00e9ra.
+liveness.guidance.multiple_faces=Une seule personne doit \u00eatre visible.
+liveness.guidance.move_closer=Veuillez vous rapprocher.
+liveness.guidance.move_back=Veuillez reculer.
+liveness.guidance.center_face=Veuillez centrer votre visage dans l'ovale.
+liveness.guidance.improve_lighting=Veuillez am\u00e9liorer l'\u00e9clairage.
+liveness.guidance.hold_steady=Veuillez rester immobile.
+liveness.guidance.look_at_camera=Veuillez regarder la cam\u00e9ra.
+liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00e9rifier la vivacit\u00e9 du visage. Veuillez r\u00e9essayer.
+liveness.error.verification_not_completed=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e. Veuillez r\u00e9essayer.
+liveness.error.max_attempts_reached=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e.
+liveness.error.device_problem=Cam\u00e9ra ou appareil indisponible. V\u00e9rifiez la connexion et r\u00e9essayez.
+liveness.tips.title=Conseils\u00a0:
+liveness.tips.look_at_camera=Regardez directement la cam\u00e9ra.
+liveness.tips.face_visible=Assurez-vous que votre visage est bien visible.
+liveness.tips.lighting=Am\u00e9liorez l'\u00e9clairage.
+liveness.tips.capture_area=Gardez votre visage dans la zone de capture.
+liveness.tips.follow_prompt=Effectuez l'action demand\u00e9e.
+liveness.retry.attempts_left={0} tentative(s) restante(s)
+liveness.progress.step=\u00c9tape {0} sur {1}
+liveness.progress.attempt=Tentative {0} sur {1}
+liveness.recovery.resident=Veuillez contacter le superviseur. Le r\u00e9sident peut \u00eatre enregistr\u00e9 \u00e0 l'aide de la proc\u00e9dure d'exception biom\u00e9trique.
+liveness.recovery.operator=Veuillez contacter votre administrateur ou r\u00e9essayer plus tard.
+liveness.recovery.supervisor=Veuillez contacter votre administrateur.
+liveness.button.retry=R\u00e9essayer
+liveness.button.cancel=Annuler
+liveness.button.close=Fermer
+liveness.button.open_settings=Ouvrir les param\u00e8tres
+```
+
+**Desktop, `messages_hi.properties`** (Hindi):
+
+```properties
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+liveness.title.resident=चेहरे की जीवंतता जाँच
+liveness.title.operator=ऑपरेटर का चेहरा सत्यापन
+liveness.title.supervisor=पर्यवेक्षक का चेहरा सत्यापन
+liveness.status.starting=चेहरे की जीवंतता जाँच शुरू हो रही है…
+liveness.status.checking=चेहरे की जीवंतता जाँची जा रही है…
+liveness.status.passed=बढ़िया, चेहरा सफलतापूर्वक कैप्चर हो गया
+liveness.status.cancelled=चेहरे की जीवंतता जाँच रद्द कर दी गई।
+liveness.challenge.blink=कृपया पलकें झपकाएँ
+liveness.challenge.smile=कृपया मुस्कुराएँ
+liveness.challenge.turn_left=कृपया अपना सिर बाईं ओर घुमाएँ
+liveness.challenge.turn_right=कृपया अपना सिर दाईं ओर घुमाएँ
+liveness.challenge.look_up=कृपया ऊपर देखें
+liveness.challenge.look_down=कृपया नीचे देखें
+liveness.feedback.continue=कृपया जारी रखें
+liveness.feedback.action_detected=क्रिया पहचानी गई
+liveness.feedback.hold_still=हिलें नहीं
+liveness.guidance.no_face=कोई चेहरा नहीं पहचाना गया। कृपया कैमरे की ओर देखें।
+liveness.guidance.multiple_faces=केवल एक व्यक्ति दिखाई देना चाहिए।
+liveness.guidance.move_closer=कृपया थोड़ा पास आएँ।
+liveness.guidance.move_back=कृपया थोड़ा पीछे हटें।
+liveness.guidance.center_face=कृपया अपना चेहरा अंडाकार के बीच में रखें।
+liveness.guidance.improve_lighting=कृपया रोशनी बेहतर करें।
+liveness.guidance.hold_steady=कृपया स्थिर रहें।
+liveness.guidance.look_at_camera=कृपया कैमरे की ओर देखें।
+liveness.error.liveness_not_verified=हम चेहरे की जीवंतता सत्यापित नहीं कर सके। कृपया पुनः प्रयास करें।
+liveness.error.verification_not_completed=चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
+liveness.error.max_attempts_reached=चेहरा सत्यापन पूरा नहीं हो सका।
+liveness.error.device_problem=कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।
+liveness.tips.title=सुझाव:
+liveness.tips.look_at_camera=सीधे कैमरे की ओर देखें।
+liveness.tips.face_visible=सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।
+liveness.tips.lighting=रोशनी बेहतर करें।
+liveness.tips.capture_area=अपना चेहरा कैप्चर क्षेत्र के भीतर रखें।
+liveness.tips.follow_prompt=बताई गई क्रिया करें।
+liveness.retry.attempts_left=शेष प्रयास: {0}
+liveness.progress.step=चरण {0} / {1}
+liveness.progress.attempt=प्रयास {0} / {1}
+liveness.recovery.resident=कृपया पर्यवेक्षक से संपर्क करें। निवासी का पंजीकरण बायोमेट्रिक अपवाद प्रक्रिया से किया जा सकता है।
+liveness.recovery.operator=कृपया अपने व्यवस्थापक से संपर्क करें या बाद में पुनः प्रयास करें।
+liveness.recovery.supervisor=कृपया अपने व्यवस्थापक से संपर्क करें।
+liveness.button.retry=पुनः प्रयास करें
+liveness.button.cancel=रद्द करें
+liveness.button.close=बंद करें
+liveness.button.open_settings=सेटिंग्स खोलें
+```
+
+**Desktop, `messages_kn.properties`** (Kannada):
+
+```properties
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+liveness.title.resident=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ
+liveness.title.operator=ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ
+liveness.title.supervisor=ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ
+liveness.status.starting=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…
+liveness.status.checking=ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…
+liveness.status.passed=ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ
+liveness.status.cancelled=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.
+liveness.challenge.blink=ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ
+liveness.challenge.smile=ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ
+liveness.challenge.turn_left=ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಎಡಕ್ಕೆ ತಿರುಗಿಸಿ
+liveness.challenge.turn_right=ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಬಲಕ್ಕೆ ತಿರುಗಿಸಿ
+liveness.challenge.look_up=ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ
+liveness.challenge.look_down=ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ
+liveness.feedback.continue=ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ
+liveness.feedback.action_detected=ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ
+liveness.feedback.hold_still=ಅಲುಗಾಡಬೇಡಿ
+liveness.guidance.no_face=ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
+liveness.guidance.multiple_faces=ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.
+liveness.guidance.move_closer=ದಯವಿಟ್ಟು ಹತ್ತಿರ ಬನ್ನಿ.
+liveness.guidance.move_back=ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಹಿಂದೆ ಸರಿಯಿರಿ.
+liveness.guidance.center_face=ದಯವಿಟ್ಟು ನಿಮ್ಮ ಮುಖವನ್ನು ಅಂಡಾಕಾರದ ಮಧ್ಯದಲ್ಲಿ ಇರಿಸಿ.
+liveness.guidance.improve_lighting=ದಯವಿಟ್ಟು ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.
+liveness.guidance.hold_steady=ದಯವಿಟ್ಟು ಸ್ಥಿರವಾಗಿರಿ.
+liveness.guidance.look_at_camera=ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
+liveness.error.liveness_not_verified=ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
+liveness.error.verification_not_completed=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
+liveness.error.max_attempts_reached=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.
+liveness.error.device_problem=ಕ್ಯಾಮರಾ/ಸಾಧನ ಲಭ್ಯವಿಲ್ಲ. ಸಂಪರ್ಕವನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
+liveness.tips.title=ಸಲಹೆಗಳು:
+liveness.tips.look_at_camera=ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
+liveness.tips.face_visible=ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.
+liveness.tips.lighting=ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.
+liveness.tips.capture_area=ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.
+liveness.tips.follow_prompt=ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.
+liveness.retry.attempts_left=ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {0}
+liveness.progress.step=ಹಂತ {0} / {1}
+liveness.progress.attempt=ಪ್ರಯತ್ನ {0} / {1}
+liveness.recovery.resident=ದಯವಿಟ್ಟು ಮೇಲ್ವಿಚಾರಕರನ್ನು ಸಂಪರ್ಕಿಸಿ. ಬಯೋಮೆಟ್ರಿಕ್ ವಿನಾಯಿತಿ ಪ್ರಕ್ರಿಯೆಯ ಮೂಲಕ ನಿವಾಸಿಯನ್ನು ನೋಂದಾಯಿಸಬಹುದು.
+liveness.recovery.operator=ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ ಅಥವಾ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
+liveness.recovery.supervisor=ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ.
+liveness.button.retry=ಮರುಪ್ರಯತ್ನಿಸಿ
+liveness.button.cancel=ರದ್ದುಮಾಡಿ
+liveness.button.close=ಮುಚ್ಚಿ
+liveness.button.open_settings=ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ
+```
+
+**Desktop, `messages_ta.properties`** (Tamil):
+
+```properties
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+liveness.title.resident=முக உயிர்ப்புச் சரிபார்ப்பு
+liveness.title.operator=ஆபரேட்டர் முக சரிபார்ப்பு
+liveness.title.supervisor=மேற்பார்வையாளர் முக சரிபார்ப்பு
+liveness.status.starting=முக உயிர்ப்புச் சரிபார்ப்பு தொடங்குகிறது…
+liveness.status.checking=முக உயிர்ப்பு சரிபார்க்கப்படுகிறது…
+liveness.status.passed=நன்று, முகம் வெற்றிகரமாகப் படம்பிடிக்கப்பட்டது
+liveness.status.cancelled=முக உயிர்ப்புச் சரிபார்ப்பு ரத்துசெய்யப்பட்டது.
+liveness.challenge.blink=தயவுசெய்து கண் சிமிட்டவும்
+liveness.challenge.smile=தயவுசெய்து புன்னகைக்கவும்
+liveness.challenge.turn_left=தயவுசெய்து உங்கள் தலையை இடது பக்கம் திருப்பவும்
+liveness.challenge.turn_right=தயவுசெய்து உங்கள் தலையை வலது பக்கம் திருப்பவும்
+liveness.challenge.look_up=தயவுசெய்து மேலே பார்க்கவும்
+liveness.challenge.look_down=தயவுசெய்து கீழே பார்க்கவும்
+liveness.feedback.continue=தயவுசெய்து தொடரவும்
+liveness.feedback.action_detected=செயல் கண்டறியப்பட்டது
+liveness.feedback.hold_still=அசையாதீர்கள்
+liveness.guidance.no_face=முகம் எதுவும் கண்டறியப்படவில்லை. தயவுசெய்து கேமராவைப் பார்க்கவும்.
+liveness.guidance.multiple_faces=ஒருவர் மட்டுமே தெரிய வேண்டும்.
+liveness.guidance.move_closer=தயவுசெய்து அருகில் வரவும்.
+liveness.guidance.move_back=தயவுசெய்து சற்றுப் பின்னால் நகரவும்.
+liveness.guidance.center_face=தயவுசெய்து உங்கள் முகத்தை நீள்வட்டத்தின் நடுவில் வைக்கவும்.
+liveness.guidance.improve_lighting=தயவுசெய்து வெளிச்சத்தை மேம்படுத்தவும்.
+liveness.guidance.hold_steady=தயவுசெய்து நிலையாக இருக்கவும்.
+liveness.guidance.look_at_camera=தயவுசெய்து கேமராவைப் பார்க்கவும்.
+liveness.error.liveness_not_verified=முக உயிர்ப்பைச் சரிபார்க்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
+liveness.error.verification_not_completed=முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
+liveness.error.max_attempts_reached=முக சரிபார்ப்பை முடிக்க முடியவில்லை.
+liveness.error.device_problem=கேமரா/சாதனம் கிடைக்கவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.
+liveness.tips.title=குறிப்புகள்:
+liveness.tips.look_at_camera=நேரடியாக கேமராவைப் பார்க்கவும்.
+liveness.tips.face_visible=உங்கள் முகம் தெளிவாகத் தெரிவதை உறுதிசெய்யவும்.
+liveness.tips.lighting=வெளிச்சத்தை மேம்படுத்தவும்.
+liveness.tips.capture_area=உங்கள் முகத்தைப் படம்பிடிப்புப் பகுதிக்குள் வைத்திருக்கவும்.
+liveness.tips.follow_prompt=கேட்கப்படும் செயலைச் செய்யவும்.
+liveness.retry.attempts_left=மீதமுள்ள முயற்சிகள்: {0}
+liveness.progress.step=படி {0} / {1}
+liveness.progress.attempt=முயற்சி {0} / {1}
+liveness.recovery.resident=தயவுசெய்து மேற்பார்வையாளரைத் தொடர்பு கொள்ளவும். பயோமெட்ரிக் விதிவிலக்கு செயல்முறையைப் பயன்படுத்தி குடியிருப்பாளரைப் பதிவு செய்யலாம்.
+liveness.recovery.operator=உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும் அல்லது பின்னர் மீண்டும் முயற்சிக்கவும்.
+liveness.recovery.supervisor=உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும்.
+liveness.button.retry=மீண்டும் முயற்சிக்கவும்
+liveness.button.cancel=ரத்துசெய்
+liveness.button.close=மூடு
+liveness.button.open_settings=அமைப்புகளைத் திற
+```
