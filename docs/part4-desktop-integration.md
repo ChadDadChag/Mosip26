@@ -534,7 +534,7 @@ liveness (72), audit (4) and login (26) suites. `registration-client` 27 new tes
 | `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
 | `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
 | `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
-| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text |
+| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
 
 **Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
 can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
@@ -557,8 +557,15 @@ can open a webcam, so it is not in the client jar. Run it on the test classpath,
   clips, MockMDS 45/45 frames).
 - **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was
   not tried with Narrator/NVDA.
-- **Translations:** only English is in `messages_en.properties`. French and Arabic fall back to the built-in English
-  texts until translated (`LivenessMessages`).
+- **Translations:** the liveness keys are in `messages_en`, `messages_ar` and `messages_fr.properties`, the three
+  languages Registration Client v1.2.0.2 ships.
+  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated and need a native
+    speaker's review.
+  - The overlay copies are the upstream files with the block appended, byte for byte (`.gitattributes` `-text`). The
+    block is `\u`-escaped: the French file is ISO-8859-1, and the Arabic file is all escapes too.
+  - Hindi, Kannada and Tamil are not added. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its other screens, so
+    a file with only the liveness keys would leave all the client's other keys missing in that language. Their
+    blocks stay in the spec's Appendix A for when the client gets full translations.
 
 **Behaviour to know:**
 - A face-login binding rejection is handled by the existing login code as a failed face login (its "face not matched"

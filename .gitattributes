@@ -18,3 +18,7 @@ android-integration/*.diff          -text
 *.jpeg   binary
 *.png    binary
 *.mjpeg  binary
+# Part 4: overlay copies of the Registration Client's message bundles keep the upstream bytes (CRLF, no final
+# newline), so the overlay changes only the appended liveness block.
+registration-client/src/main/resources/messages_ar.properties -text
+registration-client/src/main/resources/messages_fr.properties -text

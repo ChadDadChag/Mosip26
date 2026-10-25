@@ -470,9 +470,12 @@ For the Desktop client (Person 4):
   - Registration Client v1.2.0.2 loads `messages_<alpha-2 code>.properties` with
     `ResourceBundle.getBundle("messages", locale)`. It maps each configured language's alpha-3 code to alpha-2 (`ara`
     to `ar`).
-  - It ships `messages_ar`, `messages_en` and `messages_fr`.
-  - Hindi, Kannada and Tamil need new `messages_hi`, `messages_kn` and `messages_ta` files. The client also looks up
-    `labels_<code>` for every configured language.
+  - It ships `messages_ar`, `messages_en` and `messages_fr`. Part 4's overlay has the Arabic and French blocks below
+    appended to the upstream files.
+  - Hindi, Kannada and Tamil are **not** added to the Desktop. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its
+    other screens, so a file with only the liveness keys would leave all the client's other keys missing in that
+    language. The blocks stay here for when the client gets full translations; it also looks up `labels_<code>` for
+    every configured language.
 - **Encoding.** Java 11 reads a `.properties` resource bundle as UTF-8. If the file is not valid UTF-8, it reads the
   whole file as ISO-8859-1 instead.
   - `messages_ar.properties` is ASCII (`\u` escapes), so the Arabic block can be pasted as it is.
