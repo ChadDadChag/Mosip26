@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressBar?>
+<?import javafx.scene.image.ImageView?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Pane?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.shape.Ellipse?>
+<?import javafx.scene.shape.SVGPath?>
+
+<!-- Face liveness screen (docs/ui-liveness-spec.md §2), the same for the resident, operator and supervisor flows.
+     Controller: io.mosip.registration.controller.liveness.LivenessView (set by the loader). -->
+<BorderPane fx:id="root" styleClass="liveness-root" prefWidth="720" prefHeight="760"
+            xmlns="http://javafx.com/javafx/11" xmlns:fx="http://javafx.com/fxml/1">
+    <top>
+        <HBox styleClass="liveness-header" alignment="CENTER_LEFT">
+            <Label fx:id="title" styleClass="liveness-title" />
+        </HBox>
+    </top>
+    <center>
+        <VBox alignment="TOP_CENTER" spacing="14">
+            <padding><Insets top="16" right="24" bottom="8" left="24" /></padding>
+
+            <!-- Live preview, mirrored like a selfie (display only), with the face-oval guide. -->
+            <StackPane fx:id="previewPane" styleClass="liveness-preview" minWidth="480" minHeight="360"
+                       maxWidth="480" maxHeight="360">
+                <ImageView fx:id="preview" fitWidth="480" fitHeight="360" preserveRatio="true" scaleX="-1" />
+                <Pane fx:id="overlay" mouseTransparent="true" minWidth="480" minHeight="360" maxWidth="480"
+                      maxHeight="360">
+                    <Ellipse fx:id="oval" centerX="240" centerY="176" radiusX="112" radiusY="146"
+                             styleClass="liveness-oval" />
+                    <StackPane fx:id="ovalBadge" layoutX="316" layoutY="270" styleClass="liveness-badge"
+                               minWidth="44" minHeight="44" maxWidth="44" maxHeight="44">
+                        <SVGPath fx:id="ovalIcon" styleClass="liveness-badge-icon" />
+                    </StackPane>
+                </Pane>
+                <!-- Shown instead of frames (the scripted development engine). -->
+                <Label fx:id="previewPlaceholder" styleClass="liveness-preview-placeholder" wrapText="true"
+                       StackPane.alignment="BOTTOM_CENTER" />
+            </StackPane>
+
+            <!-- Status line (large) and hint line. -->
+            <HBox alignment="CENTER" spacing="10">
+                <StackPane fx:id="statusBadge" styleClass="liveness-status-badge" minWidth="36" minHeight="36"
+                           maxWidth="36" maxHeight="36">
+                    <SVGPath fx:id="statusIcon" styleClass="liveness-badge-icon" />
+                </StackPane>
+                <Label fx:id="status" styleClass="liveness-status" wrapText="true" maxWidth="600" />
+            </HBox>
+            <HBox fx:id="hintRow" alignment="CENTER" spacing="8" minHeight="28">
+                <SVGPath fx:id="hintIcon" styleClass="liveness-hint-icon" />
+                <Label fx:id="hint" styleClass="liveness-hint" wrapText="true" maxWidth="600" />
+            </HBox>
+
+            <!-- Step i of n, progress, Attempt a of m. -->
+            <HBox alignment="CENTER" spacing="16">
+                <Label fx:id="step" styleClass="liveness-meta" minWidth="110" />
+                <ProgressBar fx:id="progress" styleClass="liveness-progress" prefWidth="300" prefHeight="14" />
+                <Label fx:id="attempt" styleClass="liveness-meta" minWidth="110" />
+            </HBox>
+
+            <!-- Failure only (LIVENESS_NOT_VERIFIED): the problem statement's additional guidance. -->
+            <VBox fx:id="tips" styleClass="liveness-tips" spacing="4" maxWidth="520" />
+        </VBox>
+    </center>
+    <bottom>
+        <HBox alignment="CENTER" spacing="16" styleClass="liveness-buttons">
+            <padding><Insets top="8" right="24" bottom="20" left="24" /></padding>
+            <Button fx:id="retryButton" styleClass="liveness-button-primary" minWidth="140" minHeight="48"
+                    onAction="#onRetry" />
+            <Region minWidth="0" />
+            <Button fx:id="cancelButton" styleClass="liveness-button" minWidth="140" minHeight="48"
+                    onAction="#onCancel" cancelButton="true" />
+            <Button fx:id="closeButton" styleClass="liveness-button-primary" minWidth="140" minHeight="48"
+                    onAction="#onClose" />
+        </HBox>
+    </bottom>
+</BorderPane>
