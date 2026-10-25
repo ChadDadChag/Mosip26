@@ -48,7 +48,7 @@ class FaceMatcherTest {
             assertThat(r.outcome).isEqualTo(MatchResult.Outcome.MATCH);
             assertThat(r.matched()).isTrue();
             assertThat(r.similarity).isCloseTo(goldenMirrorCosine, within(1e-3));
-            assertThat(r.threshold).isEqualTo(0.363);
+            assertThat(r.threshold).isEqualTo(0.45);
             assertThat(r.toString()).startsWith("MATCH");
         }
     }
@@ -60,7 +60,7 @@ class FaceMatcherTest {
         try (FaceMatcher m = matcher(AnalyzerConfig.defaults())) {
             MatchResult r = m.compare(portrait.rgb, portrait.width, portrait.height, one.rgb, one.width, one.height);
             assertThat(r.outcome).as("%s", r).isEqualTo(MatchResult.Outcome.NO_MATCH);
-            assertThat(r.similarity).isLessThan(0.363);
+            assertThat(r.similarity).isLessThan(0.363); // below OpenCV's default too
             assertThat(r.matched()).isFalse();
         }
     }

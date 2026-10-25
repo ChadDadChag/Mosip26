@@ -92,6 +92,9 @@ SFACE_INPUT, SFACE_OUTPUT = "data", "fc1"
 SFACE_TEMPLATE = ((38.2946, 51.6963), (73.5318, 51.5014), (56.0252, 71.7366), (41.5493, 92.3655), (70.7299, 92.2041))
 SFACE_TEMPLATE_MEAN = (56.0262, 71.9008)
 SFACE_COSINE_THRESHOLD = 0.363  # opencv_zoo models/face_recognition_sface/sface.py:24 (match when cosine >= 0.363)
+# The engine's default (AnalyzerConfig.bindingCosineThreshold), decided in fix round 2 from the binding evaluation:
+# at 0.363 two public-portrait impostor pairs matched (0.376, 0.383); genuine pairs stayed >= 0.67.
+BINDING_THRESHOLD = 0.45
 
 
 # ---------------------------------------------------------------------------------------------
@@ -661,7 +664,7 @@ def sface_cosine(f1, f2):
     return float(np.dot(a / np.linalg.norm(a), b / np.linalg.norm(b)))
 
 
-def face_match(pipe, bgr_a, bgr_b, threshold=SFACE_COSINE_THRESHOLD):
+def face_match(pipe, bgr_a, bgr_b, threshold=BINDING_THRESHOLD):
     """The Java FaceMatcher.compare: YuNet on each image, exactly one face each (faceCount as count_faces), then the
     cosine of the two embeddings. Returns (outcome, similarity): NO_FACE_A / MULTIPLE_FACES_A / NO_FACE_B /
     MULTIPLE_FACES_B (similarity None), else MATCH when similarity >= threshold, otherwise NO_MATCH."""

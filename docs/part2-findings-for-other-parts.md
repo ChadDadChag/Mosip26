@@ -100,8 +100,9 @@ LivenessService liveness = DefaultLivenessService.builder()
     - `NO_FACE_A` / `NO_FACE_B`, `MULTIPLE_FACES_A` / `MULTIPLE_FACES_B`: image A or B does not hold exactly one face.
 
     Decode the SBI image to RGB first; ISO 19794-5 faces are often JPEG 2000.
-  - **Threshold.** `mosip.registration.liveness.face.binding.cosineThreshold`; the default is OpenCV's 0.363. The
-    evaluation suggests 0.45 (see [part2-pad-architecture.md](part2-pad-architecture.md) §12).
+  - **Threshold.** `mosip.registration.liveness.face.binding.cosineThreshold`; the default is 0.45, decided from
+    the binding evaluation (OpenCV's documented value is 0.363; see
+    [part2-pad-architecture.md](part2-pad-architecture.md) §12).
   - **Binding is not presentation attack detection.** A photo of the same person matches. Use it after liveness,
     not instead of it.
   - **Android.** Person 5 adds it in fix round 2.

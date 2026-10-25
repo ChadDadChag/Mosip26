@@ -51,12 +51,12 @@ class AnalyzerConfigTest {
 
     @Test
     void theBindingThresholdHasItsOwnKey() {
-        assertThat(AnalyzerConfig.defaults().bindingCosineThreshold).isEqualTo(0.363);
+        assertThat(AnalyzerConfig.defaults().bindingCosineThreshold).isEqualTo(0.45);
         Map<String, String> m = new HashMap<String, String>();
-        m.put(AnalyzerConfig.BINDING_THRESHOLD_KEY, " 0.45 ");
+        m.put(AnalyzerConfig.BINDING_THRESHOLD_KEY, " 0.363 ");
         AnalyzerConfig c = AnalyzerConfig.fromConfig(provider(m));
-        assertThat(c.bindingCosineThreshold).isEqualTo(0.45);
-        assertThat(c.toBuilder().build().bindingCosineThreshold).isEqualTo(0.45);
+        assertThat(c.bindingCosineThreshold).isEqualTo(0.363);
+        assertThat(c.toBuilder().build().bindingCosineThreshold).isEqualTo(0.363);
         m.put(AnalyzerConfig.BINDING_THRESHOLD_KEY, "high");
         assertThatThrownBy(() -> AnalyzerConfig.fromConfig(provider(m)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(AnalyzerConfig.BINDING_THRESHOLD_KEY);

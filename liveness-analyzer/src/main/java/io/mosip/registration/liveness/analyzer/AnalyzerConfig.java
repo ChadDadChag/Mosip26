@@ -27,8 +27,9 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *       {@code qualityRelativeBlurRatio} (0.45; {@code off} disables): BLURRY also when lapVar is below this
  *       fraction of the session's rolling median</li>
  * </ul>
- * Face binding (F1) has its own key, outside the analyzer prefix: {@value #BINDING_THRESHOLD_KEY} (0.363, OpenCV's
- * SFace cosine threshold; {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}).
+ * Face binding (F1) has its own key, outside the analyzer prefix: {@value #BINDING_THRESHOLD_KEY} (0.45, decided in
+ * fix round 2 from the binding evaluation; OpenCV's SFace default is 0.363;
+ * {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}).
  */
 public final class AnalyzerConfig {
 
@@ -317,7 +318,7 @@ public final class AnalyzerConfig {
         private int moireWindow = 10;
         private int moireMinFrames = 3;
         private double moireVetoThreshold = Double.NaN;
-        private double bindingCosineThreshold = 0.363;
+        private double bindingCosineThreshold = 0.45;
         private double qualityRelativeBlurRatio = 0.45;
         private boolean meshTracking = true;
 

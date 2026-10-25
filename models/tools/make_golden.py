@@ -157,6 +157,8 @@ def binding(failures):
     for f in faces:
         check(f["cosineWithOpenCv"] >= 0.9999, f"{f['id']} feature cosine with cv2 >= 0.9999 "
               f"(got {f['cosineWithOpenCv']:.7f})", failures)
+    # OpenCV's threshold: this fixture is the parity reference against FaceRecognizerSF. The engine's default
+    # (rp.BINDING_THRESHOLD, 0.45) is stricter for a match and looser for a non-match; both hold here.
     t = rp.SFACE_COSINE_THRESHOLD
     check(cos["portrait~portrait_flipped"] >= t, f"portrait vs its mirror matches (cosine "
           f"{cos['portrait~portrait_flipped']:.4f} >= {t})", failures)

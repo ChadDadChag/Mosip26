@@ -224,7 +224,7 @@ They are not in Part 3's `liveness-default.properties`. The prefix is `mosip.reg
 | `moireVetoThreshold` | off | a number enables the hard veto (score 0) |
 
 Face binding has its own key, outside the analyzer prefix: `mosip.registration.liveness.face.binding.cosineThreshold`
-(default 0.363; section 12).
+(default 0.45; section 12).
 
 ## 10. Performance
 
@@ -276,8 +276,8 @@ compares `LivenessResult.bestFrame` with the captured face and accepts the captu
 2. Fit a similarity transform from the 5 YuNet keypoints to OpenCV's 112 × 112 ArcFace template (an Umeyama fit).
 3. `warpAffine` to 112 × 112 (bilinear, zero border, 8-bit).
 4. Feed the network the RGB values 0..255 in NCHW layout. It returns 128 values.
-5. Cosine of the two L2-normalised features. The faces MATCH at 0.363 or above (OpenCV's documented SFace
-   threshold), else NO_MATCH.
+5. Cosine of the two L2-normalised features. The faces MATCH at 0.45 or above, else NO_MATCH. OpenCV documents
+   0.363 for SFace; 0.45 was decided from the evaluation below (fix round 2).
 
 ```java
 try (FaceMatcher matcher = factory.createMatcher()) {          // shares the factory's verified sessions
@@ -309,11 +309,10 @@ try (FaceMatcher matcher = factory.createMatcher()) {          // shares the fac
 - **At 0.363:** FNMR is 0 on both genuine sets. Two of the 1,999 impostor pairs match (0.376 and 0.383, both
   between public NASA photos).
 - **At 0.40 and above:** no impostor pair matches. FNMR on the genuine sets stays 0 up to 0.60.
-- **Recommendation: 0.45.**
+- **Default: 0.45** (decided in fix round 2).
   - It leaves a margin of 0.067 above the highest impostor and 0.22 below the lowest genuine pair.
   - It still matches the person's own photo on a screen (median 0.645).
-  - The default stays at OpenCV's 0.363 until it is decided; the setting is
-    `mosip.registration.liveness.face.binding.cosineThreshold`.
+  - The setting is `mosip.registration.liveness.face.binding.cosineThreshold`; OpenCV's 0.363 can be set there.
 - **The trade-off:**
   - A false match lets a different person's face be stored. That is the security error.
   - A false non-match only asks the operator to recapture.

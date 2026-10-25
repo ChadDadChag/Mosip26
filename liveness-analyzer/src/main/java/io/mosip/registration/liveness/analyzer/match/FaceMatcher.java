@@ -19,7 +19,8 @@ import java.util.List;
  * <p>{@link #compare} runs YuNet on each image and requires exactly one face in each (counted as the analyzer counts
  * faces: a face smaller than {@code detectorSecondFaceMinAreaRatio} of the largest is ignored). Otherwise it returns
  * NO_FACE_A/B or MULTIPLE_FACES_A/B. It then compares the two SFace features ({@link SFaceEmbedder}) by cosine:
- * MATCH at or above {@link AnalyzerConfig#bindingCosineThreshold} (0.363, OpenCV's SFace threshold), else NO_MATCH.
+ * MATCH at or above {@link AnalyzerConfig#bindingCosineThreshold} (0.45; OpenCV's SFace default is 0.363), else
+ * NO_MATCH.
  * Spec: {@code reference_pipeline.face_match}.
  *
  * <p>Created by {@code OnnxFaceAnalyzerFactory.createMatcher()} and sharing the factory's verified sessions;

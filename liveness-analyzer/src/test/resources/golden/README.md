@@ -70,7 +70,7 @@ covers every stage. The production analyzer skips them for multi-face frames.
   - `cosineWithOpenCv`, the cosine with OpenCV's FaceRecognizerSF given the same detection. It is at least
     0.9999995 for all six faces.
 - **`cosines`:** every pair. The portrait matches its mirror (0.956). All other pairs are between -0.03 and 0.15,
-  far below the 0.363 threshold.
+  far below `threshold`, OpenCV's 0.363. The engine's default threshold is 0.45 (fix round 2).
 
 The features are derived from the public-domain fixture images only.
 
