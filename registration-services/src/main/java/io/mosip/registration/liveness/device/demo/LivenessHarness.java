@@ -1,5 +1,7 @@
 package io.mosip.registration.liveness.device.demo;
 
+import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
+import io.mosip.registration.liveness.analyzer.heuristic.HeuristicFaceAnalyzer;
 import io.mosip.registration.liveness.api.AuditSink;
 import io.mosip.registration.liveness.api.ConfigProvider;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
@@ -13,10 +15,10 @@ import io.mosip.registration.liveness.api.LivenessResult;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.DefaultLivenessService;
+import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
 import io.mosip.registration.liveness.device.mock.MockFrameSource;
 import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
 import io.mosip.registration.liveness.device.util.PreviewFrameSource;
-import io.mosip.registration.liveness.engine.HeuristicFaceAnalyzer;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -50,11 +52,14 @@ import java.util.concurrent.TimeUnit;
  * Debug and demo window for the whole liveness pipeline (Part 1 plan, week 2): live preview with the detected
  * face box, the current liveness event and prompt, challenge progress, the analyzer's liveness score, and the
  * result, with Start / Retry / Cancel. Frames come from {@link MockFrameSource} (webcam, recorded video or images),
- * analysis from {@link HeuristicFaceAnalyzer} (the Part 2 stand-in until the ONNX analyzer is ready), decisions
- * from the real Part 3 engine ({@link DefaultLivenessService}).
+ * analysis from Part 2's ONNX analyzer ({@link OnnxFaceAnalyzerFactory}: YuNet, FaceMesh V2 and MiniFASNet PAD from
+ * the signed model bundle) or, with {@code --analyzer heuristic} or {@code -D}{@value #ANALYZER_PROPERTY}{@code =heuristic},
+ * the earlier heuristic stand-in ({@link HeuristicFaceAnalyzer}), decisions from the real Part 3 engine
+ * ({@link DefaultLivenessService}).
  *
  * <pre>
- * LivenessHarness webcam [fps]            [--workflow RESIDENT|OPERATOR|SUPERVISOR] [--diagnostic] [--headless]
+ * LivenessHarness webcam [fps]            [--workflow RESIDENT|OPERATOR|SUPERVISOR] [--analyzer onnx|heuristic]
+ *                                         [--diagnostic] [--headless]
  * LivenessHarness video  &lt;file.mjpeg&gt; [fps] [...]
  * LivenessHarness images &lt;fileOrDir&gt;  [fps] [...]
  * </pre>
@@ -67,7 +72,21 @@ public final class LivenessHarness {
     /** A headless run gives up after this long. */
     static final long HEADLESS_TIMEOUT_SEC = 120;
 
+    /** System property choosing the analyzer: {@code onnx} (default) or {@code heuristic}. */
+    public static final String ANALYZER_PROPERTY = "liveness.analyzer";
+
     private LivenessHarness() {
+    }
+
+    /**
+     * The analyzer factory by name: {@code heuristic} gives the heuristic stand-in, anything else (or null) Part 2's
+     * ONNX analyzer with the bundled, signed models (loaded on the first session). Shared by the E2E tests.
+     */
+    public static FaceAnalyzerFactory analyzerFactory(String name) {
+        if (name != null && "heuristic".equalsIgnoreCase(name.trim())) {
+            return HeuristicFaceAnalyzer::new;
+        }
+        return new OnnxFaceAnalyzerFactory();
     }
 
     public static void main(String[] args) throws Exception {
@@ -91,7 +110,8 @@ public final class LivenessHarness {
         }
         HarnessModel model = new HarnessModel();
         PreviewFrameSource source = new PreviewFrameSource(device);
-        DefaultLivenessService service = service(model, o.diagnostic, o.headless || GraphicsEnvironment.isHeadless());
+        DefaultLivenessService service = service(model, analyzerFactory(o.analyzer), o.diagnostic,
+                o.headless || GraphicsEnvironment.isHeadless());
         if (o.headless || GraphicsEnvironment.isHeadless()) {
             System.exit(runHeadless(service, source, model, o.workflow));
         } else {
@@ -99,7 +119,8 @@ public final class LivenessHarness {
         }
     }
 
-    static DefaultLivenessService service(final HarnessModel model, boolean diagnostic, boolean printAudit) {
+    static DefaultLivenessService service(final HarnessModel model, final FaceAnalyzerFactory analyzers,
+                                          boolean diagnostic, boolean printAudit) {
         final Map<String, String> config = new HashMap<>();
         if (diagnostic) config.put(LivenessPolicy.PREFIX + "default.diagnosticMode", "true");
         DefaultLivenessService.Builder b = DefaultLivenessService.builder()
@@ -109,10 +130,10 @@ public final class LivenessHarness {
                         return config.get(key);
                     }
                 })
-                .analyzerFactory(new io.mosip.registration.liveness.core.session.FaceAnalyzerFactory() {
+                .analyzerFactory(new FaceAnalyzerFactory() {
                     @Override
                     public FaceAnalyzer create() throws LivenessEngineException {
-                        return model.observing(new HeuristicFaceAnalyzer());
+                        return model.observing(analyzers.create());
                     }
                 });
         if (printAudit) {
@@ -350,6 +371,7 @@ public final class LivenessHarness {
         String path;
         double fps = 15.0;
         WorkflowType workflow = WorkflowType.RESIDENT;
+        String analyzer = System.getProperty(ANALYZER_PROPERTY, "onnx");
         boolean diagnostic;
         boolean headless;
 
@@ -368,6 +390,9 @@ public final class LivenessHarness {
                 String a = args[i];
                 if ("--workflow".equals(a) && i + 1 < args.length) {
                     o.workflow = WorkflowType.valueOf(args[++i].toUpperCase(Locale.ROOT));
+                } else if ("--analyzer".equals(a) && i + 1 < args.length) {
+                    o.analyzer = args[++i].toLowerCase(Locale.ROOT);
+                    if (!"onnx".equals(o.analyzer) && !"heuristic".equals(o.analyzer)) return null;
                 } else if ("--diagnostic".equals(a)) {
                     o.diagnostic = true;
                 } else if ("--headless".equals(a)) {
@@ -381,8 +406,9 @@ public final class LivenessHarness {
     }
 
     private static void usage() {
-        System.err.println("Usage: LivenessHarness webcam [fps] [--workflow W] [--diagnostic] [--headless]");
-        System.err.println("       LivenessHarness video  <file.mjpeg> [fps] [--workflow W] [--diagnostic] [--headless]");
-        System.err.println("       LivenessHarness images <fileOrDir>  [fps] [--workflow W] [--diagnostic] [--headless]");
+        System.err.println("Usage: LivenessHarness webcam [fps] [--workflow W] [--analyzer onnx|heuristic] [--diagnostic] [--headless]");
+        System.err.println("       LivenessHarness video  <file.mjpeg> [fps] [--workflow W] [--analyzer A] [--diagnostic] [--headless]");
+        System.err.println("       LivenessHarness images <fileOrDir>  [fps] [--workflow W] [--analyzer A] [--diagnostic] [--headless]");
+        System.err.println("       (-D" + ANALYZER_PROPERTY + "=heuristic also selects the heuristic stand-in; default onnx)");
     }
 }

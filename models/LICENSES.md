@@ -1,0 +1,291 @@
+# Third-party licences for the Part 2 models
+
+The five model files in `models/` are third-party works, redistributed under their original
+licences. **The weights are unmodified apart from format conversion**: we did no retraining,
+fine-tuning, pruning or quantisation.
+- `face_mesh_v2.onnx` was converted from TFLite to ONNX.
+- The two MiniFASNet files were exported from the PyTorch `.pth` weights to ONNX.
+- `yunet_2026may.onnx` and `face_recognition_sface_2021dec_int8.onnx` are byte-identical to upstream. The SFace file
+  is OpenCV Zoo's own int8 quantisation of the 2021dec model, published in the same zoo directory.
+
+The conversions were done by the MOSIP Decode Part 2 team with the scripts in `tools/`. That
+statement is the notice of change required by Apache-2.0 section 4(b) for the three converted files.
+
+| File | Upstream work | Copyright | Licence |
+|---|---|---|---|
+| `yunet_2026may.onnx` | YuNet face detector, [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_detection_yunet) | Copyright (c) 2020 Shiqi Yu | MIT (text below) |
+| `face_mesh_v2.onnx` | MediaPipe FaceMesh V2 (`face_landmarks_detector.tflite` from the Face Landmarker task bundle `face_landmarker/float16/1`), [Google MediaPipe](https://github.com/google-ai-edge/mediapipe) | Copyright The MediaPipe Authors (Google LLC) | Apache-2.0 (text below) |
+| `minifasnet_v2_s2.7.onnx`, `minifasnet_v1se_s4.0.onnx` | MiniFASNetV2 / MiniFASNetV1SE, [Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing/tree/b6d5f04ad78778917853b25c778acef6d5626d15) | Copyright 2020 Minivision | Apache-2.0 (text below) |
+| `face_recognition_sface_2021dec_int8.onnx` | SFace face recognition (MobileFaceNet trained with the SFace loss), int8 quantised by OpenCV Zoo, [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/26cc381e4d2594bb9f47a26eb8fd96c94a13660d/models/face_recognition_sface); contributed by Yaoyao Zhong, ONNX conversion by Chengrui Wang | No copyright holder named (the zoo's LICENSE keeps the Apache template line "Copyright [yyyy] [name of copyright owner]") | Apache-2.0: the directory's own `LICENSE`, and its README says "All files in this directory are licensed under Apache 2.0 License" |
+| `tools/third_party/silent_face/MiniFASNet.py` | Silent-Face-Anti-Spoofing `src/model_lib/MiniFASNet.py`, unmodified | Copyright 2020 Minivision | Apache-2.0; see the `LICENSE` and `NOTICE` files in that directory |
+
+## Attribution
+
+- **Silent-Face-Anti-Spoofing (Minivision).** This product includes the MiniFASNetV2 and
+  MiniFASNetV1SE anti-spoofing models and model definition from Silent-Face-Anti-Spoofing by
+  Minivision (https://github.com/minivision-ai/Silent-Face-Anti-Spoofing), licensed under the
+  Apache License 2.0. The upstream repository has no NOTICE file.
+- **MediaPipe (Google).** This product includes the MediaPipe FaceMesh V2 landmark model
+  (`face_landmarks_detector.tflite` from the Face Landmarker task bundle) by Google
+  (https://github.com/google-ai-edge/mediapipe), licensed under the Apache License 2.0. The
+  other files in that bundle (face detector, blendshapes, geometry metadata) are not used or
+  redistributed.
+- **YuNet (OpenCV Zoo).** This product includes the YuNet face detection model by Shiqi Yu and
+  contributors, distributed through OpenCV Zoo (https://github.com/opencv/opencv_zoo), licensed
+  under the MIT License.
+- **SFace (OpenCV Zoo).** This product includes the SFace face recognition model
+  (`face_recognition_sface_2021dec_int8.onnx`, the zoo's int8 file) by Yaoyao Zhong, distributed through OpenCV Zoo
+  (https://github.com/opencv/opencv_zoo), licensed under the Apache License 2.0. It is used only for face
+  binding (F1): comparing the face that passed liveness with the captured face. Bundle `pad-2026.10.4` shipped the
+  fp32 file of the same directory (`face_recognition_sface_2021dec.onnx`); the provenance below covers both.
+
+  **Provenance of the training data.** The zoo states only that the files are "MobileFaceNet instances
+  trained on the SFace loss function". It does not say which dataset this checkpoint was trained on.
+  - The SFace paper (Zhong et al., IEEE TIP 2021, https://ieeexplore.ieee.org/document/9318547) reports
+    models trained on CASIA-WebFace, VGGFace2 and MS-Celeb-1M.
+  - These are web-scraped collections of celebrity photos. MS-Celeb-1M was withdrawn by Microsoft in
+    2019, and VGGFace2 is no longer distributed by its authors.
+  - The original research repository (https://github.com/zhongyy/SFace) has no licence file. The
+    Apache-2.0 grant comes from the OpenCV Zoo directory the author contributed to.
+
+  The weights are permissively licensed. The training-data provenance should still be reviewed before
+  production use, as for any public face recognition model.
+
+The golden test images under `liveness-analyzer/src/test/resources/golden/` are US-government
+works in the public domain. Their sources are listed in the `README.md` in that directory.
+
+## MIT License (YuNet)
+
+Verbatim from `models/face_detection_yunet/LICENSE` at opencv_zoo commit `26cc381e4d2594bb9f47a26eb8fd96c94a13660d`:
+
+```
+MIT License
+
+Copyright (c) 2020 Shiqi Yu <shiqi.yu@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Apache License 2.0 (MediaPipe, Silent-Face-Anti-Spoofing, SFace)
+
+Verbatim Apache License 2.0 text, as in the MediaPipe repository (`LICENSE` at commit `a908d668c730da128dfa8d9f6bd25d519d006692`):
+
+```
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```

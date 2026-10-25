@@ -1,0 +1,38 @@
+From 7aabc9c8ba18149dd5dff57d3ab08c45bf9605de Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Mon, 26 Oct 2026 01:18:07 +0530
+Subject: [PATCH 34/35] Sync the liveness engine: ModelUpdater (online model
+ update)
+
+Engine jars from Mosip26 a080258 ("ModelUpdater: verified online model
+download"), built at 2b42048 (fix round 4). The analyzer jar adds
+integrity/ModelUpdater: it fetches latest.json and the bundle zip,
+checks the size, SHA-256 and flat entries, and installs with
+ModelStore.install(staged, bundled, keys). It accepts HTTPS only, or
+plain HTTP to localhost with an explicit flag. The models and
+CameraXFrameSource.java are unchanged (same SHA-256).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 1548c2d..6bbc892 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,9 +1,9 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit 9bf9e83
+-libs/liveness-api-1.2.0.2.jar 1a483a6b77665e2fe56cec409036f4272909ee96fda574fa399a681c741646a3
+-libs/liveness-core-1.2.0.2.jar c0928f38456f6a3f979584288ea401c8ef142a307b9cf917bedd545f30fd235e
+-libs/liveness-fake-1.2.0.2.jar 590c214153c3c38ed83ea184ce764a6eef73fd3a4756a31c40476deb6a4e9226
+-libs/liveness-analyzer-1.2.0.2.jar 18caff937cbf1829a70f66b6737b2b29557c625163236d5602a3fbcc933ce153
++engine commit a080258
++libs/liveness-api-1.2.0.2.jar de4092be8feb1a46ddee8ad245f700877d99662d7a3fcd80bbd434d67502c464
++libs/liveness-core-1.2.0.2.jar 94abe7cf86426d0e0d356e8edcdd8785e69a8e29c6e7aa2a1c71ba4bfb21c721
++libs/liveness-fake-1.2.0.2.jar 442494922a2b411093532ea3d5ec05684f2374bc6d663fa8443d626ef1a50dab
++libs/liveness-analyzer-1.2.0.2.jar b957c8e743254030d897d53671bca54f7d28643327198913b142f169fdffa237
+ assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
+ assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
+ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0

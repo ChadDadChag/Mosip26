@@ -64,10 +64,12 @@ To record through a real SBI device or MockMDS instead of a webcam:
 
 It then checks the decision and the error code against the file name.
 
-**Today the analyzer is the Part 1 stand-in (`HeuristicFaceAnalyzer`), which is not a real PAD.**
-- It will pass some attack clips: a static photo scored 1.0 in our check.
-- Expect `print_attack`, `screen_attack` and `replay_attack` clips to fail until Part 2's model is plugged in.
-- Those failures are the PAD gaps the team needs to see. Do not rename the files to make them pass.
+**The analyzer is Part 2's ONNX analyzer** (YuNet, FaceMesh V2 and MiniFASNet PAD from the signed model bundle,
+see `docs/part2-pad-architecture.md`).
+- `-Dliveness.analyzer=heuristic` selects the earlier stand-in (`HeuristicFaceAnalyzer`, now in `liveness-analyzer`),
+  which is not a real PAD: it passes some attack clips (a static photo scored 1.0 in our check).
+- Part 2's evaluation so far is from one subject and has no print attacks yet (`docs/part2-iso30107-evaluation.md`).
+  A failing attack clip is a PAD gap the team needs to see. Do not rename the files to make them pass.
 
 ## Tuning (Part 3)
 

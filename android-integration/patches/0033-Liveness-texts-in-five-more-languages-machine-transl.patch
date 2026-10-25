@@ -1,0 +1,640 @@
+From 4a65ac9e9d936542331d9198e22316f5820f51b1 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Mon, 26 Oct 2026 00:10:06 +0530
+Subject: [PATCH 33/35] Liveness texts in five more languages
+ (machine-translated), right to left
+
+The 44 liveness keys in app_ar, app_fr, app_hi, app_kn and app_ta.arb,
+with the English placeholders. Each file is marked
+"@@x-liveness-translation": "machine-translated; needs native-speaker
+review" (gen-l10n ignores @@ attributes). The translations reuse each
+file's existing terms where they are correct (face, operator,
+supervisor, administrator, retry, left/right, exception); the failure
+texts stay generic.
+
+Right to left (Arabic):
+- The state icons are drawn in a left-to-right Directionality, so the
+  turn arrows keep pointing to the user's physical left and right
+  (Icons.arrow_back and arrow_forward mirror themselves otherwise).
+- The hint, progress and debug-chip paddings are directional.
+
+Debug page: a "UI:" language menu (GlobalProvider.toggleLocale). Without
+a backend the login page offers English only.
+
+Tests:
+- liveness_l10n_test: all 44 keys in the six ARBs with the English
+  placeholders, the note, and every spec key resolving in every locale.
+- liveness_page_locale_test: Arabic (right to left, arrows not
+  mirrored, banner, progress, tips and buttons placed right to left),
+  Hindi, and every state in all six languages without a layout error.
+  The arrow test failed before the fix.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ assets/l10n/app_ar.arb                       |  47 +++++++-
+ assets/l10n/app_fr.arb                       |  47 +++++++-
+ assets/l10n/app_hi.arb                       |  47 +++++++-
+ assets/l10n/app_kn.arb                       |  47 +++++++-
+ assets/l10n/app_ta.arb                       |  47 +++++++-
+ lib/ui/liveness/liveness_debug_page.dart     |  26 ++++
+ lib/ui/liveness/liveness_page.dart           |  18 ++-
+ test/liveness/liveness_l10n_test.dart        |  63 ++++++++++
+ test/liveness/liveness_page_locale_test.dart | 120 +++++++++++++++++++
+ 9 files changed, 452 insertions(+), 10 deletions(-)
+ create mode 100644 test/liveness/liveness_l10n_test.dart
+ create mode 100644 test/liveness/liveness_page_locale_test.dart
+
+diff --git a/assets/l10n/app_ar.arb b/assets/l10n/app_ar.arb
+index c3b216a..614fc30 100644
+--- a/assets/l10n/app_ar.arb
++++ b/assets/l10n/app_ar.arb
+@@ -368,6 +368,51 @@
+   "select_option": "اختر خياراً",
+   "cron_expression": "تعبير كرون",
+   "id": "بطاقة تعريف",
+-  "name": "اسم"
++  "name": "اسم",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "التحقق من حيوية الوجه",
++  "liveness_title_operator": "التحقق من وجه المشغل",
++  "liveness_title_supervisor": "التحقق من وجه المشرف",
++  "liveness_status_starting": "جارٍ بدء التحقق من حيوية الوجه…",
++  "liveness_status_checking": "جارٍ التحقق من حيوية الوجه…",
++  "liveness_status_passed": "جيد، تم التقاط الوجه بنجاح",
++  "liveness_status_cancelled": "تم إلغاء التحقق من حيوية الوجه.",
++  "liveness_challenge_blink": "يرجى رمش عينيك",
++  "liveness_challenge_smile": "يرجى الابتسام",
++  "liveness_challenge_turn_left": "يرجى إدارة رأسك إلى اليسار",
++  "liveness_challenge_turn_right": "يرجى إدارة رأسك إلى اليمين",
++  "liveness_challenge_look_up": "يرجى النظر إلى الأعلى",
++  "liveness_challenge_look_down": "يرجى النظر إلى الأسفل",
++  "liveness_feedback_continue": "يرجى المتابعة",
++  "liveness_feedback_action_detected": "تم اكتشاف الحركة",
++  "liveness_feedback_hold_still": "لا تتحرك",
++  "liveness_guidance_no_face": "لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.",
++  "liveness_guidance_multiple_faces": "يجب أن يظهر شخص واحد فقط.",
++  "liveness_guidance_move_closer": "يرجى الاقتراب أكثر.",
++  "liveness_guidance_move_back": "يرجى الابتعاد قليلًا.",
++  "liveness_guidance_center_face": "يرجى وضع وجهك في وسط الشكل البيضاوي.",
++  "liveness_guidance_improve_lighting": "يرجى تحسين الإضاءة.",
++  "liveness_guidance_hold_steady": "يرجى الثبات.",
++  "liveness_guidance_look_at_camera": "يرجى النظر إلى الكاميرا.",
++  "liveness_error_liveness_not_verified": "تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.",
++  "liveness_error_verification_not_completed": "تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.",
++  "liveness_error_max_attempts_reached": "تعذّر إكمال التحقق من الوجه.",
++  "liveness_error_device_problem": "الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.",
++  "liveness_tips_title": "نصائح:",
++  "liveness_tips_look_at_camera": "انظر مباشرة إلى الكاميرا.",
++  "liveness_tips_face_visible": "تأكد من أن وجهك ظاهر بوضوح.",
++  "liveness_tips_lighting": "حسّن الإضاءة.",
++  "liveness_tips_capture_area": "أبقِ وجهك داخل منطقة الالتقاط.",
++  "liveness_tips_follow_prompt": "نفّذ الحركة المطلوبة.",
++  "liveness_retry_attempts_left": "المحاولات المتبقية: {n}",
++  "liveness_progress_step": "الخطوة {i} من {n}",
++  "liveness_progress_attempt": "المحاولة {a} من {m}",
++  "liveness_recovery_resident": "يرجى الاتصال بالمشرف. يمكن تسجيل المقيم باستخدام إجراء الاستثناء البيومتري.",
++  "liveness_recovery_operator": "يرجى الاتصال بالمسؤول أو المحاولة مرة أخرى لاحقًا.",
++  "liveness_recovery_supervisor": "يرجى الاتصال بالمسؤول.",
++  "liveness_button_retry": "إعادة المحاولة",
++  "liveness_button_cancel": "إلغاء",
++  "liveness_button_close": "إغلاق",
++  "liveness_button_open_settings": "فتح الإعدادات"
+ }
+ 
+diff --git a/assets/l10n/app_fr.arb b/assets/l10n/app_fr.arb
+index 4935d25..0f2398e 100644
+--- a/assets/l10n/app_fr.arb
++++ b/assets/l10n/app_fr.arb
+@@ -368,6 +368,51 @@
+   "select_option": "Sélectionner une option",
+   "cron_expression": "Expression Cron",
+   "id": "IDENTIFIANT",
+-  "name": "Nom"
++  "name": "Nom",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "Test de vivacité du visage",
++  "liveness_title_operator": "Vérification faciale de l'opérateur",
++  "liveness_title_supervisor": "Vérification faciale du superviseur",
++  "liveness_status_starting": "Démarrage du test de vivacité du visage…",
++  "liveness_status_checking": "Vérification de la vivacité du visage…",
++  "liveness_status_passed": "Parfait, visage capturé avec succès",
++  "liveness_status_cancelled": "Test de vivacité du visage annulé.",
++  "liveness_challenge_blink": "Veuillez cligner des yeux",
++  "liveness_challenge_smile": "Veuillez sourire",
++  "liveness_challenge_turn_left": "Veuillez tourner la tête vers la gauche",
++  "liveness_challenge_turn_right": "Veuillez tourner la tête vers la droite",
++  "liveness_challenge_look_up": "Veuillez regarder vers le haut",
++  "liveness_challenge_look_down": "Veuillez regarder vers le bas",
++  "liveness_feedback_continue": "Veuillez continuer",
++  "liveness_feedback_action_detected": "Action détectée",
++  "liveness_feedback_hold_still": "Ne bougez plus",
++  "liveness_guidance_no_face": "Aucun visage détecté. Veuillez regarder la caméra.",
++  "liveness_guidance_multiple_faces": "Une seule personne doit être visible.",
++  "liveness_guidance_move_closer": "Veuillez vous rapprocher.",
++  "liveness_guidance_move_back": "Veuillez reculer.",
++  "liveness_guidance_center_face": "Veuillez centrer votre visage dans l'ovale.",
++  "liveness_guidance_improve_lighting": "Veuillez améliorer l'éclairage.",
++  "liveness_guidance_hold_steady": "Veuillez rester immobile.",
++  "liveness_guidance_look_at_camera": "Veuillez regarder la caméra.",
++  "liveness_error_liveness_not_verified": "Nous n'avons pas pu vérifier la vivacité du visage. Veuillez réessayer.",
++  "liveness_error_verification_not_completed": "La vérification faciale n'a pas pu être effectuée. Veuillez réessayer.",
++  "liveness_error_max_attempts_reached": "La vérification faciale n'a pas pu être effectuée.",
++  "liveness_error_device_problem": "Caméra ou appareil indisponible. Vérifiez la connexion et réessayez.",
++  "liveness_tips_title": "Conseils :",
++  "liveness_tips_look_at_camera": "Regardez directement la caméra.",
++  "liveness_tips_face_visible": "Assurez-vous que votre visage est bien visible.",
++  "liveness_tips_lighting": "Améliorez l'éclairage.",
++  "liveness_tips_capture_area": "Gardez votre visage dans la zone de capture.",
++  "liveness_tips_follow_prompt": "Effectuez l'action demandée.",
++  "liveness_retry_attempts_left": "{n} tentative(s) restante(s)",
++  "liveness_progress_step": "Étape {i} sur {n}",
++  "liveness_progress_attempt": "Tentative {a} sur {m}",
++  "liveness_recovery_resident": "Veuillez contacter le superviseur. Le résident peut être enregistré à l'aide de la procédure d'exception biométrique.",
++  "liveness_recovery_operator": "Veuillez contacter votre administrateur ou réessayer plus tard.",
++  "liveness_recovery_supervisor": "Veuillez contacter votre administrateur.",
++  "liveness_button_retry": "Réessayer",
++  "liveness_button_cancel": "Annuler",
++  "liveness_button_close": "Fermer",
++  "liveness_button_open_settings": "Ouvrir les paramètres"
+ }
+ 
+diff --git a/assets/l10n/app_hi.arb b/assets/l10n/app_hi.arb
+index fc09a47..8702af9 100644
+--- a/assets/l10n/app_hi.arb
++++ b/assets/l10n/app_hi.arb
+@@ -368,5 +368,50 @@
+   "select_option": "विकल्प चुनें",
+   "cron_expression": "क्रोन एक्सप्रेशन",
+   "id": "आईडी",
+-  "name": "नाम"
++  "name": "नाम",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "चेहरे की जीवंतता जाँच",
++  "liveness_title_operator": "ऑपरेटर का चेहरा सत्यापन",
++  "liveness_title_supervisor": "पर्यवेक्षक का चेहरा सत्यापन",
++  "liveness_status_starting": "चेहरे की जीवंतता जाँच शुरू हो रही है…",
++  "liveness_status_checking": "चेहरे की जीवंतता जाँची जा रही है…",
++  "liveness_status_passed": "बढ़िया, चेहरा सफलतापूर्वक कैप्चर हो गया",
++  "liveness_status_cancelled": "चेहरे की जीवंतता जाँच रद्द कर दी गई।",
++  "liveness_challenge_blink": "कृपया पलकें झपकाएँ",
++  "liveness_challenge_smile": "कृपया मुस्कुराएँ",
++  "liveness_challenge_turn_left": "कृपया अपना सिर बाईं ओर घुमाएँ",
++  "liveness_challenge_turn_right": "कृपया अपना सिर दाईं ओर घुमाएँ",
++  "liveness_challenge_look_up": "कृपया ऊपर देखें",
++  "liveness_challenge_look_down": "कृपया नीचे देखें",
++  "liveness_feedback_continue": "कृपया जारी रखें",
++  "liveness_feedback_action_detected": "क्रिया पहचानी गई",
++  "liveness_feedback_hold_still": "हिलें नहीं",
++  "liveness_guidance_no_face": "कोई चेहरा नहीं पहचाना गया। कृपया कैमरे की ओर देखें।",
++  "liveness_guidance_multiple_faces": "केवल एक व्यक्ति दिखाई देना चाहिए।",
++  "liveness_guidance_move_closer": "कृपया थोड़ा पास आएँ।",
++  "liveness_guidance_move_back": "कृपया थोड़ा पीछे हटें।",
++  "liveness_guidance_center_face": "कृपया अपना चेहरा अंडाकार के बीच में रखें।",
++  "liveness_guidance_improve_lighting": "कृपया रोशनी बेहतर करें।",
++  "liveness_guidance_hold_steady": "कृपया स्थिर रहें।",
++  "liveness_guidance_look_at_camera": "कृपया कैमरे की ओर देखें।",
++  "liveness_error_liveness_not_verified": "हम चेहरे की जीवंतता सत्यापित नहीं कर सके। कृपया पुनः प्रयास करें।",
++  "liveness_error_verification_not_completed": "चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।",
++  "liveness_error_max_attempts_reached": "चेहरा सत्यापन पूरा नहीं हो सका।",
++  "liveness_error_device_problem": "कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।",
++  "liveness_tips_title": "सुझाव:",
++  "liveness_tips_look_at_camera": "सीधे कैमरे की ओर देखें।",
++  "liveness_tips_face_visible": "सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।",
++  "liveness_tips_lighting": "रोशनी बेहतर करें।",
++  "liveness_tips_capture_area": "अपना चेहरा कैप्चर क्षेत्र के भीतर रखें।",
++  "liveness_tips_follow_prompt": "बताई गई क्रिया करें।",
++  "liveness_retry_attempts_left": "शेष प्रयास: {n}",
++  "liveness_progress_step": "चरण {i} / {n}",
++  "liveness_progress_attempt": "प्रयास {a} / {m}",
++  "liveness_recovery_resident": "कृपया पर्यवेक्षक से संपर्क करें। निवासी का पंजीकरण बायोमेट्रिक अपवाद प्रक्रिया से किया जा सकता है।",
++  "liveness_recovery_operator": "कृपया अपने व्यवस्थापक से संपर्क करें या बाद में पुनः प्रयास करें।",
++  "liveness_recovery_supervisor": "कृपया अपने व्यवस्थापक से संपर्क करें।",
++  "liveness_button_retry": "पुनः प्रयास करें",
++  "liveness_button_cancel": "रद्द करें",
++  "liveness_button_close": "बंद करें",
++  "liveness_button_open_settings": "सेटिंग्स खोलें"
+ }
+diff --git a/assets/l10n/app_kn.arb b/assets/l10n/app_kn.arb
+index 29bc909..ce8a2c1 100644
+--- a/assets/l10n/app_kn.arb
++++ b/assets/l10n/app_kn.arb
+@@ -368,5 +368,50 @@
+   "select_option": "ಆಯ್ಕೆಯನ್ನು ಆರಿಸಿ",
+   "cron_expression": "ಕ್ರಾನ್ ಎಕ್ಸ್‌ಪ್ರೆಶನ್",
+   "id": "ID",
+-  "name": "ಹೆಸರು"
++  "name": "ಹೆಸರು",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ",
++  "liveness_title_operator": "ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ",
++  "liveness_title_supervisor": "ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ",
++  "liveness_status_starting": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…",
++  "liveness_status_checking": "ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…",
++  "liveness_status_passed": "ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ",
++  "liveness_status_cancelled": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.",
++  "liveness_challenge_blink": "ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ",
++  "liveness_challenge_smile": "ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ",
++  "liveness_challenge_turn_left": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಎಡಕ್ಕೆ ತಿರುಗಿಸಿ",
++  "liveness_challenge_turn_right": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಬಲಕ್ಕೆ ತಿರುಗಿಸಿ",
++  "liveness_challenge_look_up": "ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ",
++  "liveness_challenge_look_down": "ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ",
++  "liveness_feedback_continue": "ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ",
++  "liveness_feedback_action_detected": "ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ",
++  "liveness_feedback_hold_still": "ಅಲುಗಾಡಬೇಡಿ",
++  "liveness_guidance_no_face": "ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
++  "liveness_guidance_multiple_faces": "ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.",
++  "liveness_guidance_move_closer": "ದಯವಿಟ್ಟು ಹತ್ತಿರ ಬನ್ನಿ.",
++  "liveness_guidance_move_back": "ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಹಿಂದೆ ಸರಿಯಿರಿ.",
++  "liveness_guidance_center_face": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಮುಖವನ್ನು ಅಂಡಾಕಾರದ ಮಧ್ಯದಲ್ಲಿ ಇರಿಸಿ.",
++  "liveness_guidance_improve_lighting": "ದಯವಿಟ್ಟು ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.",
++  "liveness_guidance_hold_steady": "ದಯವಿಟ್ಟು ಸ್ಥಿರವಾಗಿರಿ.",
++  "liveness_guidance_look_at_camera": "ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
++  "liveness_error_liveness_not_verified": "ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_error_verification_not_completed": "ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_error_max_attempts_reached": "ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.",
++  "liveness_error_device_problem": "ಕ್ಯಾಮರಾ/ಸಾಧನ ಲಭ್ಯವಿಲ್ಲ. ಸಂಪರ್ಕವನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_tips_title": "ಸಲಹೆಗಳು:",
++  "liveness_tips_look_at_camera": "ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
++  "liveness_tips_face_visible": "ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.",
++  "liveness_tips_lighting": "ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.",
++  "liveness_tips_capture_area": "ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.",
++  "liveness_tips_follow_prompt": "ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.",
++  "liveness_retry_attempts_left": "ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {n}",
++  "liveness_progress_step": "ಹಂತ {i} / {n}",
++  "liveness_progress_attempt": "ಪ್ರಯತ್ನ {a} / {m}",
++  "liveness_recovery_resident": "ದಯವಿಟ್ಟು ಮೇಲ್ವಿಚಾರಕರನ್ನು ಸಂಪರ್ಕಿಸಿ. ಬಯೋಮೆಟ್ರಿಕ್ ವಿನಾಯಿತಿ ಪ್ರಕ್ರಿಯೆಯ ಮೂಲಕ ನಿವಾಸಿಯನ್ನು ನೋಂದಾಯಿಸಬಹುದು.",
++  "liveness_recovery_operator": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ ಅಥವಾ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_recovery_supervisor": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ.",
++  "liveness_button_retry": "ಮರುಪ್ರಯತ್ನಿಸಿ",
++  "liveness_button_cancel": "ರದ್ದುಮಾಡಿ",
++  "liveness_button_close": "ಮುಚ್ಚಿ",
++  "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ"
+ }
+diff --git a/assets/l10n/app_ta.arb b/assets/l10n/app_ta.arb
+index 12ecdf7..f909d13 100644
+--- a/assets/l10n/app_ta.arb
++++ b/assets/l10n/app_ta.arb
+@@ -377,5 +377,50 @@
+   "select_option": "விருப்பத்தைத் தேர்ந்தெடுக்கவும்",
+   "cron_expression": "கிரான் வெளிப்பாடு",
+   "id": "ஐடி",
+-  "name": "பெயர்"
++  "name": "பெயர்",
++  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "liveness_title_resident": "முக உயிர்ப்புச் சரிபார்ப்பு",
++  "liveness_title_operator": "ஆபரேட்டர் முக சரிபார்ப்பு",
++  "liveness_title_supervisor": "மேற்பார்வையாளர் முக சரிபார்ப்பு",
++  "liveness_status_starting": "முக உயிர்ப்புச் சரிபார்ப்பு தொடங்குகிறது…",
++  "liveness_status_checking": "முக உயிர்ப்பு சரிபார்க்கப்படுகிறது…",
++  "liveness_status_passed": "நன்று, முகம் வெற்றிகரமாகப் படம்பிடிக்கப்பட்டது",
++  "liveness_status_cancelled": "முக உயிர்ப்புச் சரிபார்ப்பு ரத்துசெய்யப்பட்டது.",
++  "liveness_challenge_blink": "தயவுசெய்து கண் சிமிட்டவும்",
++  "liveness_challenge_smile": "தயவுசெய்து புன்னகைக்கவும்",
++  "liveness_challenge_turn_left": "தயவுசெய்து உங்கள் தலையை இடது பக்கம் திருப்பவும்",
++  "liveness_challenge_turn_right": "தயவுசெய்து உங்கள் தலையை வலது பக்கம் திருப்பவும்",
++  "liveness_challenge_look_up": "தயவுசெய்து மேலே பார்க்கவும்",
++  "liveness_challenge_look_down": "தயவுசெய்து கீழே பார்க்கவும்",
++  "liveness_feedback_continue": "தயவுசெய்து தொடரவும்",
++  "liveness_feedback_action_detected": "செயல் கண்டறியப்பட்டது",
++  "liveness_feedback_hold_still": "அசையாதீர்கள்",
++  "liveness_guidance_no_face": "முகம் எதுவும் கண்டறியப்படவில்லை. தயவுசெய்து கேமராவைப் பார்க்கவும்.",
++  "liveness_guidance_multiple_faces": "ஒருவர் மட்டுமே தெரிய வேண்டும்.",
++  "liveness_guidance_move_closer": "தயவுசெய்து அருகில் வரவும்.",
++  "liveness_guidance_move_back": "தயவுசெய்து சற்றுப் பின்னால் நகரவும்.",
++  "liveness_guidance_center_face": "தயவுசெய்து உங்கள் முகத்தை நீள்வட்டத்தின் நடுவில் வைக்கவும்.",
++  "liveness_guidance_improve_lighting": "தயவுசெய்து வெளிச்சத்தை மேம்படுத்தவும்.",
++  "liveness_guidance_hold_steady": "தயவுசெய்து நிலையாக இருக்கவும்.",
++  "liveness_guidance_look_at_camera": "தயவுசெய்து கேமராவைப் பார்க்கவும்.",
++  "liveness_error_liveness_not_verified": "முக உயிர்ப்பைச் சரிபார்க்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
++  "liveness_error_verification_not_completed": "முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
++  "liveness_error_max_attempts_reached": "முக சரிபார்ப்பை முடிக்க முடியவில்லை.",
++  "liveness_error_device_problem": "கேமரா/சாதனம் கிடைக்கவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.",
++  "liveness_tips_title": "குறிப்புகள்:",
++  "liveness_tips_look_at_camera": "நேரடியாக கேமராவைப் பார்க்கவும்.",
++  "liveness_tips_face_visible": "உங்கள் முகம் தெளிவாகத் தெரிவதை உறுதிசெய்யவும்.",
++  "liveness_tips_lighting": "வெளிச்சத்தை மேம்படுத்தவும்.",
++  "liveness_tips_capture_area": "உங்கள் முகத்தைப் படம்பிடிப்புப் பகுதிக்குள் வைத்திருக்கவும்.",
++  "liveness_tips_follow_prompt": "கேட்கப்படும் செயலைச் செய்யவும்.",
++  "liveness_retry_attempts_left": "மீதமுள்ள முயற்சிகள்: {n}",
++  "liveness_progress_step": "படி {i} / {n}",
++  "liveness_progress_attempt": "முயற்சி {a} / {m}",
++  "liveness_recovery_resident": "தயவுசெய்து மேற்பார்வையாளரைத் தொடர்பு கொள்ளவும். பயோமெட்ரிக் விதிவிலக்கு செயல்முறையைப் பயன்படுத்தி குடியிருப்பாளரைப் பதிவு செய்யலாம்.",
++  "liveness_recovery_operator": "உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும் அல்லது பின்னர் மீண்டும் முயற்சிக்கவும்.",
++  "liveness_recovery_supervisor": "உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும்.",
++  "liveness_button_retry": "மீண்டும் முயற்சிக்கவும்",
++  "liveness_button_cancel": "ரத்துசெய்",
++  "liveness_button_close": "மூடு",
++  "liveness_button_open_settings": "அமைப்புகளைத் திற"
+ }
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index 8426b3a..19524ad 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -10,8 +10,10 @@ import 'dart:async';
+ import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
++import 'package:provider/provider.dart';
+ import 'package:registration_client/pigeon/liveness_pigeon.dart';
+ import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/provider/global_provider.dart';
+ import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/ui/liveness/liveness_page.dart';
+ 
+@@ -54,6 +56,16 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+     'LOOK_DOWN',
+   ];
+   static const List<String> _workflows = ['RESIDENT', 'OPERATOR', 'SUPERVISOR'];
++  // The app's languages (languageCodeToLocale). Without a backend the login page offers English only,
++  // so this switches the app language for checking the liveness texts (until the app restarts).
++  static const Map<String, String> _uiLanguages = {
++    'eng': 'English',
++    'ara': 'العربية',
++    'fra': 'Français',
++    'hin': 'हिंदी',
++    'kan': 'ಕನ್ನಡ',
++    'tam': 'தமிழ்',
++  };
+   static const List<String> _fakeScenarios = [
+     'PASS_PASSIVE',
+     'PASS_ACTIVE',
+@@ -547,6 +559,20 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+                 ],
+                 onChanged: _running ? null : (f) => setState(() => _fake = f!),
+               ),
++              DropdownButton<String>(
++                value: _uiLanguages.containsKey(context.watch<GlobalProvider>().selectedLanguage)
++                    ? context.watch<GlobalProvider>().selectedLanguage
++                    : 'eng',
++                items: _uiLanguages.entries
++                    .map((e) => DropdownMenuItem(value: e.key, child: Text('UI: ${e.value}')))
++                    .toList(),
++                onChanged: _running
++                    ? null
++                    : (code) {
++                        context.read<GlobalProvider>().toggleLocale(code!);
++                        _addLog('app language: $code');
++                      },
++              ),
+               if (_fake)
+                 DropdownButton<String>(
+                   value: _fakeScenario,
+diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
+index f91a2ef..9508ad6 100644
+--- a/lib/ui/liveness/liveness_page.dart
++++ b/lib/ui/liveness/liveness_page.dart
+@@ -255,7 +255,7 @@ class _LivenessPageState extends State<LivenessPage> {
+           actions: [
+             if (kDebugMode && _debugModel.isNotEmpty)
+               Padding(
+-                padding: const EdgeInsets.only(right: 8),
++                padding: const EdgeInsetsDirectional.only(end: 8),
+                 child: Center(
+                   child: Chip(
+                     visualDensity: VisualDensity.compact,
+@@ -340,7 +340,7 @@ class _LivenessPageState extends State<LivenessPage> {
+                     shape: BoxShape.circle,
+                     border: Border.all(color: Colors.white, width: 2),
+                   ),
+-                  child: Icon(_iconData(s.icon), color: Colors.white, size: 26),
++                  child: _stateIcon(s.icon, color: Colors.white, size: 26),
+                 ),
+               ),
+             ),
+@@ -363,7 +363,7 @@ class _LivenessPageState extends State<LivenessPage> {
+         ),
+         child: Row(
+           children: [
+-            ExcludeSemantics(child: Icon(_iconData(s.icon), color: tone, size: 32)),
++            ExcludeSemantics(child: _stateIcon(s.icon, color: tone, size: 32)),
+             const SizedBox(width: 12),
+             Expanded(
+               child: Text(
+@@ -388,7 +388,7 @@ class _LivenessPageState extends State<LivenessPage> {
+           children: [
+             if (s.hintIsGuidance)
+               Padding(
+-                padding: const EdgeInsets.only(right: 8),
++                padding: const EdgeInsetsDirectional.only(end: 8),
+                 child: Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
+               ),
+             Expanded(
+@@ -408,7 +408,7 @@ class _LivenessPageState extends State<LivenessPage> {
+         children: [
+           if (s.stepCount > 0)
+             Padding(
+-              padding: const EdgeInsets.only(right: 12),
++              padding: const EdgeInsetsDirectional.only(end: 12),
+               child: Text(
+                 livenessText(l, 'liveness.progress.step', i: s.stepIndex, n: s.stepCount),
+                 style: const TextStyle(fontSize: 16),
+@@ -497,6 +497,14 @@ class _LivenessPageState extends State<LivenessPage> {
+     }
+   }
+ 
++  /// The state icon, never mirrored in a right-to-left language: the turn arrows show
++  /// the user's physical left and right, the same in every language.
++  static Widget _stateIcon(LivenessIcon icon, {required Color color, required double size}) =>
++      Directionality(
++        textDirection: TextDirection.ltr,
++        child: Icon(_iconData(icon), color: color, size: size),
++      );
++
+   static IconData _iconData(LivenessIcon icon) {
+     switch (icon) {
+       case LivenessIcon.camera:
+diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
+new file mode 100644
+index 0000000..3dc21e8
+--- /dev/null
++++ b/test/liveness/liveness_l10n_test.dart
+@@ -0,0 +1,63 @@
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:flutter/widgets.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
++
++/// The liveness strings in every ARB: all 44 keys, the English placeholders, and the
++/// machine-translation note in each translated file.
++void main() {
++  const languages = ['ar', 'fr', 'hi', 'kn', 'ta'];
++  final placeholder = RegExp(r'\{(\w+)\}');
++
++  Map<String, dynamic> arb(String lang) =>
++      jsonDecode(File('assets/l10n/app_$lang.arb').readAsStringSync()) as Map<String, dynamic>;
++
++  final en = arb('en');
++  final keys = en.keys.where((k) => k.startsWith('liveness_')).toList();
++
++  List<String> placeholders(String text) =>
++      placeholder.allMatches(text).map((m) => m.group(1)!).toList()..sort();
++
++  test('English has the 44 liveness keys', () {
++    expect(keys, hasLength(44));
++  });
++
++  for (final lang in languages) {
++    test('$lang: all 44 liveness keys, with the English placeholders', () {
++      final a = arb(lang);
++      final missing = keys.where((k) => !a.containsKey(k)).toList();
++      expect(missing, isEmpty, reason: 'untranslated liveness keys in app_$lang.arb');
++      for (final k in keys) {
++        final value = a[k] as String;
++        expect(value.trim(), isNotEmpty, reason: '$lang $k');
++        expect(placeholders(value), placeholders(en[k] as String), reason: '$lang $k');
++      }
++      expect(a.keys.where((k) => k.startsWith('liveness_')), hasLength(44), reason: 'no extra keys');
++    });
++
++    test('$lang: marked as machine-translated', () {
++      expect(arb(lang)['@@x-liveness-translation'], 'machine-translated; needs native-speaker review');
++    });
++  }
++
++  test('every locale resolves every spec key, with placeholders filled', () async {
++    final specKeys = keys.map((k) {
++      final parts = k.split('_');
++      return 'liveness.${parts[1]}.${parts.sublist(2).join('_')}';
++    }).toList();
++    for (final lang in ['en', ...languages]) {
++      final l = await AppLocalizations.delegate.load(Locale(lang));
++      for (final key in specKeys) {
++        final text = livenessText(l, key, i: 1, n: 2, a: 3, m: 4);
++        expect(text, isNot(key), reason: '$lang $key has no mapping');
++        expect(text, isNot(contains('{')), reason: '$lang $key: unfilled placeholder');
++      }
++      expect(livenessText(l, 'liveness.progress.step', i: 1, n: 2), allOf(contains('1'), contains('2')));
++      expect(livenessText(l, 'liveness.progress.attempt', a: 3, m: 4), allOf(contains('3'), contains('4')));
++      expect(livenessText(l, 'liveness.retry.attempts_left', n: 2), contains('2'));
++    }
++  });
++}
+diff --git a/test/liveness/liveness_page_locale_test.dart b/test/liveness/liveness_page_locale_test.dart
+new file mode 100644
+index 0000000..fe2a49b
+--- /dev/null
++++ b/test/liveness/liveness_page_locale_test.dart
+@@ -0,0 +1,120 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++
++import 'fake_liveness_service.dart';
++
++/// LivenessPage in Arabic (right to left), in Hindi, and in every language of the client.
++void main() {
++  late FakeLivenessService service;
++
++  setUp(() => service = FakeLivenessService());
++
++  Future<void> open(WidgetTester tester, String lang) async {
++    await tester.binding.setSurfaceSize(const Size(411, 891)); // a phone in portrait
++    addTearDown(() => tester.binding.setSurfaceSize(null));
++    await tester.pumpWidget(MaterialApp(
++      locale: Locale(lang),
++      localizationsDelegates: AppLocalizations.localizationsDelegates,
++      supportedLocales: AppLocalizations.supportedLocales,
++      home: LivenessPage(
++        workflow: 'RESIDENT',
++        service: service,
++        previewBuilder: () => const ColoredBox(color: Colors.grey),
++      ),
++    ));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400)); // the start-up calls
++  }
++
++  Future<void> send(WidgetTester tester, Map<String, Object?> m) async {
++    service.emit(m);
++    await tester.pump();
++    await tester.pump();
++  }
++
++  Finder stateIcon(IconData icon, double size) =>
++      find.byWidgetPredicate((w) => w is Icon && w.icon == icon && w.size == size);
++
++  void expectNotMirrored(WidgetTester tester, IconData icon) {
++    final icons = find.byIcon(icon);
++    expect(icons, findsNWidgets(2), reason: 'the oval badge and the status banner');
++    for (final e in icons.evaluate()) {
++      expect(Directionality.of(e), TextDirection.ltr);
++    }
++    // Icon paints a mirrored glyph through a Transform (matchTextDirection in a right-to-left context).
++    expect(find.descendant(of: icons, matching: find.byType(Transform)), findsNothing);
++  }
++
++  testWidgets('Arabic: right to left, and the turn arrows keep the user\'s physical direction', (tester) async {
++    await open(tester, 'ar');
++    expect(find.text('التحقق من حيوية الوجه'), findsOneWidget);
++    await send(tester, ev('STARTED'));
++    expect(find.text('المحاولة 1 من 4'), findsOneWidget);
++
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 1, count: 2));
++    final prompt = find.text('يرجى إدارة رأسك إلى اليسار');
++    expect(prompt, findsOneWidget);
++    expect(Directionality.of(tester.element(prompt)), TextDirection.rtl);
++    expectNotMirrored(tester, Icons.arrow_back);
++    // Right to left: the banner icon sits right of its text, the step text right of the progress bar.
++    expect(tester.getCenter(stateIcon(Icons.arrow_back, 32)).dx, greaterThan(tester.getCenter(prompt).dx));
++    expect(tester.getCenter(find.text('الخطوة 1 من 2')).dx,
++        greaterThan(tester.getCenter(find.byType(LinearProgressIndicator)).dx));
++
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_RIGHT', index: 2, count: 2));
++    expect(find.text('يرجى إدارة رأسك إلى اليمين'), findsOneWidget);
++    expectNotMirrored(tester, Icons.arrow_forward);
++
++    await send(tester, ev('ATTEMPT_FAILED',
++        error: 'CHALLENGE_TIMEOUT', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 2));
++    expect(find.text('تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.'), findsOneWidget);
++    expect(find.text('المحاولات المتبقية: 2'), findsOneWidget);
++    expect(find.text('نصائح:'), findsOneWidget);
++    // The tips start at the right edge; Retry (first) is right of Cancel.
++    final tip = find.textContaining('انظر مباشرة إلى الكاميرا.');
++    await tester.ensureVisible(tip);
++    await tester.pump();
++    expect(tester.getTopRight(tip).dx, greaterThan(411 - 16 - 1));
++    expect(tester.getCenter(find.text('إعادة المحاولة')).dx, greaterThan(tester.getCenter(find.text('إلغاء')).dx));
++  });
++
++  testWidgets('Hindi: the strings, left to right', (tester) async {
++    await open(tester, 'hi');
++    expect(find.text('चेहरे की जीवंतता जाँच'), findsOneWidget);
++    await send(tester, ev('STARTED'));
++    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
++    final prompt = find.text('कृपया पलकें झपकाएँ');
++    expect(prompt, findsOneWidget);
++    expect(Directionality.of(tester.element(prompt)), TextDirection.ltr);
++    expect(find.text('चरण 1 / 2'), findsOneWidget);
++    expect(find.text('प्रयास 1 / 4'), findsOneWidget);
++    expect(find.text('रद्द करें'), findsOneWidget);
++
++    await send(tester, ev('ATTEMPT_FAILED',
++        error: 'PAD_FAILURE', userMessage: 'VERIFICATION_NOT_COMPLETED', retriesLeft: 2));
++    expect(find.text('चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।'), findsOneWidget);
++    expect(find.text('शेष प्रयास: 2'), findsOneWidget);
++    expect(find.text('सुझाव:'), findsNothing, reason: 'no tips after a generic failure');
++    expect(find.text('पुनः प्रयास करें'), findsOneWidget);
++  });
++
++  for (final lang in ['en', 'ar', 'fr', 'hi', 'kn', 'ta']) {
++    testWidgets('$lang: every state renders without a layout error', (tester) async {
++      await open(tester, lang);
++      await send(tester, ev('STARTED'));
++      await send(tester, ev('CHECKING_PASSIVE'));
++      await send(tester, ev('GUIDANCE', guidance: 'CENTER_FACE'));
++      await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 1, count: 2));
++      await send(tester, ev('CHALLENGE_PROGRESS', challenge: 'TURN_LEFT', index: 1, count: 2, progress: 0.5));
++      await send(tester, ev('ATTEMPT_FAILED',
++          error: 'CHALLENGE_TIMEOUT', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 2));
++      await send(tester, ev('FAILED_FINAL',
++          attempt: 4, error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED', recoverable: false));
++      await send(tester, complete('FAILED', failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED'));
++      expect(tester.takeException(), isNull);
++      expect(find.byType(ElevatedButton), findsOneWidget, reason: 'Close');
++    });
++  }
++}

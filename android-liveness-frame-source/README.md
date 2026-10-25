@@ -50,6 +50,11 @@ contract the Desktop `SbiStreamFrameSource` and `MockFrameSource` implement.
   challenges; 0 = unlimited) skips, before conversion, frames whose camera timestamp is less than
   1/maxDeliverFps (less 10% for jitter) after the last delivered frame. A 30 fps camera then delivers
   15 fps and converts half the frames. It applies after `frameStride`; skips are gaps in the sequence.
+- **Exposure assist** (dim faces, on by default, `setExposureAssist(false)` turns it off): the mean luma of
+  the face region (centre 40% x 50% of the upright frame) is read from the already-copied Y plane of each
+  delivered frame. Below about 70 for 1 s, the camera's exposure compensation steps up (at most every 500 ms,
+  up to the camera's maximum); above about 150 it steps back toward 0; `stop()` resets it to 0. Cameras without
+  exposure compensation are untouched. The debug timing line shows the luma and the index.
 - **Rotation**: each frame is rotated by `ImageProxy.getImageInfo().getRotationDegrees()`
   while converting, so faces arrive upright (width and height swap at 90/270). Frames are not
   mirrored: front-camera previews often are, but the analysis frames are not. Left/right

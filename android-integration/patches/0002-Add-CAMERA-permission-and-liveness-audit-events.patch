@@ -1,0 +1,59 @@
+From 2e0869a4bae32538ccd66b3a62f7f1c952316efc Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 17:48:31 +0530
+Subject: [PATCH 02/35] Add CAMERA permission and liveness audit events
+
+- AndroidManifest: android.permission.CAMERA (asked for at runtime before a
+  liveness session) and android.hardware.camera.any with required=false, so
+  devices without a camera can still install the client.
+- AuditEvent: nine LIVENESS_* events in the free REG-EVT-009..017 block, one
+  per liveness engine AuditSink.Event (STARTED, PASSED, ATTEMPT_FAILED,
+  FAILED_FINAL, PAD_ATTACK_SUSPECTED, DEVICE_ERROR, MODEL_LOADED,
+  MODEL_INTEGRITY_FAILED, CONFIG_LOADED). The REG-EVT prefix makes
+  AuditManagerServiceImpl use the RID as the reference during a
+  registration. The engine's details are appended to the description.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/app/src/main/AndroidManifest.xml            |  3 +++
+ .../clientmanager/constant/AuditEvent.java          | 13 ++++++++++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index 7004ae5..906e1d9 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -16,6 +16,9 @@
+     <!-- GPS Location Permissions -->
+     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
++    <!-- Face liveness: the in-app camera (CameraX); asked for at runtime before a session -->
++    <uses-permission android:name="android.permission.CAMERA" />
++    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+     <application
+         android:label="Registration Client"
+         android:name="${applicationName}"
+diff --git a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
+index 921e4d4..4a214af 100644
+--- a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
++++ b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/constant/AuditEvent.java
+@@ -191,7 +191,18 @@ public enum AuditEvent {
+     BIO_SDK_QUALITY_SCORE_FAILED("REG-EVT-094", SYSTEM_EVENT.getCode(), "BIO_SDK_QUALITY_SCORE_FAILED", "Unable to fetch SDK quality score"),
+     BIO_SDK_FILES_NOT_FOUND("REG-EVT-095", SYSTEM_EVENT.getCode(), "BIO_SDK_FILES_NOT_FOUND", "No biometric SDK files found in assets"),
+     BIO_SDK_PROVIDER_REGISTERED("REG-EVT-096", SYSTEM_EVENT.getCode(), "BIO_SDK_PROVIDER_REGISTERED", "Biometric SDK provider registered"),
+-    BIO_SDK_DEDUPE_MATCH("REG-EVT-097", SYSTEM_EVENT.getCode(), "BIO_SDK_DEDUPE_MATCH", "Biometric data matched with existing operator biometrics");
++    BIO_SDK_DEDUPE_MATCH("REG-EVT-097", SYSTEM_EVENT.getCode(), "BIO_SDK_DEDUPE_MATCH", "Biometric data matched with existing operator biometrics"),
++
++    // Face liveness: one per liveness engine AuditSink.Event; the engine's details are appended as key=value;...
++    LIVENESS_STARTED("REG-EVT-009", USER_EVENT.getCode(), "LIVENESS_STARTED", "Face liveness: session started"),
++    LIVENESS_PASSED("REG-EVT-010", USER_EVENT.getCode(), "LIVENESS_PASSED", "Face liveness: passed"),
++    LIVENESS_ATTEMPT_FAILED("REG-EVT-011", USER_EVENT.getCode(), "LIVENESS_ATTEMPT_FAILED", "Face liveness: attempt failed"),
++    LIVENESS_FAILED_FINAL("REG-EVT-012", USER_EVENT.getCode(), "LIVENESS_FAILED_FINAL", "Face liveness: failed, no attempts left"),
++    LIVENESS_PAD_ATTACK_SUSPECTED("REG-EVT-013", SYSTEM_EVENT.getCode(), "LIVENESS_PAD_ATTACK_SUSPECTED", "Face liveness: presentation attack suspected"),
++    LIVENESS_DEVICE_ERROR("REG-EVT-014", SYSTEM_EVENT.getCode(), "LIVENESS_DEVICE_ERROR", "Face liveness: camera error"),
++    LIVENESS_MODEL_LOADED("REG-EVT-015", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_LOADED", "Face liveness: models loaded"),
++    LIVENESS_MODEL_INTEGRITY_FAILED("REG-EVT-016", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_INTEGRITY_FAILED", "Face liveness: model bundle failed verification"),
++    LIVENESS_CONFIG_LOADED("REG-EVT-017", SYSTEM_EVENT.getCode(), "LIVENESS_CONFIG_LOADED", "Face liveness: configuration loaded");
+ 
+     AuditEvent(String id, String type, String name, String description) {
+         this.id = id;

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "bundleVersion": "pad-2026.10.5",
+  "keyId": "mosip-liveness-dev-2026-10",
+  "createdUtc": "2026-10-25T07:28:33Z",
+  "params": { "pitchBiasDeg": -9.5 },
+  "files": [
+    {"role": "DETECTOR", "name": "yunet_2026may.onnx", "size": 229738, "sha256": "ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0"},
+    {"role": "LANDMARKS", "name": "face_mesh_v2.onnx", "size": 4921061, "sha256": "4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb"},
+    {"role": "PAD_V2", "name": "minifasnet_v2_s2.7.onnx", "size": 1743495, "sha256": "7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665"},
+    {"role": "PAD_V1SE", "name": "minifasnet_v1se_s4.0.onnx", "size": 1742663, "sha256": "d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84"},
+    {"role": "MATCHER", "name": "face_recognition_sface_2021dec_int8.onnx", "size": 9896933, "sha256": "2b0e941e6f16cc048c20aee0c8e31f569118f65d702914540f7bfdc14048d78a"}
+  ]
+}

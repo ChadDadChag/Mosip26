@@ -38,3 +38,12 @@ stylesheet.css
 
 # Liveness test recordings of real people are biometric data: never commit them.
 recordings/
+
+# Part 2: never commit signing keys, team biometric data (eval-data/), or local model caches.
+*.p8
+*.pk8
+*.key
+eval-data/
+models/tools/.cache/
+__pycache__/
+.venv/

@@ -1,0 +1,698 @@
+From f6be1069aef03087eb57116a95008a39682c9700 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:32:41 +0530
+Subject: [PATCH 10/35] Reload liveness config after global-param sync
+
+- GlobalParamRepository: refresh listeners, run after every successful
+  refreshConfigurationCache() (saveGlobalParams after a sync, or a direct
+  refresh); never after a failed one; a failing listener is logged and
+  does not stop the others. Test: GlobalParamRepositoryRefreshListenerTest.
+- LivenessServiceHolder registers reloadConfig() as a listener.
+  reloadConfig() re-reads both engines' policies for new sessions and,
+  when the parsed analyzer settings changed (a fingerprint of
+  AnalyzerConfig's public fields, nested DetectorConfig included), swaps
+  in a new analyzer factory and preloads it in the background.
+- SwappableAnalyzerFactory: new sessions get analyzers from the current
+  factory; a replaced factory is closed when the analyzers created from it
+  close (the engine closes a session's analyzer in cleanup), so a running
+  session keeps its analyzer as it keeps its policy. TimedAnalyzerFactory
+  unwraps it for the per-stage statistics.
+- The holder also reads the camera per workflow for the gate:
+  mosip.registration.liveness.face.android.<workflow>.camera (front or
+  back, default front).
+- Pigeon: cameraFor(workflow) and reloadConfig() for Dart.
+
+Tests (JVM): LivenessServiceHolderTest (an override changes policy(); a
+synced value applies after the refresh listener runs, not before; a
+workflow can be disabled; camera config; the analyzer is replaced only when
+its settings change; the fingerprint covers nested settings),
+SwappableAnalyzerFactoryTest (unused factory closed at once; a running
+session keeps its analyzer until it closes; a failed create releases).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../api_services/LivenessApi.java             |  11 ++
+ .../repository/GlobalParamRepository.java     |  20 +++
+ ...balParamRepositoryRefreshListenerTest.java |  63 ++++++++++
+ .../android/LivenessServiceHolder.java        |  90 ++++++++++++--
+ .../android/SwappableAnalyzerFactory.java     | 116 ++++++++++++++++++
+ .../android/TimedAnalyzerFactory.java         |   4 +-
+ .../android/LivenessServiceHolderTest.java    | 110 +++++++++++++++++
+ .../android/SwappableAnalyzerFactoryTest.java |  65 ++++++++++
+ pigeon/liveness.dart                          |   8 ++
+ 9 files changed, 476 insertions(+), 11 deletions(-)
+ create mode 100644 android/clientmanager/src/test/java/io/mosip/registration/clientmanager/repository/GlobalParamRepositoryRefreshListenerTest.java
+ create mode 100644 android/liveness/src/main/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactory.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactoryTest.java
+
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index e2a7eeb..f2d7157 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -199,6 +199,17 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+ 
+     @Override
+     public void cancel() {
++    @NonNull
++    @Override
++    public String cameraFor(@NonNull String workflow) {
++        return holder.cameraFor(workflow(workflow));
++    }
++
++    @Override
++    public void reloadConfig() {
++        holder.reloadConfig();
++    }
++
+         if (session != null) session.cancel();
+     }
+ 
+diff --git a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/repository/GlobalParamRepository.java b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/repository/GlobalParamRepository.java
+index af69284..6227e00 100644
+--- a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/repository/GlobalParamRepository.java
++++ b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/repository/GlobalParamRepository.java
+@@ -12,6 +12,7 @@ import java.util.HashMap;
+ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
++import java.util.concurrent.CopyOnWriteArrayList;
+ 
+ import javax.inject.Inject;
+ 
+@@ -33,6 +34,9 @@ public class GlobalParamRepository {
+     /** Cached parsed config: modality -> vendorId -> (paramKey -> paramValue). Cleared on refresh. */
+     private Map<String, Map<String, Map<String, String>>> bioSdkProviderConfigCache = null;
+ 
++    /** Run after each successful cache refresh, e.g. after a global-param sync (face liveness re-reads its config). */
++    private final List<Runnable> refreshListeners = new CopyOnWriteArrayList<>();
++
+     @Inject
+     public GlobalParamRepository(GlobalParamDao globalParamDao, LocalConfigDAO localConfigDAO) {
+         this.globalParamDao = globalParamDao;
+@@ -309,8 +313,24 @@ public class GlobalParamRepository {
+             bioSdkProviderConfigCache = null;
+         } catch (Exception e) {
+             Log.e(TAG, "Error refreshing configuration cache", e);
++            return;
++        }
++        for (Runnable listener : refreshListeners) {
++            try {
++                listener.run();
++            } catch (RuntimeException e) {
++                Log.e(TAG, "Configuration refresh listener failed", e);
++            }
+         }
++    }
++
++    /** Runs {@code listener} after every successful {@link #refreshConfigurationCache()}. */
++    public void addRefreshListener(Runnable listener) {
++        if (listener != null) refreshListeners.add(listener);
++    }
+ 
++    public void removeRefreshListener(Runnable listener) {
++        refreshListeners.remove(listener);
+     }
+ 
+     public Map<String, Map<String, Map<String, String>>> getBiometricProviderConfig() {
+diff --git a/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/repository/GlobalParamRepositoryRefreshListenerTest.java b/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/repository/GlobalParamRepositoryRefreshListenerTest.java
+new file mode 100644
+index 0000000..df1b2f0
+--- /dev/null
++++ b/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/repository/GlobalParamRepositoryRefreshListenerTest.java
+@@ -0,0 +1,63 @@
++package io.mosip.registration.clientmanager.repository;
++
++import static org.junit.Assert.assertEquals;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++import org.junit.Test;
++
++import java.util.Collections;
++import java.util.concurrent.atomic.AtomicInteger;
++
++import io.mosip.registration.clientmanager.dao.GlobalParamDao;
++import io.mosip.registration.clientmanager.dao.LocalConfigDAO;
++import io.mosip.registration.clientmanager.entity.GlobalParam;
++
++/** Refresh listeners run after every successful cache refresh (e.g. a global-param sync), never after a failed one. */
++public class GlobalParamRepositoryRefreshListenerTest {
++
++    private final GlobalParamDao globalParamDao = mock(GlobalParamDao.class);
++    private final LocalConfigDAO localConfigDAO = mock(LocalConfigDAO.class);
++
++    @Test
++    public void listenersRunAfterASync() {
++        when(globalParamDao.getGlobalParams()).thenReturn(Collections.emptyList());
++        when(localConfigDAO.getLocalConfigurations()).thenReturn(Collections.emptyMap());
++        GlobalParamRepository repository = new GlobalParamRepository(globalParamDao, localConfigDAO);
++        AtomicInteger runs = new AtomicInteger();
++        repository.addRefreshListener(runs::incrementAndGet);
++
++        repository.saveGlobalParams(Collections.singletonList(
++                new GlobalParam("mosip.registration.liveness.face.default.maxRetries", "x", "2", true)));
++        assertEquals(1, runs.get());
++        repository.refreshConfigurationCache();
++        assertEquals(2, runs.get());
++    }
++
++    @Test
++    public void aFailingListenerDoesNotStopTheOthers() {
++        when(globalParamDao.getGlobalParams()).thenReturn(Collections.emptyList());
++        when(localConfigDAO.getLocalConfigurations()).thenReturn(Collections.emptyMap());
++        GlobalParamRepository repository = new GlobalParamRepository(globalParamDao, localConfigDAO);
++        AtomicInteger runs = new AtomicInteger();
++        repository.addRefreshListener(() -> {
++            throw new IllegalStateException("broken listener");
++        });
++        repository.addRefreshListener(runs::incrementAndGet);
++        repository.refreshConfigurationCache();
++        assertEquals(1, runs.get());
++    }
++
++    @Test
++    public void noListenerAfterAFailedRefresh() {
++        when(globalParamDao.getGlobalParams()).thenReturn(Collections.emptyList());
++        when(localConfigDAO.getLocalConfigurations()).thenReturn(Collections.emptyMap());
++        GlobalParamRepository repository = new GlobalParamRepository(globalParamDao, localConfigDAO);
++        AtomicInteger runs = new AtomicInteger();
++        repository.addRefreshListener(runs::incrementAndGet);
++        when(globalParamDao.getGlobalParams()).thenThrow(new IllegalStateException("database closed"));
++        repository.refreshConfigurationCache();
++        assertEquals(0, runs.get());
++        repository.removeRefreshListener(null); // tolerated
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 044fe8c..78b7cf3 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -7,10 +7,14 @@ import android.util.Log;
+ import androidx.camera.view.PreviewView;
+ 
+ import java.io.File;
++import java.lang.reflect.Field;
++import java.lang.reflect.Modifier;
+ import java.util.ArrayList;
++import java.util.Arrays;
+ import java.util.Collections;
+ import java.util.HashMap;
+ import java.util.List;
++import java.util.Locale;
+ import java.util.Map;
+ import java.util.TreeMap;
+ import java.util.concurrent.ConcurrentHashMap;
+@@ -40,14 +44,17 @@ import io.mosip.registration.liveness.fake.FakeLivenessService;
+  *   <li>Real engine: the ONNX analyzer with the signed bundle from the assets, or a newer verified bundle installed
+  *       in {@code files/liveness-models}, behind {@link DefaultLivenessService}.</li>
+  *   <li>Fake engine: {@link FakeLivenessService}, scripted by {@code mosip.registration.liveness.fake.scenario}.</li>
+- *   <li>Config: the synced global params, under a map of overrides (debug screen only).</li>
++ *   <li>Config: the synced global params, under a map of overrides (debug screen only). Re-read after every global
++ *       param refresh (a sync): policies for new sessions, and the analyzer when its settings changed.</li>
+  *   <li>{@link #preload()} verifies the bundle and builds the ONNX sessions in the background at app start.</li>
++ *   <li>The camera per workflow: {@code mosip.registration.liveness.face.android.<workflow>.camera}, front or back.</li>
+  * </ul>
+  */
+ public final class LivenessServiceHolder {
+ 
+     private static final String TAG = "LivenessService";
+     public static final String MODEL_STORE_DIR = "liveness-models";
++    public static final String CAMERA_KEY_PREFIX = "mosip.registration.liveness.face.android.";
+ 
+     private final Context context;
+     private final AndroidAuditSink audit;
+@@ -60,10 +67,12 @@ public final class LivenessServiceHolder {
+         return t;
+     });
+ 
+-    private final OnnxFaceAnalyzerFactory analyzers;
++    private final SwappableAnalyzerFactory analyzers;
+     private final TimedAnalyzerFactory timedAnalyzers;
+     private final DefaultLivenessService real;
+     private volatile FakeLivenessService fake;
++    private String analyzerFingerprint; // guarded by this
++    private volatile int analyzerSwaps;
+ 
+     private volatile String modelVersion = "";
+     // Main thread only: the live preview views, newest last (a screen opened over another one has its own).
+@@ -73,12 +82,19 @@ public final class LivenessServiceHolder {
+         this.context = context.getApplicationContext();
+         this.audit = new AndroidAuditSink(auditManager);
+         this.baseConfig = new AndroidConfigProvider(globalParams);
+-        this.analyzers = new OnnxFaceAnalyzerFactory(new AssetBundleSource(this.context),
+-                new ModelStore(new File(this.context.getFilesDir(), MODEL_STORE_DIR)), TrustedKeys.builtIn(),
+-                analyzerConfig(config));
++        AnalyzerConfig analyzerConfig = analyzerConfig(config);
++        this.analyzerFingerprint = fingerprint(analyzerConfig);
++        this.analyzers = new SwappableAnalyzerFactory(analyzerFactory(analyzerConfig));
+         this.timedAnalyzers = new TimedAnalyzerFactory(analyzers);
+         this.real = DefaultLivenessService.builder().config(config).analyzerFactory(timedAnalyzers).auditSink(audit).build();
+         this.fake = fakeService(1.0);
++        // After a global-param sync (or any cache refresh), new sessions use the new config.
++        globalParams.addRefreshListener(this::reloadConfig);
++    }
++
++    private OnnxFaceAnalyzerFactory analyzerFactory(AnalyzerConfig analyzerConfig) {
++        return new OnnxFaceAnalyzerFactory(new AssetBundleSource(context),
++                new ModelStore(new File(context.getFilesDir(), MODEL_STORE_DIR)), TrustedKeys.builtIn(), analyzerConfig);
+     }
+ 
+     private FakeLivenessService fakeService(double timeScale) {
+@@ -89,11 +105,12 @@ public final class LivenessServiceHolder {
+     public void preload() {
+         background.execute(() -> {
+             long start = SystemClock.elapsedRealtime();
++            OnnxFaceAnalyzerFactory factory = analyzers.current();
+             try {
+-                analyzers.preload();
++                factory.preload();
+                 long ms = SystemClock.elapsedRealtime() - start;
+-                modelVersion = analyzers.modelVersion();
+-                String accelerator = String.valueOf(analyzers.activeAccelerator());
++                modelVersion = factory.modelVersion();
++                String accelerator = String.valueOf(factory.activeAccelerator());
+                 Log.i(TAG, "preload: bundle " + modelVersion + " verified and loaded in " + ms + " ms (" + accelerator + ")");
+                 Map<String, String> d = new HashMap<>();
+                 d.put("modelVersion", modelVersion);
+@@ -124,6 +141,12 @@ public final class LivenessServiceHolder {
+         return real.policy(workflow);
+     }
+ 
++    /** "back" when {@code mosip.registration.liveness.face.android.<workflow>.camera} says so, else "front". */
++    public String cameraFor(WorkflowType workflow) {
++        String v = config.get(CAMERA_KEY_PREFIX + workflow.name().toLowerCase(Locale.ROOT) + ".camera");
++        return v != null && "back".equalsIgnoreCase(v.trim()) ? "back" : "front";
++    }
++
+     /** The loaded bundle version, or "" before the models are loaded. */
+     public String modelVersion() {
+         return modelVersion;
+@@ -171,10 +194,27 @@ public final class LivenessServiceHolder {
+         return Collections.unmodifiableMap(new TreeMap<>(overrides));
+     }
+ 
+-    /** Re-reads the policies (after a config sync or an override change). */
+-    public void reloadConfig() {
++    /**
++     * Re-reads the config (after a sync or an override change): the policies of new sessions, and, when the analyzer
++     * settings changed, a new analyzer for new sessions (loaded in the background). Running sessions keep theirs.
++     */
++    public synchronized void reloadConfig() {
+         real.reloadConfig(config);
+         fake.reloadConfig(config);
++        AnalyzerConfig next = analyzerConfig(config);
++        String print = fingerprint(next);
++        if (!print.equals(analyzerFingerprint)) {
++            analyzerFingerprint = print;
++            analyzers.swap(analyzerFactory(next));
++            analyzerSwaps++;
++            Log.i(TAG, "analyzer settings changed: new sessions use them");
++            preload();
++        }
++    }
++
++    /** How often the analyzer was replaced after a config change (tests). */
++    int analyzerSwaps() {
++        return analyzerSwaps;
+     }
+ 
+     /** A preview view was created (main thread); the next session binds its preview to the newest one. */
+@@ -209,4 +249,34 @@ public final class LivenessServiceHolder {
+             return AnalyzerConfig.defaults();
+         }
+     }
++
++    /** The analyzer settings as text (its public fields, and those of nested settings), to see if they changed. */
++    static String fingerprint(Object settings) {
++        StringBuilder sb = new StringBuilder();
++        appendFields(sb, settings, true);
++        return sb.toString();
++    }
++
++    private static void appendFields(StringBuilder sb, Object o, boolean nested) {
++        Field[] fields = o.getClass().getFields();
++        Arrays.sort(fields, (a, b) -> a.getName().compareTo(b.getName()));
++        for (Field f : fields) {
++            if (Modifier.isStatic(f.getModifiers())) continue;
++            Object v;
++            try {
++                v = f.get(o);
++            } catch (IllegalAccessException e) {
++                v = "?";
++            }
++            sb.append(f.getName()).append('=');
++            if (nested && v != null && !(v instanceof Enum) && v.getClass().getName().startsWith("io.mosip.")) {
++                sb.append('{');
++                appendFields(sb, v, false);
++                sb.append('}');
++            } else {
++                sb.append(v);
++            }
++            sb.append(';');
++        }
++    }
+ }
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactory.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactory.java
+new file mode 100644
+index 0000000..a38ba68
+--- /dev/null
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactory.java
+@@ -0,0 +1,116 @@
++package io.mosip.registration.liveness.android;
++
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.api.FaceAnalyzer;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameAnalysis;
++import io.mosip.registration.liveness.api.LivenessEngineException;
++import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
++
++/**
++ * The analyzer factory the engine uses, replaceable when the analyzer config changes (after a config sync).
++ * New sessions get analyzers from the current factory; a replaced factory is closed (releasing its ONNX sessions)
++ * once the analyzers created from it, i.e. those of a running session, are closed. So a running session keeps
++ * its analyzer, as the contract keeps its policy.
++ */
++final class SwappableAnalyzerFactory implements FaceAnalyzerFactory {
++
++    static final class Entry {
++        final OnnxFaceAnalyzerFactory factory;
++        int users;
++        boolean retired;
++
++        Entry(OnnxFaceAnalyzerFactory factory) {
++            this.factory = factory;
++        }
++    }
++
++    private Entry current;
++
++    SwappableAnalyzerFactory(OnnxFaceAnalyzerFactory initial) {
++        if (initial == null) throw new IllegalArgumentException("initial factory is required");
++        this.current = new Entry(initial);
++    }
++
++    synchronized OnnxFaceAnalyzerFactory current() {
++        return current.factory;
++    }
++
++    /** Makes {@code next} current; the previous factory closes when its last analyzer does (at once if unused). */
++    void swap(OnnxFaceAnalyzerFactory next) {
++        if (next == null) throw new IllegalArgumentException("next factory is required");
++        Entry old;
++        synchronized (this) {
++            old = current;
++            current = new Entry(next);
++            old.retired = true;
++            if (old.users > 0) return;
++        }
++        old.factory.close();
++    }
++
++    @Override
++    public FaceAnalyzer create() throws LivenessEngineException {
++        Entry entry;
++        synchronized (this) {
++            entry = current;
++            entry.users++;
++        }
++        try {
++            return new Counted(this, entry.factory.create(), entry);
++        } catch (LivenessEngineException | RuntimeException e) {
++            release(entry);
++            throw e;
++        }
++    }
++
++    private void release(Entry entry) {
++        synchronized (this) {
++            entry.users--;
++            if (!entry.retired || entry.users > 0) return;
++        }
++        entry.factory.close();
++    }
++
++    /** An analyzer that releases its factory when closed. */
++    static final class Counted implements FaceAnalyzer {
++        private final SwappableAnalyzerFactory owner;
++        private final FaceAnalyzer analyzer;
++        private final Entry entry;
++        private boolean closed;
++
++        Counted(SwappableAnalyzerFactory owner, FaceAnalyzer analyzer, Entry entry) {
++            this.owner = owner;
++            this.analyzer = analyzer;
++            this.entry = entry;
++        }
++
++        /** The engine's analyzer, for its per-stage statistics. */
++        FaceAnalyzer inner() {
++            return analyzer;
++        }
++
++        @Override
++        public FrameAnalysis analyze(Frame frame) throws LivenessEngineException {
++            return analyzer.analyze(frame);
++        }
++
++        @Override
++        public String modelVersion() {
++            return analyzer.modelVersion();
++        }
++
++        @Override
++        public void close() {
++            synchronized (this) {
++                if (closed) return;
++                closed = true;
++            }
++            try {
++                analyzer.close();
++            } finally {
++                owner.release(entry);
++            }
++        }
++    }
++}
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java
+index b69c11d..80f6531 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/TimedAnalyzerFactory.java
+@@ -108,7 +108,9 @@ public final class TimedAnalyzerFactory implements FaceAnalyzerFactory {
+             long start = System.nanoTime();
+             FrameAnalysis result = analyzer.analyze(frame);
+             long total = System.nanoTime() - start;
+-            record(total, analyzer instanceof OnnxFaceAnalyzer ? ((OnnxFaceAnalyzer) analyzer).stats() : null);
++            FaceAnalyzer engine = analyzer instanceof SwappableAnalyzerFactory.Counted
++                    ? ((SwappableAnalyzerFactory.Counted) analyzer).inner() : analyzer;
++            record(total, engine instanceof OnnxFaceAnalyzer ? ((OnnxFaceAnalyzer) engine).stats() : null);
+             return result;
+         }
+ 
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+new file mode 100644
+index 0000000..9884b84
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+@@ -0,0 +1,110 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNotEquals;
++import static org.junit.Assert.assertTrue;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import android.content.Context;
++import android.content.res.AssetManager;
++
++import org.junit.Before;
++import org.junit.Rule;
++import org.junit.Test;
++import org.junit.rules.TemporaryFolder;
++import org.mockito.ArgumentCaptor;
++
++import java.util.HashMap;
++import java.util.Map;
++
++import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
++import io.mosip.registration.clientmanager.spi.AuditManagerService;
++import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
++import io.mosip.registration.liveness.api.WorkflowType;
++
++/** Config handling of the holder; no models are loaded (the analyzer is created lazily). */
++public class LivenessServiceHolderTest {
++
++    private static final String FACE = "mosip.registration.liveness.face.";
++
++    @Rule
++    public TemporaryFolder files = new TemporaryFolder();
++
++    private final Map<String, String> synced = new HashMap<>();
++    private final GlobalParamRepository globalParams = mock(GlobalParamRepository.class);
++    private LivenessServiceHolder holder;
++
++    @Before
++    public void setUp() {
++        Context context = mock(Context.class);
++        when(context.getApplicationContext()).thenReturn(context);
++        when(context.getAssets()).thenReturn(mock(AssetManager.class));
++        when(context.getFilesDir()).thenReturn(files.getRoot());
++        when(globalParams.getCachedStringGlobalParam(anyString())).thenAnswer(i -> synced.get(i.<String>getArgument(0)));
++        holder = new LivenessServiceHolder(context, globalParams, mock(AuditManagerService.class));
++    }
++
++    @Test
++    public void anOverrideChangesThePolicy() {
++        assertEquals(3, holder.policy(WorkflowType.RESIDENT).maxRetries);
++        holder.setOverride(FACE + "default.maxRetries", "1");
++        assertEquals(1, holder.policy(WorkflowType.RESIDENT).maxRetries);
++        holder.setOverride(FACE + "default.maxRetries", "");
++        assertEquals(3, holder.policy(WorkflowType.RESIDENT).maxRetries);
++    }
++
++    @Test
++    public void aSyncedValueAppliesAfterTheRefreshListenerRuns() {
++        ArgumentCaptor<Runnable> listener = ArgumentCaptor.forClass(Runnable.class);
++        verify(globalParams).addRefreshListener(listener.capture());
++        assertEquals(2, holder.policy(WorkflowType.RESIDENT).minChallenges);
++
++        synced.put(FACE + "resident.minChallenges", "1");
++        assertEquals("the policy is cached until a reload", 2, holder.policy(WorkflowType.RESIDENT).minChallenges);
++        listener.getValue().run(); // what GlobalParamRepository.refreshConfigurationCache() does after a sync
++        assertEquals(1, holder.policy(WorkflowType.RESIDENT).minChallenges);
++    }
++
++    @Test
++    public void aWorkflowCanBeDisabled() {
++        holder.setOverride(FACE + "operator.enabled", "false");
++        assertFalse(holder.policy(WorkflowType.OPERATOR).enabled);
++        assertTrue(holder.policy(WorkflowType.RESIDENT).enabled);
++        assertTrue(holder.policy(WorkflowType.SUPERVISOR).enabled);
++    }
++
++    @Test
++    public void theCameraComesFromTheConfig() {
++        assertEquals("front", holder.cameraFor(WorkflowType.RESIDENT));
++        synced.put(FACE + "android.operator.camera", "back");
++        assertEquals("back", holder.cameraFor(WorkflowType.OPERATOR));
++        synced.put(FACE + "android.supervisor.camera", " BACK ");
++        assertEquals("back", holder.cameraFor(WorkflowType.SUPERVISOR));
++        synced.put(FACE + "android.resident.camera", "rear");
++        assertEquals("front", holder.cameraFor(WorkflowType.RESIDENT));
++    }
++
++    @Test
++    public void theAnalyzerIsReplacedOnlyWhenItsSettingsChange() {
++        holder.reloadConfig();
++        assertEquals(0, holder.analyzerSwaps());
++        holder.setOverride(AnalyzerConfig.KEY_PREFIX + "intraOpThreads", "3"); // the default is 2
++        assertEquals(1, holder.analyzerSwaps());
++        holder.reloadConfig();
++        assertEquals(1, holder.analyzerSwaps());
++    }
++
++    @Test
++    public void theFingerprintCoversNestedSettings() {
++        Map<String, String> cfg = new HashMap<>();
++        String base = LivenessServiceHolder.fingerprint(AnalyzerConfig.fromConfig(cfg::get));
++        cfg.put(AnalyzerConfig.KEY_PREFIX + "detectorMaxWidth", "256"); // the default is 320
++        String changed = LivenessServiceHolder.fingerprint(AnalyzerConfig.fromConfig(cfg::get));
++        assertNotEquals(base, changed);
++        assertTrue(changed, changed.contains("detector={"));
++    }
++}
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactoryTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactoryTest.java
+new file mode 100644
+index 0000000..84fe5c4
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/SwappableAnalyzerFactoryTest.java
+@@ -0,0 +1,65 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertSame;
++import static org.junit.Assert.fail;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.times;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import org.junit.Test;
++
++import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.FaceAnalyzer;
++import io.mosip.registration.liveness.api.LivenessEngineException;
++
++public class SwappableAnalyzerFactoryTest {
++
++    private final OnnxFaceAnalyzerFactory first = mock(OnnxFaceAnalyzerFactory.class);
++    private final OnnxFaceAnalyzerFactory second = mock(OnnxFaceAnalyzerFactory.class);
++    private final FaceAnalyzer firstAnalyzer = mock(FaceAnalyzer.class);
++    private final FaceAnalyzer secondAnalyzer = mock(FaceAnalyzer.class);
++
++    @Test
++    public void anUnusedFactoryClosesAtOnce() {
++        SwappableAnalyzerFactory f = new SwappableAnalyzerFactory(first);
++        f.swap(second);
++        verify(first).close();
++        assertSame(second, f.current());
++    }
++
++    @Test
++    public void aRunningSessionKeepsItsAnalyzerUntilItCloses() throws Exception {
++        when(first.create()).thenReturn(firstAnalyzer);
++        when(second.create()).thenReturn(secondAnalyzer);
++        SwappableAnalyzerFactory f = new SwappableAnalyzerFactory(first);
++        FaceAnalyzer running = f.create();
++
++        f.swap(second);
++        verify(first, never()).close();
++        FaceAnalyzer next = f.create();
++        assertSame(secondAnalyzer, ((SwappableAnalyzerFactory.Counted) next).inner());
++
++        running.close();
++        running.close(); // closing twice releases once
++        verify(firstAnalyzer).close();
++        verify(first, times(1)).close();
++        verify(second, never()).close();
++    }
++
++    @Test
++    public void aFailedCreateReleasesItsClaim() throws Exception {
++        when(first.create()).thenThrow(new LivenessEngineException(ErrorCode.MODEL_INTEGRITY_FAILED, "bad bundle"));
++        SwappableAnalyzerFactory f = new SwappableAnalyzerFactory(first);
++        try {
++            f.create();
++            fail("expected LivenessEngineException");
++        } catch (LivenessEngineException expected) {
++            // the claim on the factory is released
++        }
++        f.swap(second);
++        verify(first).close();
++    }
++}
+diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
+index 0dcac38..709dbfa 100644
+--- a/pigeon/liveness.dart
++++ b/pigeon/liveness.dart
+@@ -37,6 +37,14 @@ abstract class LivenessApi {
+   /// The loaded model bundle version, or "" before the models are loaded.
+   String modelVersion();
+ 
++  /// front or back, from mosip.registration.liveness.face.android.<workflow>.camera
++  /// (default front).
++  String cameraFor(String workflow);
++
++  /// Re-reads the liveness config for new sessions (the native side also does
++  /// this after every global-param sync).
++  void reloadConfig();
++
+   /// Debug builds only (ignored otherwise): sets a config override, or removes
+   /// it when value is empty.
+   void setConfigOverride(String key, String value);

@@ -1,0 +1,111 @@
+From f060c7cccba8d92b082b895bc2205cf875d9f8ec Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:32:59 +0530
+Subject: [PATCH 16/35] Debug page: hook gate buttons
+
+"Hook gates" on the liveness debug page (debug builds only): Resident
+face, Operator login, Operator onboarding, Packet auth and Supervisor
+approval call LivenessGate.run with exactly the workflow each real hook
+passes (RESIDENT, OPERATOR x3, SUPERVISOR), with the page's engine choice,
+and show the GateResult. Without a MOSIP backend the hooked screens are
+unreachable; these run the same gate code on the device. The page's
+placeholder now uses LivenessPlaceholderPreview.
+
+On the S23 FE with the real engine and a real face, all five returned
+proceed (passive pass, 1.7-4.2 s); with the override
+mosip.registration.liveness.face.operator.enabled=false, Operator login
+returned proceed (liveness disabled) without opening the page.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/liveness/liveness_debug_page.dart | 56 ++++++++++++++++++++++--
+ 1 file changed, 52 insertions(+), 4 deletions(-)
+
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index 338774f..29cf786 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:registration_client/pigeon/liveness_pigeon.dart';
+ import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/ui/liveness/liveness_page.dart';
+ 
+ /// Debug builds only: runs liveness sessions against the real or the fake
+@@ -99,6 +100,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+   bool _placeholder = false;
+   bool _pageOpen = false;
+   LivenessOutcome? _outcome;
++  String? _gateResult;
+   bool _running = false;
+   LivenessPolicyInfo? _policy;
+   String _modelVersion = '';
+@@ -245,10 +247,40 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+     await _refreshPolicy();
+   }
+ 
+-  static Widget _placeholderPreview() => const ColoredBox(
+-        color: Color(0xFFBDBDBD),
+-        child: Center(child: Icon(Icons.person, size: 180, color: Color(0xFF8A8A8A))),
+-      );
++  static Widget _placeholderPreview() => const LivenessPlaceholderPreview();
++
++  // The workflows the real hooks pass to LivenessGate (docs/ui-liveness-spec.md section 6).
++  static const List<List<String>> _hookGates = [
++    ['Resident face', LivenessGate.resident],
++    ['Operator login', LivenessGate.operator],
++    ['Operator onboarding', LivenessGate.operator],
++    ['Packet auth', LivenessGate.operator],
++    ['Supervisor approval', LivenessGate.supervisor],
++  ];
++
++  Future<void> _runGate(String label, String workflow) async {
++    setState(() {
++      _log.clear();
++      _gateResult = null;
++      _pageOpen = true;
++    });
++    _clock
++      ..reset()
++      ..start();
++    final result = await LivenessGate.run(context,
++        workflow: workflow,
++        useFake: _fake,
++        previewBuilder: _placeholder ? _placeholderPreview : null);
++    if (!mounted) return;
++    setState(() {
++      _pageOpen = false;
++      _gateResult = '$label ($workflow): ${result.status.name}'
++          '${result.disabled ? ' (liveness disabled)' : ''}'
++          '${result.outcome?.failureCode != null ? ', ${result.outcome!.failureCode}' : ''}'
++          '${result.sessionId != null ? ', session ${result.sessionId}' : ''}';
++      _addLog('gate $_gateResult');
++    });
++  }
+ 
+   Future<void> _openPage() async {
+     setState(() {
+@@ -399,6 +431,22 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+               ),
+             ],
+           ),
++          const Text('Hook gates (LivenessGate.run, as the screens call it):'),
++          Wrap(
++            spacing: 6,
++            children: [
++              for (final g in _hookGates)
++                OutlinedButton(
++                  onPressed: _running || _pageOpen ? null : () => _runGate(g[0], g[1]),
++                  child: Text(g[0]),
++                ),
++            ],
++          ),
++          if (_gateResult != null)
++            Padding(
++              padding: const EdgeInsets.symmetric(vertical: 4),
++              child: Text('GateResult: $_gateResult', style: const TextStyle(fontWeight: FontWeight.bold)),
++            ),
+           SwitchListTile(
+             contentPadding: EdgeInsets.zero,
+             title: const Text('Force challenges (passiveThreshold 0.9999)'),

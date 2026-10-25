@@ -1,0 +1,190 @@
+From f591f414328a5689fc8970f7efb416fa71b52286 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 03:15:30 +0530
+Subject: [PATCH 01/35] Build fix: refresh the stale pubspec.lock and plugin
+ registrants of v1.1.1
+
+The v1.1.1 pubspec.lock predates pubspec.yaml: it lacks geolocator,
+restart_app and uuid and still lists document_scanner, so the README's
+first build step (flutter pub get, Flutter 3.10.4) rewrites it. This
+commit takes the resolved lock plus the regenerated Windows/macOS plugin
+registrants (geolocator), so later builds start from a clean tree.
+
+Not committed (build outputs): ios/Runner/pigeon.h/.m (pigeon.sh rewrites
+them once per API), and test/login_test.mocks.dart from build_runner
+(locally excluded).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ macos/Flutter/GeneratedPluginRegistrant.swift |  2 +
+ pubspec.lock                                  | 74 ++++++++++++++++---
+ .../flutter/generated_plugin_registrant.cc    |  3 +
+ windows/flutter/generated_plugins.cmake       |  1 +
+ 4 files changed, 71 insertions(+), 9 deletions(-)
+
+diff --git a/macos/Flutter/GeneratedPluginRegistrant.swift b/macos/Flutter/GeneratedPluginRegistrant.swift
+index 5d0244e..7c52009 100644
+--- a/macos/Flutter/GeneratedPluginRegistrant.swift
++++ b/macos/Flutter/GeneratedPluginRegistrant.swift
+@@ -8,6 +8,7 @@ import Foundation
+ import connectivity_plus
+ import file_selector_macos
+ import flutter_secure_storage_macos
++import geolocator_apple
+ import native_image_cropper_macos
+ import path_provider_foundation
+ import printing
+@@ -18,6 +19,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
+   ConnectivityPlugin.register(with: registry.registrar(forPlugin: "ConnectivityPlugin"))
+   FileSelectorPlugin.register(with: registry.registrar(forPlugin: "FileSelectorPlugin"))
+   FlutterSecureStoragePlugin.register(with: registry.registrar(forPlugin: "FlutterSecureStoragePlugin"))
++  GeolocatorPlugin.register(with: registry.registrar(forPlugin: "GeolocatorPlugin"))
+   NativeImageCropperPlugin.register(with: registry.registrar(forPlugin: "NativeImageCropperPlugin"))
+   PathProviderPlugin.register(with: registry.registrar(forPlugin: "PathProviderPlugin"))
+   PrintingPlugin.register(with: registry.registrar(forPlugin: "PrintingPlugin"))
+diff --git a/pubspec.lock b/pubspec.lock
+index a012c50..d3861b5 100644
+--- a/pubspec.lock
++++ b/pubspec.lock
+@@ -257,14 +257,6 @@ packages:
+       url: "https://pub.dev"
+     source: hosted
+     version: "0.7.11"
+-  document_scanner:
+-    dependency: "direct main"
+-    description:
+-      name: document_scanner
+-      sha256: "6e0663f86cf7182a98d9a98f2dd8de82eeb3685dfa19282e5d3e1802f6b8b6e5"
+-      url: "https://pub.dev"
+-    source: hosted
+-    version: "0.2.1"
+   dotted_border:
+     dependency: "direct main"
+     description:
+@@ -491,7 +483,7 @@ packages:
+     source: sdk
+     version: "0.0.0"
+   freezed:
+-    dependency: "direct main"
++    dependency: "direct dev"
+     description:
+       name: freezed
+       sha256: a434911f643466d78462625df76fd9eb13e57348ff43fe1f77bbe909522c67a1
+@@ -519,6 +511,54 @@ packages:
+     description: flutter
+     source: sdk
+     version: "0.0.0"
++  geolocator:
++    dependency: "direct main"
++    description:
++      name: geolocator
++      sha256: f4efb8d3c4cdcad2e226af9661eb1a0dd38c71a9494b22526f9da80ab79520e5
++      url: "https://pub.dev"
++    source: hosted
++    version: "10.1.1"
++  geolocator_android:
++    dependency: transitive
++    description:
++      name: geolocator_android
++      sha256: "06e37fa32392f69f133e166ef6b358a8b6afddbf4c418fc236988184cc115a49"
++      url: "https://pub.dev"
++    source: hosted
++    version: "4.4.1"
++  geolocator_apple:
++    dependency: transitive
++    description:
++      name: geolocator_apple
++      sha256: c4ecead17985ede9634f21500072edfcb3dba0ef7b97f8d7bc556d2d722b3ba3
++      url: "https://pub.dev"
++    source: hosted
++    version: "2.3.9"
++  geolocator_platform_interface:
++    dependency: transitive
++    description:
++      name: geolocator_platform_interface
++      sha256: "386ce3d9cce47838355000070b1d0b13efb5bc430f8ecda7e9238c8409ace012"
++      url: "https://pub.dev"
++    source: hosted
++    version: "4.2.4"
++  geolocator_web:
++    dependency: transitive
++    description:
++      name: geolocator_web
++      sha256: "102e7da05b48ca6bf0a5bda0010f886b171d1a08059f01bfe02addd0175ebece"
++      url: "https://pub.dev"
++    source: hosted
++    version: "2.2.1"
++  geolocator_windows:
++    dependency: transitive
++    description:
++      name: geolocator_windows
++      sha256: "53da08937d07c24b0d9952eb57a3b474e29aae2abf9dd717f7e1230995f13f0e"
++      url: "https://pub.dev"
++    source: hosted
++    version: "0.2.3"
+   glob:
+     dependency: transitive
+     description:
+@@ -1071,6 +1111,14 @@ packages:
+       url: "https://pub.dev"
+     source: hosted
+     version: "1.4.0"
++  restart_app:
++    dependency: "direct main"
++    description:
++      name: restart_app
++      sha256: b37daeb1c02fcab30e19d9e30b6fdd215bd53577efd927042eb77cf6f09daadb
++      url: "https://pub.dev"
++    source: hosted
++    version: "1.2.1"
+   shared_preferences:
+     dependency: "direct main"
+     description:
+@@ -1308,6 +1356,14 @@ packages:
+       url: "https://pub.dev"
+     source: hosted
+     version: "3.1.1"
++  uuid:
++    dependency: transitive
++    description:
++      name: uuid
++      sha256: "9b129329f58692f6e6578329498a8fe9fbe98f090beb764ffbb8ee2eadd01dcd"
++      url: "https://pub.dev"
++    source: hosted
++    version: "4.6.0"
+   vector_graphics:
+     dependency: transitive
+     description:
+diff --git a/windows/flutter/generated_plugin_registrant.cc b/windows/flutter/generated_plugin_registrant.cc
+index 154f1d6..a461c6f 100644
+--- a/windows/flutter/generated_plugin_registrant.cc
++++ b/windows/flutter/generated_plugin_registrant.cc
+@@ -9,6 +9,7 @@
+ #include <connectivity_plus/connectivity_plus_windows_plugin.h>
+ #include <file_selector_windows/file_selector_windows.h>
+ #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
++#include <geolocator_windows/geolocator_windows.h>
+ #include <permission_handler_windows/permission_handler_windows_plugin.h>
+ #include <printing/printing_plugin.h>
+ #include <url_launcher_windows/url_launcher_windows.h>
+@@ -20,6 +21,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
+       registry->GetRegistrarForPlugin("FileSelectorWindows"));
+   FlutterSecureStorageWindowsPluginRegisterWithRegistrar(
+       registry->GetRegistrarForPlugin("FlutterSecureStorageWindowsPlugin"));
++  GeolocatorWindowsRegisterWithRegistrar(
++      registry->GetRegistrarForPlugin("GeolocatorWindows"));
+   PermissionHandlerWindowsPluginRegisterWithRegistrar(
+       registry->GetRegistrarForPlugin("PermissionHandlerWindowsPlugin"));
+   PrintingPluginRegisterWithRegistrar(
+diff --git a/windows/flutter/generated_plugins.cmake b/windows/flutter/generated_plugins.cmake
+index 9628ec6..34e8f76 100644
+--- a/windows/flutter/generated_plugins.cmake
++++ b/windows/flutter/generated_plugins.cmake
+@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
+   connectivity_plus
+   file_selector_windows
+   flutter_secure_storage_windows
++  geolocator_windows
+   permission_handler_windows
+   printing
+   url_launcher_windows

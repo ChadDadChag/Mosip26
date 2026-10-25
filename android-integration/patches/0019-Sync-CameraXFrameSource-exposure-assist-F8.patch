@@ -1,0 +1,200 @@
+From 3fdb2c377fc380588abfcbd53fc491c0b05f5c77 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 20:54:38 +0530
+Subject: [PATCH 19/35] Sync CameraXFrameSource exposure assist (F8)
+
+CameraXFrameSource from Mosip26 1ec4f49 (Part 1: exposure assist for dim
+faces). The engine jars and the model bundle are unchanged (same SHA-256
+in engine-sync.txt).
+- While delivering, the mean luma of the face region (centre 40% x 50% of
+  the upright frame) is read from the copied Y plane. Below 70 for 1 s the
+  camera's exposure compensation steps up (at most every 500 ms, up to its
+  maximum); above 150 it steps back toward 0; stop() resets it to 0.
+- On by default; setExposureAssist(boolean), exposureAssist(),
+  exposureIndex(), lastCentreLuma(). The debug timing line shows the luma
+  and the index.
+- ExposureAssistTest (JVM, fake camera control): brief darkness changes
+  nothing, the step rate and maximum, stepping back never below 0, reset,
+  unsupported and fixed cameras untouched, disabling resets, and the
+  face-region luma with rotation.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt              |   4 +-
+ .../device/android/ExposureAssistTest.java    | 150 ++++++++++++++++++
+ 2 files changed, 152 insertions(+), 2 deletions(-)
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/device/android/ExposureAssistTest.java
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 2e46994..e8911a6 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,5 +1,5 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit ff66597
++engine commit 1ec4f49
+ libs/liveness-api-1.2.0.2.jar cbc0f8a98f80ca38131bee1c60315932994ded9d256e01e0e0708b02467fb9e7
+ libs/liveness-core-1.2.0.2.jar 3d7e2407fd84c5fc350b6b54dd99ad21a015be8a03b17adcf93230c287f3e683
+ libs/liveness-fake-1.2.0.2.jar d10d270fc0d119f59a3390c80b65a72557ae744534dbfb4caeb59adabada513b
+@@ -10,4 +10,4 @@ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047
+ assets/liveness/models/face_mesh_v2.onnx 4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb
+ assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
+ assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
+-src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java ec172afbe727ba31610b5e02f10e2372d693435d839e30a21396fa97db5b6f79
++src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java d354bc01ddfd9bd2152be655b80598520b495c93842291253e5edd58f5a07ab0
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/ExposureAssistTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/ExposureAssistTest.java
+new file mode 100644
+index 0000000..9c778eb
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/ExposureAssistTest.java
+@@ -0,0 +1,150 @@
++package io.mosip.registration.liveness.device.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertTrue;
++
++import org.junit.Test;
++
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.List;
++
++/** The dim-face exposure assist of CameraXFrameSource, with a fake camera control. */
++public class ExposureAssistTest {
++
++    private static final long MS = 1_000_000L;
++    private static final double DARK = 40;
++    private static final double MID = 110;
++    private static final double BRIGHT = 180;
++
++    /** Records every index the assist sets. */
++    static final class FakeControl implements CameraXFrameSource.ExposureAssist.Control {
++        final List<Integer> set = new ArrayList<>();
++        boolean supported = true;
++        int max = 4;
++
++        @Override
++        public boolean supported() {
++            return supported;
++        }
++
++        @Override
++        public int min() {
++            return -max;
++        }
++
++        @Override
++        public int max() {
++            return max;
++        }
++
++        @Override
++        public void setIndex(int index) {
++            set.add(index);
++        }
++    }
++
++    private final FakeControl camera = new FakeControl();
++    private final CameraXFrameSource.ExposureAssist assist = new CameraXFrameSource.ExposureAssist();
++
++    /** Frames every 66 ms (15 fps) from {@code fromMs} to {@code toMs} with the given luma. */
++    private long feed(double luma, long fromMs, long toMs) {
++        long t = fromMs;
++        for (; t <= toMs; t += 66) assist.onLuma(luma, t * MS);
++        return t;
++    }
++
++    @Test
++    public void briefDarknessChangesNothing() {
++        assist.attach(camera);
++        feed(DARK, 0, 900);
++        feed(MID, 966, 3000);
++        assertTrue(camera.set.isEmpty());
++        assertEquals(0, assist.index());
++    }
++
++    @Test
++    public void darkForASecondStepsUpAtMostEvery500msToTheMaximum() {
++        assist.attach(camera);
++        feed(DARK, 0, 999);
++        assertTrue("nothing before 1 s", camera.set.isEmpty());
++        feed(DARK, 1056, 1056);
++        assertEquals(Arrays.asList(1), camera.set);
++        feed(DARK, 1122, 1500);
++        assertEquals("not again within 500 ms", Arrays.asList(1), camera.set);
++        feed(DARK, 1566, 4000);
++        assertEquals(Arrays.asList(1, 2, 3, 4), camera.set);
++        assertEquals(4, assist.index());
++    }
++
++    @Test
++    public void brightStepsBackTowardZeroOnlyAndNeverBelow() {
++        assist.attach(camera);
++        feed(DARK, 0, 2200); // steps at 1056, 1584 and 2112 ms: up to 3
++        assertEquals(3, assist.index());
++        camera.set.clear();
++        feed(MID, 2244, 4000);
++        assertTrue("between the thresholds nothing changes", camera.set.isEmpty());
++        feed(BRIGHT, 4066, 7000);
++        assertEquals(Arrays.asList(2, 1, 0), camera.set);
++        assertEquals(0, assist.index());
++    }
++
++    @Test
++    public void resetGoesBackToZeroAndForgetsTheCamera() {
++        assist.attach(camera);
++        feed(DARK, 0, 1600);
++        assertEquals(2, assist.index());
++        assist.reset();
++        assertEquals(0, assist.index());
++        assertEquals(Integer.valueOf(0), camera.set.get(camera.set.size() - 1));
++        int calls = camera.set.size();
++        feed(DARK, 2000, 5000);
++        assertEquals("no camera after reset", calls, camera.set.size());
++    }
++
++    @Test
++    public void unsupportedOrFixedExposureIsLeftAlone() {
++        camera.supported = false;
++        assist.attach(camera);
++        feed(DARK, 0, 5000);
++        assertTrue(camera.set.isEmpty());
++
++        FakeControl fixed = new FakeControl();
++        fixed.max = 0;
++        assist.attach(fixed);
++        feed(DARK, 6000, 9000);
++        assertTrue(fixed.set.isEmpty());
++    }
++
++    @Test
++    public void disablingResetsAndStopsTheAssist() {
++        assist.attach(camera);
++        feed(DARK, 0, 1100);
++        assertEquals(1, assist.index());
++        assist.setEnabled(false);
++        assertFalse(assist.enabled());
++        assertEquals(0, assist.index());
++        int calls = camera.set.size();
++        feed(DARK, 2000, 5000);
++        assertEquals(calls, camera.set.size());
++    }
++
++    @Test
++    public void faceRegionLumaIgnoresTheBorderAndFollowsRotation() {
++        int w = 40;
++        int h = 20;
++        byte[] y = new byte[w * h];
++        // Bright border, dark centre (the centre 50% x 40% of the sensor plane, i.e. 40% x 50% upright at 90/270).
++        for (int r = 0; r < h; r++) {
++            for (int c = 0; c < w; c++) {
++                boolean centre = c >= 10 && c < 30 && r >= 6 && r < 14;
++                y[r * w + c] = (byte) (centre ? 30 : 250);
++            }
++        }
++        assertEquals(30.0, CameraXFrameSource.centreMeanLuma(y, w, h, w, 1, 90), 0.01);
++        assertEquals(30.0, CameraXFrameSource.centreMeanLuma(y, w, h, w, 1, 270), 0.01);
++        assertTrue(Double.isNaN(CameraXFrameSource.centreMeanLuma(new byte[0], 0, 0, 0, 1, 0)));
++    }
++}

@@ -26,6 +26,19 @@
 			<artifactId>liveness-core</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<!-- Passive liveness and PAD (Part 2): the ONNX analyzer with the signed model bundle, used by the
+		     liveness harness and the recorded-video E2E tests (and the heuristic stand-in, now in this module). -->
+		<dependency>
+			<groupId>io.mosip.registration</groupId>
+			<artifactId>liveness-analyzer</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<!-- liveness-analyzer leaves ONNX Runtime to the application (provided): the desktop runtime. -->
+		<dependency>
+			<groupId>com.microsoft.onnxruntime</groupId>
+			<artifactId>onnxruntime</artifactId>
+			<version>1.31.0</version>
+		</dependency>
 		<!-- Real webcam capture for MockFrameSource.ofWebcam(): same library/version
 		     already used by the sibling ref-document-scanner module's own webcam
 		     integration (io.mosip.registration.ref.sarxos.WebCamSarxosImpl). -->

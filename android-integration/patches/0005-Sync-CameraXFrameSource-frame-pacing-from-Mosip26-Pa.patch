@@ -1,0 +1,182 @@
+From 2558ac7a08073f0450e637774f4ae6e3f31bd9e3 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 18:46:17 +0530
+Subject: [PATCH 05/35] Sync CameraXFrameSource frame pacing from Mosip26 (Part
+ 1)
+
+CameraXFrameSource.java and engine-sync.txt from Mosip26 79567b1 ("Part 1:
+CameraXFrameSource paces delivery to maxDeliverFps before converting"): the
+source now delivers at most 15 fps by default (time-based, on the camera
+timestamp, checked before any conversion; 10% jitter allowance), so a 30 fps
+camera converts half the frames. On the S23 FE: camera 30 fps, delivered
+15 fps, YUV conversion about 16% of one core during challenges (it was about
+50%).
+
+CameraXFrameSourcePacingTest (JVM): 30 fps with jitter -> 30 of 60 frames
+delivered with sequence gaps of 2, no getPlanes() on skipped frames, every
+image closed; stride alone; stride then pacing; 0 = unlimited; negative
+rejected.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt              |   4 +-
+ .../android/CameraXFrameSourcePacingTest.java | 133 ++++++++++++++++++
+ 2 files changed, 135 insertions(+), 2 deletions(-)
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourcePacingTest.java
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 156afab..4981e68 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,5 +1,5 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit 33a24e2
++engine commit 79567b1
+ libs/liveness-api-1.2.0.2.jar f2d5ed4219ac2b8f699228978f0cd17d424a51a8cafb31b32868e70d2eec818c
+ libs/liveness-core-1.2.0.2.jar b001c7b82d9751f2b1f07303f2d2247fe0070c8af8fb57ed4377bf4bfc49e99c
+ libs/liveness-fake-1.2.0.2.jar 621f40df1d5ff7df4375a129598f861e168a46b05ba055fb600a02d49bc3461b
+@@ -10,4 +10,4 @@ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047
+ assets/liveness/models/face_mesh_v2.onnx 4bcf3c8ce1f19627bb2e0e790850372653cb5ad39b07cc798e269e56f2e65fbb
+ assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
+ assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
+-src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java e868465c280dfaa66ee510f754a2578225308c53973e1f9ad7a911ec48940174
++src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java 8eac00ef24880b7c023729a4000f6831556fce5a7834a1d86624bd8a98f2581c
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourcePacingTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourcePacingTest.java
+new file mode 100644
+index 0000000..e6ac1a4
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourcePacingTest.java
+@@ -0,0 +1,133 @@
++package io.mosip.registration.liveness.device.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertTrue;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import android.content.Context;
++import android.util.Size;
++
++import androidx.camera.core.CameraSelector;
++import androidx.camera.core.ImageInfo;
++import androidx.camera.core.ImageProxy;
++import androidx.lifecycle.LifecycleOwner;
++
++import org.junit.Test;
++
++import java.nio.ByteBuffer;
++import java.util.ArrayList;
++import java.util.List;
++
++import io.mosip.registration.liveness.api.ErrorCode;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.FrameSource;
++
++/** maxDeliverFps on a synthetic 30 fps stream: the delivered rate, no conversion of skipped frames, raw sequence. */
++public class CameraXFrameSourcePacingTest {
++
++    private static final long FRAME_NS = 33_333_333L; // 30 fps
++
++    @Test
++    public void thirtyFpsIsPacedToAboutFifteen() {
++        Run run = run(15, 1, 60, true); // 2 s of camera frames, with timestamp jitter
++        assertTrue("delivered " + run.frames.size(), run.frames.size() >= 29 && run.frames.size() <= 31);
++        for (ImageProxy skipped : run.skipped) verify(skipped, never()).getPlanes();
++        for (ImageProxy image : run.images) verify(image).close();
++        // The sequence stays the raw camera index: every other frame, so the gaps show.
++        for (int i = 1; i < run.frames.size(); i++) {
++            assertEquals(2, run.frames.get(i).sequence() - run.frames.get(i - 1).sequence());
++        }
++    }
++
++    @Test
++    public void zeroMeansUnlimited() {
++        Run run = run(0, 1, 30, false);
++        assertEquals(30, run.frames.size());
++        assertTrue(run.skipped.isEmpty());
++    }
++
++    @Test
++    public void strideStillApplies() {
++        Run run = run(0, 3, 30, false);
++        assertEquals(10, run.frames.size());
++        assertEquals(3, run.frames.get(1).sequence());
++    }
++
++    @Test
++    public void strideThenPacing() {
++        // stride 2 offers 15 fps; a 10 fps cap can only keep whole frames, so every other one: 7.5 fps.
++        Run run = run(10, 2, 60, false);
++        assertEquals(15, run.frames.size());
++        assertEquals(4, run.frames.get(1).sequence());
++    }
++
++    @Test(expected = IllegalArgumentException.class)
++    public void negativeRateIsRejected() {
++        new CameraXFrameSource(context(), mock(LifecycleOwner.class), CameraSelector.DEFAULT_FRONT_CAMERA,
++                new Size(640, 480), 1, null, -1);
++    }
++
++    private static Run run(int maxDeliverFps, int stride, int count, boolean jitter) {
++        CameraXFrameSource source = new CameraXFrameSource(context(), mock(LifecycleOwner.class),
++                CameraSelector.DEFAULT_FRONT_CAMERA, new Size(640, 480), stride, null, maxDeliverFps);
++        Run run = new Run();
++        source.attachForTest(new FrameSource.Listener() {
++            @Override
++            public void onFrame(Frame frame) {
++                run.frames.add(frame);
++            }
++
++            @Override
++            public void onError(ErrorCode code, String detailForAuditOnly, boolean recoverable) {
++                throw new AssertionError(code + ": " + detailForAuditOnly);
++            }
++        });
++        long t = 1_000_000_000L;
++        for (int i = 0; i < count; i++) {
++            long jitterNs = jitter ? ((i * 7919L) % 5 - 2) * 1_500_000L : 0L; // -3..+3 ms
++            ImageProxy image = image(t + jitterNs);
++            run.images.add(image);
++            int before = run.frames.size();
++            source.onImageAvailable(image);
++            if (run.frames.size() == before) run.skipped.add(image);
++            t += FRAME_NS;
++        }
++        return run;
++    }
++
++    private static Context context() {
++        Context context = mock(Context.class);
++        when(context.getApplicationContext()).thenReturn(context);
++        return context;
++    }
++
++    private static ImageProxy image(long timestampNs) {
++        ImageProxy image = mock(ImageProxy.class);
++        ImageInfo info = mock(ImageInfo.class);
++        when(info.getTimestamp()).thenReturn(timestampNs);
++        when(info.getRotationDegrees()).thenReturn(0);
++        when(image.getImageInfo()).thenReturn(info);
++        when(image.getWidth()).thenReturn(4);
++        when(image.getHeight()).thenReturn(2);
++        ImageProxy.PlaneProxy[] planes = {plane(8, 4, 1), plane(2, 2, 1), plane(2, 2, 1)};
++        when(image.getPlanes()).thenReturn(planes);
++        return image;
++    }
++
++    private static ImageProxy.PlaneProxy plane(int size, int rowStride, int pixelStride) {
++        ImageProxy.PlaneProxy plane = mock(ImageProxy.PlaneProxy.class);
++        when(plane.getBuffer()).thenReturn(ByteBuffer.wrap(new byte[size]));
++        when(plane.getRowStride()).thenReturn(rowStride);
++        when(plane.getPixelStride()).thenReturn(pixelStride);
++        return plane;
++    }
++
++    private static final class Run {
++        final List<Frame> frames = new ArrayList<>();
++        final List<ImageProxy> images = new ArrayList<>();
++        final List<ImageProxy> skipped = new ArrayList<>();
++    }
++}

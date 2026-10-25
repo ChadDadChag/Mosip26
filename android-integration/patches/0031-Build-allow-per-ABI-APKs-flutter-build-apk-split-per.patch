@@ -1,0 +1,45 @@
+From 618ed45861263e358898847458242005f3923a04 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sun, 25 Oct 2026 14:35:54 +0530
+Subject: [PATCH 31/35] Build: allow per-ABI APKs (flutter build apk
+ --split-per-abi)
+
+Fix round 2, F10. Flutter's --split-per-abi (-Psplit-per-abi=true) sets
+splits.abi, which Gradle refuses next to the release build type's
+ndk.abiFilters ("Conflicting configuration ... cannot be present when
+splits abi filters are set"), even for a profile build. The filter now
+applies only when no split is requested; other builds are unchanged.
+
+Profile build, per ABI (pad-2026.10.5 with the int8 SFace):
+- arm64-v8a 158,607,245 bytes (151.3 MiB);
+- armeabi-v7a 145,315,101 bytes (138.6 MiB);
+- x86_64 167,078,781 bytes (159.3 MiB).
+Before: one arm64-targeted profile APK of 268,494,217 bytes (256 MiB,
+four-model bundle), which shipped ONNX Runtime for all four ABIs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/app/build.gradle | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/android/app/build.gradle b/android/app/build.gradle
+index 2ebd645..f7a0764 100644
+--- a/android/app/build.gradle
++++ b/android/app/build.gradle
+@@ -112,9 +112,13 @@ android {
+             minifyEnabled false
+             shrinkResources false
+             signingConfig localProperties['storeFile'] ? signingConfigs.release : signingConfigs.debug
+-            ndk {
+-                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
+-                // architectures: 'armeabi-v7a', 'arm64-v8a', 'armeabi', 'x86', 'x86_64'
++            // flutter build apk --split-per-abi (-Psplit-per-abi=true) sets splits.abi, which Gradle refuses next to
++            // ndk.abiFilters; one APK per ABI is the recommended distribution (Mosip26 docs/part5-android-benchmark.md).
++            if (!project.hasProperty('split-per-abi')) {
++                ndk {
++                    abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
++                    // architectures: 'armeabi-v7a', 'arm64-v8a', 'armeabi', 'x86', 'x86_64'
++                }
+             }
+         }
+     }

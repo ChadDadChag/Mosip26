@@ -10,8 +10,9 @@ mono/NIR cameras), width, height, timestamp, sequence number and device ID.
 `FrameSource` has `start(listener)`, `stop()`, `isRunning()` and `info()`. `info()`
 includes `DeviceCapabilities`: the formats, resolutions and frame rates the device supports.
 
-The package also contains a Part 2 reference analyzer (`liveness/engine`). It is
-not part of Part 1 and is documented separately in its own delivery notes.
+The Part 2 reference analyzer that used to live here (`liveness/engine`) has moved to
+the `liveness-analyzer` module (package `io.mosip.registration.liveness.analyzer.heuristic`).
+It is not part of Part 1 and is documented separately in its own delivery notes.
 
 ## Part 1 checklist
 
@@ -96,7 +97,8 @@ Close the window to stop. To make a `.mjpeg` recording from your webcam or a fol
 
 ## Run the liveness harness (the whole pipeline)
 
-`LivenessHarness` connects a frame source, the Part 2 stand-in analyzer (`HeuristicFaceAnalyzer`) and the real
+`LivenessHarness` connects a frame source, Part 2's ONNX analyzer (the signed model bundle; `--analyzer heuristic`
+or `-Dliveness.analyzer=heuristic` selects the earlier stand-in, `HeuristicFaceAnalyzer`) and the real
 Part 3 engine. The window shows:
 - the live preview, with the detected face box and the liveness score
 - the current status, the challenge prompt and its progress, and positioning guidance, using the problem-statement texts
@@ -106,10 +108,11 @@ Part 3 engine. The window shows:
     & $mvn -q exec:java "-Dexec.mainClass=io.mosip.registration.liveness.device.demo.LivenessHarness" "-Dexec.args=video C:\path\to\clip.mjpeg 15 --workflow operator --diagnostic"
 
 Arguments: `webcam [fps]`, `video <file.mjpeg> [fps]`, `images <fileOrDir> [fps]`, plus `--workflow resident|operator|supervisor`,
+`--analyzer onnx|heuristic` (default onnx),
 `--diagnostic` (prints the audit, `diag.*` per-attempt score statistics and the metrics) and `--headless` (no window).
 Headless mode presses Retry automatically and exits with 0 (PASSED), 1 (FAILED) or 2 (cancelled or timed out).
 
-The stand-in analyzer is not a real PAD model: it can pass a photo. Real PAD results need Part 2's analyzer.
+The heuristic stand-in is not a real PAD model: it can pass a photo. Use the default ONNX analyzer for PAD results.
 
 The SBI path (`SbiStreamFrameSource`) needs a running MDS (a real device or the patched MockMDS) and is used
 from inside the Registration Client (see "How to use it" below). To check an MDS stream on its own, use `SbiStreamProbe`
@@ -196,8 +199,9 @@ order and byte-identical through `MjpegFrameReader`.
 ## Test status (be aware)
 
 - **Real build.** The suite runs inside the real Registration Client v1.2.0.2 build (JDK 11, the upstream MOSIP
-  classes, no stubs), with the "Build and test" command above. The `registration-services` liveness tests total 96,
-  all passing: the original 83, plus 13 new.
+  classes, no stubs), with the "Build and test" command above. The Part 1 liveness tests total 96, all passing: the
+  original 83, plus 13 new. 72 of them run in `registration-services`. The other 24 test the Part 2 heuristic
+  analyzer and moved with it to `liveness-analyzer`.
 - **New tests:**
   - preview tee
   - harness model and headless run
@@ -256,3 +260,119 @@ session.start(frameSource, listener);  // callbacks arrive on a background threa
 - [docs/person3-design.md](docs/person3-design.md): architecture, decision flow, challenges, config, errors, security, ISO/IEC 30107
 - [PART3_STATUS.md](PART3_STATUS.md): requirement-by-requirement status
 - [docs/contract-change-proposals.md](docs/contract-change-proposals.md): contract changes, both accepted and proposed
+
+---
+
+# Part 2: Passive liveness and PAD
+
+Part 2 is the face analyzer behind Part 3's engine. For each frame it detects the face, measures quality, fits 478 landmarks, estimates head pose, and scores passive liveness (presentation attack detection). It returns one `FrameAnalysis` per frame. It runs pre-trained models on ONNX Runtime with the same `ai.onnxruntime` API on Desktop and Android, and it loads models only from a signed, verified bundle. It also provides face binding (`FaceMatcher`): after liveness passed, the live face and the captured face must be the same person.
+
+| Module | What | Ships in the apps |
+|---|---|---|
+| `liveness-analyzer/` | `OnnxFaceAnalyzerFactory` / `OnnxFaceAnalyzer`. YuNet detection, FaceMesh V2 landmarks (tracked between frames) and pose, quality checks (including relative motion blur), MiniFASNet V2 + V1SE passive PAD, and the session moiré cap. `FaceMatcher`: SFace face binding. Also signed-bundle verification (`VerifiedBundle`, `TrustedKeys`) and offline updates (`ModelStore`). Java 8 / Android API 21 clean. | yes |
+| `models/` | The five ONNX models (17.7 MiB: the four liveness models and the int8 SFace for face binding), the signed `manifest.json` / `manifest.sig` (`pad-2026.10.5`), provenance and licences. `models/tools/` holds the Python reference pipeline (the executable spec), the conversion scripts and the golden-fixture scripts. | bundled into the analyzer jar |
+| `liveness-eval/` | Dev tools: `ModelBundleTool` (keygen, sign, verify, install, rollback), the live webcam demo, `AnalyzerBenchmark`, `DatasetRecorder`, `PadEvaluation` (ISO/IEC 30107-3 metrics), `BindingEvaluation` (face binding similarity and error rates) | no |
+
+## Build and test (Part 2)
+
+This builds standalone from this repository with JDK 11. PowerShell, from the repository root:
+
+    mvn -N install -Dgpg.skip
+    mvn -f liveness-api/pom.xml install -Dgpg.skip
+    mvn -f liveness-core/pom.xml install -Dgpg.skip
+    mvn -f liveness-fake/pom.xml install -Dgpg.skip
+    mvn -f liveness-tools/pom.xml install -Dgpg.skip
+    mvn -f liveness-analyzer/pom.xml install -Dgpg.skip
+    mvn -f liveness-eval/pom.xml verify -Dgpg.skip
+
+`liveness-analyzer` runs about 190 tests:
+- Java vs Python parity on public-domain golden images, stage by stage.
+- Bundle tampering cases.
+- The session moiré cap.
+- A Part 3 integration test.
+
+It enforces 80% coverage and the Java 8 and Android API 21 signatures.
+
+## Use (Parts 4 and 5)
+
+```java
+OnnxFaceAnalyzerFactory analyzers = new OnnxFaceAnalyzerFactory(
+        new ClasspathBundleSource(), modelStoreOrNull, TrustedKeys.builtIn(),
+        AnalyzerConfig.fromConfig(configProvider));   // optional mosip.registration.liveness.face.analyzer.* keys
+analyzers.preload();                                   // at start-up: verifies the bundle, builds the sessions
+LivenessService liveness = DefaultLivenessService.builder()
+        .config(configProvider).analyzerFactory(analyzers).auditSink(auditSink).build();
+```
+
+- **Desktop:** add `com.microsoft.onnxruntime:onnxruntime:1.31.0` to the app; the analyzer declares it `provided`.
+- **Android:** use `onnxruntime-android:1.31.0` and a `BundleSource` over the app's assets.
+
+A tampered or unsigned bundle fails with `MODEL_INTEGRITY_FAILED`; there is no fallback to unverified models.
+
+## Model bundle: verify and sign
+
+    mvn -f liveness-eval/pom.xml dependency:build-classpath "-Dmdep.outputFile=liveness-eval/target/eval-cp.txt"
+    $cp = "liveness-eval\target\classes;" + (Get-Content liveness-eval\target\eval-cp.txt -Raw).Trim()
+    java -cp $cp io.mosip.registration.liveness.eval.ModelBundleTool verify --dir models
+    # after changing a model (the private key never lives inside a git tree; the tool refuses that):
+    java -cp $cp io.mosip.registration.liveness.eval.ModelBundleTool manifest --dir models --version pad-YYYY.MM.N --key-id <id> --param pitchBiasDeg=-9.5
+    java -cp $cp io.mosip.registration.liveness.eval.ModelBundleTool sign --dir models --key <path-to.p8> --key-id <id>
+
+The built-in key is a **development key**. Replace it before release; the steps are in [docs/part2-pad-architecture.md](docs/part2-pad-architecture.md) §8.
+
+## Demo, benchmark and evaluation (with the `$cp` above)
+
+    java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode analyze     # live overlay: box, landmarks, pose, scores
+    java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode session     # a full Part 3 session on the webcam
+    java -cp $cp io.mosip.registration.liveness.eval.AnalyzerBenchmark                   # latency report -> liveness-eval/reports/
+    java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode dataset --consent --subject s01   # PAD dataset takes
+    java -cp $cp io.mosip.registration.liveness.eval.PadEvaluation --data eval-data      # ISO/IEC 30107-3 report
+
+Recordings of people go only to `eval-data/`, which is gitignored, and only with the person's consent. See [docs/part2-dataset-protocol.md](docs/part2-dataset-protocol.md).
+
+**Documentation:**
+- [docs/part2-model-selection.md](docs/part2-model-selection.md): candidates, evidence and the choice for each model; why ONNX Runtime; rejected options
+- [docs/part2-pad-architecture.md](docs/part2-pad-architecture.md): pipeline, Part 3 integration, conventions, padDetails, the model bundle and keys, config keys, performance, Android notes, limitations
+- [docs/part2-iso30107-evaluation.md](docs/part2-iso30107-evaluation.md): ISO/IEC 30107-3 method and results (single subject, provisional), thresholds, next steps
+- [docs/part2-findings-for-other-parts.md](docs/part2-findings-for-other-parts.md): changes made in Part 3 and recommendations for Parts 1, 4 and 5
+- [models/README.md](models/README.md): model provenance, conversion checks and the reference pipeline
+
+---
+
+# Part 5: Android integration
+
+Part 5 puts Parts 1 to 3 into the MOSIP Android Registration Client (Flutter, v1.1.1). A face liveness check now runs before each face check of the client:
+- the resident face capture (before the SBI capture);
+- operator login (after the password);
+- operator onboarding;
+- packet authentication;
+- supervisor approval.
+
+The engine is the same Java code as on the Desktop. It runs on the phone's camera through CameraX, with the signed models on ONNX Runtime for Android, and needs no network.
+
+| Path | What | Ships in the app |
+|---|---|---|
+| `android-integration/patches/` | 35 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, face binding of the SBI face capture (F1), the liveness texts in all six languages (five machine-translated; Arabic right to left), the online model update (`ModelUpdateWorker`, off by default), audit events REG-EVT-009..019, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), per-ABI APKs, tests | yes |
+| `android-integration/person5-liveness.diff` | the same changes as one diff | yes |
+| `android-integration/scripts/` | `sync-engine.ps1` (engine jars, signed models and the camera source into the client), `apply-integration.ps1` (clone, apply, sync, build), `export-patches.ps1` (regenerate the patches) | no |
+| `android-liveness-frame-source/` | Part 1's `CameraXFrameSource`, copied into the client by the sync | yes |
+
+## Apply and build (Part 5)
+
+The patches leave out the engine jars, the model bundle and `CameraXFrameSource.java`; `sync-engine.ps1` copies those from this repository. From the repository root, in PowerShell with Flutter, the Android SDK and JDK 21 on PATH:
+
+    .\android-integration\scripts\apply-integration.ps1 -Target C:\dev\arc-liveness -BuildApk
+
+That runs these steps:
+1. Clones `v1.1.1`.
+2. Applies the 35 patches with `git am`.
+3. Builds and syncs the engine.
+4. Generates the Pigeon code.
+5. Builds an arm64 debug APK.
+
+The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 95 module tests and 84 Flutter tests.
+
+**Documentation:**
+- [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations
+- [docs/part5-android-benchmark.md](docs/part5-android-benchmark.md): on-device benchmark and the chosen analyzer defaults, real-session timings and memory, INT8, exposure assist in the dark, model update and airplane-mode checks, APK size
+- [docs/ui-liveness-spec.md](docs/ui-liveness-spec.md): the screen and message texts shared with the Desktop (Part 4)

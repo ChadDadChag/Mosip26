@@ -1,0 +1,107 @@
+From 5a943231a9149bd90c370643ec81237d78b1ba40 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 22:07:17 +0530
+Subject: [PATCH 25/35] Debug page: never render the best frame
+
+The best frame is a camera image of a person. The debug page showed it as
+a thumbnail on the result and LivenessPage outcome cards (hidden only in
+placeholder mode), and a P5-5 screenshot of the page captured it once. It
+is now never rendered there, for any engine or build: both cards show
+text only, with "best frame: N bytes" (or "none").
+
+LivenessPage never rendered it: LivenessOutcome only carries the bytes to
+the caller, and its toString prints the length. No other screen renders it.
+
+flutter analyze clean; test/liveness 56/56.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/liveness/liveness_debug_page.dart | 62 +++++++++---------------
+ 1 file changed, 24 insertions(+), 38 deletions(-)
+
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index a72bd9b..f0fa7af 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -719,57 +719,43 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+     );
+   }
+ 
++  // The best frame is a camera image of a person: it is never rendered on this page (any engine, any build),
++  // only its size is shown.
++  static String _bestFrame(Uint8List? jpeg) =>
++      'best frame: ${jpeg == null ? 'none' : '${jpeg.length} bytes'}';
++
+   Widget _outcomeCard(LivenessOutcome o) {
+-    // Placeholder mode shows no camera image at all, the best frame included.
+-    final jpeg = _placeholder ? null : o.bestFrameJpeg;
+     return Card(
+       color: Colors.blueGrey.shade50,
+       child: Padding(
+         padding: const EdgeInsets.all(8),
+-        child: Row(
+-          crossAxisAlignment: CrossAxisAlignment.start,
+-          children: [
+-            Expanded(
+-              child: Text('LivenessPage returned\n'
+-                  'passed: ${o.passed}  cancelled: ${o.cancelled}  disabled: ${o.disabled}\n'
+-                  'passPath: ${o.passPath}\n'
+-                  'failureCode: ${o.failureCode}\n'
+-                  'userMessage: ${o.userMessage}\n'
+-                  'attempts: ${o.attempts}, ${o.durationMs} ms\n'
+-                  'model: ${o.modelVersion}\n'
+-                  'session: ${o.sessionId}'),
+-            ),
+-            if (jpeg != null)
+-              Image.memory(jpeg, width: 96, height: 128, fit: BoxFit.cover),
+-          ],
+-        ),
++        child: Text('LivenessPage returned\n'
++            'passed: ${o.passed}  cancelled: ${o.cancelled}  disabled: ${o.disabled}\n'
++            'passPath: ${o.passPath}\n'
++            'failureCode: ${o.failureCode}\n'
++            'userMessage: ${o.userMessage}\n'
++            'attempts: ${o.attempts}, ${o.durationMs} ms\n'
++            'model: ${o.modelVersion}\n'
++            'session: ${o.sessionId}\n'
++            '${_bestFrame(o.bestFrameJpeg)}'),
+       ),
+     );
+   }
+ 
+   Widget _resultCard(LivenessMessage r) {
+-    final jpeg = _placeholder ? null : r.bestFrameJpeg;
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(8),
+-        child: Row(
+-          crossAxisAlignment: CrossAxisAlignment.start,
+-          children: [
+-            Expanded(
+-              child: Text('decision: ${r.decision}\n'
+-                  'passPath: ${r.passPath}\n'
+-                  'failureCode: ${r.failureCode}\n'
+-                  'userMessage: ${r.userMessage}\n'
+-                  'passiveScore: ${r.passiveScore.toStringAsFixed(4)}\n'
+-                  'challenges: ${r.challengesIssued.join(', ')}\n'
+-                  'attempts: ${r.attempts}, ${r.durationMs} ms\n'
+-                  'model: ${r.modelVersion}\n'
+-                  'session: ${r.sessionId}'),
+-            ),
+-            if (jpeg != null)
+-              Image.memory(jpeg, width: 96, height: 128, fit: BoxFit.cover),
+-          ],
+-        ),
++        child: Text('decision: ${r.decision}\n'
++            'passPath: ${r.passPath}\n'
++            'failureCode: ${r.failureCode}\n'
++            'userMessage: ${r.userMessage}\n'
++            'passiveScore: ${r.passiveScore.toStringAsFixed(4)}\n'
++            'challenges: ${r.challengesIssued.join(', ')}\n'
++            'attempts: ${r.attempts}, ${r.durationMs} ms\n'
++            'model: ${r.modelVersion}\n'
++            'session: ${r.sessionId}\n'
++            '${_bestFrame(r.bestFrameJpeg)}'),
+       ),
+     );
+   }

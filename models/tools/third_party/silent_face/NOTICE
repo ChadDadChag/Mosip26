@@ -1,0 +1,13 @@
+MiniFASNet model definition, vendored from Silent-Face-Anti-Spoofing by Minivision.
+
+Source:   https://github.com/minivision-ai/Silent-Face-Anti-Spoofing
+Commit:   b6d5f04ad78778917853b25c778acef6d5626d15 (master, 2020-08-05)
+File:     src/model_lib/MiniFASNet.py  ->  MiniFASNet.py
+License:  Apache License 2.0 (see LICENSE in this directory, copied unmodified)
+
+Modified: none. The file is byte-identical to upstream. export_minifasnet.py puts this
+directory on sys.path and imports it as a top-level module, so no import paths were changed.
+
+It is used only by models/tools/export_minifasnet.py to rebuild the networks and load the
+upstream weights (2.7_80x80_MiniFASNetV2.pth, 4_0_0_80x80_MiniFASNetV1SE.pth) for ONNX export.
+It does not ship in any application.

@@ -1,0 +1,955 @@
+From 1ec61a9f1d532091fa378cdddd4c07410fa7bb85 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Sat, 24 Oct 2026 19:32:57 +0530
+Subject: [PATCH 12/35] Add LivenessGate
+
+lib/ui/liveness/liveness_gate.dart: the one function the registration
+screens call, LivenessGate.run(context, workflow: ...) -> GateResult:
+- isEnabled(workflow) false -> proceed(disabled): no liveness screen, the
+  legacy flow continues;
+- the workflow's camera from cameraFor(workflow);
+- LivenessPage pushed full screen on the ROOT navigator (works from
+  dialogs);
+- outcome -> passed: proceed(outcome); cancelled or popped without a
+  result: cancelled; failed: blocked(outcome); disabled: proceed(disabled);
+- any error fails closed: blocked (ENGINE_ERROR, generic text).
+GateResult has proceed / cancelled / blocked, disabled, the outcome,
+sessionId, bestFrameJpeg (kept for binding later, never logged) and
+failureMessageKey (the short failure text for a snackbar).
+
+Camera permission (F12): LivenessService.ensureCameraPermission() returns
+granted / denied / permanentlyDenied. permission_handler can report a
+"don't ask again" refusal as plain denied (seen on the S23 FE after the
+permission was revoked outside the app), so a refused request with no
+rationale is treated as permanent. A refusal shows the device text, the
+recovery text and Close; a permanent one also "Open settings"
+(openCameraSettings(), new key liveness.button.open_settings in
+app_en.arb, 44 keys, same as the spec). LivenessService also gets
+cameraFor() and reloadConfig().
+
+Tests: liveness_gate_test.dart (9: outcome mapping; passed with the best
+frame; Cancel; failed -> blocked; disabled skips the page; the configured
+camera is used; from inside a dialog on the root navigator, the dialog
+stays; a page popped another way is cancelled and releases the session;
+errors fail closed), and the controller and page tests for the permanent
+refusal, Open settings and the fake engine without a camera permission.
+The scripted FakeLivenessService and event helpers moved to
+test/liveness/fake_liveness_service.dart. flutter test test/liveness: 56.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ assets/l10n/app_en.arb                        |   3 +-
+ .../liveness_service_impl.dart                |  25 ++-
+ lib/platform_spi/liveness_service.dart        |  17 +-
+ lib/ui/liveness/liveness_controller.dart      |  14 +-
+ lib/ui/liveness/liveness_gate.dart            | 112 ++++++++++
+ lib/ui/liveness/liveness_page.dart            |  40 ++--
+ lib/ui/liveness/liveness_strings.dart         |   2 +
+ test/liveness/fake_liveness_service.dart      | 112 ++++++++++
+ test/liveness/liveness_controller_test.dart   |  10 +-
+ test/liveness/liveness_gate_test.dart         | 193 ++++++++++++++++++
+ test/liveness/liveness_page_test.dart         | 131 ++++--------
+ 11 files changed, 538 insertions(+), 121 deletions(-)
+ create mode 100644 lib/ui/liveness/liveness_gate.dart
+ create mode 100644 test/liveness/fake_liveness_service.dart
+ create mode 100644 test/liveness/liveness_gate_test.dart
+
+diff --git a/assets/l10n/app_en.arb b/assets/l10n/app_en.arb
+index b8e6be1..90add56 100644
+--- a/assets/l10n/app_en.arb
++++ b/assets/l10n/app_en.arb
+@@ -414,5 +414,6 @@
+   "liveness_recovery_supervisor": "Please contact your administrator.",
+   "liveness_button_retry": "Retry",
+   "liveness_button_cancel": "Cancel",
+-  "liveness_button_close": "Close"
++  "liveness_button_close": "Close",
++  "liveness_button_open_settings": "Open settings"
+ }
+diff --git a/lib/platform_android/liveness_service_impl.dart b/lib/platform_android/liveness_service_impl.dart
+index 391a325..d3b4c72 100644
+--- a/lib/platform_android/liveness_service_impl.dart
++++ b/lib/platform_android/liveness_service_impl.dart
+@@ -53,15 +53,34 @@ class LivenessServiceImpl implements LivenessService {
+   Future<LivenessPolicyInfo> policy(String workflow) => _api.policy(workflow);
+ 
+   @override
+-  Future<bool> ensureCameraPermission() async {
++  Future<CameraPermission> ensureCameraPermission() async {
+     final PermissionStatus status = await Permission.camera.request();
+-    return status.isGranted;
++    if (status.isGranted) return CameraPermission.granted;
++    if (status.isPermanentlyDenied) return CameraPermission.permanentlyDenied;
++    // permission_handler can miss "don't ask again" (seen after the permission was revoked outside the app).
++    // Right after a refused request Android shows no rationale only when it will not ask any more.
++    if (!await Permission.camera.shouldShowRequestRationale) {
++      return CameraPermission.permanentlyDenied;
++    }
++    return CameraPermission.denied;
++  }
++
++  @override
++  Future<void> openCameraSettings() async {
++    await openAppSettings();
+   }
+ 
++  @override
++  Future<String> cameraFor(String workflow) => _api.cameraFor(workflow);
++
++  @override
++  Future<void> reloadConfig() => _api.reloadConfig();
++
+   @override
+   Future<String> startSession(String workflow,
+       {String camera = 'front', bool useFake = false}) async {
+-    if (!await ensureCameraPermission()) {
++    // The fake engine uses no camera, so it needs no permission.
++    if (!useFake && await ensureCameraPermission() != CameraPermission.granted) {
+       final String id = 'camera-denied-${DateTime.now().millisecondsSinceEpoch}';
+       _controller.add(LivenessMessage(<String, Object?>{
+         'kind': 'complete',
+diff --git a/lib/platform_spi/liveness_service.dart b/lib/platform_spi/liveness_service.dart
+index d91741f..6425bf0 100644
+--- a/lib/platform_spi/liveness_service.dart
++++ b/lib/platform_spi/liveness_service.dart
+@@ -52,6 +52,10 @@ class LivenessMessage {
+   Uint8List? get bestFrameJpeg => data['bestFrameJpeg'] as Uint8List?;
+ }
+ 
++/// The camera permission after asking. [permanentlyDenied]: Android no longer
++/// shows the dialog; only the app settings can grant it.
++enum CameraPermission { granted, denied, permanentlyDenied }
++
+ /// Face liveness. Workflows: RESIDENT, OPERATOR, SUPERVISOR. Cameras: front, back.
+ abstract class LivenessService {
+   /// Events and results of every session, in order. Listen before starting a session.
+@@ -61,8 +65,17 @@ abstract class LivenessService {
+ 
+   Future<LivenessPolicyInfo> policy(String workflow);
+ 
+-  /// Asks for the camera permission if needed; true when granted.
+-  Future<bool> ensureCameraPermission();
++  /// Asks for the camera permission if needed.
++  Future<CameraPermission> ensureCameraPermission();
++
++  /// Opens this app's system settings (to grant a permanently refused camera permission).
++  Future<void> openCameraSettings();
++
++  /// front or back for the workflow (mosip.registration.liveness.face.android.<workflow>.camera).
++  Future<String> cameraFor(String workflow);
++
++  /// Re-reads the liveness config for new sessions.
++  Future<void> reloadConfig();
+ 
+   /// Asks for the camera permission, then starts a session (cancelling any
+   /// running one). Returns the session id, or "" when liveness is disabled for
+diff --git a/lib/ui/liveness/liveness_controller.dart b/lib/ui/liveness/liveness_controller.dart
+index 7910dc3..0f9f317 100644
+--- a/lib/ui/liveness/liveness_controller.dart
++++ b/lib/ui/liveness/liveness_controller.dart
+@@ -68,6 +68,7 @@ class LivenessViewState {
+     this.showRetry = false,
+     this.showCancel = true,
+     this.showClose = false,
++    this.showOpenSettings = false,
+     this.tips = false,
+     this.messageKey,
+     this.recoveryKey,
+@@ -107,6 +108,9 @@ class LivenessViewState {
+   final bool showCancel;
+   final bool showClose;
+ 
++  /// The camera permission is permanently refused: offer the app settings.
++  final bool showOpenSettings;
++
+   /// Show the tips list (LIVENESS_NOT_VERIFIED only).
+   final bool tips;
+ 
+@@ -139,6 +143,7 @@ class LivenessViewState {
+     bool? showRetry,
+     bool? showCancel,
+     bool? showClose,
++    bool? showOpenSettings,
+     bool? tips,
+     Object? messageKey = _unset,
+     Object? recoveryKey = _unset,
+@@ -162,6 +167,7 @@ class LivenessViewState {
+       showRetry: showRetry ?? this.showRetry,
+       showCancel: showCancel ?? this.showCancel,
+       showClose: showClose ?? this.showClose,
++      showOpenSettings: showOpenSettings ?? this.showOpenSettings,
+       tips: tips ?? this.tips,
+       messageKey: identical(messageKey, _unset) ? this.messageKey : messageKey as String?,
+       recoveryKey: identical(recoveryKey, _unset) ? this.recoveryKey : recoveryKey as String?,
+@@ -172,7 +178,7 @@ class LivenessViewState {
+   String toString() => 'LivenessViewState($phase, status=$statusKey, hint=$hintKey, '
+       'step=$stepIndex/$stepCount, progress=${progressVisible ? progress : '-'}, '
+       'attempt=$attempt/$maxAttempts, tone=$ovalTone, icon=$icon, '
+-      'retry=$showRetry cancel=$showCancel close=$showClose tips=$tips, '
++      'retry=$showRetry cancel=$showCancel close=$showClose settings=$showOpenSettings tips=$tips, '
+       'message=$messageKey recovery=$recoveryKey)';
+ }
+ 
+@@ -225,8 +231,10 @@ class LivenessController extends ChangeNotifier {
+     }
+   }
+ 
+-  /// The camera permission was refused: the device text, the recovery text and Close.
+-  void permissionDenied() => _set(_finalState('DEVICE_PROBLEM'));
++  /// The camera permission was refused: the device text, the recovery text and
++  /// Close; [permanently] (Android no longer asks) also offers the app settings.
++  void permissionDenied({bool permanently = false}) =>
++      _set(_finalState('DEVICE_PROBLEM').copyWith(showOpenSettings: permanently));
+ 
+   /// The session could not be started at all (bridge error).
+   void startFailed() => _set(_finalState('VERIFICATION_NOT_COMPLETED'));
+diff --git a/lib/ui/liveness/liveness_gate.dart b/lib/ui/liveness/liveness_gate.dart
+new file mode 100644
+index 0000000..790e511
+--- /dev/null
++++ b/lib/ui/liveness/liveness_gate.dart
+@@ -0,0 +1,112 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'package:flutter/foundation.dart';
++import 'package:flutter/material.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++
++enum GateStatus { proceed, cancelled, blocked }
++
++/// What a flow does after [LivenessGate.run]: proceed (passed, or liveness is
++/// disabled for the workflow), cancelled (the user backed out: no state
++/// change), or blocked (failed: the page already showed the recovery text).
++@immutable
++class GateResult {
++  const GateResult._(this.status, {this.disabled = false, this.outcome});
++
++  factory GateResult.proceed({LivenessOutcome? outcome, bool disabled = false}) =>
++      GateResult._(GateStatus.proceed, outcome: outcome, disabled: disabled);
++
++  factory GateResult.cancelled([LivenessOutcome? outcome]) =>
++      GateResult._(GateStatus.cancelled, outcome: outcome);
++
++  factory GateResult.blocked(LivenessOutcome? outcome) =>
++      GateResult._(GateStatus.blocked, outcome: outcome);
++
++  /// passed -> proceed; cancelled or no outcome (the page was popped some other way) -> cancelled;
++  /// disabled -> proceed (disabled); anything else -> blocked.
++  factory GateResult.fromOutcome(LivenessOutcome? outcome) {
++    if (outcome == null) return GateResult.cancelled();
++    if (outcome.disabled) return GateResult.proceed(disabled: true);
++    if (outcome.passed) return GateResult.proceed(outcome: outcome);
++    if (outcome.cancelled) return GateResult.cancelled(outcome);
++    return GateResult.blocked(outcome);
++  }
++
++  final GateStatus status;
++
++  /// Liveness is disabled for the workflow: the legacy flow continues unchanged.
++  final bool disabled;
++  final LivenessOutcome? outcome;
++
++  bool get proceed => status == GateStatus.proceed;
++  bool get cancelled => status == GateStatus.cancelled;
++  bool get blocked => status == GateStatus.blocked;
++
++  String? get sessionId => outcome?.sessionId;
++
++  /// The passed session's best frame (kept for binding it to the captured face later). Never log it.
++  Uint8List? get bestFrameJpeg => outcome?.bestFrameJpeg;
++
++  /// The canonical key of the short failure text for a blocked result (e.g. a snackbar).
++  String get failureMessageKey => outcome?.userMessage == 'DEVICE_PROBLEM'
++      ? 'liveness.error.device_problem'
++      : 'liveness.error.max_attempts_reached';
++
++  @override
++  String toString() => 'GateResult(${status.name}${disabled ? ', disabled' : ''}, $outcome)';
++}
++
++/// The one entry point the registration flows call before a face is captured or
++/// a step is authorised (docs/ui-liveness-spec.md section 6).
++class LivenessGate {
++  LivenessGate._();
++
++  static const String resident = 'RESIDENT';
++  static const String operator = 'OPERATOR';
++  static const String supervisor = 'SUPERVISOR';
++
++  /// Runs the liveness step for [workflow]: returns proceed(disabled) at once
++  /// when liveness is disabled for it; otherwise opens [LivenessPage] full screen
++  /// on the root navigator (so it also works from a dialog) with the workflow's
++  /// configured camera, and maps the outcome. Never throws: any error fails
++  /// closed as blocked.
++  ///
++  /// [useFake], [service] and [previewBuilder] are for the debug page and tests.
++  static Future<GateResult> run(
++    BuildContext context, {
++    required String workflow,
++    bool useFake = false,
++    LivenessService? service,
++    Widget Function()? previewBuilder,
++  }) async {
++    final svc = service ?? LivenessService();
++    try {
++      final navigator = Navigator.of(context, rootNavigator: true);
++      if (!await svc.isEnabled(workflow)) return GateResult.proceed(disabled: true);
++      final camera = await svc.cameraFor(workflow);
++      final outcome = await navigator.push<LivenessOutcome>(
++        MaterialPageRoute<LivenessOutcome>(
++          fullscreenDialog: true,
++          builder: (_) => LivenessPage(
++            workflow: workflow,
++            camera: camera,
++            useFake: useFake,
++            service: svc,
++            previewBuilder: previewBuilder,
++          ),
++        ),
++      );
++      return GateResult.fromOutcome(outcome);
++    } catch (e) {
++      debugPrint('Liveness gate failed closed for $workflow: ${e.runtimeType}');
++      return GateResult.blocked(const LivenessOutcome(
++          failureCode: 'ENGINE_ERROR', userMessage: 'VERIFICATION_NOT_COMPLETED'));
++    }
++  }
++}
+diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
+index a56d9b4..f91a2ef 100644
+--- a/lib/ui/liveness/liveness_page.dart
++++ b/lib/ui/liveness/liveness_page.dart
+@@ -146,9 +146,13 @@ class _LivenessPageState extends State<LivenessPage> {
+         _pop(LivenessOutcome.disabledOutcome);
+         return;
+       }
+-      if (!await _service.ensureCameraPermission()) {
+-        _controller.permissionDenied();
+-        return;
++      // The fake engine uses no camera, so it needs no permission.
++      if (!widget.useFake) {
++        final permission = await _service.ensureCameraPermission();
++        if (permission != CameraPermission.granted) {
++          _controller.permissionDenied(permanently: permission == CameraPermission.permanentlyDenied);
++          return;
++        }
+       }
+       final policy = await _service.policy(widget.workflow);
+       _controller.maxRetries = policy.maxRetries;
+@@ -305,13 +309,13 @@ class _LivenessPageState extends State<LivenessPage> {
+   }
+ 
+   Widget _preview(LivenessViewState s, Color tone) {
++    // The fake engine has no camera: a placeholder instead of a black view.
+     final preview = widget.previewBuilder?.call() ??
++        (widget.useFake ? const LivenessPlaceholderPreview() : null) ??
+         AndroidView(
+           viewType: LivenessPage.previewViewType,
+           creationParamsCodec: const StandardMessageCodec(),
+-    // The fake engine has no camera: a placeholder instead of a black view.
+           onPlatformViewCreated: (_) {
+-        (widget.useFake ? const LivenessPlaceholderPreview() : null) ??
+             if (!_previewReady.isCompleted) _previewReady.complete();
+           },
+         );
+@@ -462,6 +466,12 @@ class _LivenessPageState extends State<LivenessPage> {
+             onPressed: _cancel,
+             child: Text(livenessText(l, 'liveness.button.cancel')),
+           ),
++        if (s.showOpenSettings)
++          OutlinedButton(
++            style: OutlinedButton.styleFrom(minimumSize: size),
++            onPressed: () => _service.openCameraSettings(),
++            child: Text(livenessText(l, 'liveness.button.open_settings')),
++          ),
+         if (s.showClose)
+           ElevatedButton(
+             style: ElevatedButton.styleFrom(minimumSize: size),
+@@ -515,16 +525,6 @@ class _LivenessPageState extends State<LivenessPage> {
+   }
+ }
+ 
+-/// The face-oval guide: the outside dimmed lightly, the outline in the state colour.
+-class _OvalPainter extends CustomPainter {
+-  _OvalPainter(this.color);
+-
+-  final Color color;
+-
+-  static Rect ovalRect(Size size) => Rect.fromCenter(
+-        center: Offset(size.width / 2, size.height * 0.47),
+-        width: size.width * 0.66,
+-        height: size.height * 0.66,
+ /// A neutral grey silhouette in place of the camera picture: the fake engine,
+ /// tests and privacy-safe screenshots.
+ class LivenessPlaceholderPreview extends StatelessWidget {
+@@ -537,6 +537,16 @@ class LivenessPlaceholderPreview extends StatelessWidget {
+       );
+ }
+ 
++/// The face-oval guide: the outside dimmed lightly, the outline in the state colour.
++class _OvalPainter extends CustomPainter {
++  _OvalPainter(this.color);
++
++  final Color color;
++
++  static Rect ovalRect(Size size) => Rect.fromCenter(
++        center: Offset(size.width / 2, size.height * 0.47),
++        width: size.width * 0.66,
++        height: size.height * 0.66,
+       );
+ 
+   @override
+diff --git a/lib/ui/liveness/liveness_strings.dart b/lib/ui/liveness/liveness_strings.dart
+index fd93601..318302a 100644
+--- a/lib/ui/liveness/liveness_strings.dart
++++ b/lib/ui/liveness/liveness_strings.dart
+@@ -109,6 +109,8 @@ String livenessText(AppLocalizations l, String key,
+       return l.liveness_button_cancel;
+     case 'liveness.button.close':
+       return l.liveness_button_close;
++    case 'liveness.button.open_settings':
++      return l.liveness_button_open_settings;
+     default:
+       return key;
+   }
+diff --git a/test/liveness/fake_liveness_service.dart b/test/liveness/fake_liveness_service.dart
+new file mode 100644
+index 0000000..8b8e659
+--- /dev/null
++++ b/test/liveness/fake_liveness_service.dart
+@@ -0,0 +1,112 @@
++import 'dart:async';
++
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++
++/// A scripted LivenessService: the test emits the engine's maps.
++class FakeLivenessService implements LivenessService {
++  final StreamController<LivenessMessage> _messages = StreamController<LivenessMessage>.broadcast();
++  bool enabled = true;
++  CameraPermission permission = CameraPermission.granted;
++  Map<String, String> cameras = {};
++  int maxRetries = 3;
++  String sessionId = 's-1';
++  int retries = 0;
++  int cancels = 0;
++  int permissionRequests = 0;
++  int settingsOpened = 0;
++  Object? throwOnIsEnabled;
++  final List<String> started = [];
++
++  void emit(Map<String, Object?> m) => _messages.add(LivenessMessage(m));
++
++  @override
++  Stream<LivenessMessage> get messages => _messages.stream;
++
++  @override
++  Future<bool> isEnabled(String workflow) async {
++    if (throwOnIsEnabled != null) throw throwOnIsEnabled!;
++    return enabled;
++  }
++
++  @override
++  Future<LivenessPolicyInfo> policy(String workflow) async => LivenessPolicyInfo(
++      enabled: enabled, maxRetries: maxRetries, minChallenges: 2, challengeTimeoutMs: 6000);
++
++  @override
++  Future<CameraPermission> ensureCameraPermission() async {
++    permissionRequests++;
++    return permission;
++  }
++
++  @override
++  Future<void> openCameraSettings() async => settingsOpened++;
++
++  @override
++  Future<String> cameraFor(String workflow) async => cameras[workflow] ?? 'front';
++
++  @override
++  Future<void> reloadConfig() async {}
++
++  @override
++  Future<String> startSession(String workflow, {String camera = 'front', bool useFake = false}) async {
++    started.add('$workflow/$camera/$useFake');
++    return enabled ? sessionId : '';
++  }
++
++  @override
++  Future<void> retry() async => retries++;
++
++  @override
++  Future<void> cancel() async => cancels++;
++
++  @override
++  Future<String> modelVersion() async => 'test-model';
++
++  @override
++  Future<void> setConfigOverride(String key, String value) async {}
++}
++
++Map<String, Object?> ev(String type,
++        {int attempt = 1,
++        String? guidance,
++        String? challenge,
++        int index = 0,
++        int count = 0,
++        double progress = 0,
++        String? error,
++        String? userMessage,
++        int retriesLeft = 0,
++        bool recoverable = true}) =>
++    <String, Object?>{
++      'kind': 'event',
++      'type': type,
++      'guidance': guidance,
++      'challenge': challenge,
++      'challengeIndex': index,
++      'challengeCount': count,
++      'timeoutMs': 6000,
++      'progress': progress,
++      'error': error,
++      'userMessage': userMessage,
++      'attemptNumber': attempt,
++      'retriesLeft': retriesLeft,
++      'recoverable': recoverable,
++    };
++
++Map<String, Object?> complete(String decision,
++        {String? failureCode, String userMessage = 'NONE', String sessionId = 's-1'}) =>
++    <String, Object?>{
++      'kind': 'complete',
++      'decision': decision,
++      'passPath': decision == 'PASSED' ? 'ACTIVE_CHALLENGE' : 'NONE',
++      'failureCode': failureCode,
++      'userMessage': userMessage,
++      'passiveScore': 0.62,
++      'challengesIssued': const <String>['BLINK', 'SMILE'],
++      'attempts': 1,
++      'durationMs': 4321,
++      'sessionId': sessionId,
++      'modelVersion': 'test-model',
++      'bestFrameJpeg': null,
++    };
+diff --git a/test/liveness/liveness_controller_test.dart b/test/liveness/liveness_controller_test.dart
+index 8425f1c..b54be96 100644
+--- a/test/liveness/liveness_controller_test.dart
++++ b/test/liveness/liveness_controller_test.dart
+@@ -440,6 +440,14 @@ void main() {
+       expect(c.state.recoveryKey, 'liveness.recovery.resident');
+       expect(c.state.showClose, isTrue);
+       expect(c.state.showCancel, isFalse);
++      expect(c.state.showOpenSettings, isFalse);
++    });
++
++    test('camera permission permanently refused: also Open settings', () {
++      c.permissionDenied(permanently: true);
++      expect(c.state.statusKey, 'liveness.error.device_problem');
++      expect(c.state.showOpenSettings, isTrue);
++      expect(c.state.showClose, isTrue);
+     });
+ 
+     test('a failed result without FAILED_FINAL (refused before any event) uses its user message', () {
+@@ -485,7 +493,7 @@ void main() {
+     final l = await AppLocalizations.delegate.load(const Locale('en'));
+     final arb = jsonDecode(File('assets/l10n/app_en.arb').readAsStringSync()) as Map<String, dynamic>;
+     final keys = arb.keys.where((k) => k.startsWith('liveness_')).toList();
+-    expect(keys.length, 43);
++    expect(keys.length, 44);
+     for (final k in keys) {
+       final parts = k.split('_');
+       final canonical = '${parts[0]}.${parts[1]}.${parts.sublist(2).join('_')}';
+diff --git a/test/liveness/liveness_gate_test.dart b/test/liveness/liveness_gate_test.dart
+new file mode 100644
+index 0000000..c8cc535
+--- /dev/null
++++ b/test/liveness/liveness_gate_test.dart
+@@ -0,0 +1,193 @@
++import 'dart:typed_data';
++
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++
++import 'fake_liveness_service.dart';
++
++/// Calls LivenessGate.run like a screen does, from the page itself or from inside a dialog.
++class _GateHost extends StatelessWidget {
++  const _GateHost(this.service, this.workflow, this.onResult);
++
++  final FakeLivenessService service;
++  final String workflow;
++  final void Function(GateResult) onResult;
++
++  Future<void> _run(BuildContext context) async {
++    onResult(await LivenessGate.run(context,
++        workflow: workflow,
++        service: service,
++        previewBuilder: () => const ColoredBox(color: Colors.grey)));
++  }
++
++  @override
++  Widget build(BuildContext context) => Scaffold(
++        body: Column(
++          children: [
++            ElevatedButton(onPressed: () => _run(context), child: const Text('run')),
++            ElevatedButton(
++              onPressed: () => showDialog<void>(
++                context: context,
++                builder: (dialogContext) => AlertDialog(
++                  content: const Text('approve dialog'),
++                  actions: [
++                    TextButton(onPressed: () => _run(dialogContext), child: const Text('run in dialog')),
++                  ],
++                ),
++              ),
++              child: const Text('dialog'),
++            ),
++          ],
++        ),
++      );
++}
++
++void main() {
++  late FakeLivenessService service;
++  GateResult? result;
++
++  setUp(() {
++    service = FakeLivenessService();
++    result = null;
++  });
++
++  Future<void> host(WidgetTester tester, {String workflow = LivenessGate.resident}) async {
++    await tester.binding.setSurfaceSize(const Size(411, 891));
++    addTearDown(() => tester.binding.setSurfaceSize(null));
++    await tester.pumpWidget(MaterialApp(
++      localizationsDelegates: AppLocalizations.localizationsDelegates,
++      supportedLocales: AppLocalizations.supportedLocales,
++      home: _GateHost(service, workflow, (r) => result = r),
++    ));
++  }
++
++  Future<void> tap(WidgetTester tester, String text) async {
++    await tester.ensureVisible(find.text(text));
++    await tester.pump();
++    await tester.tap(find.text(text));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++  }
++
++  Future<void> send(WidgetTester tester, Map<String, Object?> m) async {
++    service.emit(m);
++    await tester.pump();
++    await tester.pump();
++  }
++
++  Future<void> passSession(WidgetTester tester, {Uint8List? jpeg}) async {
++    await send(tester, ev('STARTED'));
++    await send(tester, ev('PASSED'));
++    final done = complete('PASSED');
++    done['bestFrameJpeg'] = jpeg;
++    await send(tester, done);
++    await tester.pump(const Duration(milliseconds: 1100));
++    await tester.pump(const Duration(milliseconds: 400));
++  }
++
++  group('outcome mapping', () {
++    test('fromOutcome', () {
++      expect(GateResult.fromOutcome(null).cancelled, isTrue);
++      expect(GateResult.fromOutcome(LivenessOutcome.cancelledOutcome).cancelled, isTrue);
++      final disabled = GateResult.fromOutcome(LivenessOutcome.disabledOutcome);
++      expect(disabled.proceed && disabled.disabled, isTrue);
++      final passed = GateResult.fromOutcome(const LivenessOutcome(passed: true, sessionId: 's-9'));
++      expect(passed.proceed && !passed.disabled, isTrue);
++      expect(passed.sessionId, 's-9');
++      const failed = LivenessOutcome(failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED');
++      expect(GateResult.fromOutcome(failed).blocked, isTrue);
++      expect(GateResult.fromOutcome(failed).failureMessageKey, 'liveness.error.max_attempts_reached');
++      const camera = LivenessOutcome(failureCode: 'CAMERA_UNAVAILABLE', userMessage: 'DEVICE_PROBLEM');
++      expect(GateResult.fromOutcome(camera).failureMessageKey, 'liveness.error.device_problem');
++    });
++  });
++
++  testWidgets('passed: proceed with the outcome and the best frame', (tester) async {
++    await host(tester);
++    await tap(tester, 'run');
++    expect(find.byType(LivenessPage), findsOneWidget);
++    await passSession(tester, jpeg: Uint8List.fromList([0xFF, 0xD8, 1]));
++    expect(result!.proceed, isTrue);
++    expect(result!.disabled, isFalse);
++    expect(result!.sessionId, 's-1');
++    expect(result!.bestFrameJpeg, [0xFF, 0xD8, 1]);
++    expect(find.byType(LivenessPage), findsNothing);
++  });
++
++  testWidgets('Cancel: cancelled', (tester) async {
++    await host(tester);
++    await tap(tester, 'run');
++    await send(tester, ev('CHECKING_PASSIVE'));
++    await tap(tester, 'Cancel');
++    expect(result!.cancelled, isTrue);
++    expect(service.cancels, 1);
++  });
++
++  testWidgets('failed: blocked with the outcome', (tester) async {
++    await host(tester);
++    await tap(tester, 'run');
++    await send(tester, ev('FAILED_FINAL',
++        attempt: 4, error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED', recoverable: false));
++    await send(tester, complete('FAILED', failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED'));
++    await tap(tester, 'Close');
++    expect(result!.blocked, isTrue);
++    expect(result!.outcome!.failureCode, 'MAX_RETRIES_EXCEEDED');
++    expect(result!.failureMessageKey, 'liveness.error.max_attempts_reached');
++  });
++
++  testWidgets('disabled workflow: proceed(disabled) without opening the page', (tester) async {
++    service.enabled = false;
++    await host(tester, workflow: LivenessGate.operator);
++    await tester.tap(find.text('run'));
++    await tester.pump();
++    expect(find.byType(LivenessPage), findsNothing);
++    expect(result!.proceed, isTrue);
++    expect(result!.disabled, isTrue);
++    expect(service.started, isEmpty);
++  });
++
++  testWidgets('the workflow\'s configured camera is used', (tester) async {
++    service.cameras = {LivenessGate.operator: 'back'};
++    await host(tester, workflow: LivenessGate.operator);
++    await tap(tester, 'run');
++    expect(service.started, ['OPERATOR/back/false']);
++    await tap(tester, 'Cancel');
++  });
++
++  testWidgets('from inside a dialog: the page opens on the root navigator, the dialog stays', (tester) async {
++    await host(tester, workflow: LivenessGate.supervisor);
++    await tap(tester, 'dialog');
++    expect(find.text('approve dialog'), findsOneWidget);
++    await tap(tester, 'run in dialog');
++    expect(find.byType(LivenessPage), findsOneWidget);
++    expect(find.text('Supervisor face verification'), findsOneWidget);
++    await passSession(tester);
++    expect(result!.proceed, isTrue);
++    expect(find.byType(LivenessPage), findsNothing);
++    expect(find.text('approve dialog'), findsOneWidget);
++  });
++
++  testWidgets('a page popped some other way counts as cancelled and releases the session', (tester) async {
++    await host(tester);
++    await tap(tester, 'run');
++    await send(tester, ev('CHECKING_PASSIVE'));
++    Navigator.of(tester.element(find.byType(LivenessPage))).pop();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(result!.cancelled, isTrue);
++    expect(service.cancels, 1);
++  });
++
++  testWidgets('an error fails closed as blocked', (tester) async {
++    service.throwOnIsEnabled = StateError('bridge down');
++    await host(tester);
++    await tester.tap(find.text('run'));
++    await tester.pump();
++    expect(result!.blocked, isTrue);
++    expect(result!.outcome!.failureCode, 'ENGINE_ERROR');
++    expect(find.byType(LivenessPage), findsNothing);
++  });
++}
+diff --git a/test/liveness/liveness_page_test.dart b/test/liveness/liveness_page_test.dart
+index 03463c2..1bc0b19 100644
+--- a/test/liveness/liveness_page_test.dart
++++ b/test/liveness/liveness_page_test.dart
+@@ -1,107 +1,18 @@
+-import 'dart:async';
+-
+ import 'package:flutter/material.dart';
+ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+ import 'package:flutter_test/flutter_test.dart';
+-import 'package:registration_client/pigeon/liveness_pigeon.dart';
+ import 'package:registration_client/platform_spi/liveness_service.dart';
+ import 'package:registration_client/ui/liveness/liveness_page.dart';
+ 
+-/// A scripted LivenessService: the test emits the engine's maps.
+-class FakeLivenessService implements LivenessService {
+-  final StreamController<LivenessMessage> _messages = StreamController<LivenessMessage>.broadcast();
+-  bool enabled = true;
+-  bool permission = true;
+-  int maxRetries = 3;
+-  String sessionId = 's-1';
+-  int retries = 0;
+-  int cancels = 0;
+-  final List<String> started = [];
+-
+-  void emit(Map<String, Object?> m) => _messages.add(LivenessMessage(m));
+-
+-  @override
+-  Stream<LivenessMessage> get messages => _messages.stream;
+-
+-  @override
+-  Future<bool> isEnabled(String workflow) async => enabled;
+-
+-  @override
+-  Future<LivenessPolicyInfo> policy(String workflow) async => LivenessPolicyInfo(
+-      enabled: enabled, maxRetries: maxRetries, minChallenges: 2, challengeTimeoutMs: 6000);
+-
+-  @override
+-  Future<bool> ensureCameraPermission() async => permission;
+-
+-  @override
+-  Future<String> startSession(String workflow, {String camera = 'front', bool useFake = false}) async {
+-    started.add('$workflow/$camera/$useFake');
+-    return enabled ? sessionId : '';
+-  }
+-
+-  @override
+-  Future<void> retry() async => retries++;
+-
+-  @override
+-  Future<void> cancel() async => cancels++;
+-
+-  @override
+-  Future<String> modelVersion() async => 'test-model';
+-
+-  @override
+-  Future<void> setConfigOverride(String key, String value) async {}
+-}
+-
+-Map<String, Object?> ev(String type,
+-        {int attempt = 1,
+-        String? guidance,
+-        String? challenge,
+-        int index = 0,
+-        int count = 0,
+-        double progress = 0,
+-        String? error,
+-        String? userMessage,
+-        int retriesLeft = 0,
+-        bool recoverable = true}) =>
+-    <String, Object?>{
+-      'kind': 'event',
+-      'type': type,
+-      'guidance': guidance,
+-      'challenge': challenge,
+-      'challengeIndex': index,
+-      'challengeCount': count,
+-      'timeoutMs': 6000,
+-      'progress': progress,
+-      'error': error,
+-      'userMessage': userMessage,
+-      'attemptNumber': attempt,
+-      'retriesLeft': retriesLeft,
+-      'recoverable': recoverable,
+-    };
+-
+-Map<String, Object?> complete(String decision,
+-        {String? failureCode, String userMessage = 'NONE', String sessionId = 's-1'}) =>
+-    <String, Object?>{
+-      'kind': 'complete',
+-      'decision': decision,
+-      'passPath': decision == 'PASSED' ? 'ACTIVE_CHALLENGE' : 'NONE',
+-      'failureCode': failureCode,
+-      'userMessage': userMessage,
+-      'passiveScore': 0.62,
+-      'challengesIssued': const <String>['BLINK', 'SMILE'],
+-      'attempts': 1,
+-      'durationMs': 4321,
+-      'sessionId': sessionId,
+-      'modelVersion': 'test-model',
+-      'bestFrameJpeg': null,
+-    };
++import 'fake_liveness_service.dart';
+ 
+ class _Launcher extends StatelessWidget {
+-  const _Launcher(this.service, this.workflow, this.onResult);
++  const _Launcher(this.service, this.workflow, this.onResult, {this.useFake = false});
+ 
+   final LivenessService service;
+   final String workflow;
+   final void Function(LivenessOutcome?) onResult;
++  final bool useFake;
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+@@ -114,7 +25,9 @@ class _Launcher extends StatelessWidget {
+                   builder: (_) => LivenessPage(
+                     workflow: workflow,
+                     service: service,
+-                    previewBuilder: () => const ColoredBox(color: Colors.grey),
++                    useFake: useFake,
++                    // The fake engine brings its own placeholder.
++                    previewBuilder: useFake ? null : () => const ColoredBox(color: Colors.grey),
+                   ),
+                 ),
+               );
+@@ -137,7 +50,7 @@ void main() {
+     returned = false;
+   });
+ 
+-  Future<void> open(WidgetTester tester, {String workflow = 'RESIDENT'}) async {
++  Future<void> open(WidgetTester tester, {String workflow = 'RESIDENT', bool useFake = false}) async {
+     await tester.binding.setSurfaceSize(const Size(411, 891)); // a phone in portrait
+     addTearDown(() => tester.binding.setSurfaceSize(null));
+     await tester.pumpWidget(MaterialApp(
+@@ -146,7 +59,7 @@ void main() {
+       home: _Launcher(service, workflow, (o) {
+         outcome = o;
+         returned = true;
+-      }),
++      }, useFake: useFake),
+     ));
+     await tester.tap(find.text('open'));
+     await tester.pump();
+@@ -293,18 +206,44 @@ void main() {
+   });
+ 
+   testWidgets('camera permission refused: device text, recovery text and Close', (tester) async {
+-    service.permission = false;
++    service.permission = CameraPermission.denied;
+     await open(tester, workflow: 'OPERATOR');
+     expect(service.started, isEmpty);
+     expect(find.text('Operator face verification'), findsOneWidget);
+     expect(find.text('Camera/device not available. Check the connection and try again.'), findsOneWidget);
+     expect(find.text('Please contact your administrator or try again later.'), findsOneWidget);
++    expect(find.text('Open settings'), findsNothing);
+     await tapText(tester, 'Close');
+     await tester.pump(const Duration(milliseconds: 400));
+     expect(outcome!.failureCode, 'CAMERA_UNAVAILABLE');
+     expect(outcome!.userMessage, 'DEVICE_PROBLEM');
+   });
+ 
++  testWidgets('camera permission permanently refused: Open settings as well', (tester) async {
++    service.permission = CameraPermission.permanentlyDenied;
++    await open(tester);
++    expect(find.text('Camera/device not available. Check the connection and try again.'), findsOneWidget);
++    await tapText(tester, 'Open settings');
++    expect(service.settingsOpened, 1);
++    await tapText(tester, 'Close');
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(outcome!.failureCode, 'CAMERA_UNAVAILABLE');
++  });
++
++  testWidgets('fake engine: no camera permission asked, placeholder preview', (tester) async {
++    service.permission = CameraPermission.denied; // would fail if it were asked
++    await open(tester, useFake: true);
++    expect(service.permissionRequests, 0);
++    expect(service.started, ['RESIDENT/front/true']);
++    expect(find.byType(LivenessPlaceholderPreview), findsOneWidget);
++    await send(tester, ev('PASSED'));
++    await send(tester, complete('PASSED'));
++    await tester.pump(const Duration(milliseconds: 1100));
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(outcome!.passed, isTrue);
++    expect(outcome!.bestFrameJpeg, isNull);
++  });
++
+   testWidgets('guidance shows in the hint line; a result of another session is ignored', (tester) async {
+     await open(tester);
+     await send(tester, ev('CHECKING_PASSIVE'));
