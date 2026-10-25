@@ -136,7 +136,8 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
   - Before committing, each clip goes through three steps:
     1. `ClipPacker` turns it into MJPEG under 2 MB.
     2. `models/tools/clip_privacy_check.py` counts the faces in every frame and writes contact sheets outside the
-       repository. Every frame is then looked at.
+       repository. A person (the participant) and Claude look at every frame. The commit message records the
+       number of frames checked and who viewed them.
     3. `scripts/probe-regression-clips.ps1` plays it through `RecordedVideoE2ETest` three times.
   - Only a clip that FAILED in all three runs is committed, to `registration-services/src/test/resources/liveness/videos/`
     as `<name>__expect-FAILED-<CODE>.mjpeg`, or as `<name>__expect-FAILED.mjpeg` if the code varies. A clip that

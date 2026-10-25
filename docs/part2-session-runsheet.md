@@ -46,28 +46,33 @@ phone, nobody behind you. Only the NASA picture, and your hand at most.
    2. "F16 CLIP: NASA PRINT held flat, CLOSE: face size 20% or more"
    3. "F16 CLIP: PHONE showing the NASA PORTRAIT, normal distance, phone edges visible"
    4. "F16 CLIP: PHONE VERY CLOSE (~10 cm) showing the NASA PORTRAIT, face size 20% or more"
-9. Claude then works on the clips while you go on with block 3:
+9. Claude then works on the clips:
    - packs each one (under 2 MB);
    - counts the faces and looks at every frame;
-   - plays it three times through `RecordedVideoE2ETest` in the Registration Client build.
+   - plays it three times through `RecordedVideoE2ETest` in the Registration Client build. This runs in the
+     background while you go on with block 3.
    A clip is committed only if it never shows a person and FAILED in all three runs. If one PASSES, that is a
    finding, not a test. If one must be redone, Claude deletes it and you repeat step 7 (the other clips are kept).
+10. **You look at every frame too.** About a minute after the last clip, Claude opens the contact sheets: every frame
+    of every clip, numbered, from a scratch folder outside the repository. Each frame should show only the NASA
+    picture and your hand. Say "all clear" or name a frame. The commit message records how many frames were checked,
+    and that both you and Claude viewed all of them.
 
 ## 3. F2 banding (3 takes at 30 fps, lossless, about 3 min)
 
-10. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only f2_banding`.
-11. Open the NASA portrait full screen on the phone and set the **brightness slider to about 30%**. Then:
+11. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only f2_banding`.
+12. Open the NASA portrait full screen on the phone and set the **brightness slider to about 30%**. Then:
     "BANDING: PHONE at 30% BRIGHTNESS, VERY CLOSE (~10 cm), NASA PORTRAIT, face size 20% or more". Keep your own
     face out of view.
-12. Set the **brightness to 100%**: "BANDING: PHONE at 100% BRIGHTNESS ...", in the same way.
-13. Put the phone away: "BANDING: YOUR FACE, lean in until face size reads 25-40%, WHOLE face in the picture".
-14. Claude runs the banding analysis on the three takes.
+13. Set the **brightness to 100%**: "BANDING: PHONE at 100% BRIGHTNESS ...", in the same way.
+14. Put the phone away: "BANDING: YOUR FACE, lean in until face size reads 25-40%, WHOLE face in the picture".
+15. Claude runs the banding analysis on the three takes.
 
 ## 4. F9 teammates (optional; 12 takes each, about 10 min per person)
 
-15. Read the consent text (`docs/part2-dataset-protocol.md`, section 2) to the teammate. Go on only if they agree.
+16. Read the consent text (`docs/part2-dataset-protocol.md`, section 2) to the teammate. Go on only if they agree.
     Each one gets the next free code: s02, s03, and so on. Never their name.
-16. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s02 -Only bona_fide`. The teammate sits in front of the
+17. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s02 -Only bona_fide`. The teammate sits in front of the
     laptop and follows the "YOUR FACE:" prompts:
     - normal ×3;
     - close ×2;
@@ -79,8 +84,8 @@ phone, nobody behind you. Only the NASA picture, and your hand at most.
 
 ## 5. F5 second screen (optional; 4 takes, about 3 min)
 
-17. Play your selfie video in a loop on the second screen. Place it at normal distance, with its edges visible.
-18. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only screen_replay_monitor`. For each take, the
+18. Play your selfie video in a loop on the second screen. Place it at normal distance, with its edges visible.
+19. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only screen_replay_monitor`. For each take, the
     prompt is "SECOND SCREEN playing your SELFIE VIDEO", with your own face out of view.
 
 ## Afterwards (Claude)
