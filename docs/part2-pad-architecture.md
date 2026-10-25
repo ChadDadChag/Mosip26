@@ -176,6 +176,66 @@ or its current version is older than the bundled one, the bundled bundle is inst
 every installed bundle older than it is removed. A later `rollback()` therefore lands on the bundled version, which
 verifies, and never on a bundle an app update made unusable. Pruning happens only in install, never when loading.
 
+**Online updates** (`ModelUpdater`, fix round 4). The problem statement asks for model updates "securely synchronized
+when online". `ModelUpdater.check(indexUrl, store, bundled, keys)` is that sync, in the shared engine, for both
+clients. It reads a small index, `latest.json`:
+
+```json
+{ "schema": 1, "bundleVersion": "pad-2026.11.1", "zipUrl": "pad-2026.11.1.zip",
+  "zipSha256": "<64 hex digits>", "zipSize": 13427199 }
+```
+
+```mermaid
+sequenceDiagram
+    participant Host as Host app (sync job or WorkManager)
+    participant U as ModelUpdater
+    participant Web as Static HTTPS host
+    participant Store as ModelStore
+    Host->>U: check(index URL, store, app's bundle, trusted keys)
+    U->>Web: GET latest.json (16 KiB at most, exactly five fields)
+    U->>U: offered version newer than the store's current and the app's own?
+    alt not newer
+        U-->>Host: UP_TO_DATE (nothing downloaded)
+    else newer
+        U->>Web: GET the zip into store/update.tmp-random (64 MiB at most, exactly zipSize bytes)
+        U->>U: zip SHA-256 equals zipSha256?
+        U->>U: unpack: manifest.json first, then only manifest.sig and the files it names, each at most its size
+        U->>Store: install(staged, app's bundle, keys): signature, sizes, hashes, anti-rollback, atomic switch
+        U->>U: delete the download directory
+        U-->>Host: INSTALLED(version)
+        Host->>Host: reload: new sessions use the new models (MODEL_LOADED)
+    end
+    Note over U,Store: any failure: FAILED(reason code), the store unchanged, the download directory deleted
+```
+
+- **The signature is the trust anchor.** TLS is defence in depth. The zip's SHA-256 and the entry rules stop a
+  wrong or malformed download early, but only `install`'s signature check makes a bundle usable. So a compromised
+  host can, at worst, withhold updates; it cannot install models.
+- **Transport.** HTTPS only. Plain HTTP is allowed only to 127.0.0.1 or localhost, and only with
+  `allowInsecureLocalhost` (tests and debug builds). Redirects (at most 3) are followed by the updater itself under the
+  same rule, because `HttpURLConnection` would follow a localhost redirect to any HTTP host.
+- **Zip rules.** Flat entries only, with `manifest.json` first. Then exactly `manifest.sig` and the files the manifest
+  names, each once and at most its declared size. A zip-slip path, a directory, an extra or a duplicate entry is
+  refused (`ZIP_ENTRY_REFUSED`), and a zip bomb cannot grow past the declared sizes.
+- **Results.** `INSTALLED(version)`, `UP_TO_DATE`, or `FAILED` with a reason code: `INSECURE_TRANSPORT`, `NETWORK`,
+  `HTTP_STATUS`, `INDEX_INVALID`, `ZIP_SIZE`, `ZIP_HASH_MISMATCH`, `ZIP_INVALID`, `ZIP_ENTRY_REFUSED`,
+  `BUNDLE_INVALID` (signature or hashes) or `STORAGE`. The codes carry no URL, so they can go into the audit.
+- **Concurrency.** One check runs at a time per process. A download directory left by a crash is removed by the next
+  check.
+
+**Hosting the bundle.** Any static HTTPS endpoint works, because the signature carries the trust: a MOSIP web
+server, an object store (S3, MinIO, Azure Blob) or a CDN. To publish a signed bundle:
+1. `ModelBundleTool pack --dir <signed bundle> --out <dir> --base-url https://<host>/liveness`. It verifies the
+   bundle, then writes `<version>.zip` and `latest.json`.
+2. Upload the zip first, then `latest.json`, so the index never points at a missing zip.
+3. Clients find it at their next check: `mosip.registration.liveness.model.update.url` points at
+   `https://<host>/liveness/latest.json`.
+
+**Desktop (Person 4).** The Registration Client's existing sync job can call
+`ModelUpdater.builder().build().check(new URL(indexUrl), store, new ClasspathBundleSource(), TrustedKeys.builtIn())`
+after its other syncs, then reload the factory on `INSTALLED`, as Android does
+([part5-android-integration.md](part5-android-integration.md)).
+
 ## 8. Signing keys: development vs production
 
 | | Development key (today) | Production key (before release) |
@@ -197,7 +257,9 @@ models.
    - `ModelBundleTool sign --dir models --key <p8> --key-id <prod-id>`
    - `ModelBundleTool verify --dir models`
 4. Release the analyzer jar with the new `TrustedKeys`.
-5. In the following release, remove the development key (and any retired key) from `BUILT_IN`.
+5. Publish the re-signed bundle for online updates (`ModelBundleTool pack`, section 7). Clients install only bundles
+   signed by a key in their `TrustedKeys`, so publish it only once the new key has shipped in a release.
+6. In the following release, remove the development key (and any retired key) from `BUILT_IN`.
 
 ## 9. Configuration keys
 

@@ -329,12 +329,15 @@ sequenceDiagram
 
 ### (i) Model update: install, verify, reload; and rollback
 
-The automatic download is a design only (section 4). Today the bundle is staged with `adb push`
-and installed from the debug page. A production worker would call the same holder method.
+A bundle reaches the store in one of two ways:
+- staged with `adb push` and installed from the debug page (below);
+- downloaded by the online update (section (j)).
+
+Both end in the same `ModelStore.install(staged, bundled)`.
 
 ```mermaid
 sequenceDiagram
-  participant D as Debug page (later: ModelUpdateWorker)
+  participant D as Debug page
   participant Api as LivenessApi
   participant H as LivenessServiceHolder
   participant VB as VerifiedBundle + TrustedKeys
@@ -370,6 +373,55 @@ the P5-5 install test. Before this rule that bundle failed verification and bloc
 Since fix round 2 the next install seeds the bundled bundle (`pad-2026.10.5`) as the rollback base
 and removes the older bundles, so a rollback lands on the bundled version.
 
+### (j) Online model update (fix round 4)
+
+```mermaid
+sequenceDiagram
+  participant WM as WorkManager (periodic, network connected)
+  participant W as ModelUpdateWorker
+  participant H as LivenessServiceHolder
+  participant U as ModelUpdater (engine)
+  participant Web as HTTPS host: latest.json, zip
+  participant MS as ModelStore (files/liveness-models)
+  participant A as AndroidAuditSink
+  WM->>W: doWork(), every intervalHours
+  alt the engine is running (the app created it)
+    W->>H: checkModelUpdate("scheduled")
+    H->>U: check(URL, store, bundled assets, built-in keys)
+    U->>Web: latest.json, then the zip if the version is newer
+    U->>MS: install(staged, bundled): verify, anti-rollback, atomic switch
+    U-->>H: INSTALLED, UP_TO_DATE or FAILED(reason)
+    H->>A: REG-EVT-019: outcome, version, reason, durationMs, trigger
+    opt INSTALLED
+      H->>H: swap the analyzer, preload: MODEL_LOADED (REG-EVT-015) with the new version
+    end
+  else WorkManager started the process (no engine yet)
+    W->>U: check(the URL in the work request, the same store, assets and keys)
+    W->>W: keep the outcome (SharedPreferences, codes only)
+    Note over H,A: the next engine start audits the kept outcomes (trigger scheduled-offline),<br/>and its preload uses an installed bundle
+  end
+```
+
+- **Scheduling.**
+  - The holder schedules, replaces or cancels the unique periodic job `liveness-model-update`. It does so at start
+    and after every config reload (a sync or an override).
+  - Updates are **off by default** (`mosip.registration.liveness.model.update.enabled`), because no update server
+    exists yet.
+  - The job is replaced only when the URL or the interval changes; otherwise WorkManager keeps its period.
+- **One store.** The process has one `ModelStore` instance. The analyzer's loads, the debug page's install and
+  rollback, and the update all go through its lock.
+- **Failures.** A failed check leaves the store unchanged and waits for the next period. The job always ends as
+  success.
+- **Debug page.** The Model bundle card has an index URL field (default `http://127.0.0.1:8000/latest.json`).
+  - **Check for model update now:** the URL and enabled=true become config overrides, so the periodic job uses them
+    too. Then a check runs on the background thread, and its result shows in the card and in a snack bar.
+  - **Stop model updates:** clears both overrides, which cancels the job.
+- **Transport.** Release builds use HTTPS only. Debug and profile builds may use plain HTTP to 127.0.0.1 and
+  localhost, for a laptop server reached through `adb reverse`:
+  - the updater's `allowInsecureLocalhost` follows `BuildConfig.LIVENESS_DIAGNOSTICS`;
+  - those builds' network security config permits cleartext to these two hosts only. It replaces clientmanager's
+    `network_security_config.xml` there and keeps that file's rules.
+
 ## 4. Online and offline
 
 | function | needs the network? |
@@ -378,16 +430,15 @@ and removes the older bundles, so a rollback lands on the bundled version.
 | liveness config (`mosip.registration.liveness.*`) | only through the client's existing sync; the last synced values are used offline, and missing keys use the engine's bundled defaults |
 | audit records | written locally; uploaded later by the client's existing audit sync |
 | persisted metrics | local only; never uploaded |
-| model updates | today offline (`adb push`, debug builds). The automatic download is a **design only**, described below |
+| model updates | **online:** `ModelUpdateWorker` downloads and installs a newer signed bundle while the network is connected (off by default; section 3 (j)). **Offline:** `adb push` and the debug page (debug and profile builds) |
 
-**ModelUpdateWorker (design, not built).**
-- A WorkManager job that runs only when the network is connected. It reads the URL from
-  `mosip.registration.liveness.model.update.url`.
-- It downloads `manifest.json`, `manifest.sig` and the model files into a private staging
-  folder, capped at the per-file size limit.
-- It calls `installModelBundle` (verify, install, reload). A failure leaves the current bundle in
-  place and is audited.
-- It retries with backoff.
+**Hosting the bundles.** Any static HTTPS endpoint works, because the signature carries the trust: a MOSIP web
+server, an object store or a CDN.
+- `ModelBundleTool pack` writes the zip and `latest.json`.
+- Upload the zip first, then the index.
+- Point `mosip.registration.liveness.model.update.url` at the index.
+
+See Mosip26 `docs/part2-pad-architecture.md`, section 7.
 
 **Airplane mode evidence (P5-5).** With airplane mode on and Wi-Fi off:
 - the app cold-started and verified and loaded the models in 259 ms;
@@ -464,6 +515,9 @@ An invalid analyzer config is logged, and the Android defaults are used instead.
 | `mosip.registration.liveness.face.android.exposureAssist` | true | `false` turns the dim-face exposure assist off |
 | `mosip.registration.liveness.face.binding.enabled` | true | `false`: face captures are stored without face binding, each one audited SKIPPED |
 | `mosip.registration.liveness.face.binding.cosineThreshold` | 0.45 | face binding MATCH at or above this cosine (read by the analyzer config) |
+| `mosip.registration.liveness.model.update.enabled` | false | `true` schedules the online model update (needs the URL) |
+| `mosip.registration.liveness.model.update.url` | none | the index, `latest.json`, over HTTPS |
+| `mosip.registration.liveness.model.update.intervalHours` | 24 | hours between checks (at least 1) |
 
 ### Test keys (debug page only)
 
@@ -498,6 +552,7 @@ engine.
 | REG-EVT-016 | LIVENESS_MODEL_INTEGRITY_FAILED | system | the bundle did not verify, or the analyzer could not be built | errorCode, reason (engine) or phase=preload (Android) |
 | REG-EVT-017 | LIVENESS_CONFIG_LOADED | system | a workflow's policy is resolved after start or reload | engine, policy (one-line summary of all policy fields), configError |
 | REG-EVT-018 | LIVENESS_FACE_BINDING | system | an armed SBI face capture was compared with the liveness face (or binding is off: SKIPPED) | outcome (MATCH, NO_MATCH, NO_FACE_A/B, MULTIPLE_FACES_A/B, ERROR, SKIPPED), similarity (2 decimals), threshold |
+| REG-EVT-019 | LIVENESS_MODEL_UPDATE | system | an online model update check finished (module HOME) | outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (scheduled, manual, scheduled-offline) |
 
 **No images.**
 - No audit record contains an image, pixels, landmarks or a face template.
@@ -559,7 +614,13 @@ derived values; the debug page shows them and has a Reset button.
 - **No telemetry.**
   - ONNX Runtime's `TelemetryInitializer` provider is removed from the merged manifest.
   - The analyzer calls `OrtEnvironment.setTelemetry(false)` once.
-  - Nothing in the liveness code opens a network connection.
+  - The only network connection in the liveness code is the online model update. It runs only when enabled, only
+    to the configured index and the zip it names, and sends nothing but the HTTP requests.
+- **Online updates install signed bundles only.**
+  - The download is checked (size, SHA-256, flat zip entries), then installed with the same verification as any
+    staged bundle.
+  - A server or network that serves other bytes gets FAILED, never an installed bundle.
+  - Release builds use HTTPS only (section 3 (j)).
 - **The camera is released.**
   - A session holds the camera only while it runs. Cancel, back, the end of the session, or the
     Activity pausing stops it.
@@ -616,7 +677,10 @@ right. It offers:
 - sessions with the real or fake engine, workflow and camera, force challenges, one challenge
   type only, and the exposure assist switch;
 - the "Hook gates" buttons, which call `LivenessGate.run` exactly as the five screens do;
-- Benchmark, the Metrics card, and the Model bundle card (install, rollback);
+- Benchmark, the Metrics card, and the Model bundle card (install, rollback, and the online update: an index URL,
+  "Check for model update now", "Stop model updates");
+- a "UI:" language menu, which switches the app's language (`GlobalProvider.toggleLocale`). Without a backend, the
+  Login page offers English only;
 - the Face binding test card: a real gate, then one camera still (JPEG or JPEG 2000) compared with
   its best frame (outcome, similarity, threshold; neither image shown), and the matcher benchmark;
 - a placeholder preview for documentation screenshots.
@@ -629,10 +693,10 @@ It shows scores and model versions, but never camera images other than the live 
 
 | suite | tests | covers |
 |---|---|---|
-| `android/liveness` module (JVM) | **89**, all passing | audit sink (10), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal (12), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2) |
-| Flutter `test/liveness` | **64**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8) |
+| `android/liveness` module (JVM) | **95**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4) |
+| Flutter `test/liveness` | **84**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 44 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale (12); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8) |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
-| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 224, eval 37 | Parts 1 to 3; see their documents |
+| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 238, eval 38 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
 
 **Upstream test failures (not ours).** `:clientmanager:testDebugUnitTest` has **14 failing tests
 in upstream v1.1.1**:
@@ -671,6 +735,9 @@ provisional.
 | FR-2 | binding test, fp32 SFace | the tester's face in the gate: the tester in the still MATCH 0.92; a NASA portrait on a screen NO_MATCH 0.15; an empty wall NO_FACE_B |
 | FR-2 | int8 SFace `pad-2026.10.5` | preload 222 ms, matcher session 34 ms; fake and real gates passed; binding test MATCH 0.90 |
 | FR-2 | matcher benchmark, fp32 / int8 | one-face embedding p50 45.6 / 36.8 ms; warm comparison 128 / 76 ms |
+| FR-4 | app language Arabic, Hindi, Tamil (debug "UI:" menu); fake gates, placeholder preview | every liveness text renders, with no missing glyphs; Arabic is right to left, and TURN_RIGHT keeps its → arrow (not mirrored); the failure, tips and Retry texts render in Tamil; the gates proceeded; no camera was opened |
+| FR-4 | online update from a laptop server (`adb reverse`), local test bundle `pad-2026.10.7` | INSTALLED in 1.9 s (10.5 seeded as the rollback base; reload 220 ms); again: UP_TO_DATE in 12 ms (index only); a zip with one flipped byte: FAILED ZIP_HASH_MISMATCH; a valid zip whose manifest was edited after signing: FAILED BUNDLE_INVALID; a wrong URL: FAILED HTTP_STATUS (404); after each failure the store was unchanged, with nothing left behind; the periodic job was registered (connectivity required) and ran once at once |
+| FR-4 | real gate on the downloaded models; restart; rollback | PASSED passively, 0.9974, 2.9 s, model `pad-2026.10.7`; after a restart 10.7 loaded from the store (427 ms); rollback to 10.5 (181 ms); the job was cancelled once the debug override was gone; the store emptied, so the bundled 10.5 loads (213 ms) |
 
 ## 11. Limitations and backlog
 
@@ -687,10 +754,13 @@ provisional.
   the JPEG 2000 decoder. No SBI capture was made.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
-- **Model download.** The `ModelUpdateWorker` is a design only. Updates are installed from the
-  debug page.
-- **Translations.** The 44 liveness strings exist in English (`app_en.arb`). The other languages
-  fall back to English until translated.
+- **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
+  yet. It was tested against a laptop server (section 10).
+- **Translations.**
+  - The 44 liveness strings are in all six of the client's languages.
+  - Arabic, French, Hindi, Kannada and Tamil are machine-translated and need a native speaker's review. Each file
+    carries `"@@x-liveness-translation"`.
+  - Arabic is laid out right to left. The turn arrows keep pointing to the user's physical left and right.
 - **APK size.** Distribute per ABI (split APKs or an App Bundle; section 9). A reduced ONNX Runtime
   build with only the needed operators is in the backlog.
 - **INT8 models.** For the four liveness models: evaluated and rejected, slower and less accurate

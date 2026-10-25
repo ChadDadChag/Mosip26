@@ -76,10 +76,20 @@ LivenessService liveness = DefaultLivenessService.builder()
   challenge waits for a frontal face.
 - **Mirroring.** Mirror the preview like a selfie (display only). Never mirror the frames given to the engine. With an
   unmirrored preview, our tester turned the wrong way twice in Phase 5.
-- **Model updates.** When online, download a signed bundle into a staging directory and call
-  `modelStore.install(new DirectoryBundleSource(stagingDir), TrustedKeys.builtIn())`. That call verifies the bundle,
-  refuses anything not newer, and switches atomically. The next factory picks up the newer of the bundled and
-  installed versions. Expose `rollback()` as an operator action only.
+- **Model updates.** Call `ModelUpdater` from the client's existing sync job (fix round 4):
+  `ModelUpdater.builder().build().check(new URL(indexUrl), modelStore, new ClasspathBundleSource(), TrustedKeys.builtIn())`.
+  - It downloads the index and the zip, checks them, and installs with
+    `modelStore.install(staged, bundled, keys)`. That call verifies the bundle, refuses anything not newer, and
+    switches atomically.
+  - On `INSTALLED`, create a new factory, or reload it, as Android does; the next factory uses the newer of the
+    bundled and installed versions.
+  - Audit the outcome and its reason code.
+  - Read the URL and the switch from the same keys as Android: `mosip.registration.liveness.model.update.url` and
+    `.enabled`, off by default ([part2-pad-architecture.md](part2-pad-architecture.md) §7).
+  - Expose `rollback()` as an operator action only.
+- **Translations.** [ui-liveness-spec.md](ui-liveness-spec.md) Appendix A has the liveness texts in Arabic, French,
+  Hindi, Kannada and Tamil, as `messages_<code>.properties` blocks. They are machine-translated and need review. The
+  French block is `\u`-escaped for v1.2.0.2's ISO-8859-1 `messages_fr.properties`.
 - **Errors.** A model integrity failure is `MODEL_INTEGRITY_FAILED` and is final: there is no fallback to unverified
   models. Show the contract's `userMessage()`.
 - **Face binding (F1).**

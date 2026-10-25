@@ -151,7 +151,12 @@ has a **Liveness test** button (top right), which opens the debug page. From the
   `/sdcard/Android/data/io.mosip.registration_client/files/bundle-staging/`;
 - run the face binding test (F1): a real gate, then one camera still (JPEG, or JPEG 2000 as an SBI
   sends it) compared with the gate's best frame; and the matcher benchmark (timings of the
-  bundled models and of each signed test bundle in `files/bench-bundles/`).
+  bundled models and of each signed test bundle in `files/bench-bundles/`);
+- check for an online model update now, from an index URL. Debug and profile builds may use plain
+  HTTP to 127.0.0.1, so a laptop can serve a packed test bundle through
+  `adb reverse tcp:8000 tcp:8000`. "Stop model updates" clears the URL again;
+- switch the app's language ("UI:" menu), for checking the liveness texts in Arabic, French, Hindi,
+  Kannada and Tamil.
 
 The debug page never shows camera images.
 
