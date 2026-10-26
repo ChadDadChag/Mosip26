@@ -1,7 +1,13 @@
 """Robustness and identity grouping for a folder of consented still photos (development only):
 
     python -I models/tools/photo_set_analysis.py --photos DIR --out eval-data/photo-set --sheets SCRATCH_DIR
-                                                 [--same 0.55] [--eval-data eval-data]
+                                                 [--same 0.55] [--eval-data eval-data] [--prefix p] [--skip-groups]
+                                                 [--compare OTHER_DIR]
+
+--prefix sets the person codes (p01, ...; another folder gets another prefix, such as q for print sources).
+--skip-groups leaves photos with several faces without a person_id (they are still analysed and their face counts
+listed). --compare OTHER_DIR (a folder with its own labels.csv) reports, per proposed person here, the best similarity
+to each person there, to find the same people in both folders.
 
 The photos are personal data: the folder must be untracked, and nothing written here may be committed.
   * --out (under the gitignored eval-data/): photos.csv, one row per photo (index, file, faces, detections,
@@ -119,6 +125,9 @@ def main():
     ap.add_argument("--sheets", required=True, help="outside the repository")
     ap.add_argument("--same", type=float, default=0.55)
     ap.add_argument("--eval-data", default=str(rp.MODELS.parent / "eval-data"))
+    ap.add_argument("--prefix", default="p")
+    ap.add_argument("--skip-groups", action="store_true")
+    ap.add_argument("--compare")
     args = ap.parse_args()
     repo = rp.MODELS.parent.resolve()
     sheets = Path(args.sheets).resolve()
@@ -164,6 +173,9 @@ def main():
             issues.setdefault(iss, []).append(r["index"])
     for iss, idx in sorted(issues.items(), key=lambda kv: -len(kv[1])):
         print(f"  quality issue {iss}: {len(idx)} photos {idx}")
+    for r in rows:
+        if r["faces"] > 1 or r["detections"] > 1:
+            print(f"  photo {r['index']:2d}: faceCount {r['faces']}, detections of any size {r['detections']}")
     fail = [r["index"] for r in rows if r["faces"] != 1 or not r["mesh"]]
     print(f"  failures (not exactly one face, or no landmarks): {fail}")
     for r in rows:
@@ -187,13 +199,13 @@ def main():
         print(f"    photo {r['index']:2d}: " + ", ".join(cond))
 
     # B. Grouping.
-    idx = [r["index"] for r in rows if r["feature"] is not None]
+    idx = [r["index"] for r in rows if r["feature"] is not None and not (args.skip_groups and r["faces"] > 1)]
     feats = [rows[i - 1]["feature"] for i in idx]
     clusters, sim = complete_linkage(feats, args.same)
     person = {}
     for c, members in enumerate(clusters, 1):
         for m in members:
-            person[idx[m]] = f"p{c:02d}"
+            person[idx[m]] = f"{args.prefix}{c:02d}"
     sizes = [len(c) for c in clusters]
     print(f"\nB. {len(idx)} photos with a face -> {len(clusters)} proposed people (complete linkage, cosine >= "
           f"{args.same}); sizes {sizes}; people in 2+ photos: {sum(1 for s in sizes if s > 1)}, in one: "
@@ -203,7 +215,7 @@ def main():
         for b in range(a + 1, len(clusters)):
             m = max(sim[i, j] for i in clusters[a] for j in clusters[b])
             if m >= 0.40:
-                near.append((m, f"p{a + 1:02d}", f"p{b + 1:02d}"))
+                near.append((m, f"{args.prefix}{a + 1:02d}", f"{args.prefix}{b + 1:02d}"))
     for m, a, b in sorted(near, reverse=True):
         print(f"  check: {a} and {b} have a cross pair at {m:.3f} (could be one person)")
     multi = [r["index"] for r in rows if r["faces"] > 1]
@@ -216,8 +228,26 @@ def main():
             if subj else (float("nan"), "-")
         nas = max(rp.sface_cosine(feats[m], nasa) for m in members)
         if best[0] >= 0.40 or nas >= 0.40:
-            print(f"  p{c:02d}: max similarity to recorded subject {best[1]} {best[0]:.3f}, to the NASA portrait "
+            print(f"  {args.prefix}{c:02d}: max similarity to recorded subject {best[1]} {best[0]:.3f}, to the NASA portrait "
                   f"{nas:.3f}: check whether it is that person")
+    if args.compare:
+        other = Path(args.compare)
+        theirs = {}
+        with open(other / "labels.csv", newline="", encoding="utf-8-sig") as fh:
+            for r in csv.DictReader(fh):
+                if r.get("person_id"):
+                    bgr = rp.imread_bgr(str(other / r["file"]))
+                    faces = pipe.yunet.detect(bgr)
+                    if faces:
+                        primary = rp.count_faces(faces)[1]
+                        theirs.setdefault(r["person_id"], []).append(rp.sface_embed(pipe.sface, bgr, primary)[0])
+        same = 0
+        for c, members in enumerate(clusters, 1):
+            best = max((rp.sface_cosine(feats[m], f), pid) for m in members for pid, fs in theirs.items() for f in fs)
+            if best[0] >= 0.45:
+                same += 1
+                print(f"  {args.prefix}{c:02d} may be {best[1]} of {other.name} (best similarity {best[0]:.3f})")
+        print(f"  compared with {other.name}: {same} of {len(clusters)} proposed people have a photo there at 0.45 or more")
 
     # Outputs (never in the repository except under eval-data/; sheets outside it).
     out.mkdir(parents=True, exist_ok=True)
@@ -240,7 +270,7 @@ def main():
         ims = [images[idx[m] - 1] for m in members]
         caps = [f"#{idx[m]} {rows[idx[m] - 1]['file']}" + (" MULTI" if rows[idx[m] - 1]["faces"] > 1 else "")
                 for m in members]
-        sheet(ims, caps, sheets / f"p{c:02d}.png")
+        sheet(ims, caps, sheets / f"{args.prefix}{c:02d}.png")
     nofaces = [r for r in rows if r["feature"] is None]
     if nofaces:
         sheet([images[r["index"] - 1] for r in nofaces], [f"#{r['index']} {r['file']} NO FACE" for r in nofaces],

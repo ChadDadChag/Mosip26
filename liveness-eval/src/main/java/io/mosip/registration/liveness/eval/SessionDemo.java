@@ -56,7 +56,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *   r  phone photo, normal distance, forced challenges, tilting to fake BLINK / SMILE
  *   m  real face plus one printed cut-out beside it, RESIDENT (problem statement section 9: multiple faces)
  *   n  two printed cut-outs side by side,       RESIDENT
- *   o  an uncut print sheet of six faces,       RESIDENT
+ *   o  a printed group photo (run it once per group photo), RESIDENT
  * </pre>
  * The multi-face cases expect GUIDANCE(MULTIPLE_FACES), then each attempt failing with MULTIPLE_FACES and the session
  * with MAX_RETRIES_EXCEEDED, never PASSED. A second face counts only from 20% of the largest face's area
@@ -116,7 +116,8 @@ final class SessionDemo {
             case 'n': return new Case("n", WorkflowType.RESIDENT, false,
                     "MULTI-FACE: TWO CUT-OUTS side by side about 30 cm from the camera, your face out of view: hold until FINISHED");
             case 'o': return new Case("o", WorkflowType.RESIDENT, false,
-                    "MULTI-FACE: the UNCUT SHEET of 6 faces about 30 cm from the camera, your face out of view: hold until FINISHED");
+                    "MULTI-FACE: a GROUP PHOTO print (several faces) about 30 cm from the camera, your face out of view: hold until"
+                            + " FINISHED");
             default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h, m, n, o, p, q, r)");
         }
     }

@@ -41,6 +41,9 @@ import java.util.regex.Pattern;
  *   <li>Each kept run becomes {@code <out>/attack/<species>/<person_id>/<n>/} (the next free take), with its frames
  *       copied in order and a meta.json as DatasetRecorder writes it: subject = the person's code, the recording's
  *       fps, format and device, and {@code segmentedFrom}.</li>
+ *   <li>With {@code --unknown-ids u}, faces that match no photo are not dropped: runs of them become unknown people
+ *       u01, u02, ... ({@link #assignUnknown}), so a print without a source photo still gives a take.
+ *       {@code --exclude-subject eval-data/bona_fide/s01} keeps the presenter's own live face out of those.</li>
  * </ul>
  * Prints counts only (no file names): frames per outcome, runs kept and dropped, people covered.
  */
@@ -48,6 +51,8 @@ public final class SlideshowSegmenter {
 
     static final double MATCH = 0.45, MARGIN = 0.05;
     static final int MIN_FRAMES = 10, TRIM = 2, MAX_GAP = 2;
+    /** Unknown people: consecutive frames chain at this cosine; a run joins an earlier unknown person at this one. */
+    static final double CONTINUITY = 0.35, SAME_UNKNOWN = 0.45;
     static final int NOBODY = -1;
 
     private SlideshowSegmenter() { }
@@ -70,17 +75,21 @@ public final class SlideshowSegmenter {
                     a.has("--margin") ? Double.parseDouble(a.single("--margin")) : MARGIN,
                     a.has("--min-frames") ? Integer.parseInt(a.single("--min-frames")) : MIN_FRAMES,
                     a.has("--trim") ? Integer.parseInt(a.single("--trim")) : TRIM,
-                    a.has("--max-gap") ? Integer.parseInt(a.single("--max-gap")) : MAX_GAP);
+                    a.has("--max-gap") ? Integer.parseInt(a.single("--max-gap")) : MAX_GAP,
+                    a.has("--unknown-ids") ? a.single("--unknown-ids") : null,
+                    a.has("--continuity") ? Double.parseDouble(a.single("--continuity")) : CONTINUITY,
+                    a.has("--same-unknown") ? Double.parseDouble(a.single("--same-unknown")) : SAME_UNKNOWN);
             String condition = a.has("--condition") ? a.single("--condition") : stream.getName();
             File root = new File(a.has("--out") ? a.single("--out") : "eval-data");
-            Result r = segment(stream, labels, species, condition, root, s, a.has("--dry-run"));
+            File exclude = a.has("--exclude-subject") ? new File(a.single("--exclude-subject")) : null;
+            Result r = segment(stream, labels, species, condition, root, s, a.has("--dry-run"), exclude);
             out.print(r.summary(a.has("--dry-run")));
             return 0;
         } catch (ModelBundleTool.UsageException | IllegalArgumentException e) {
             err.println("error: " + e.getMessage());
             err.println("usage: SlideshowSegmenter --stream DIR --labels labels.csv --species SPECIES [--condition c]"
                     + " [--out eval-data] [--match 0.45] [--margin 0.05] [--min-frames 10] [--trim 2] [--max-gap 2]"
-                    + " [--dry-run]");
+                    + " [--unknown-ids u [--continuity 0.35] [--same-unknown 0.45]] [--exclude-subject DIR] [--dry-run]");
             return 2;
         } catch (Exception e) {
             err.println("FAILED: " + e);
@@ -90,16 +99,29 @@ public final class SlideshowSegmenter {
 
     /** The matching and segmentation settings. */
     static final class Settings {
-        final double match, margin;
+        final double match, margin, continuity, sameUnknown;
         final int minFrames, trim, maxGap;
+        /** Null: unmatched faces belong to nobody. Else the prefix of the codes given to unknown people (u01, ...). */
+        final String unknownPrefix;
 
         Settings(double match, double margin, int minFrames, int trim, int maxGap) {
+            this(match, margin, minFrames, trim, maxGap, null, CONTINUITY, SAME_UNKNOWN);
+        }
+
+        Settings(double match, double margin, int minFrames, int trim, int maxGap, String unknownPrefix,
+                 double continuity, double sameUnknown) {
             if (minFrames < 1 || trim < 0 || maxGap < 0) throw new IllegalArgumentException("bad segmentation settings");
+            if (unknownPrefix != null && !unknownPrefix.matches("[a-z]{1,3}")) {
+                throw new IllegalArgumentException("--unknown-ids must be 1 to 3 lower-case letters");
+            }
             this.match = match;
             this.margin = margin;
             this.minFrames = minFrames;
             this.trim = trim;
             this.maxGap = maxGap;
+            this.unknownPrefix = unknownPrefix;
+            this.continuity = continuity;
+            this.sameUnknown = sameUnknown;
         }
     }
 
@@ -120,7 +142,8 @@ public final class SlideshowSegmenter {
 
     /** What a segmentation found. */
     static final class Result {
-        int frames, noFace, unmatched, matched, photos, photosWithoutFace, groupPhotos;
+        int frames, noFace, unmatched, matched, photos, photosWithoutFace, groupPhotos, unknownPeople, unknownFrames,
+                excludedRuns;
         final List<Run> kept = new ArrayList<Run>(), dropped = new ArrayList<Run>();
         final List<String> people = new ArrayList<String>();
         final List<File> written = new ArrayList<File>();
@@ -136,6 +159,10 @@ public final class SlideshowSegmenter {
                     photos, groupPhotos, photosWithoutFace));
             b.append(String.format(Locale.ROOT, "frames: %d; matched %d, no face %d, unmatched (transition, other face) %d%n",
                     frames, matched, noFace, unmatched));
+            if (unknownPeople > 0 || excludedRuns > 0) {
+                b.append(String.format(Locale.ROOT, "unknown people (no source photo): %d, from %d frames; runs matching"
+                        + " the excluded subject: %d%n", unknownPeople, unknownFrames, excludedRuns));
+            }
             b.append(String.format(Locale.ROOT, "presentations: %d kept, %d dropped (shorter than the minimum)%n",
                     kept.size(), dropped.size()));
             b.append(String.format(Locale.ROOT, "people covered: %d of %d%n", perPerson.size(),
@@ -147,6 +174,15 @@ public final class SlideshowSegmenter {
 
     static Result segment(File stream, File labels, String species, String condition, File root, Settings s,
                           boolean dryRun) throws Exception {
+        return segment(stream, labels, species, condition, root, s, dryRun, null);
+    }
+
+    /**
+     * As above; with {@code excludeSubject} (a recorded subject's folder, such as eval-data/bona_fide/s01), unknown
+     * runs that match that subject's live face are dropped, so the presenter's own face never becomes an attack take.
+     */
+    static Result segment(File stream, File labels, String species, String condition, File root, Settings s,
+                          boolean dryRun, File excludeSubject) throws Exception {
         Map<String, String> byFile = readLabels(labels);
         File photoDir = labels.getAbsoluteFile().getParentFile();
         List<File> frames = ClipPacker.frames(stream);
@@ -154,9 +190,12 @@ public final class SlideshowSegmenter {
         Result r = new Result();
         List<float[]> features = new ArrayList<float[]>();
         List<Integer> owner = new ArrayList<Integer>();
+        List<float[]> excluded = new ArrayList<float[]>();
         int[] labelsOfFrames;
+        float[][] unmatchedFeatures;
         try (OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory();
              FaceMatcher matcher = factory.createMatcher()) {
+            if (excludeSubject != null) excluded = subjectFeatures(matcher, excludeSubject);
             for (Map.Entry<String, String> e : byFile.entrySet()) {
                 Frame photo = PadEvaluation.load(new File(photoDir, e.getKey()), 0, 0, "photo");
                 FaceMatcher.PrimaryFeature f = matcher.featureOfPrimaryFace(photo.rgb(), photo.width(), photo.height());
@@ -176,6 +215,7 @@ public final class SlideshowSegmenter {
             }
             r.frames = frames.size();
             labelsOfFrames = new int[frames.size()];
+            unmatchedFeatures = new float[frames.size()][];
             for (int i = 0; i < frames.size(); i++) {
                 Frame fr = PadEvaluation.load(frames.get(i), 0, i, "stream");
                 FaceMatcher.PrimaryFeature f = matcher.featureOfPrimaryFace(fr.rgb(), fr.width(), fr.height());
@@ -185,10 +225,15 @@ public final class SlideshowSegmenter {
                     continue;
                 }
                 labelsOfFrames[i] = classify(f.feature, features, owner, s);
-                if (labelsOfFrames[i] == NOBODY) r.unmatched++;
-                else r.matched++;
+                if (labelsOfFrames[i] == NOBODY) {
+                    r.unmatched++;
+                    unmatchedFeatures[i] = f.feature;
+                } else {
+                    r.matched++;
+                }
             }
         }
+        if (s.unknownPrefix != null) assignUnknown(labelsOfFrames, unmatchedFeatures, excluded, s, r);
         for (Run run : runs(labelsOfFrames, s.maxGap)) {
             Run t = new Run(run.person, run.first + s.trim, run.last - s.trim);
             (t.length() >= s.minFrames ? r.kept : r.dropped).add(t);
@@ -200,6 +245,83 @@ public final class SlideshowSegmenter {
                     streamMeta, stream.getName()));
         }
         return r;
+    }
+
+    /**
+     * Gives unmatched faces an identity instead of dropping them (a printed person without a source photo): a run of
+     * unmatched-face frames (gaps of at most maxGap frames without a face, each frame at least {@code continuity}
+     * from the previous one, a known person ends it) long enough to be kept becomes an unknown person: an earlier
+     * unknown person when its mean feature is at least {@code sameUnknown} from theirs, else a new code
+     * (prefix + 01, 02, ...). A run that matches the excluded subject (at least {@code match}) stays nobody.
+     */
+    static void assignUnknown(int[] labels, float[][] unmatched, List<float[]> excluded, Settings s, Result r) {
+        List<float[]> sums = new ArrayList<float[]>();
+        List<Integer> persons = new ArrayList<Integer>();
+        int i = 0;
+        while (i < labels.length) {
+            if (unmatched[i] == null) {
+                i++;
+                continue;
+            }
+            List<Integer> members = new ArrayList<Integer>();
+            members.add(i);
+            float[] sum = unmatched[i].clone();
+            int last = i;
+            for (int j = i + 1; j < labels.length && j - last <= s.maxGap + 1; j++) {
+                if (unmatched[j] == null) {
+                    if (labels[j] != NOBODY) break; // a known person ends the run
+                    continue;
+                }
+                if (SFaceEmbedder.cosine(unmatched[j], unmatched[last]) < s.continuity) break;
+                members.add(j);
+                for (int k = 0; k < sum.length; k++) sum[k] += unmatched[j][k];
+                last = j;
+            }
+            i = last + 1;
+            if (last - members.get(0) + 1 - 2 * s.trim < s.minFrames) continue; // too short to be kept anyway
+            boolean subject = false;
+            for (float[] e : excluded) subject |= SFaceEmbedder.cosine(sum, e) >= s.match;
+            if (subject) {
+                r.excludedRuns++;
+                continue;
+            }
+            int person = -1, slot = -1;
+            double best = s.sameUnknown;
+            for (int k = 0; k < sums.size(); k++) {
+                double c = SFaceEmbedder.cosine(sum, sums.get(k));
+                if (c >= best) {
+                    best = c;
+                    slot = k;
+                }
+            }
+            if (slot < 0) {
+                r.people.add(String.format(Locale.ROOT, "%s%02d", s.unknownPrefix, ++r.unknownPeople));
+                person = r.people.size() - 1;
+                sums.add(sum);
+                persons.add(person);
+            } else {
+                person = persons.get(slot);
+                for (int k = 0; k < sum.length; k++) sums.get(slot)[k] += sum[k];
+            }
+            for (int m : members) labels[m] = person;
+            r.unknownFrames += members.size();
+        }
+    }
+
+    /** The largest face's feature of the middle frame of each take of a recorded subject (excluded from unknowns). */
+    static List<float[]> subjectFeatures(FaceMatcher matcher, File subjectDir) throws Exception {
+        List<float[]> out = new ArrayList<float[]>();
+        File[] takes = subjectDir.listFiles();
+        if (takes == null) throw new IOException("no takes in " + subjectDir);
+        Arrays.sort(takes);
+        for (File t : takes) {
+            List<File> frames = ClipPacker.frames(t);
+            if (!t.isDirectory() || frames.isEmpty()) continue;
+            Frame f = PadEvaluation.load(frames.get(frames.size() / 2), 0, 0, "subject");
+            FaceMatcher.PrimaryFeature p = matcher.featureOfPrimaryFace(f.rgb(), f.width(), f.height());
+            if (p != null) out.add(p.feature);
+        }
+        return out;
     }
 
     /** The person a frame's feature belongs to, or {@link #NOBODY}. */

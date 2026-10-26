@@ -4,7 +4,7 @@
 |---|---|
 | 1 to 3 | about 20 minutes |
 | 4 and 5, many identities | about 12 minutes, plus 3.5 minutes for the optional close-up slideshow pass |
-| 6, multiple faces | about 3 minutes |
+| 6, multiple faces | about 4 minutes |
 | 7, each teammate | about 10 minutes |
 | 8, second screen | about 3 minutes |
 | Before the day | about 20 minutes of preparation |
@@ -27,18 +27,23 @@ This applies to the photos, their recordings, the print sheets and the contact s
 
 ## Before the day (about 20 min)
 
-- **Confirm the grouping.** Claude has proposed which photos show the same person. Look at the contact sheets: one
-  sheet per proposed person, every photo with its number and file name, in a scratch folder outside the repository.
-  Then fix `test images/labels.csv` (`file,person_id`): give the same `person_id` to photos of the same person.
-  - Give your own photos the code `s01`.
-  - Leave `person_id` empty for anyone who should not be used.
-- **Print the cut-outs.** Claude regenerates the print sheet from the confirmed labels: 12 people, 6 per A4 page,
-  each face about 5 cm.
-  - Print it **twice**, in colour, at **100% / actual size** (not "fit to page"). The 10 cm bar on each page must
-    measure 10 cm.
-  - **Cut one copy** along the thin lines: 12 cut-outs.
-  - **Keep the other copy whole** (2 sheets of 6 faces) for the multi-face block.
-- **Phone album.** Put all the photos in one album on the phone. Set the gallery's slideshow to the same interval for
+- **The grouping of the 42 photos.** Claude has proposed which photos show the same person. It can be confirmed
+  after the session: the recordings do not change, only the evaluation is run again.
+  - Check the contact sheets: one sheet per proposed person, every photo with its number and file name, in a scratch
+    folder outside the repository.
+  - Fix `test images/labels.csv` (`file,person_id`): photos of the same person get the same `person_id`, your own
+    photos get `s01`, and anyone who should not be used gets an empty `person_id`.
+- **Your print sheets.**
+  - Your own 2-page sheet of 12 people: **cut into 12 single-person pieces**.
+  - The NASA A4 and your selfie A4.
+  - The **two group photos**, printed whole.
+  - All prints are shredded after the session.
+- **Print sources.** Copy the 12 source images of the sheet and the 2 group photos into `test images/print-sources/`
+  (untracked, like the photos).
+  - Claude checks them: faces per photo (the group photos report their face counts), and codes `q01`, `q02`, … for
+    the 12 people by face. The group photos get no code.
+  - Block 5 matches the cut-outs against these.
+- **Phone album.** Put all 42 photos in one album on the phone. Set the gallery's slideshow to the same interval for
   every photo, 3 or 4 s, so that 42 photos fit in the 3.5-minute recording. Use no transition, or the simplest one,
   and no music.
 
@@ -46,7 +51,7 @@ This applies to the photos, their recordings, the print sheets and the contact s
 
 1. Laptop on mains power, normal room light, webcam uncovered, every other camera app closed.
 2. On the desk:
-   - the colour A4 prints of your selfie and of the NASA portrait, the 12 cut-outs and the uncut sheet of 6 faces;
+   - the colour A4 prints of your selfie and of the NASA portrait, the 12 cut-outs and the 2 group photo prints;
    - the phone, with automatic brightness OFF, Do Not Disturb ON and the screen timeout at 5 minutes or more;
    - in the phone's gallery: your selfie photo, the NASA portrait, your selfie video and the slideshow album.
 3. Sit about 50 cm from the laptop, as in round 1.
@@ -121,22 +126,32 @@ phone, nobody behind you. Only the NASA picture, and your hand at most.
     - hold it again for 5 s;
     - take it out of view, and go on to the next cut-out.
     Keep your own face out of view. All 12 fit in the 4 minutes.
+    - A full-body photo with a small face: hold it so that the face is as large as it can be in the picture.
+    - A photo with sunglasses is recorded like any other.
 23. "CUT-OUTS CURVED": the same, with each cut-out CURVED around your hand.
-24. Claude cuts both recordings into takes as in step 20.
+24. Claude cuts both recordings into takes as in step 20, matching against `test images/print-sources/`.
+    - A cut-out that matches no source photo is not lost: it gets a new code (`u01`, `u02`, …), and its repeated
+      presentations get the same code.
+    - Your own live face is never turned into a take (`--exclude-subject` s01).
+    - Very small faces (full-body photos) are expected to give FACE_TOO_SMALL non-responses. They are counted
+      separately.
 
-## 6. Multiple faces (problem statement section 9; 3 real liveness sessions, about 3 min)
+## 6. Multiple faces (problem statement section 9; 4 real liveness sessions, about 4 min)
 
 These are real liveness checks, not recordings: no frame is kept, only the event log with its timings. Each session
 retries by itself and ends with "run FINISHED"; expected every time: "multiple faces" on screen, then FAILED, never
 passed.
 
-25. Claude runs `scripts\session-series.ps1 -Plan m,n,o`. The NEXT line names the case. Press SPACE to start it, and
-    hold until the run says FINISHED (about 15 s).
+25. Claude runs `scripts\session-series.ps1 -Plan m,n,o,o`. The NEXT line names the case. Press SPACE to start it,
+    and hold until the run says FINISHED (about 15 s).
     - m: "MULTI-FACE: YOUR FACE plus ONE CUT-OUT beside it". Look at the camera and hold one cut-out next to your face,
       about 30 cm from the camera, so it looks at least half as tall as your face. A smaller face counts as
       background by design (under 20% of your face's area), and that would not test this case.
     - n: "MULTI-FACE: TWO CUT-OUTS side by side about 30 cm from the camera". Your own face out of view.
-    - o: "MULTI-FACE: the UNCUT SHEET of 6 faces about 30 cm from the camera". Your own face out of view.
+    - o, twice: "MULTI-FACE: a GROUP PHOTO print (several faces) about 30 cm from the camera". The first group photo,
+      then the second. Your own face out of view. A face much smaller than the largest one in the photo counts as
+      background, as in case m. In a photo with one dominant face, the others may be ignored, and the print is then
+      judged like any other print.
 26. Claude reports per case the result, the time to the first failed attempt, and the failure codes.
 
 ## 7. F9 teammates (optional; 12 takes each, about 10 min per person)

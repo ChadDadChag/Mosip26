@@ -53,7 +53,7 @@ class SessionDemoTest {
         }
         assertThat(SessionDemo.scripted('m').instruction).contains("YOUR FACE", "30 cm");
         assertThat(SessionDemo.scripted('n').instruction).contains("TWO CUT-OUTS", "your face out of view");
-        assertThat(SessionDemo.scripted('o').instruction).contains("UNCUT SHEET of 6");
+        assertThat(SessionDemo.scripted('o').instruction).contains("GROUP PHOTO print");
         assertThatThrownBy(() -> SessionDemo.scripted('z')).hasMessageContaining("m, n, o");
     }
 }
