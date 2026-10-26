@@ -114,10 +114,21 @@ class FaceMatcherTest {
             java.util.List<float[]> all = m.featuresOfAllFaces(crew.rgb, crew.width, crew.height);
             assertThat(all).hasSize(4);
             assertThat(SFaceEmbedder.cosine(all.get(0), single)).isLessThan(0.363);
+            FaceMatcher.PrimaryFeature one = m.featureOfPrimaryFace(portrait.rgb, portrait.width, portrait.height);
+            assertThat(one.faceCount).isEqualTo(1);
+            assertThat(one.feature).containsExactly(single);
+            FaceMatcher.PrimaryFeature group = m.featureOfPrimaryFace(crew.rgb, crew.width, crew.height);
+            assertThat(group.faceCount).as("four faces, the largest one used").isEqualTo(4);
+            assertThat(all).anySatisfy(f -> assertThat(f).containsExactly(group.feature));
+            byte[] grey = new byte[64 * 48 * 3];
+            java.util.Arrays.fill(grey, (byte) 128);
+            assertThat(m.featureOfPrimaryFace(grey, 64, 48)).as("no face").isNull();
             m.close();
             assertThatThrownBy(() -> m.featureOfSingleFace(portrait.rgb, portrait.width, portrait.height))
                     .isInstanceOf(LivenessEngineException.class);
             assertThatThrownBy(() -> m.featuresOfAllFaces(crew.rgb, crew.width, crew.height))
+                    .isInstanceOf(LivenessEngineException.class);
+            assertThatThrownBy(() -> m.featureOfPrimaryFace(portrait.rgb, portrait.width, portrait.height))
                     .isInstanceOf(LivenessEngineException.class);
         }
     }
