@@ -59,6 +59,8 @@ eval-data/                                   (gitignored)
   traces/                                    Part 3 TraceRecorder traces (features only)
   f16-clips/<name>/                          regression clips before review (NASA portrait only, section 8)
   f2-banding/<subject>/<condition>/          lossless 30 fps banding takes (section 8)
+  streams/<subject>/<condition>/             continuous recordings of many people's photos, before segmentation
+  photo-set/                                 per-photo metrics of a labelled photo folder (section 8)
 ```
 
 `PadEvaluation` reads only `bona_fide/` and `attack/`.
@@ -87,6 +89,8 @@ The species is taken from the directory and never guessed from the content. `met
 | `screen_replay` | A selfie video of the subject playing on the phone, hand-held. `selfie_video` x6 | 6 |
 | `screen_replay_monitor` | Optional: the same video on a second screen (another laptop or a tablet). `selfie_video` x4 | 4 |
 | `print_flat`, `print_curved` | A printed photo held flat, and held curved around a finger or a cylinder, hand-held. Per picture: `selfie` x2 and `nasa` x2 at normal distance, `selfie_close` x1 and `nasa_close` x1 close (face size 20% or more). **Later**: the tools support them and the report marks them "not yet evaluated" until they are recorded | 6 + 6 |
+| `screen_photo_multi` | Many consented people's photos as a phone slideshow at normal distance (`slideshow`), optionally again close (`slideshow_close`). One continuous recording, cut by `SlideshowSegmenter` into one take per photo shown. The subject is the photographed person's code | about 1 per photo |
+| `print_multi` | Life-size printed cut-outs of the same people, each held `flat` twice, then `curved` twice. Segmented the same way | about 4 per person |
 
 **Before the session**, the subject uses their phone to take one selfie photo and one 10-second selfie video, both in
 normal light, and opens the NASA portrait on the phone. In every attack take, the subject's own face is out of the
@@ -150,6 +154,28 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
     their spectra (`docs/part2-f2-screen-cue-design.md`, section 6.2).
 - **Starting a block:** `scripts\dataset-session.ps1 -Consent -Subject s01 -Only <block>` runs the session with this
   repository's build. Without `-Consent` it refuses.
+- **Many identities: a labelled photo folder.** Photos of people the participant knows, used with their consent,
+  kept in an untracked folder that is also listed in `.git/info/exclude`. Nothing from it is ever committed: not
+  the photos, not the recordings, not the print sheets, not the contact sheets, not `labels.csv`.
+  1. `models/tools/photo_set_analysis.py` checks every photo with the reference pipeline: faces, landmarks, pose,
+     EAR, quality and inter-eye distance. It writes `eval-data/photo-set/photos.csv` and proposes the people by SFace
+     clustering: complete linkage, cosine 0.55. It writes `labels.csv` (`file,person_id,faces`) into the photo
+     folder, and one contact sheet per proposed person outside the repository.
+  2. The owner of the photos checks the contact sheets and fixes `labels.csv`. A recorded subject's own photos get
+     that subject's code (`s01`).
+  3. `BindingEvaluation --labelled <folder>/labels.csv [--labels-confirmed]` adds:
+     - genuine pairs within a person;
+     - impostor pairs across people, against the recorded subjects and against the NASA portraits.
+     Until the labels are confirmed, the numbers are provisional, and the genuine pairs are only those the
+     clustering grouped (all at 0.55 or more).
+  4. `models/tools/print_sheet.py` makes the print sheet outside the repository. It takes one photo per person (the
+     most frontal, sharpest and largest) and lays it out life size (face box 15 cm, one per A4 page) or 6 per page.
+  5. `--only slideshow` and `--only print_multi` record the phone slideshow and the cut-outs as continuous
+     recordings. `SlideshowSegmenter` cuts them into `screen_photo_multi` and `print_multi` takes:
+     - it matches each frame's largest face to the photos (cosine 0.45 or more, ahead of every other person by
+       0.05);
+     - it keeps runs of 10 frames or more after trimming 2 at each end;
+     - it skips transitions, blank frames and unknown faces.
 
 ## 9. Evaluation
 
