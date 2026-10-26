@@ -137,11 +137,11 @@ final class DatasetSession {
                 "OPTIONAL (S = skip) SLIDESHOW CLOSE: PHONE about 15 cm away, the slideshow again from the first photo,"
                         + " face size 20% or more" + OUT_OF_VIEW);
         stream(p, PRINT_MULTI, "print_multi", "flat", 240,
-                "CUT-OUTS FLAT: each cut-out in turn held FLAT at normal distance, twice for 5 s, taking it out of view"
-                        + " for 1 s between" + OUT_OF_VIEW);
+                "CUT-OUTS FLAT: each cut-out in turn held FLAT about 20 cm from the camera (face size about 10%), twice"
+                        + " for 5 s, taking it out of view for 1 s between" + OUT_OF_VIEW);
         stream(p, PRINT_MULTI, "print_multi", "curved", 240,
-                "CUT-OUTS CURVED: each cut-out in turn CURVED around your hand, twice for 5 s, taking it out of view"
-                        + " for 1 s between" + OUT_OF_VIEW);
+                "CUT-OUTS CURVED: each cut-out in turn CURVED around your hand, about 20 cm from the camera, twice for"
+                        + " 5 s, taking it out of view for 1 s between" + OUT_OF_VIEW);
         return p;
     }
 

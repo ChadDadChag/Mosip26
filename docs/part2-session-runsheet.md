@@ -1,11 +1,12 @@
-# Combined recording session: run sheet (F3 prints, F16 clips, F2 banding, many identities, F9 teammates, F5 second screen)
+# Combined recording session: run sheet (F3 prints, F16 clips, F2 banding, many identities, multiple faces, F9 teammates, F5 second screen)
 
 | Blocks | Time |
 |---|---|
 | 1 to 3 | about 20 minutes |
 | 4 and 5, many identities | about 12 minutes, plus 3.5 minutes for the optional close-up slideshow pass |
-| 6, each teammate | about 10 minutes |
-| 7, second screen | about 3 minutes |
+| 6, multiple faces | about 3 minutes |
+| 7, each teammate | about 10 minutes |
+| 8, second screen | about 3 minutes |
 | Before the day | about 20 minutes of preparation |
 
 Claude starts each block and does the checks; you hold things and press keys.
@@ -31,10 +32,12 @@ This applies to the photos, their recordings, the print sheets and the contact s
   Then fix `test images/labels.csv` (`file,person_id`): give the same `person_id` to photos of the same person.
   - Give your own photos the code `s01`.
   - Leave `person_id` empty for anyone who should not be used.
-- **Print the cut-outs.** Claude regenerates the life-size print sheet from the confirmed labels: 12 people, one per
-  A4 page.
-  - Print in colour at **100% / actual size** (not "fit to page"). The 10 cm bar on each page must measure 10 cm.
-  - Trim each page along its thin line.
+- **Print the cut-outs.** Claude regenerates the print sheet from the confirmed labels: 12 people, 6 per A4 page,
+  each face about 5 cm.
+  - Print it **twice**, in colour, at **100% / actual size** (not "fit to page"). The 10 cm bar on each page must
+    measure 10 cm.
+  - **Cut one copy** along the thin lines: 12 cut-outs.
+  - **Keep the other copy whole** (2 sheets of 6 faces) for the multi-face block.
 - **Phone album.** Put all the photos in one album on the phone. Set the gallery's slideshow to the same interval for
   every photo, 3 or 4 s, so that 42 photos fit in the 3.5-minute recording. Use no transition, or the simplest one,
   and no music.
@@ -43,7 +46,7 @@ This applies to the photos, their recordings, the print sheets and the contact s
 
 1. Laptop on mains power, normal room light, webcam uncovered, every other camera app closed.
 2. On the desk:
-   - the colour A4 prints of your selfie and of the NASA portrait, and the 12 trimmed cut-outs;
+   - the colour A4 prints of your selfie and of the NASA portrait, the 12 cut-outs and the uncut sheet of 6 faces;
    - the phone, with automatic brightness OFF, Do Not Disturb ON and the screen timeout at 5 minutes or more;
    - in the phone's gallery: your selfie photo, the NASA portrait, your selfie video and the slideshow album.
 3. Sit about 50 cm from the laptop, as in round 1.
@@ -113,7 +116,7 @@ phone, nobody behind you. Only the NASA picture, and your hand at most.
 
 21. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only print_multi`.
 22. "CUT-OUTS FLAT". For each cut-out in turn:
-    - hold it FLAT at normal distance for about 5 s;
+    - hold it FLAT about 20 cm from the camera (LIVE face size about 10%) for about 5 s;
     - take it out of view for 1 s;
     - hold it again for 5 s;
     - take it out of view, and go on to the next cut-out.
@@ -121,11 +124,26 @@ phone, nobody behind you. Only the NASA picture, and your hand at most.
 23. "CUT-OUTS CURVED": the same, with each cut-out CURVED around your hand.
 24. Claude cuts both recordings into takes as in step 20.
 
-## 6. F9 teammates (optional; 12 takes each, about 10 min per person)
+## 6. Multiple faces (problem statement section 9; 3 real liveness sessions, about 3 min)
 
-25. Read the consent text (`docs/part2-dataset-protocol.md`, section 2) to the teammate. Go on only if they agree.
+These are real liveness checks, not recordings: no frame is kept, only the event log with its timings. Each session
+retries by itself and ends with "run FINISHED"; expected every time: "multiple faces" on screen, then FAILED, never
+passed.
+
+25. Claude runs `scripts\session-series.ps1 -Plan m,n,o`. The NEXT line names the case. Press SPACE to start it, and
+    hold until the run says FINISHED (about 15 s).
+    - m: "MULTI-FACE: YOUR FACE plus ONE CUT-OUT beside it". Look at the camera and hold one cut-out next to your face,
+      about 30 cm from the camera, so it looks at least half as tall as your face. A smaller face counts as
+      background by design (under 20% of your face's area), and that would not test this case.
+    - n: "MULTI-FACE: TWO CUT-OUTS side by side about 30 cm from the camera". Your own face out of view.
+    - o: "MULTI-FACE: the UNCUT SHEET of 6 faces about 30 cm from the camera". Your own face out of view.
+26. Claude reports per case the result, the time to the first failed attempt, and the failure codes.
+
+## 7. F9 teammates (optional; 12 takes each, about 10 min per person)
+
+27. Read the consent text (`docs/part2-dataset-protocol.md`, section 2) to the teammate. Go on only if they agree.
     Each one gets the next free code: s02, s03, and so on. Never their name.
-26. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s02 -Only bona_fide`. The teammate sits in front of the
+28. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s02 -Only bona_fide`. The teammate sits in front of the
     laptop and follows the "YOUR FACE:" prompts:
     - normal ×3;
     - close ×2;
@@ -135,10 +153,10 @@ phone, nobody behind you. Only the NASA picture, and your hand at most.
     - close_whole ×2: lean in until LIVE reads 25–40%.
     You press SPACE.
 
-## 7. F5 second screen (optional; 4 takes, about 3 min)
+## 8. F5 second screen (optional; 4 takes, about 3 min)
 
-27. Play your selfie video in a loop on the second screen. Place it at normal distance, with its edges visible.
-28. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only screen_replay_monitor`. For each take, the
+29. Play your selfie video in a loop on the second screen. Place it at normal distance, with its edges visible.
+30. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only screen_replay_monitor`. For each take, the
     prompt is "SECOND SCREEN playing your SELFIE VIDEO", with your own face out of view.
 
 ## Afterwards (Claude)
@@ -147,6 +165,7 @@ phone, nobody behind you. Only the NASA picture, and your hand at most.
   one subject per photographed person.
 - `PadEvaluation`: prints and the many-identity attacks are now evaluated.
 - `BindingEvaluation`, with the new subjects and `--labelled "test images\labels.csv" --labels-confirmed`.
+- The multi-face result per case, from the session log: outcome, time to the first failure and codes. Aggregates only.
 - The F16 commit.
 - The banding result.
 - Reports give aggregates only. All frames stay in `eval-data/`, except the reviewed F16 clips.

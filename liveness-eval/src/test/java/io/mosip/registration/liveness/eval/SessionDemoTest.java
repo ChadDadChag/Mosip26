@@ -42,4 +42,18 @@ class SessionDemoTest {
         assertThatThrownBy(() -> SessionDemo.overrides(Collections.singletonList("novalue")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void theMultiFaceCasesArePassiveResidentSessions() {
+        for (char c : new char[] {'m', 'n', 'o'}) {
+            SessionDemo.Case k = SessionDemo.scripted(c);
+            assertThat(k.workflow).isEqualTo(io.mosip.registration.liveness.api.WorkflowType.RESIDENT);
+            assertThat(k.forceActive).isFalse();
+            assertThat(k.instruction).startsWith("MULTI-FACE").contains("FINISHED");
+        }
+        assertThat(SessionDemo.scripted('m').instruction).contains("YOUR FACE", "30 cm");
+        assertThat(SessionDemo.scripted('n').instruction).contains("TWO CUT-OUTS", "your face out of view");
+        assertThat(SessionDemo.scripted('o').instruction).contains("UNCUT SHEET of 6");
+        assertThatThrownBy(() -> SessionDemo.scripted('z')).hasMessageContaining("m, n, o");
+    }
 }

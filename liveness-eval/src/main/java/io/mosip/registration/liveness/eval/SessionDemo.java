@@ -54,7 +54,13 @@ import java.util.concurrent.atomic.AtomicReference;
  *   p  phone photo ~10 cm away,   RESIDENT (the close-up the session moire cap must send to a challenge)
  *   q  as p, tilting the phone to fake BLINK / SMILE (the pose-drift guard must hold)
  *   r  phone photo, normal distance, forced challenges, tilting to fake BLINK / SMILE
+ *   m  real face plus one printed cut-out beside it, RESIDENT (problem statement section 9: multiple faces)
+ *   n  two printed cut-outs side by side,       RESIDENT
+ *   o  an uncut print sheet of six faces,       RESIDENT
  * </pre>
+ * The multi-face cases expect GUIDANCE(MULTIPLE_FACES), then each attempt failing with MULTIPLE_FACES and the session
+ * with MAX_RETRIES_EXCEEDED, never PASSED. A second face counts only from 20% of the largest face's area
+ * ({@code detectorSecondFaceMinAreaRatio}), hence the cut-out held closer than the live face in case m.
  * Forced challenges = a ConfigProvider override of {@code mosip.registration.liveness.face.default.passiveThreshold}
  * (default 0.9999, {@code --force-threshold}) so a real face cannot pass passively; padRejectThreshold stays 0.30.
  * {@code --challenge-types TURN_LEFT,TURN_RIGHT,BLINK} narrows the forced runs' challenge pool (for a turn retest).
@@ -104,7 +110,14 @@ final class SessionDemo {
                     "PHONE PHOTO about 10 cm away, your face out of view: when asked to BLINK or SMILE, TILT the phone to fake it");
             case 'r': return new Case("r", WorkflowType.RESIDENT, true,
                     "PHONE PHOTO at normal distance, forced challenges: when asked to BLINK or SMILE, TILT the phone to fake it");
-            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h, p, q, r)");
+            case 'm': return new Case("m", WorkflowType.RESIDENT, false,
+                    "MULTI-FACE: YOUR FACE plus ONE CUT-OUT beside it, the cut-out about 30 cm from the camera (at least half"
+                            + " as tall as your face): hold until FINISHED");
+            case 'n': return new Case("n", WorkflowType.RESIDENT, false,
+                    "MULTI-FACE: TWO CUT-OUTS side by side about 30 cm from the camera, your face out of view: hold until FINISHED");
+            case 'o': return new Case("o", WorkflowType.RESIDENT, false,
+                    "MULTI-FACE: the UNCUT SHEET of 6 faces about 30 cm from the camera, your face out of view: hold until FINISHED");
+            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h, m, n, o, p, q, r)");
         }
     }
 
