@@ -194,6 +194,10 @@ final class DatasetSession {
         File root = new File(a.has("--root") ? a.single("--root") : "eval-data");
         List<String> only = a.has("--only") ? Arrays.asList(a.single("--only").split(",")) : null;
         List<Step> steps = select(plan(), only);
+        if (steps.isEmpty()) {
+            System.err.println("nothing to record: --only " + only + " names no species, condition or group");
+            System.exit(2);
+        }
 
         final DemoWindow w = new DemoWindow("PAD dataset session (frames stay on this laptop under " + root + ")");
         w.mirrored(true);

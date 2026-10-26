@@ -10,7 +10,7 @@
 param(
     [switch]$Consent,
     [string]$Subject = "s01",
-    [string]$Only = "",
+    [string[]]$Only = @(),
     [string]$Root = "eval-data",
     [int]$Camera = 0
 )
@@ -26,10 +26,13 @@ if (-not (Test-Path $classes) -or -not (Test-Path $cpFile)) {
 $cp = $classes + ";" + (Get-Content -Raw $cpFile).Trim()
 $demoArgs = @("--mode", "dataset", "--subject", $Subject, "--root", $Root, "--camera", "$Camera")
 if ($Consent) { $demoArgs += "--consent" }
-if ($Only) { $demoArgs += @("--only", $Only) }
+if ($Only) { $demoArgs += @("--only", ($Only -join ",")) }
 Push-Location $repo
 try {
+    # Java logs harmless warnings on stderr; under "Stop", PowerShell 5.1 would treat them as fatal.
+    $ErrorActionPreference = "Continue"
     & java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo @demoArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
     Pop-Location
 }

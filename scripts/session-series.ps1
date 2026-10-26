@@ -7,7 +7,7 @@
 # multiple faces). No frame is stored: only the event log, liveness-eval\target\sessions-<time>.jsonl (events with
 # their time, the result, codes and numbers), which stays on this laptop.
 param(
-    [Parameter(Mandatory = $true)][string]$Plan,
+    [Parameter(Mandatory = $true)][string[]]$Plan,
     [int]$Camera = 0
 )
 $ErrorActionPreference = "Stop"
@@ -22,7 +22,10 @@ if (-not (Test-Path $classes) -or -not (Test-Path $cpFile)) {
 $cp = $classes + ";" + (Get-Content -Raw $cpFile).Trim()
 Push-Location $repo
 try {
-    & java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode series --plan $Plan --camera "$Camera"
+    # Java logs harmless warnings on stderr; under "Stop", PowerShell 5.1 would treat them as fatal.
+    $ErrorActionPreference = "Continue"
+    & java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode series --plan ($Plan -join ",") --camera "$Camera"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
     Pop-Location
 }
