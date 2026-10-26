@@ -158,4 +158,20 @@ class DatasetRecorderTest {
         assertThat(dir.list()).contains("meta.json", "frame_00000.jpg", "frame_00002.jpg");
         assertThat(EvalDataset.scan(root)).isEmpty();
     }
+
+    @Test
+    void onlyARecordingIntoItsOwnFolderMayBeLong(@TempDir File root) throws Exception {
+        DatasetRecorder.Take protocol = new DatasetRecorder.Take("screen_photo_multi", "s01", 1, 31, 1, root, "jpg", "slideshow");
+        assertThatThrownBy(() -> DatasetRecorder.record(new FastSource(), protocol, null)).hasMessageContaining("1..30");
+        assertThat(root.list()).isEmpty();
+        assertThatThrownBy(() -> new DatasetRecorder.Take("bona_fide", "s01", 1, 601, 1, root, "jpg", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        // 31 s at 0.2 fps is 6 frames (FastSource stamps frames 1 ms apart), written while recording.
+        File stream = new File(new File(root, "streams"), "slideshow");
+        File dir = DatasetRecorder.record(new FastSource(),
+                new DatasetRecorder.Take("screen_photo_multi", "s01", 1, 31, 0.2, root, "jpg", "slideshow").in(stream), null);
+        assertThat(dir.list()).contains("frame_00000.jpg", "frame_00005.jpg").doesNotContain("frame_00006.jpg");
+        String meta = new String(Files.readAllBytes(new File(dir, "meta.json").toPath()), StandardCharsets.UTF_8);
+        assertThat(meta).contains("\"frames\": 6", "\"label\": \"screen_photo_multi\"");
+    }
 }

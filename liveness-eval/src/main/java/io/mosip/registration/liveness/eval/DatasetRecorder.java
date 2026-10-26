@@ -24,7 +24,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
@@ -47,11 +49,17 @@ import java.util.regex.Pattern;
  */
 public final class DatasetRecorder {
 
-    /** ISO/IEC 30107-3 presentation classes: bona fide, then the attack species (PAI species) of the protocol. */
+    /**
+     * ISO/IEC 30107-3 presentation classes: bona fide, then the attack species (PAI species) of the protocol. The
+     * "_multi" species are presentations of many consented people's photos, segmented from one recording by
+     * {@link SlideshowSegmenter} (the subject is then the photographed person's code).
+     */
     public static final List<String> LABELS = Arrays.asList("bona_fide", "screen_photo", "screen_photo_close",
-            "screen_replay", "screen_replay_monitor", "print_flat", "print_curved");
+            "screen_replay", "screen_replay_monitor", "print_flat", "print_curved", "screen_photo_multi", "print_multi");
     public static final List<String> FORMATS = Arrays.asList("jpg", "png");
     static final float JPEG_QUALITY = 0.95f;
+    /** A protocol take's longest duration; a continuous recording into its own folder may last up to 10 minutes. */
+    static final int MAX_SECONDS = 30, MAX_STREAM_SECONDS = 600;
     private static final Pattern SUBJECT = Pattern.compile("^s\\d{2,3}$");
     private static final Pattern CONDITION = Pattern.compile("^[a-z0-9_]{1,24}$");
 
@@ -102,7 +110,9 @@ public final class DatasetRecorder {
             if (!LABELS.contains(label)) throw new IllegalArgumentException("--label must be one of " + LABELS);
             if (!SUBJECT.matcher(subject).matches()) throw new IllegalArgumentException("--subject must be a code like s01 (no names)");
             if (take < 1 || take > 99) throw new IllegalArgumentException("--take must be 1..99");
-            if (seconds < 1 || seconds > 30) throw new IllegalArgumentException("--seconds must be 1..30");
+            if (seconds < 1 || seconds > MAX_STREAM_SECONDS) {
+                throw new IllegalArgumentException("--seconds must be 1.." + MAX_SECONDS);
+            }
             if (!(fps > 0 && fps <= 30)) throw new IllegalArgumentException("--fps must be in (0, 30]");
             if (!FORMATS.contains(format)) throw new IllegalArgumentException("--format must be one of " + FORMATS);
             if (condition != null && !CONDITION.matcher(condition).matches()) {
@@ -134,27 +144,40 @@ public final class DatasetRecorder {
         }
     }
 
-    /** Records the take from the source; refuses to overwrite an existing take. */
+    /**
+     * Records the take from the source; refuses to overwrite an existing take. The camera thread only paces and
+     * queues frames; a writer thread encodes them, so a slow format (PNG) never holds the camera up, and a long
+     * continuous recording does not have to fit in memory.
+     */
     static File record(FrameSource source, final Take t, PrintStream out) throws IOException, InterruptedException {
+        if (t.dirOverride == null && t.seconds > MAX_SECONDS) {
+            throw new IllegalArgumentException("--seconds must be 1.." + MAX_SECONDS);
+        }
         File dir = t.dir();
         if (dir.exists()) throw new IOException(dir + " already exists; choose another --take");
         if (!dir.mkdirs()) throw new IOException("cannot create " + dir);
         final int wanted = (int) Math.round(t.seconds * t.fps);
         final double intervalMs = 1000.0 / t.fps;
-        final List<Frame> frames = new ArrayList<Frame>();
+        final BlockingQueue<Frame> queue = new LinkedBlockingQueue<Frame>();
+        final long[] paced = {0, 0}; // frames accepted, timestamp of the first
         final AtomicReference<String> failure = new AtomicReference<String>();
         final CountDownLatch done = new CountDownLatch(1);
+        final Writer writer = new Writer(dir, t.format, wanted, queue);
+        Thread writing = new Thread(writer, "dataset-writer");
+        writing.setDaemon(true);
+        writing.start();
         if (out != null) out.println("recording " + wanted + " frames to " + dir);
         source.start(new FrameSource.Listener() {
             @Override public void onFrame(Frame f) {
-                synchronized (frames) {
-                    int n = frames.size();
+                synchronized (paced) {
+                    long n = paced[0];
                     if (n >= wanted) return;
                     // Pace by timestamps: frame n is due at first + n * interval; a faster camera's extra frames are dropped.
-                    long first = n == 0 ? 0 : frames.get(0).timestampMs();
-                    if (n > 0 && f.timestampMs() - first < Math.round(n * intervalMs) - intervalMs / 4) return;
-                    frames.add(f);
-                    if (frames.size() >= wanted) done.countDown();
+                    if (n > 0 && f.timestampMs() - paced[1] < Math.round(n * intervalMs) - intervalMs / 4) return;
+                    if (n == 0) paced[1] = f.timestampMs();
+                    paced[0] = n + 1;
+                    queue.add(f);
+                    if (n + 1 >= wanted) done.countDown();
                 }
             }
 
@@ -169,29 +192,60 @@ public final class DatasetRecorder {
             done.await(t.seconds * 3L + 15, TimeUnit.SECONDS);
         } finally {
             source.stop();
+            writer.captureEnded = true;
+            writing.join();
         }
         if (failure.get() != null) throw new IOException("recording failed: " + failure.get());
-        List<Frame> kept;
-        synchronized (frames) {
-            kept = new ArrayList<Frame>(frames);
-        }
-        List<Long> times = new ArrayList<Long>();
-        int[] size = new int[2];
-        int duplicates = 0;
-        for (int n = 0; n < kept.size(); n++) {
-            Frame f = kept.get(n);
-            File file = new File(dir, String.format("frame_%05d.%s", n, t.format));
-            BufferedImage img = toImage(f);
-            if (t.format.equals("jpg")) writeJpeg(img, file, JPEG_QUALITY);
-            else if (!ImageIO.write(img, "png", file)) throw new IOException("no PNG writer");
-            if (n > 0 && Arrays.equals(f.rgb(), kept.get(n - 1).rgb())) duplicates++;
-            size[0] = f.width();
-            size[1] = f.height();
-            times.add(f.timestampMs());
-        }
+        if (writer.failure != null) throw writer.failure;
         Files.write(new File(dir, "meta.json").toPath(),
-                meta(t, source.info(), times, size, duplicates).getBytes(StandardCharsets.UTF_8));
+                meta(t, source.info(), writer.times, writer.size, writer.duplicates).getBytes(StandardCharsets.UTF_8));
         return dir;
+    }
+
+    /** Encodes queued frames in order: frame_00000, ...; counts frames identical to the one before. */
+    private static final class Writer implements Runnable {
+        final File dir;
+        final String format;
+        final int wanted;
+        final BlockingQueue<Frame> queue;
+        final List<Long> times = new ArrayList<Long>();
+        final int[] size = new int[2];
+        int duplicates;
+        volatile boolean captureEnded;
+        IOException failure;
+
+        Writer(File dir, String format, int wanted, BlockingQueue<Frame> queue) {
+            this.dir = dir;
+            this.format = format;
+            this.wanted = wanted;
+            this.queue = queue;
+        }
+
+        @Override public void run() {
+            byte[] previous = null;
+            try {
+                while (times.size() < wanted) {
+                    Frame f = queue.poll(100, TimeUnit.MILLISECONDS);
+                    if (f == null) {
+                        if (captureEnded && queue.isEmpty()) return;
+                        continue;
+                    }
+                    File file = new File(dir, String.format("frame_%05d.%s", times.size(), format));
+                    BufferedImage img = toImage(f);
+                    if (format.equals("jpg")) writeJpeg(img, file, JPEG_QUALITY);
+                    else if (!ImageIO.write(img, "png", file)) throw new IOException("no PNG writer");
+                    if (previous != null && Arrays.equals(f.rgb(), previous)) duplicates++;
+                    previous = f.rgb();
+                    size[0] = f.width();
+                    size[1] = f.height();
+                    times.add(f.timestampMs());
+                }
+            } catch (IOException e) {
+                failure = e;
+            } catch (InterruptedException e) {
+                failure = new IOException("writer interrupted");
+            }
+        }
     }
 
     static String meta(Take t, FrameSource.DeviceInfo info, List<Long> times, int[] size, int duplicates) {

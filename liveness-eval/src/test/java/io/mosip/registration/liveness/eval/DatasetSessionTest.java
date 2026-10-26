@@ -63,4 +63,24 @@ class DatasetSessionTest {
         assertThat(DatasetSession.cameraFps(band)).isEqualTo(30.0);
         assertThat(DatasetSession.select(DatasetSession.plan(), Collections.singletonList("nothing"))).isEmpty();
     }
+
+    @Test
+    void manyIdentitiesAreLongContinuousRecordingsForTheSegmenter() {
+        List<DatasetSession.Step> show = select(DatasetSession.SLIDESHOW);
+        assertThat(show).extracting(s -> s.condition).containsExactly("slideshow", "slideshow_close");
+        assertThat(show).allSatisfy(s -> {
+            assertThat(s.label).isEqualTo("screen_photo_multi");
+            assertThat(s.seconds).isEqualTo(210);
+        });
+        List<DatasetSession.Step> prints = select(DatasetSession.PRINT_MULTI);
+        assertThat(prints).extracting(s -> s.condition).containsExactly("flat", "curved");
+        File root = new File("eval-data");
+        for (DatasetSession.Step s : prints) {
+            assertThat(s.label).isEqualTo("print_multi");
+            assertThat(s.seconds).isEqualTo(240);
+            assertThat(s.prompt).contains("out of view for 1 s").contains("OUT of view");
+            assertThat(s.take("s01", root).dir()).isEqualTo(new File(root, "streams/s01/" + s.condition));
+        }
+        assertThat(DatasetSession.cameraFps(show)).isEqualTo(15.0);
+    }
 }

@@ -28,13 +28,16 @@ import java.util.concurrent.atomic.AtomicReference;
  * Takes already on disk are skipped, so an interrupted session can simply be run again. A live readout (face size as a
  * share of the picture, whether the whole face is visible) comes from the analyzer on preview frames, in memory only.
  *
- * <p>Two groups of extra steps run only when {@code --only} names them, outside the protocol layout so that
- * PadEvaluation never picks them up:
+ * <p>Groups of extra steps run only when {@code --only} names them, outside the protocol layout so that
+ * PadEvaluation never picks them up directly:
  * <ul>
  *   <li>{@code f16}: regression clips of the public-domain NASA portrait (print and phone) with NO person in view,
  *       5 s at 15 fps, to {@code <root>/f16-clips/<name>/}; packed with {@link ClipPacker} for RecordedVideoE2ETest;</li>
  *   <li>{@code f2_banding}: 3 s at 30 fps in lossless PNG, to {@code <root>/f2-banding/<subject>/<condition>/}, for
- *       the banding question of docs/part2-f2-screen-cue-design.md section 6.2.</li>
+ *       the banding question of docs/part2-f2-screen-cue-design.md section 6.2;</li>
+ *   <li>{@code slideshow} and {@code print_multi}: continuous recordings (3.5 and 4 minutes) of many consented people's
+ *       photos, shown as a phone slideshow or held up as printed cut-outs, to {@code <root>/streams/<subject>/<condition>/};
+ *       {@link SlideshowSegmenter} then cuts them into one take per presentation.</li>
  * </ul>
  */
 final class DatasetSession {
@@ -43,7 +46,7 @@ final class DatasetSession {
     static final class Step {
         final String label, condition, prompt;
         final int take;
-        /** null for protocol takes; "f16" or "f2_banding" for the extra steps. */
+        /** null for protocol takes; else the extra group (f16, f2_banding, slideshow, print_multi). */
         final String group;
         /** Output folder under the root for extra steps (null: the protocol layout). */
         final String dir;
@@ -69,6 +72,8 @@ final class DatasetSession {
 
     static final String F16 = "f16";
     static final String BANDING = "f2_banding";
+    static final String SLIDESHOW = "slideshow";
+    static final String PRINT_MULTI = "print_multi";
     private static final String OUT_OF_VIEW = "; your own face OUT of view";
     private static final String NOBODY = "; ONLY the picture and your hand in view: your face, body and anyone else OUT"
             + " of view";
@@ -124,7 +129,24 @@ final class DatasetSession {
                 "BANDING: PHONE at 100% BRIGHTNESS, VERY CLOSE (~10 cm), NASA PORTRAIT, face size 20% or more" + OUT_OF_VIEW);
         banding(p, "bona_fide", 3, "close_whole_30fps",
                 "BANDING: YOUR FACE, lean in until face size reads 25-40%, WHOLE face in the picture");
+        // Many identities: one continuous recording each, cut into presentations by SlideshowSegmenter.
+        stream(p, SLIDESHOW, "screen_photo_multi", "slideshow", 210,
+                "SLIDESHOW: PHONE at normal distance (about 50 cm), the PHOTO SLIDESHOW playing from the first photo,"
+                        + " phone edges visible; hold it until the slideshow ends" + OUT_OF_VIEW);
+        stream(p, SLIDESHOW, "screen_photo_multi", "slideshow_close", 210,
+                "OPTIONAL (S = skip) SLIDESHOW CLOSE: PHONE about 15 cm away, the slideshow again from the first photo,"
+                        + " face size 20% or more" + OUT_OF_VIEW);
+        stream(p, PRINT_MULTI, "print_multi", "flat", 240,
+                "CUT-OUTS FLAT: each cut-out in turn held FLAT at normal distance, twice for 5 s, taking it out of view"
+                        + " for 1 s between" + OUT_OF_VIEW);
+        stream(p, PRINT_MULTI, "print_multi", "curved", 240,
+                "CUT-OUTS CURVED: each cut-out in turn CURVED around your hand, twice for 5 s, taking it out of view"
+                        + " for 1 s between" + OUT_OF_VIEW);
         return p;
+    }
+
+    private static void stream(List<Step> p, String group, String label, String condition, int seconds, String prompt) {
+        p.add(new Step(label, 1, condition, prompt, group, "streams/<subject>/" + condition, seconds, 10, "jpg"));
     }
 
     private static void add(List<Step> p, String label, int firstTake, int n, String condition, String prompt) {

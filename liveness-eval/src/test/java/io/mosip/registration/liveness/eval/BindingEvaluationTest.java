@@ -96,6 +96,38 @@ class BindingEvaluationTest {
                 + "1 without a usable single-face frame");
     }
 
+    @Test
+    void labelledPhotosAreGenuineWithinAPersonAndASubjectCodeIsThatSubject() {
+        float[] x = {1, 0, 0}, y = {0, 1, 0}, nasa = {0, 0, 1};
+        BindingEvaluation.Recorded r = new BindingEvaluation.Recorded();
+        r.add("s01", BindingEvaluation.Recorded.Kind.LIVE, x);
+        r.add("s02", BindingEvaluation.Recorded.Kind.LIVE, y);
+        Map<String, java.util.List<float[]>> byPerson = new java.util.TreeMap<String, java.util.List<float[]>>();
+        byPerson.put("p01", java.util.Arrays.asList(y, y, y));
+        byPerson.put("s01", java.util.Arrays.asList(x));
+        Map<String, BindingEvaluation.Scores> sets = new LinkedHashMap<String, BindingEvaluation.Scores>();
+        BindingEvaluation.labelledSets(sets, byPerson, r, java.util.Arrays.asList(nasa));
+
+        assertThat(values(sets, "genuine: labelled photos of the same person")).containsExactly(1.0, 1.0, 1.0);
+        assertThat(values(sets, "impostor: labelled photos of different people")).containsExactly(0.0, 0.0, 0.0);
+        assertThat(values(sets, "same person: labelled photos vs their own recorded")).containsExactly(1.0);
+        // p01 vs s01 and s02 (3 photos x 2 subjects), the s01 photo vs s02.
+        assertThat(values(sets, "impostor: labelled photos vs the recorded subjects")).hasSize(7).contains(1.0);
+        assertThat(values(sets, "impostor: labelled photos vs the NASA portraits")).containsExactly(0.0, 0.0, 0.0, 0.0);
+        assertThat(sets.values()).allMatch(s -> s.name.startsWith("genuine") || s.name.startsWith("same person")
+                ? s.genuine : !s.genuine);
+
+        byPerson.remove("s01");
+        Map<String, BindingEvaluation.Scores> without = new LinkedHashMap<String, BindingEvaluation.Scores>();
+        BindingEvaluation.labelledSets(without, byPerson, r, java.util.Arrays.asList(nasa));
+        assertThat(without.keySet()).as("no empty 'same person' set").noneMatch(k -> k.startsWith("same person"));
+        BindingEvaluation.Labelled l = new BindingEvaluation.Labelled();
+        l.byPerson.putAll(byPerson);
+        l.photos = 3;
+        assertThat(l.summary(false)).contains("3 photos of 1 people (1 in two or more photos)", "PROVISIONAL");
+        assertThat(l.summary(true)).contains("confirmed").doesNotContain("PROVISIONAL");
+    }
+
     private static EvalDataset.TakeRef take(String species, String condition) {
         return new EvalDataset.TakeRef(species, "s01", 1, condition, 10, new java.io.File("."));
     }

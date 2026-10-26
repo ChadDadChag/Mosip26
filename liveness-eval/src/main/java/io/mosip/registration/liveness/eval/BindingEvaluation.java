@@ -36,7 +36,10 @@ import java.util.regex.Pattern;
  *                     [--list models/tools/pitch_calibration_urls.txt]
  *                     [--golden liveness-analyzer/src/test/resources/golden] [--out eval-data/reports/binding-yyyyMMdd]
  *                     [--bundle &lt;signed bundle dir&gt;] [--speed] [--warm-up]
+ *                     [--labelled &lt;photos&gt;/labels.csv [--labels-confirmed]]
  * </pre>
+ * {@code --labelled} adds a folder of consented photos labelled by person ({@link #labelledSets}); the report calls
+ * those numbers provisional until {@code --labels-confirmed} says the owner of the photos checked the labels.
  * {@code --bundle} evaluates another signed bundle (for example a local test bundle with the int8 SFace), verified
  * against the built-in keys as the bundled one is. {@code --speed} only times: preload, the first comparison, and warm
  * comparisons on the golden portrait and its mirror (run it in a fresh JVM). {@code --warm-up} calls
@@ -140,7 +143,8 @@ public final class BindingEvaluation {
 
     static int run(String[] args, PrintStream out, PrintStream err) {
         try {
-            ModelBundleTool.Args a = ModelBundleTool.Args.parse(args, 0, Arrays.asList("--speed", "--warm-up"));
+            ModelBundleTool.Args a = ModelBundleTool.Args.parse(args, 0,
+                    Arrays.asList("--speed", "--warm-up", "--labels-confirmed"));
             File data = new File(a.has("--data") ? a.single("--data") : "eval-data");
             File portraits = new File(a.has("--portraits") ? a.single("--portraits") : "models/tools/.cache/pitch-calibration");
             File list = new File(a.has("--list") ? a.single("--list") : "models/tools/pitch_calibration_urls.txt");
@@ -229,6 +233,15 @@ public final class BindingEvaluation {
                 Scores i3 = set(sets, "impostor: crew faces vs each other and vs the public portraits", false);
                 pairs(crew, i3);
                 for (float[] c : crew) for (Portrait p : people) i3.values.add(SFaceEmbedder.cosine(c, p.feature));
+
+                if (a.has("--labelled")) {
+                    Labelled l = Labelled.load(new File(a.single("--labelled")), matcher);
+                    List<float[]> nasa = new ArrayList<float[]>();
+                    nasa.add(matcher.featureOfSingleFace(portrait.rgb(), portrait.width(), portrait.height()));
+                    for (Portrait p : people) nasa.add(p.feature);
+                    labelledSets(sets, l.byPerson, recorded, nasa);
+                    notes.put("labelled photos", l.summary(a.has("--labels-confirmed")));
+                }
 
                 speed.measureWarm(matcher, portrait, mirrored);
             } finally {
@@ -323,6 +336,71 @@ public final class BindingEvaluation {
         }
         Scores nasa = set(sets, "impostor: the subjects vs screen photos and prints of NASA portraits", false);
         cross(r.allLive(), r.nasaPhotos, nasa);
+    }
+
+    /**
+     * A labelled folder of consented photos (labels.csv: file,person_id; see {@link SlideshowSegmenter#readLabels}):
+     * the largest face of each photo, by person. Group photos are used (largest face) and counted.
+     */
+    static final class Labelled {
+        final Map<String, List<float[]>> byPerson = new TreeMap<String, List<float[]>>();
+        int photos, groupPhotos, noFace;
+
+        static Labelled load(File labels, FaceMatcher matcher) throws Exception {
+            Labelled l = new Labelled();
+            File dir = labels.getAbsoluteFile().getParentFile();
+            for (Map.Entry<String, String> e : SlideshowSegmenter.readLabels(labels).entrySet()) {
+                Frame f = PadEvaluation.load(new File(dir, e.getKey()), 0, 0, "photo");
+                FaceMatcher.PrimaryFeature p = matcher.featureOfPrimaryFace(f.rgb(), f.width(), f.height());
+                if (p == null) {
+                    l.noFace++;
+                    continue;
+                }
+                l.photos++;
+                if (p.faceCount > 1) l.groupPhotos++;
+                List<float[]> list = l.byPerson.get(e.getValue());
+                if (list == null) l.byPerson.put(e.getValue(), list = new ArrayList<float[]>());
+                list.add(p.feature);
+            }
+            return l;
+        }
+
+        String summary(boolean confirmed) {
+            int several = 0;
+            for (List<float[]> v : byPerson.values()) if (v.size() > 1) several++;
+            return photos + " photos of " + byPerson.size() + " people (" + several + " in two or more photos), "
+                    + groupPhotos + " group photos (largest face used), " + noFace + " without a face; labels "
+                    + (confirmed ? "confirmed by the owner of the photos"
+                    : "PROPOSED by face clustering, PROVISIONAL until the owner of the photos confirms them");
+        }
+    }
+
+    /**
+     * The sets of a labelled photo folder: genuine pairs within a person_id; impostors across person_ids, against the
+     * recorded subjects (a person_id equal to a subject's code, such as s01, is that subject: those pairs are genuine)
+     * and against the NASA portraits.
+     */
+    static void labelledSets(Map<String, Scores> sets, Map<String, List<float[]>> byPerson, Recorded r,
+                             List<float[]> nasa) {
+        Scores genuine = set(sets, "genuine: labelled photos of the same person, pairwise", true);
+        Scores between = set(sets, "impostor: labelled photos of different people", false);
+        List<String> ids = new ArrayList<String>(byPerson.keySet());
+        List<float[]> all = new ArrayList<float[]>();
+        for (int i = 0; i < ids.size(); i++) {
+            pairs(byPerson.get(ids.get(i)), genuine);
+            all.addAll(byPerson.get(ids.get(i)));
+            for (int j = i + 1; j < ids.size(); j++) cross(byPerson.get(ids.get(i)), byPerson.get(ids.get(j)), between);
+        }
+        Scores own = set(sets, "same person: labelled photos vs their own recorded bona fide takes", true);
+        Scores subjects = set(sets, "impostor: labelled photos vs the recorded subjects", false);
+        for (Map.Entry<String, List<float[]>> p : byPerson.entrySet()) {
+            for (Map.Entry<String, List<float[]>> s : r.live.entrySet()) {
+                cross(p.getValue(), s.getValue(), p.getKey().equals(s.getKey()) ? own : subjects);
+            }
+        }
+        if (own.values.isEmpty()) sets.remove(own.name);
+        Scores vsNasa = set(sets, "impostor: labelled photos vs the NASA portraits", false);
+        cross(all, nasa, vsNasa);
     }
 
     private static Scores set(Map<String, Scores> sets, String name, boolean genuine) {
