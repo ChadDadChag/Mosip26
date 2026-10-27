@@ -1,4 +1,6 @@
-/* Face liveness screen (docs/ui-liveness-spec.md §2 and §7). Colours always come with an icon and a text. */
+/* Face liveness screen (docs/ui-liveness-spec.md §2, §7 and §9). Colours always come with an icon and a text.
+   The tokens are the Android client's (LivenessStyle): primary #1C43A1, challenge #E8890C, success #2E7D32,
+   failure #D32F2F, neutral #616161; text #212121 and #616161. */
 
 .liveness-root {
     -fx-background-color: #ffffff;
@@ -16,48 +18,65 @@
     -fx-font-weight: bold;
 }
 
+/* Camera card: 4:3, radius 16 (LivenessCameraCard), 40% scrim outside the oval, 4 px oval. */
 .liveness-preview {
-    -fx-background-color: #1f2328;
-    -fx-background-radius: 8;
+    -fx-background-color: #616161;
+    -fx-background-radius: 16;
 }
 
 .liveness-preview-placeholder {
-    -fx-text-fill: #c9d1d9;
-    -fx-font-size: 16px;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 15px;
     -fx-text-alignment: center;
-    -fx-padding: 24;
 }
 
 .liveness-oval {
     -fx-fill: transparent;
-    -fx-stroke-width: 5;
-    -fx-stroke-dash-array: null;
+    -fx-stroke-width: 4;
 }
 
 .liveness-mask {
-    -fx-fill: rgba(0, 0, 0, 0.45);
+    -fx-fill: rgba(0, 0, 0, 0.40);
 }
 
+/* The state badge, on the oval and in the status card: a 28 px circle in the state colour. */
 .liveness-badge, .liveness-status-badge {
-    -fx-background-radius: 50%;
-    -fx-background-color: #8a8f98;
+    -fx-background-radius: 14;
+    -fx-border-color: #ffffff;
+    -fx-border-width: 1.5;
+    -fx-border-radius: 14;
 }
 
 .liveness-badge-icon {
     -fx-fill: #ffffff;
 }
 
+/* Status card: the state colour at 10%, a 1 px border, radius 12; 20 px semibold, centred, at most 2 lines. */
+.liveness-status-card {
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 12;
+}
+
+/* Weight 600: JavaFX does not derive Segoe UI's semibold face from -fx-font-weight, so it is named. */
+.liveness-status, .liveness-tips-title, .liveness-button, .liveness-button-primary {
+    -fx-font-family: "Segoe UI Semibold";
+}
+
 .liveness-status {
-    -fx-font-size: 24px;
-    -fx-font-weight: bold;
-    -fx-text-fill: #1f2328;
+    -fx-font-size: 20px;
+    -fx-text-fill: #212121;
     -fx-text-alignment: center;
+    -fx-alignment: center;
+    -fx-line-spacing: 2;
 }
 
 .liveness-hint {
-    -fx-font-size: 18px;
-    -fx-text-fill: #3d444d;
+    -fx-font-size: 15px;
+    -fx-text-fill: #616161;
     -fx-text-alignment: center;
+    -fx-alignment: center;
 }
 
 .liveness-hint-icon {
@@ -65,77 +84,81 @@
 }
 
 .liveness-meta {
-    -fx-font-size: 15px;
-    -fx-text-fill: #3d444d;
+    -fx-font-size: 13px;
+    -fx-text-fill: #616161;
+    -fx-text-alignment: center;
+    -fx-alignment: center;
 }
 
-.liveness-progress .bar {
-    -fx-background-color: #1e6fd9;
-    -fx-background-insets: 1;
-    -fx-background-radius: 6;
+/* Step bar: one segment per challenge; done filled, the current one at least half. */
+.liveness-segment {
+    -fx-background-color: #e0e0e0;
+    -fx-background-radius: 3;
 }
 
-.liveness-progress .track {
-    -fx-background-radius: 6;
+.liveness-segment-fill {
+    -fx-background-color: #1c43a1;
+    -fx-background-radius: 3;
 }
 
 .liveness-tips {
-    -fx-background-color: #f6f8fa;
-    -fx-background-radius: 6;
-    -fx-padding: 10 16 10 16;
+    -fx-background-color: #f5f5f5;
+    -fx-background-radius: 12;
+    -fx-padding: 10 14 10 14;
 }
 
 .liveness-tips .label {
-    -fx-font-size: 16px;
-    -fx-text-fill: #1f2328;
+    -fx-font-size: 14px;
+    -fx-text-fill: #212121;
 }
 
-.liveness-tips-title {
-    -fx-font-weight: bold;
-}
-
+/* Buttons: one row, equal widths, 48 high, radius 12; filled for Retry and Close, outlined for Cancel. */
 .liveness-button, .liveness-button-primary {
-    -fx-font-size: 16px;
-    -fx-background-radius: 6;
+    -fx-font-size: 15px;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
     -fx-cursor: hand;
 }
 
 .liveness-button {
     -fx-background-color: #ffffff;
-    -fx-border-color: #2c3e50;
-    -fx-border-radius: 6;
-    -fx-text-fill: #2c3e50;
+    -fx-border-color: #1c43a1;
+    -fx-border-width: 1;
+    -fx-text-fill: #1c43a1;
 }
 
 .liveness-button-primary {
-    -fx-background-color: #2c3e50;
+    -fx-background-color: #1c43a1;
     -fx-text-fill: #ffffff;
 }
 
 .liveness-button:focused, .liveness-button-primary:focused {
-    -fx-border-color: #e39b00;
+    -fx-border-color: #e8890c;
     -fx-border-width: 3;
-    -fx-border-radius: 6;
 }
 
-/* Tones: oval stroke and badge background. */
-.tone-neutral .liveness-oval { -fx-stroke: #8a8f98; }
-.tone-neutral .liveness-badge, .tone-neutral .liveness-status-badge { -fx-background-color: #6e7681; }
+/* Tones: oval stroke, badges and the status card. */
+.tone-neutral .liveness-oval { -fx-stroke: #616161; }
+.tone-neutral .liveness-badge, .tone-neutral .liveness-status-badge { -fx-background-color: #616161; }
+.tone-neutral .liveness-status-card { -fx-background-color: rgba(97, 97, 97, 0.10); -fx-border-color: #616161; }
 
-.tone-checking .liveness-oval { -fx-stroke: #1e6fd9; }
-.tone-checking .liveness-badge, .tone-checking .liveness-status-badge { -fx-background-color: #1e6fd9; }
+.tone-checking .liveness-oval { -fx-stroke: #1c43a1; }
+.tone-checking .liveness-badge, .tone-checking .liveness-status-badge { -fx-background-color: #1c43a1; }
+.tone-checking .liveness-status-card { -fx-background-color: rgba(28, 67, 161, 0.10); -fx-border-color: #1c43a1; }
 
-.tone-challenge .liveness-oval { -fx-stroke: #e39b00; }
-.tone-challenge .liveness-badge, .tone-challenge .liveness-status-badge { -fx-background-color: #b26a00; }
-.tone-challenge .liveness-progress .bar { -fx-background-color: #e39b00; }
+.tone-challenge .liveness-oval { -fx-stroke: #e8890c; }
+.tone-challenge .liveness-badge, .tone-challenge .liveness-status-badge { -fx-background-color: #e8890c; }
+.tone-challenge .liveness-badge-icon { -fx-fill: #1f1f1f; }
+.tone-challenge .liveness-status-card { -fx-background-color: rgba(232, 137, 12, 0.10); -fx-border-color: #e8890c; }
 
-.tone-detected .liveness-oval { -fx-stroke: #2e9e4f; }
-.tone-detected .liveness-badge, .tone-detected .liveness-status-badge { -fx-background-color: #23803f; }
-.tone-detected .liveness-progress .bar { -fx-background-color: #2e9e4f; }
+.tone-detected .liveness-oval, .tone-success .liveness-oval { -fx-stroke: #2e7d32; }
+.tone-detected .liveness-badge, .tone-detected .liveness-status-badge,
+.tone-success .liveness-badge, .tone-success .liveness-status-badge { -fx-background-color: #2e7d32; }
+.tone-detected .liveness-status-card, .tone-success .liveness-status-card {
+    -fx-background-color: rgba(46, 125, 50, 0.10);
+    -fx-border-color: #2e7d32;
+}
 
-.tone-success .liveness-oval { -fx-stroke: #2e9e4f; }
-.tone-success .liveness-badge, .tone-success .liveness-status-badge { -fx-background-color: #23803f; }
-.tone-success .liveness-progress .bar { -fx-background-color: #2e9e4f; }
-
-.tone-failure .liveness-oval { -fx-stroke: #c62828; }
-.tone-failure .liveness-badge, .tone-failure .liveness-status-badge { -fx-background-color: #c62828; }
+.tone-failure .liveness-oval { -fx-stroke: #d32f2f; }
+.tone-failure .liveness-badge, .tone-failure .liveness-status-badge { -fx-background-color: #d32f2f; }
+.tone-failure .liveness-status-card { -fx-background-color: rgba(211, 47, 47, 0.10); -fx-border-color: #d32f2f; }

@@ -1,12 +1,15 @@
 package io.mosip.registration.controller.liveness;
 
 import java.text.MessageFormat;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.function.Function;
 
 import io.mosip.registration.constants.RegistrationConstants;
@@ -78,25 +81,46 @@ public final class LivenessMessages {
 	public static final String[] TIP_KEYS = { "liveness.tips.look_at_camera", "liveness.tips.face_visible",
 			"liveness.tips.lighting", "liveness.tips.capture_area", "liveness.tips.follow_prompt" };
 
-	private final Function<String, String> lookup;
+	/** Languages written right to left (MOSIP's three-letter codes and the two-letter ones). */
+	private static final Set<String> RIGHT_TO_LEFT = new HashSet<>(Arrays.asList("ara", "ar", "heb", "he", "fas",
+			"fa", "urd", "ur"));
 
-	private LivenessMessages(Function<String, String> lookup) {
+	private final Function<String, String> lookup;
+	private final boolean rightToLeft;
+
+	private LivenessMessages(Function<String, String> lookup, boolean rightToLeft) {
 		this.lookup = lookup;
+		this.rightToLeft = rightToLeft;
 	}
 
 	/** Texts in the client's current application language. */
 	public static LivenessMessages forApplicationLanguage() {
-		final ResourceBundle current = bundle(ApplicationContext.applicationLanguage());
+		String lang = ApplicationContext.applicationLanguage();
+		final ResourceBundle current = bundle(lang);
 		final ResourceBundle english = bundle("eng");
 		return new LivenessMessages(key -> {
 			String v = find(current, key);
 			return v != null ? v : find(english, key);
-		});
+		}, isRightToLeft(lang));
 	}
 
 	/** Built-in English only (tests, the screen demo). */
 	public static LivenessMessages english() {
-		return new LivenessMessages(key -> null);
+		return new LivenessMessages(key -> null, false);
+	}
+
+	/** Texts from one bundle, English where it has none (tests, the screen demo in another language). */
+	static LivenessMessages of(ResourceBundle bundle, String lang) {
+		return new LivenessMessages(key -> find(bundle, key), isRightToLeft(lang));
+	}
+
+	static boolean isRightToLeft(String lang) {
+		return lang != null && RIGHT_TO_LEFT.contains(lang.toLowerCase(Locale.ROOT));
+	}
+
+	/** The screen is mirrored for this language. */
+	public boolean rightToLeft() {
+		return rightToLeft;
 	}
 
 	public String text(LivenessScreenModel.Text t) {

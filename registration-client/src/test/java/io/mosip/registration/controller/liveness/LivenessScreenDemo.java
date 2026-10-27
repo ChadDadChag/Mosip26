@@ -6,10 +6,12 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -107,8 +109,11 @@ public final class LivenessScreenDemo {
 		Platform.startup(started::countDown);
 		started.await();
 		if (a.containsKey("--snapshots")) {
-			snapshots(new File(a.get("--snapshots")), a.get("--face"));
-			Platform.exit();
+			try {
+				snapshots(new File(a.get("--snapshots")), a.get("--face"));
+			} finally {
+				Platform.exit(); // also after a failure, or the JavaFX thread keeps the JVM alive
+			}
 			return;
 		}
 		WorkflowType workflow = WorkflowType.valueOf(a.getOrDefault("--workflow", "resident").toUpperCase());
@@ -284,11 +289,26 @@ public final class LivenessScreenDemo {
 
 	// ------------------------------------------------------------------ snapshots
 
-	private static void snapshots(File dir, String face) throws Exception {
-		if (!dir.isDirectory() && !dir.mkdirs()) {
-			throw new IOException("cannot create " + dir);
+	/** The snapshot size: the client's liveness window (720x820, LivenessCheck.fxml). */
+	static final double SNAPSHOT_WIDTH = 720, SNAPSHOT_HEIGHT = 820;
+
+	/** One documented screen state: its file name, workflow, events, and whether the camera shows frames. */
+	static final class Screen {
+		final String name;
+		final WorkflowType workflow;
+		final Consumer<LivenessScreenModel> drive;
+		final boolean frames;
+
+		Screen(String name, WorkflowType workflow, Consumer<LivenessScreenModel> drive, boolean frames) {
+			this.name = name;
+			this.workflow = workflow;
+			this.drive = drive;
+			this.frames = frames;
 		}
-		Frame still = face == null ? null : still(new File(face));
+	}
+
+	/** The states of docs/images/part4, in order. */
+	static List<Screen> screens() {
 		Map<String, Consumer<LivenessScreenModel>> states = new LinkedHashMap<>();
 		states.put("01-checking", m -> {
 			ev(m, LivenessEvent.of(Type.STARTED, 1));
@@ -321,21 +341,52 @@ public final class LivenessScreenDemo {
 		states.put("11-max-attempts-resident", m -> ev(m,
 				LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.MAX_RETRIES_EXCEEDED, 4, 0, false)));
 
+		List<Screen> screens = new ArrayList<>();
 		for (Map.Entry<String, Consumer<LivenessScreenModel>> s : states.entrySet()) {
-			boolean noFrames = s.getKey().startsWith("10-");
-			snap(new File(dir, s.getKey() + ".png"), WorkflowType.RESIDENT, s.getValue(), noFrames ? null : still);
+			screens.add(new Screen(s.getKey(), WorkflowType.RESIDENT, s.getValue(), !s.getKey().startsWith("10-")));
 		}
-		snap(new File(dir, "12-operator-login-challenge.png"), WorkflowType.OPERATOR,
-				m -> ev(m, LivenessEvent.prompt(ChallengeType.SMILE, 1, 1, 6000, 1)), still);
-		snap(new File(dir, "13-supervisor-final-failure.png"), WorkflowType.SUPERVISOR,
-				m -> ev(m, LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.PAD_FAILURE, 3, 0, false)), still);
-		snap(new File(dir, "14-unavailable-fail-closed.png"), WorkflowType.OPERATOR,
-				LivenessScreenModel::showUnavailable, null);
+		screens.add(new Screen("12-operator-login-challenge", WorkflowType.OPERATOR,
+				m -> ev(m, LivenessEvent.prompt(ChallengeType.SMILE, 1, 1, 6000, 1)), true));
+		screens.add(new Screen("13-supervisor-final-failure", WorkflowType.SUPERVISOR,
+				m -> ev(m, LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.PAD_FAILURE, 3, 0, false)), true));
+		screens.add(new Screen("14-unavailable-fail-closed", WorkflowType.OPERATOR,
+				LivenessScreenModel::showUnavailable, false));
+		return screens;
+	}
+
+	private static void snapshots(File dir, String face) throws Exception {
+		if (!dir.isDirectory() && !dir.mkdirs()) {
+			throw new IOException("cannot create " + dir);
+		}
+		Frame still = face == null ? null : still(new File(face));
+		for (Screen s : screens()) {
+			snap(new File(dir, s.name + ".png"), s.workflow, s.drive, s.frames ? still : null);
+		}
 		System.out.println("Wrote liveness screens to " + dir.getAbsolutePath());
 	}
 
 	private static void ev(LivenessScreenModel m, LivenessEvent e) {
 		m.onEvent(e, System.nanoTime() / 1_000_000 + 10_000);
+	}
+
+	/** The view of one state in a scene of the given size, laid out (JavaFX thread). */
+	static LivenessView layOut(Screen s, LivenessMessages messages, double width, double height, Frame still)
+			throws IOException {
+		LivenessScreenModel model = new LivenessScreenModel(s.workflow, 3);
+		s.drive.accept(model);
+		LivenessView view = LivenessView.load(messages, false);
+		new Scene(view.root(), width, height);
+		if (still != null) {
+			view.showStill(still);
+		} else {
+			view.showPreview(false, ""); // no frames from the device
+		}
+		view.render(model);
+		for (int i = 0; i < 2; i++) { // the second pass sizes what the first one's window size decided
+			view.root().applyCss();
+			view.root().layout();
+		}
+		return view;
 	}
 
 	private static void snap(File out, WorkflowType workflow, Consumer<LivenessScreenModel> drive, Frame still)
@@ -344,19 +395,9 @@ public final class LivenessScreenDemo {
 		CountDownLatch done = new CountDownLatch(1);
 		Platform.runLater(() -> {
 			try {
-				LivenessScreenModel model = new LivenessScreenModel(workflow, 3);
-				drive.accept(model);
-				LivenessView view = LivenessView.load(LivenessMessages.english(), false);
-				Scene scene = new Scene(view.root());
-				if (still != null) {
-					view.showStill(still);
-				} else {
-					view.showPreview(false, ""); // no frames from the device
-				}
-				view.render(model);
-				view.root().applyCss();
-				view.root().layout();
-				WritableImage img = scene.snapshot(null);
+				LivenessView view = layOut(new Screen(out.getName(), workflow, drive, still != null),
+						LivenessMessages.english(), SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT, still);
+				WritableImage img = view.root().getScene().snapshot(null);
 				view.dispose();
 				ImageIO.write(SwingFXUtils.fromFXImage(img, null), "png", out);
 			} catch (Exception e) {

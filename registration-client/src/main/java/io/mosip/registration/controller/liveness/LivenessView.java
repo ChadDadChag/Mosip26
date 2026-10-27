@@ -8,32 +8,36 @@ import java.util.concurrent.atomic.AtomicReference;
 import io.mosip.registration.liveness.api.Frame;
 import io.mosip.registration.liveness.device.util.PreviewFrameSource;
 import javafx.animation.AnimationTimer;
-import javafx.animation.Animation;
-import javafx.animation.ScaleTransition;
+import javafx.animation.FadeTransition;
+import javafx.animation.ParallelTransition;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
+import javafx.geometry.NodeOrientation;
+import javafx.geometry.Pos;
 import javafx.scene.AccessibleAttribute;
 import javafx.scene.Parent;
+import javafx.scene.SnapshotParameters;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.ProgressBar;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Pane;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.shape.Ellipse;
-import javafx.scene.shape.Rectangle;
+import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
-import javafx.scene.shape.Shape;
+import javafx.scene.text.Font;
+import javafx.scene.text.Text;
 import javafx.util.Duration;
 
 /**
  * Renders a {@link LivenessScreenModel} ({@code fxml/LivenessCheck.fxml}, {@code liveness.css}) and shows the
- * device's live frames in the preview.
+ * device's live frames in the preview. The layout and tokens are {@code docs/ui-liveness-spec.md} §9, the same as
+ * the Android client's.
  *
  * <p>The preview is mirrored like a selfie by the view only ({@code scaleX=-1}); the frames the engine analyses are
  * never mirrored. Frames arrive on the device thread; only the newest is kept and drawn once per screen refresh.
@@ -43,6 +47,16 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 
 	static final String FXML = "/fxml/LivenessCheck.fxml";
 	static final String CSS = "/liveness.css";
+
+	/** §9 tokens the stylesheet cannot express. */
+	static final double MAX_CONTENT_WIDTH = 560;
+	static final double CAMERA_SHARE = 0.45;
+	static final double BUTTON_GAP = 12;
+	static final double STATUS_MIN_HEIGHT = 80;
+	static final double STATUS_SIZE = 20;
+	static final double STATUS_MIN_SIZE = 16;
+	static final Duration STATUS_FADE = Duration.millis(200);
+	static final String ATTEMPTS_LEFT = "liveness.retry.attempts_left";
 
 	private static final Map<LivenessScreenModel.Icon, String> ICONS = new EnumMap<>(LivenessScreenModel.Icon.class);
 	private static final String WARNING_ICON = "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z";
@@ -63,23 +77,24 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 
 	@FXML private BorderPane root;
 	@FXML private Label title;
-	@FXML private StackPane previewPane;
-	@FXML private Label previewPlaceholder;
-	@FXML private ImageView preview;
-	@FXML private Pane overlay;
-	@FXML private Ellipse oval;
-	@FXML private StackPane ovalBadge;
-	@FXML private SVGPath ovalIcon;
+	@FXML private VBox content;
+	@FXML private LivenessCameraCard camera;
+	@FXML private StackPane statusCard;
+	@FXML private HBox statusRow;
 	@FXML private StackPane statusBadge;
 	@FXML private SVGPath statusIcon;
 	@FXML private Label status;
 	@FXML private HBox hintRow;
 	@FXML private SVGPath hintIcon;
 	@FXML private Label hint;
+	@FXML private StackPane progressRow;
+	@FXML private HBox stepRow;
 	@FXML private Label step;
-	@FXML private ProgressBar progress;
+	@FXML private HBox segments;
 	@FXML private Label attempt;
+	@FXML private Label progressText;
 	@FXML private VBox tips;
+	@FXML private HBox buttonRow;
 	@FXML private Button retryButton;
 	@FXML private Button cancelButton;
 	@FXML private Button closeButton;
@@ -88,11 +103,12 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 	private final boolean animations;
 	private final AtomicReference<Frame> pendingFrame = new AtomicReference<>();
 	private WritableImage image;
-	private ScaleTransition pulse;
+	private ParallelTransition fade;
 	private Runnable onRetry = () -> { };
 	private Runnable onCancel = () -> { };
 	private Runnable onClose = () -> { };
 	private LivenessScreenModel.Tone lastTone;
+	private String lastStatus;
 
 	private final AnimationTimer previewTimer = new AnimationTimer() {
 		@Override
@@ -109,7 +125,7 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 		this.animations = animations;
 	}
 
-	/** Loads the screen. {@code animations=false} keeps the challenge icon still (reduced motion). */
+	/** Loads the screen. {@code animations=false} turns the status fade off (reduced motion). */
 	public static LivenessView load(LivenessMessages messages, boolean animations) throws IOException {
 		LivenessView view = new LivenessView(messages, animations);
 		FXMLLoader loader = new FXMLLoader(LivenessView.class.getResource(FXML));
@@ -121,14 +137,21 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 
 	private void init() {
 		root.getStylesheets().add(LivenessView.class.getResource(CSS).toExternalForm());
-		Shape mask = Shape.subtract(new Rectangle(480, 360), new Ellipse(oval.getCenterX(), oval.getCenterY(),
-				oval.getRadiusX(), oval.getRadiusY()));
-		mask.getStyleClass().add("liveness-mask");
-		overlay.getChildren().add(0, mask);
+		// Mirrored for right-to-left languages; the camera card and the state icons keep the user's left and right.
+		root.setNodeOrientation(messages.rightToLeft() ? NodeOrientation.RIGHT_TO_LEFT : NodeOrientation.LEFT_TO_RIGHT);
+		statusBadge.setNodeOrientation(NodeOrientation.LEFT_TO_RIGHT);
 		hintIcon.setContent(WARNING_ICON);
 		retryButton.setText(messages.text("liveness.button.retry"));
 		cancelButton.setText(messages.text("liveness.button.cancel"));
 		closeButton.setText(messages.text("liveness.button.close"));
+		for (Region r : new Region[] { hintRow, progressRow, tips }) {
+			r.setMinHeight(Region.USE_PREF_SIZE); // only the camera card gives up height
+		}
+		statusCard.setMinHeight(STATUS_MIN_HEIGHT); // two status lines; the status never needs more
+		VBox.setVgrow(camera, Priority.NEVER);
+		root.widthProperty().addListener((o, a, b) -> resize());
+		root.heightProperty().addListener((o, a, b) -> resize());
+		resize();
 		showPreview(false, "");
 		previewTimer.start();
 	}
@@ -147,9 +170,9 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 
 	/** Shows the live preview, or the placeholder text instead (no frames, e.g. the scripted engine). */
 	public void showPreview(boolean live, String placeholder) {
-		preview.setVisible(live);
-		previewPlaceholder.setVisible(!live);
-		previewPlaceholder.setText(placeholder);
+		camera.preview().setVisible(live);
+		camera.placeholder().setVisible(!live);
+		camera.placeholder().setText(placeholder);
 	}
 
 	/** Called on the device thread for every frame. Never blocks. */
@@ -166,7 +189,7 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 	private void draw(Frame f) {
 		if (image == null || (int) image.getWidth() != f.width() || (int) image.getHeight() != f.height()) {
 			image = new WritableImage(f.width(), f.height());
-			preview.setImage(image);
+			camera.preview().setImage(image);
 			showPreview(true, "");
 		}
 		image.getPixelWriter().setPixels(0, 0, f.width(), f.height(), PixelFormat.getByteRgbInstance(), f.rgb(), 0,
@@ -175,36 +198,53 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 
 	public void render(LivenessScreenModel m) {
 		title.setText(messages.text(m.title()));
-		setText(status, m.status());
-		setText(hint, m.hint());
-		hintIcon.setVisible(m.hint() != null && m.hintIsGuidance());
-		hintIcon.setManaged(hintIcon.isVisible());
+		String statusText = messages.text(m.status());
+		boolean statusChanged = lastStatus != null && !statusText.equals(lastStatus);
+		if (statusChanged) {
+			crossFade();
+		}
+		lastStatus = statusText;
+		status.setText(statusText);
 
 		String icon = ICONS.get(m.icon());
-		ovalIcon.setContent(icon);
+		camera.badgeIcon().setContent(icon);
 		statusIcon.setContent(icon);
 		if (m.tone() != lastTone) {
 			root.getStyleClass().removeIf(c -> c.startsWith("tone-"));
 			root.getStyleClass().add("tone-" + m.tone().name().toLowerCase());
 			lastTone = m.tone();
 		}
-		animateChallengeIcon(m.tone() == LivenessScreenModel.Tone.CHALLENGE);
 
-		switch (m.progressMode()) {
-			case INDETERMINATE:
-				progress.setVisible(true);
-				progress.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-				break;
-			case DETERMINATE:
-				progress.setVisible(true);
-				progress.setProgress(m.progress());
-				break;
-			default:
-				progress.setVisible(false);
-				break;
+		// The hint line: guidance or feedback, or the recovery text; the attempts left go to the progress row.
+		// While guidance can still arrive the line keeps its place, so nothing below it jumps.
+		boolean attemptsLeft = m.hint() != null && ATTEMPTS_LEFT.equals(m.hint().key);
+		LivenessScreenModel.Text secondary = attemptsLeft ? null : m.hint();
+		boolean reserve = m.terminal() == LivenessScreenModel.Terminal.NONE && m.tone() != LivenessScreenModel.Tone.FAILURE;
+		hint.setText(secondary == null ? "" : messages.text(secondary));
+		hintIcon.setVisible(secondary != null && m.hintIsGuidance());
+		hintIcon.setManaged(hintIcon.isVisible());
+		hintRow.setVisible(secondary != null);
+		hintRow.setManaged(secondary != null || reserve);
+		hintRow.setPrefHeight(secondary == null ? 20 : Region.USE_COMPUTED_SIZE);
+
+		// The progress row: Step i of n, the step bar, Attempt a of m; after a failed attempt only the attempts left.
+		boolean bar = m.step() != null && m.progressMode() == LivenessScreenModel.ProgressMode.DETERMINATE;
+		stepRow.setVisible(bar && !attemptsLeft);
+		progressText.setStyle(attemptsLeft ? "-fx-font-size: 15px;" : ""); // body size, as the hint line it replaces
+		if (attemptsLeft) {
+			progressText.setText(messages.text(m.hint()));
+		} else if (!bar && m.attempt() != null) {
+			progressText.setText(messages.text(m.attempt()));
+		} else {
+			progressText.setText("");
 		}
-		setText(step, m.step());
-		setText(attempt, m.attempt());
+		progressText.setVisible(!stepRow.isVisible() && !progressText.getText().isEmpty());
+		if (stepRow.isVisible()) {
+			step.setText(messages.text(m.step()));
+			setText(attempt, m.attempt());
+			attempt.setManaged(attempt.isVisible());
+			segments((Integer) m.step().args[0], (Integer) m.step().args[1], m.progress());
+		}
 
 		tips.getChildren().clear();
 		tips.setVisible(m.showTips());
@@ -214,8 +254,9 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 			t.getStyleClass().add("liveness-tips-title");
 			tips.getChildren().add(t);
 			for (String key : LivenessMessages.TIP_KEYS) {
-				Label l = new Label("• " + messages.text(key));
+				Label l = new Label("•  " + messages.text(key));
 				l.setWrapText(true);
+				l.setMinHeight(Region.USE_PREF_SIZE);
 				tips.getChildren().add(l);
 			}
 		}
@@ -223,6 +264,7 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 		show(retryButton, m.showRetry());
 		show(cancelButton, m.showCancel());
 		show(closeButton, m.showClose());
+		resize();
 		Button focus = m.showRetry() ? retryButton : m.showClose() ? closeButton : null;
 		if (focus != null) {
 			focus.requestFocus();
@@ -235,6 +277,113 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 		}
 	}
 
+	/** Sizes what depends on the window: the camera card (45% of the height), the text widths and the buttons. */
+	private void resize() {
+		double width = root.getWidth() > 0 ? root.getWidth() : root.getPrefWidth();
+		double height = root.getHeight() > 0 ? root.getHeight() : root.getPrefHeight();
+		double w = Math.min(MAX_CONTENT_WIDTH, width - 48);
+		double cameraHeight = Math.min(height * CAMERA_SHARE, w * 3 / 4);
+		camera.setPrefSize(w, cameraHeight);
+		camera.setMaxHeight(cameraHeight);
+		double statusWidth = w - 24 - LivenessCameraCard.BADGE - statusRow.getSpacing();
+		status.setMaxWidth(statusWidth);
+		hint.setMaxWidth(w - 24);
+		progressText.setMaxWidth(w);
+		step.setMaxWidth(w * 0.35);
+		attempt.setMaxWidth(w * 0.35);
+		fitStatus(statusWidth);
+
+		int count = 0;
+		for (Button b : new Button[] { retryButton, cancelButton, closeButton }) {
+			count += b.isManaged() ? 1 : 0;
+		}
+		int slots = Math.max(count, 2);
+		double buttonWidth = (w - BUTTON_GAP * (slots - 1)) / slots;
+		for (Button b : new Button[] { retryButton, cancelButton, closeButton }) {
+			b.setMinWidth(buttonWidth);
+			b.setPrefWidth(buttonWidth);
+			b.setMaxWidth(buttonWidth);
+		}
+	}
+
+	/** The status at 20 px; a long one steps down towards 16 px where 20 would need a third line. */
+	private void fitStatus(double width) {
+		status.applyCss();
+		String text = status.getText();
+		String name = status.getFont().getName();
+		double size = STATUS_SIZE;
+		while (size > STATUS_MIN_SIZE && lines(text, new Font(name, size), width) > 2) {
+			size--;
+		}
+		status.setStyle(size == STATUS_SIZE ? "" : "-fx-font-size: " + size + "px;");
+	}
+
+	static int lines(String text, Font font, double width) {
+		Text t = new Text(text == null || text.isEmpty() ? "X" : text);
+		t.setFont(font);
+		t.setWrappingWidth(width);
+		double wrapped = t.getLayoutBounds().getHeight();
+		t.setWrappingWidth(0);
+		t.setText("X");
+		return (int) Math.round(wrapped / t.getLayoutBounds().getHeight());
+	}
+
+	/** One segment per challenge: done ones full, the current one at least half, filling with the progress. */
+	private void segments(int index, int count, double progress) {
+		if (segments.getChildren().size() != count) {
+			segments.getChildren().clear();
+			for (int i = 0; i < count; i++) {
+				StackPane segment = new StackPane();
+				segment.getStyleClass().add("liveness-segment");
+				segment.setAlignment(Pos.CENTER_LEFT);
+				segment.setMinHeight(6);
+				segment.setMaxHeight(6);
+				segment.setPrefWidth(0);
+				segment.setMaxWidth(Double.MAX_VALUE);
+				HBox.setHgrow(segment, Priority.ALWAYS);
+				Region fill = new Region();
+				fill.getStyleClass().add("liveness-segment-fill");
+				fill.setMinWidth(0);
+				fill.setMaxHeight(6);
+				segment.getChildren().add(fill);
+				segments.getChildren().add(segment);
+			}
+		}
+		for (int i = 1; i <= count; i++) {
+			StackPane segment = (StackPane) segments.getChildren().get(i - 1);
+			Region fill = (Region) segment.getChildren().get(0);
+			double f = i < index ? 1 : i == index ? Math.max(0.5, progress) : 0;
+			fill.prefWidthProperty().bind(segment.widthProperty().multiply(f));
+			fill.maxWidthProperty().bind(segment.widthProperty().multiply(f));
+			fill.setVisible(f > 0);
+		}
+	}
+
+	/** A 200 ms cross-fade from the previous status to the new one (reduced motion: none). */
+	private void crossFade() {
+		if (!animations || root.getScene() == null) {
+			return;
+		}
+		if (fade != null) {
+			fade.jumpTo("end");
+		}
+		SnapshotParameters p = new SnapshotParameters();
+		p.setFill(Color.TRANSPARENT);
+		ImageView old = new ImageView(statusRow.snapshot(p, null));
+		old.setManaged(false);
+		old.relocate(statusRow.getLayoutX(), statusRow.getLayoutY());
+		old.setMouseTransparent(true);
+		statusCard.getChildren().add(old);
+		FadeTransition out = new FadeTransition(STATUS_FADE, old);
+		out.setToValue(0);
+		FadeTransition in = new FadeTransition(STATUS_FADE, statusRow);
+		in.setFromValue(0);
+		in.setToValue(1);
+		fade = new ParallelTransition(out, in);
+		fade.setOnFinished(e -> statusCard.getChildren().remove(old));
+		fade.play();
+	}
+
 	private void setText(Label label, LivenessScreenModel.Text text) {
 		label.setText(text == null ? "" : messages.text(text));
 		label.setVisible(text != null);
@@ -245,31 +394,26 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 		b.setManaged(visible);
 	}
 
-	private void animateChallengeIcon(boolean on) {
-		if (!animations) {
-			return;
-		}
-		if (on && pulse == null) {
-			pulse = new ScaleTransition(Duration.millis(700), ovalBadge);
-			pulse.setFromX(1);
-			pulse.setFromY(1);
-			pulse.setToX(1.18);
-			pulse.setToY(1.18);
-			pulse.setAutoReverse(true);
-			pulse.setCycleCount(Animation.INDEFINITE);
-			pulse.play();
-		} else if (!on && pulse != null) {
-			pulse.stop();
-			ovalBadge.setScaleX(1);
-			ovalBadge.setScaleY(1);
-			pulse = null;
-		}
-	}
-
 	/** Stops the preview timer and any animation; call when the window closes. */
 	public void dispose() {
 		previewTimer.stop();
-		animateChallengeIcon(false);
+		if (fade != null) {
+			fade.stop();
+		}
 		pendingFrame.set(null);
 	}
+
+	// ------------------------------------------------------------------ read side for the layout tests
+
+	LivenessCameraCard camera() { return camera; }
+	StackPane statusCard() { return statusCard; }
+	Label status() { return status; }
+	Label hint() { return hint; }
+	Label step() { return step; }
+	HBox segments() { return segments; }
+	Label attempt() { return attempt; }
+	Label progressText() { return progressText; }
+	VBox tips() { return tips; }
+	VBox content() { return content; }
+	Button[] buttons() { return new Button[] { retryButton, cancelButton, closeButton }; }
 }
