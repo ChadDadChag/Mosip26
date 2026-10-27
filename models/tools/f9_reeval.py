@@ -35,8 +35,9 @@ R2 F18 volatility cap. Share = the listed subjects' recorded real-face takes who
    without the guards but not with them (latch, volatilityMinScore 0.85), pooled. Above 25%: evaluate 0.80, by
    replaying every recorded attack take and every attack attempt of the live logs (all SessionDemo cases except
    the real-face a, b, c, h, i, j, k, l and the mixed m) at 0.85 and at 0.80. Adopt 0.80 only if no attack
-   verdict changes; otherwise keep 0.85 and record the cost (the share). At 25% or below: keep 0.85. Bona fide
-   PAD rejections (ATTACK) are reported per subject.
+   verdict changes; otherwise keep 0.85 and record the cost (the share). If there is no attack attempt to
+   replay, R2 is not decidable and 0.85 stays. At 25% or below: keep 0.85. Bona fide PAD rejections (ATTACK)
+   are reported per subject.
 R3 F2 moire cap on new faces. Per subject, the share of scored bona fide frames (one face, model outputs) that the
    moire cap capped. Above 10%: the subject is flagged. A flag is report only: the subject's code goes into the
    limitations in docs/part2-iso30107-evaluation.md, and the moire cap does not change this week.
@@ -47,6 +48,7 @@ R4 F15 identity threshold. BindingEvaluation's rule (at least 3 people and 50 on
 R5 Size. A result that changes production (R2: adopt 0.80) needs at least 3 subjects. With fewer, it is
    provisional and nothing changes.
 R3 action and readings 1-7 confirmed by the planner on 2026-10-28, before the F9 teammate data.
+R2's sentence on no attack attempt to replay: a clarification made on 2026-10-28, before the F9 teammate data.
 """
 
 F18_DEFAULT, F18_CANDIDATE, F18_SHARE_LIMIT = 0.85, 0.80, 0.25
@@ -530,7 +532,8 @@ class SelfTest(unittest.TestCase):
                 is_live_attack({"case": case})
 
     def test_r2_without_an_attack_attempt_0_80_is_not_adopted(self):
-        # "No attack verdict changes" needs attack attempts to replay (task 19 review).
+        # "No attack verdict changes" needs attack attempts to replay (task 19 review; R2's clarification).
+        self.assertIn("replay, R2 is not decidable and 0.85 stays.", RULES)
         code, text = f18_decision(0.40, [], 3, 0)
         self.assertEqual("NOT_DECIDABLE", code)
         self.assertIn("no attack attempt with a passive window to replay", text)
