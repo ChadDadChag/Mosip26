@@ -2,13 +2,20 @@
 
 This matrix covers every requirement in the problem statement *04 Face Liveness Detection and Presentation Attack
 Detection for Registration and Biometric Authentication*, in the order of the PDF. For each requirement it shows the
-status, where it is implemented, how it was verified, and the known gaps. It describes the merged `main` (Parts 1 to 5)
-and uses only facts from the documents and code in this repository.
+status, where it is implemented, how it was verified, and the known gaps. It describes the merged `main` (Parts 1 to 5).
+Work that is committed but not merged yet is included where it changes a row, and marked **(PR pending)**:
+- F3, F16 and F18 (Part 2: prints and many identities, four regression clips, the session print guards);
+- F13 (the camera backend of the evaluation tools);
+- F17 (offline model install in release builds).
+
+A link to a document that one of these branches changes points to the version on `main` until it is merged. Only
+facts from the documents and code in this repository and those branches are used.
 
 **Read the evidence with its qualifiers.** Every PAD error rate, threshold check and live session in this repository
-comes from **one subject (s01), one laptop webcam and one attack phone**, and is **provisional**. The phone results come
-from one Samsung Galaxy S23 FE and one tester. Nothing was run against real L0/L1 SBI hardware, and neither client was
-run end to end against a MOSIP backend.
+comes from **one bona fide subject (s01) and one laptop webcam**, and is **provisional**. The attacks use one phone
+and, since F3 (PR pending), A4 prints, printed cut-outs of 13 people and a phone slideshow of photos of 14 people
+(consented photos; only aggregates are kept). The phone results come from one Samsung Galaxy S23 FE and one tester.
+Nothing was run against real L0/L1 SBI hardware, and neither client was run end to end against a MOSIP backend.
 
 ## Legend
 
@@ -25,7 +32,7 @@ that repeats an overview requirement points back to it with "As OV-n").
 
 | Section | ✅ | 🟡 | ⏳ |
 |---|---|---|---|
-| 1. Overview | 12 | 4 | 1 |
+| 1. Overview | 12 | 5 | 0 |
 | 2. Resident registration | 9 | 1 | 0 |
 | 3. Operator authentication | 7 | 0 | 0 |
 | 4. Supervisor authentication | 2 | 1 | 0 |
@@ -35,15 +42,20 @@ that repeats an overview requirement points back to it with "As OV-n").
 | 8. Expected tasks | 19 | 2 | 0 |
 | 9. Mandatory tasks 1–9 | 59 | 3 | 0 |
 | 10. UI/UX 10.1–10.8 | 19 | 0 | 0 |
-| 11. Bonus tasks | 5 | 3 | 0 |
+| 11. Bonus tasks | 7 | 1 | 0 |
 | 12. Good-to-have tasks | 10 | 2 | 0 |
 | 13. Deliverables | 47 | 1 | 0 |
-| **Total (229)** | **210** | **18** | **1** |
+| **Total (229)** | **212** | **17** | **0** |
 
-The 🟡 and ⏳ rows come down to four themes: no real L0/L1 hardware (OV-2, RR-2, IN-7, M1.1, GT-6, D3.1); PAD
-evidence from one subject with prints, monitor replay and masks not yet covered (OV-13 to OV-16, SV-2, ET-6, M3.2,
-M3.5, BT-3); one mid-to-high-end test phone (ET-21, BT-7); and two smaller items (BT-6 offline install only in debug
-builds, GT-4 guidance texts not server-configurable).
+Three rows changed status with the pending PRs: OV-13 (prints) went from ⏳ to 🟡, and BT-3 (automated attack
+scenarios) and BT-6 (secure offline model updates) went from 🟡 to ✅. On `main` alone the totals are 210, 18 and 1.
+
+The 🟡 rows come down to four themes:
+- no real L0/L1 hardware (OV-2, RR-2, IN-7, M1.1, GT-6, D3.1);
+- PAD evidence from one bona fide subject, with monitor replay and masks not yet covered (OV-13 to OV-16, SV-2, ET-6,
+  M3.2, M3.5);
+- one mid-to-high-end test phone (ET-21, BT-7);
+- GT-4: guidance texts are not server-configurable.
 
 ## Who did what
 
@@ -72,7 +84,7 @@ The "Where" column uses these short prefixes. Tests live in the same packages un
 | `desktop/` | `registration-services/src/main/java/io/mosip/registration/liveness/desktop/` |
 | `ctl/` | `registration-client/src/main/java/io/mosip/registration/controller/liveness/` |
 | `cam/` | `android-liveness-frame-source/src/main/java/io/mosip/registration/liveness/device/android/` |
-| `arc:` | a file of the Android Registration Client v1.1.1 after applying the 35 patches in `android-integration/patches/` |
+| `arc:` | a file of the Android Registration Client v1.1.1 after applying the patches in `android-integration/patches/` (35 on `main`; 40 with the pending PRs) |
 
 The Desktop hooks are in existing client classes: `GenericBiometricsController` and `BiometricsController`
 (`controller/device/`), `LoginController` and `AuthenticationController` (`controller/auth/`),
@@ -97,8 +109,8 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | **OV-10** Proceed only when the liveness and PAD criteria are met | ✅ | P3: PASSED only from a full passive window at or above the threshold, or after every challenge was detected. P4/P5 gates act only on `onComplete(PASSED)` and fail closed | Invariants fuzz-tested (`fuzzRandomAnalysesKeepInvariants`). `FaceBindingTest`, `RealFaceBindingTest`; Android `face_binding_test.dart` | Face binding (F1) also requires the captured face to MATCH the live face (cosine ≥ 0.45) |
 | **OV-11** The user never selects the challenge; the sequence is dynamic and unpredictable | ✅ | P3 `ChallengeSelector` (SecureRandom; a retry never repeats the previous sequence; BLINK never alone) and a random 0–400 ms prompt jitter ([P3 design §7](person3-design.md)) | `distributionIsUniformOverValidSequences` (10,000 draws), `retrySequenceDiffersFromPrevious`, `replayedVideoOfNaturalBlinkingNeverPasses` | — |
 | **OV-12** Challenges such as blink, smile, turn left/right, look in a direction | ✅ | P3 `api/ChallengeType`: BLINK, SMILE, TURN_LEFT, TURN_RIGHT, LOOK_UP, LOOK_DOWN; `BlinkDetector`, `SmileDetector`, `HeadTurnDetector`, `GazePitchDetector` | `r3_everyDetectorDetectsItsAction`, `everyChallengeTypeCanBePassed`. Live, s01: BLINK 0.90–1.01 s, SMILE 0.90–1.36 s, TURN_LEFT 2.02–2.13 s | LOOK_UP / LOOK_DOWN are supported but not in the default pool. Testers twice read "turn" as "tilt"; the clearer prompt wording is still open ([P4 §11](part4-desktop-integration.md)) |
-| **OV-13** PAD protects against printed photographs | ⏳ | P2 PAD runs on every frame; P3 `PadMonitor` | None | **Not yet evaluated (F3).** `print_flat` and `print_curved` are in the protocol and the tools, with 0 takes ([P2 eval §3](part2-iso30107-evaluation.md)) |
-| **OV-14** PAD protects against digital images shown on screens | 🟡 | P2 MiniFASNet + `analyzer/pad/MoireCap` ([P2 arch §3](part2-pad-architecture.md)) | s01: close-up phone photos passing passively went from 4/12 to 0/12 with the moiré cap; shipped scorer max APCER @ 0.85 = 0/10 [≤ 25.9%], BPCER 1/9, EER 0.0% ([P2 eval §4](part2-iso30107-evaluation.md)). Phone: a face photo on a laptop screen was rejected on all 4 attempts (P5-2, and twice in P5-3) | Single subject s01, one phone: provisional. The moiré margin is thin (bona fide up to 1.37, attacks from 1.435); a second cue is F2 |
+| **OV-13** PAD protects against printed photographs | 🟡 | P2 PAD runs on every frame; P3 `PadMonitor`. F18 session print guards (PR pending): `analyzer/pad/PadLatch` (after a 3-frame median below 0.30, the rest of the session is capped at 0.60) and `analyzer/pad/VolatilityCap` (capped while the second-lowest of the last 10 model scores is below 0.85); a cap forces a challenge and never rejects ([P2 arch §3](part2-pad-architecture.md)) | F3 (PR pending, [P2 eval §4](part2-iso30107-evaluation.md)): `print_flat` 0/6 [≤ 39.3%], `print_curved` 0/6 [≤ 39.3%], printed cut-outs of 13 people (`print_multi`) 0/28 responding [≤ 10.1%]. Live: a cut-out held at real-face size passed twice before F18 (0.9998, then 0.944 on attempt 4). With the guards, 29 live attack sessions: none passed; 1 attempt that would have passed without them was capped. Recorded takes: attacks 0/119 passing before and after | Provisional: one bona fide subject and one webcam. The cut-out margin is thin (highest window median 0.82). The guards' cost: 1 of 7 live real-face passive passes became a challenge, with 0 rejections; re-check on more subjects (F9) |
+| **OV-14** PAD protects against digital images shown on screens | 🟡 | P2 MiniFASNet + `analyzer/pad/MoireCap` ([P2 arch §3](part2-pad-architecture.md)) | s01: close-up phone photos passing passively went from 4/12 to 0/12 with the moiré cap; shipped scorer max APCER @ 0.85 = 0/10 [≤ 25.9%], BPCER 1/9, EER 0.0% ([P2 eval §4](part2-iso30107-evaluation.md)). Phone: a face photo on a laptop screen was rejected on all 4 attempts (P5-2, and twice in P5-3). F3 (PR pending): a phone slideshow of photos of 14 people (`screen_photo_multi`) 0/8 responding [≤ 31.2%]; 30 takes timed out because the faces were too small | Single subject s01, one phone: provisional. The moiré margin is thin (bona fide up to 1.37, attacks from 1.435); a second cue is F2 |
 | **OV-15** PAD protects against video replay | 🟡 | P2 PAD; P3 continuous `PadMonitor`, random challenges and prompt jitter | s01: `screen_replay` (a selfie video on the phone) 6/6 PAD-rejected, 0 passive passes [≤ 39.3%] | Replay on a monitor is not evaluated (F5) |
 | **OV-16** Other supported presentation attack techniques | 🟡 | P3 `FaceContinuityGuard` (face or photo swap), `core/session/FrameSanity` (frozen or replayed streams), the tilt-spoof guard (12°); P2 pose gate | `EngineScenarioTest`; live tilt-guard check: a tilted phone photo had 0 of 8 challenges detected at small tilts and 0 of 8 at large tilts ([PART3_STATUS §9](../PART3_STATUS.md)) | Masks and 3D attacks not tested. Digital injection is out of scope for PAD ([P2 eval §8](part2-iso30107-evaluation.md)) |
 | **OV-17** No face capture accepted and no authentication completed when liveness/PAD fails | ✅ | P4 gate BLOCKED, binding fails closed ([P4 §9](part4-desktop-integration.md)). P5 gate blocked; the login page logs the operator out ([P5 §8](part5-android-integration.md)) | `LivenessGateTest`, `FaceBindingTest`; Flutter gate tests | — |
@@ -116,7 +128,7 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | **RR-7** Prompt the resident with the selected action | ✅ | P3 + UI; resident `minChallenges` = 2 | As OV-8 | — |
 | **RR-8** Analyse the following frames | ✅ | P3: up to 15 fps during challenges | As OV-9. Phone sessions: about 12 analysed frames per second during challenges ([P5 bench](part5-android-benchmark.md)) | — |
 | **RR-9** Accept the face only after successful liveness/PAD | ✅ | P4/P5 gates and binding | As OV-10 | — |
-| **RR-10** Allow retry after a failure, within the configured retry policy | ✅ | P3 `core/session/AttemptTracker`, `maxRetries` 3 (4 attempts); Retry button per [UI spec §2](ui-liveness-spec.md) | `r14_timeoutAndRetriesLeft` (3, 2, 1, then MAX_RETRIES_EXCEEDED); `LivenessScreenModelTest`. Phone P5-3: screen-photo attack rejected on all 4 attempts, final screen with recovery text | Device errors never use up a retry |
+| **RR-10** Allow retry after a failure, within the configured retry policy | ✅ | P3 `core/session/AttemptTracker`, `maxRetries` 3 (4 attempts); Retry button per [UI spec §2](ui-liveness-spec.md) | `r14_timeoutAndRetriesLeft` (3, 2, 1, then MAX_RETRIES_EXCEEDED); `LivenessScreenModelTest`. Phone P5-3: screen-photo attack rejected on all 4 attempts, final screen with recovery text | Device errors never use up a retry. A retry keeps the session's PAD latch (F18, PR pending), so retries cannot give a print a fresh passive window |
 
 ## 3. Operator authentication
 
@@ -135,7 +147,7 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | Requirement | Status | Where (Part, code/doc path) | Evidence / verification | Notes / gaps |
 |---|---|---|---|---|
 | **SV-1** The same liveness and PAD mechanism applies to supervisor authentication | ✅ | SUPERVISOR policy (1 challenge, BLOCK). Desktop `EODAuthenticationController` and the reviewer step of `AuthenticationController`. Android `arc:lib/ui/approve_packet/widget/authenticate_dialogbox.dart` | Desktop sequences (c) and (d); screen `13-supervisor-final-failure.png`. Phone P5-4 hook gate; Android screen `19-max-attempts-supervisor.png` | — |
-| **SV-2** The supervisor is physically present, and the biometric is not a presentation attack | 🟡 | Continuous PAD, `FaceContinuityGuard`; on Desktop the face approval also runs binding and the template match | As OV-14 to OV-16 | PAD coverage is provisional (prints not evaluated). On Android the approval follows a password, so liveness proves that a live person is present, not that it is the supervisor (see [Known gaps](#known-gaps-and-next-steps)) |
+| **SV-2** The supervisor is physically present, and the biometric is not a presentation attack | 🟡 | Continuous PAD, `FaceContinuityGuard`; on Desktop the face approval also runs binding and the template match | As OV-13 to OV-16 | PAD coverage is provisional (one bona fide subject; prints evaluated in F3, PR pending). On Android the approval follows a password, so liveness proves that a live person is present, not that it is the supervisor (see [Known gaps](#known-gaps-and-next-steps)) |
 | **SV-3** Start an active challenge automatically when passive confidence is too low | ✅ | P3, same as OV-7 | As OV-7 | — |
 
 ## 5. Configuration
@@ -161,14 +173,14 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | **ON-1** Liveness works in online and offline registration environments | ✅ | Engine and signed models run locally; the engine has no network code ([P3 design §12a](person3-design.md), [P4 §8](part4-desktop-integration.md), [P5 §4](part5-android-integration.md)) | Android in airplane mode: cold start, models verified and loaded in 259 ms, real resident gate passed (0.967, 2.0 s), no network errors in the liveness logs ([P5 bench §F](part5-android-benchmark.md)) | The Desktop client was not run offline end to end (it was not launched; see Known gaps) |
 | **ON-2** Core liveness, PAD, challenge generation and action validation are available locally | ✅ | `liveness-core` and `liveness-analyzer` ship in the Desktop jars and the Android module | Engine tests run with no network. Android: ONNX Runtime's telemetry component removed and telemetry switched off | — |
 | **ON-3** Consistent behaviour in online registration, offline registration, operator and supervisor authentication | ✅ | One engine and one code path for every workflow; the screen does not depend on connectivity ([UI spec §1](ui-liveness-spec.md), principle 3) | As ON-1 | The airplane-mode run used the resident gate; operator and supervisor use the same path |
-| **ON-4** Configuration and model updates that need connectivity are synchronized securely when online | ✅ | Config: the existing MOSIP sync, then `reloadConfig()` for new sessions. Models: P2 `analyzer/integrity/ModelUpdater` + `ModelStore` (HTTPS, SHA-256, signature, anti-rollback, atomic switch); Desktop after a `ConfigSyncedEvent`; Android `ModelUpdateWorker` | `ModelUpdaterTest` (14), `DesktopModelUpdateTest`. Phone FR-4: INSTALLED in 1.9 s; a flipped byte gave ZIP_HASH_MISMATCH; a manifest edited after signing gave BUNDLE_INVALID; a wrong URL gave HTTP_STATUS 404; the store was unchanged after each failure | Off by default: MOSIP has no update server for these bundles yet. Tested against a laptop server |
+| **ON-4** Configuration and model updates that need connectivity are synchronized securely when online | ✅ | Config: the existing MOSIP sync, then `reloadConfig()` for new sessions. Models: P2 `analyzer/integrity/ModelUpdater` + `ModelStore` (HTTPS, SHA-256, signature, anti-rollback, atomic switch); Desktop after a `ConfigSyncedEvent`; Android `ModelUpdateWorker` | `ModelUpdaterTest` (14 on `main`; 19 with F17, PR pending), `DesktopModelUpdateTest`. Phone FR-4: INSTALLED in 1.9 s; a flipped byte gave ZIP_HASH_MISMATCH; a manifest edited after signing gave BUNDLE_INVALID; a wrong URL gave HTTP_STATUS 404; the store was unchanged after each failure | Off by default: MOSIP has no update server for these bundles yet. Tested against a laptop server |
 
 ## 7. Integration (recommended tech stack)
 
 | Requirement | Status | Where (Part, code/doc path) | Evidence / verification | Notes / gaps |
 |---|---|---|---|---|
 | **IN-1** Desktop: Java, the existing Registration Client stack and device integration framework, a camera/device abstraction | ✅ | Java modules of `registration-client-parent` (JDK 11); SBI through the existing `MosipDeviceSpecificationFactory` and `BioService.getStream()`; `FrameSource` as the abstraction | Built and tested inside Registration Client v1.2.0.2 | Part 1 modified no existing client class ([README](../README.md)); the Part 4 hooks are additive ([P4 §1](part4-desktop-integration.md)) |
-| **IN-2** Android: Java/Flutter, Android camera APIs, the vendor device SDK | ✅ | Flutter screens + a Java native module (`arc:android/liveness/`); CameraX; SBI intents stay the source of the stored face | 95 module tests and 84 Flutter tests, as of 2026-10-26 ([P5 §10](part5-android-integration.md)) | — |
+| **IN-2** Android: Java/Flutter, Android camera APIs, the vendor device SDK | ✅ | Flutter screens + a Java native module (`arc:android/liveness/`); CameraX; SBI intents stay the source of the stored face | 95 module tests and 84 Flutter tests, as of 2026-10-26 ([P5 §10](part5-android-integration.md)); 105 and 90 with F17 (PR pending) | — |
 | **IN-3** Common face capture device interface | ✅ | `api/Frame`, `api/FrameSource`, `api/DeviceCapabilities` ([P1 arch §2](part1-frame-streaming-architecture.md)) | `FrameTest`; `DevicePathInteropTest` | — |
 | **IN-4** Device adapter pattern for several vendors | ✅ | Adapters `device/sbi/SbiStreamFrameSource`, `device/mock/MockFrameSource`, `cam/CameraXFrameSource`; `PreviewFrameSource` tee | `DevicePathInteropTest`: the mock device and the SBI adapter give identical frames and the same decision | — |
 | **IN-5** Configurable liveness quality validation | ✅ | P2 analyzer keys `mosip.registration.liveness.face.analyzer.*` (luma, blur, face size, centring, moiré) ([P2 arch §9](part2-pad-architecture.md)); P3 thresholds | `AnalyzerConfigTest`, `QualityAssessorTest`, `RelativeBlurTest` | — |
@@ -184,7 +196,7 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | **ET-3** Define the face frame streaming interface | ✅ | `api/Frame`, `api/FrameSource` | `FrameTest`, `SbiStreamFrameSourceTest` | — |
 | **ET-4** Define the liveness/PAD processing interface | ✅ | `api/FaceAnalyzer`, `FrameAnalysis`, `LivenessService`, `LivenessSession`, `LivenessListener`, `LivenessEvent`, `LivenessResult`, `ErrorCode` ([P3 design §1](person3-design.md)) | Shared by both clients unchanged | Contract proposals P1–P7 are not applied; each has a workaround ([proposals](contract-change-proposals.md)) |
 | **ET-5** Evaluate suitable liveness and PAD technologies | ✅ | [part2-model-selection.md](part2-model-selection.md): candidates, ONNX Runtime, rejected options | Candidate scorers compared with ISO/IEC 30107-3 metrics (s01) | — |
-| **ET-6** Evaluate the solution against ISO/IEC 30107 | 🟡 | `eval/PadEvaluation`, `eval/PadMetrics`; [part2-iso30107-evaluation.md](part2-iso30107-evaluation.md) | 35 takes, 2,100 frames; APCER per species, BPCER, APNRR/BPNRR, Clopper-Pearson bounds | Single subject s01, provisional (F9). Prints (F3) and monitor replay (F5) missing. Conformance would need more subjects and an accredited lab ([P2 eval §8](part2-iso30107-evaluation.md)) |
+| **ET-6** Evaluate the solution against ISO/IEC 30107 | 🟡 | `eval/PadEvaluation`, `eval/PadMetrics`; [part2-iso30107-evaluation.md](part2-iso30107-evaluation.md) | 35 takes, 2,100 frames on `main`; with F3 (PR pending), 130 takes and 6,218 frames (bona fide and 7 attack species), plus 39 live real-engine sessions for F18. APCER per species, BPCER, APNRR/BPNRR, Clopper-Pearson bounds | One bona fide subject (s01), provisional (F9). Monitor replay (F5) missing. Conformance would need more subjects and an accredited lab ([P2 eval §8](part2-iso30107-evaluation.md)) |
 | **ET-7** Implement passive liveness detection | ✅ | P2 `analyzer/OnnxFaceAnalyzer`; P3 `PassiveEvaluator` | As OV-4 | — |
 | **ET-8** Implement Presentation Attack Detection | ✅ | P2 `analyzer/pad/SilentFacePad`, `MoireCap`, `ReplayCues`; P3 `PadMonitor` | `SilentFacePadTest`, `MoireCapTest`, `PadMonitorTest` | Coverage per attack type: OV-13 to OV-16 |
 | **ET-9** Implement active challenge-response | ✅ | P3 `ChallengeRunner` | `ChallengeRunnerTest`, `EngineScenarioTest` | — |
@@ -230,7 +242,7 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | Requirement | Status | Where (Part, code/doc path) | Evidence / verification | Notes / gaps |
 |---|---|---|---|---|
 | **M3.1** PAD is part of the liveness assessment | ✅ | The per-frame score is the PAD output; the passive median below 0.30 is PAD_FAILURE with no fallback to challenges; `PadMonitor` keeps checking during challenges | `padFailureOnPassiveWindow`, `padFailureMidChallengeEvenIfTheActionIsPerformed` | — |
-| **M3.2** Detect the applicable presentation attack types | 🟡 | P2 + P3 | Screens and phone replay evaluated (OV-14, OV-15) | Prints not evaluated (F3), monitor replay (F5), masks not tested; single subject (F9) |
+| **M3.2** Detect the applicable presentation attack types | 🟡 | P2 + P3 | Screens, phone replay and prints evaluated (OV-13 to OV-15; prints PR pending) | Monitor replay (F5) not evaluated, masks not tested; one bona fide subject (F9) |
 | **M3.3** Prevent face capture when PAD detects an attack | ✅ | PAD_FAILURE never reaches PASSED; the resident gate blocks the capture | `padFailureOnPassiveWindow`; phone P5-3: attack rejected on all 4 attempts, final screen with recovery text | — |
 | **M3.4** Prevent biometric authentication when PAD detects an attack | ✅ | Same engine for OPERATOR and SUPERVISOR; a blocked gate means no login, packet signature or approval | Desktop sequences (b) to (d); Flutter gate tests | — |
 | **M3.5** Evaluate the implementation against ISO/IEC 30107 | 🟡 | As ET-6 | As ET-6 | As ET-6 |
@@ -302,7 +314,7 @@ The full code-to-behaviour table is [P3 design §4](person3-design.md); the scre
 | **M9.2** Device connection failure | ✅ | `DEVICE_CONNECTION_FAILED`, `DEVICE_DISCONNECTED` with reconnect | `SbiStreamFrameSourceReconnectTest` | — |
 | **M9.3** Camera unavailable | ✅ | `CAMERA_UNAVAILABLE`; Android permission refused: device text, recovery text, "Open settings" | `MockFrameSourceTest.webcamModeReportsErrorWhenGrabberThrows`; phone P5-4: permission refused permanently, Open settings, then the next gate passed (0.9944) | — |
 | **M9.4** Face not detected | ✅ | `FACE_NOT_DETECTED`; hint "No face detected. Please look at the camera." | `noFaceUntilPassiveTimeout`; `DesktopLivenessServiceTest` (recorded clip, real models: FAILED with `lastCause=FACE_NOT_DETECTED`) | — |
-| **M9.5** Multiple faces detected | ✅ | `MULTIPLE_FACES` after 1.5 s in passive, 2 frames during a challenge; a second face counts only at 20% or more of the primary face's area | `secondFaceAppearsMidChallenge`, `r12_guidanceForEveryProblem` | — |
+| **M9.5** Multiple faces detected | ✅ | `MULTIPLE_FACES` after 1.5 s in passive, 2 frames during a challenge; a second face counts only at 20% or more of the primary face's area | `secondFaceAppearsMidChallenge`, `r12_guidanceForEveryProblem`. Live (PR pending, [P2 arch §13](part2-pad-architecture.md)): two cut-outs side by side and a group-photo print failed all 4 attempts with MULTIPLE_FACES (hint at about 1.3 s) | By design, a face smaller than 20% of the largest one is ignored, so bystanders far behind do not fail the session: a small cut-out beside a live face was ignored and the live face passed. The analysed face is the largest, and face binding checks the stored face |
 | **M9.6** Poor face quality | ✅ | `POOR_QUALITY`; hints MOVE_CLOSER, MOVE_BACK, CENTER_FACE, IMPROVE_LIGHTING, HOLD_STEADY; Android exposure assist for dim faces (F8) | `poorQualityUntilPassiveTimeout`; phone, dark room: assist off, "improve the lighting" then POOR_QUALITY; assist on, passed passively (0.9955) | — |
 | **M9.7** Liveness quality below threshold | ✅ | Active challenge, or `LIVENESS_BELOW_THRESHOLD` when `activeEnabled=false` | `inconclusiveWithActiveDisabledIsBelowThreshold` | — |
 | **M9.8** PAD failure | ✅ | `PAD_FAILURE`, generic message; `PAD_ATTACK_SUSPECTED` audit with `pad.*` medians | `padFailureOnPassiveWindow`, `FakeLivenessServiceTest.padFailureOnlyEverMapsToTheGenericMessage` | — |
@@ -345,12 +357,12 @@ The screen is specified once for both clients in [ui-liveness-spec.md](ui-livene
 
 | Requirement | Status | Where (Part, code/doc path) | Evidence / verification | Notes / gaps |
 |---|---|---|---|---|
-| **BT-1** A mock L0/L1 device for development and automated testing | ✅ | P1 `device/mock/MockFrameSource` (images, recorded video, webcam; `asCertificationLevel`), `MjpegRecorder`; `mock-mds-patch/` (MockMDS lookup fix and face stream modes) | `MockFrameSourceTest`, `MjpegRecorderTest`; MockMDS `FaceStreamProviderTest` (7); 45 of 45 frames through the real SBI path | `SarxosWebcamFrameGrabber` and MockMDS webcam mode compile but were not run with a camera |
+| **BT-1** A mock L0/L1 device for development and automated testing | ✅ | P1 `device/mock/MockFrameSource` (images, recorded video, webcam; `asCertificationLevel`), `MjpegRecorder`; `mock-mds-patch/` (MockMDS lookup fix and face stream modes) | `MockFrameSourceTest`, `MjpegRecorderTest`; MockMDS `FaceStreamProviderTest` (7); 45 of 45 frames through the real SBI path | `SarxosWebcamFrameGrabber` and MockMDS webcam mode compile but were not run with a camera. F13 (PR pending): sarxos, the library behind that grabber, crashed the evaluation tools with a native heap corruption after about 25 camera restarts in a soak. OpenCV ran 89 restarts and 30 minutes without an error, and is now the tools' default capture. Part 1's development webcam paths still use sarxos (a follow-up) |
 | **BT-2** Automated liveness test scenarios | ✅ | P3 `fake/FakeScenario` (scripted scenarios with real timing), `EngineScenarioTest`, `Part3RequirementsAuditTest` (the requirement-by-requirement audit); P1 `RecordedVideoE2ETest`; `LivenessHarness --headless` exit codes; `tools/TraceRecorder`, `TraceReplayer`, `DetectorTuningReport` | `FakeLivenessServiceTest.everyScenarioEndsInExactlyOneExpectedResult`; [PART3_STATUS](../PART3_STATUS.md): 29 DONE, 0 PARTIAL | — |
-| **BT-3** Automated PAD attack test scenarios | 🟡 | `eval/PadEvaluation` over consented local recordings; `RecordedVideoE2ETest` for `__expect-FAILED-PAD_FAILURE` clips; scripted attack scores in engine tests; `FakeScenario` PAD attack | `PadEvaluationTest`, `PadMetricsTest`; engine PAD tests | Attack recordings stay local for privacy, and the repository ships one synthetic no-face clip, so the automated suite has no real attack clip. The team recordings in [part1-test-data-protocol.md](part1-test-data-protocol.md) are not done (see [Known gaps](#known-gaps-and-next-steps)) |
+| **BT-3** Automated PAD attack test scenarios | ✅ | `eval/PadEvaluation` over consented local recordings; `RecordedVideoE2ETest` for `__expect-FAILED-<code>` clips; scripted attack scores in engine tests; `FakeScenario` PAD attack. F16 (PR pending): four attack clips in `registration-services/src/test/resources/liveness/videos/nasa-*`, a public-domain NASA portrait printed or shown on a phone, 75 frames each | `PadEvaluationTest`, `PadMetricsTest`; engine PAD tests. `RecordedVideoE2ETest` runs the four clips with every build (5 of 5 with the synthetic clip); their expected codes (PAD_FAILURE twice, POOR_QUALITY, CHALLENGE_TIMEOUT) were observed in 3 of 3 runs, and all 300 frames were checked | One identity and two species (print, phone screen). Consented recordings of real people stay local for privacy ([part1-test-data-protocol.md](part1-test-data-protocol.md)) |
 | **BT-4** An interoperability testing framework | ✅ | `DevicePathInteropTest`, `SbiStreamProbe` (checks any MDS answers the client's exact `/stream` request) | `SbiStreamProbeTest`; MockMDS run | No real vendor device |
 | **BT-5** Liveness model version management | ✅ | Signed `models/manifest.json` with `bundleVersion` `pad-YYYY.MM.N`; `analyzer/integrity/ModelStore` (anti-rollback, keeps current and previous, rollback); `modelVersion` in every audit record; `eval/ModelBundleTool` | `ModelStoreTest`, `VerifiedBundleTest`, `ModelBundleToolTest`; phone model-update cases a to e ([P5 bench §E](part5-android-benchmark.md)) | — |
-| **BT-6** Secure offline model updates | 🟡 | `ModelStore.install` (verify, anti-rollback, atomic switch); Android debug page install and rollback from an `adb push` staging folder; `ModelBundleTool install` and `rollback` | Phone: install, "not newer" refused, a tampered copy refused before the store was touched, rollback, restart persistence | The Android offline install is in debug and profile builds only, and the Desktop has no in-client offline install; production clients update online (ON-4; see [Known gaps](#known-gaps-and-next-steps)) |
+| **BT-6** Secure offline model updates | ✅ | `ModelStore.install` (verify, anti-rollback, atomic switch); `ModelBundleTool install` and `rollback`; the Android debug page. F17 (PR pending), in release builds: `analyzer/integrity/ModelUpdater.installZip` takes the zip the online update downloads, from removable media (size, entry and name limits, zip-slip refused, a temporary folder that is always deleted; signature, sizes and hashes are checked before the version). Desktop: `desktop/DesktopLivenessService.installOfflineBundle` and `rollbackModelBundle`, as two operational-task tiles. Android: a "Face liveness models" page with the system file picker. Supervisors and admins only, switch `model.offlineInstall.enabled`; audited as REG-LIV-012 / REG-EVT-019, with codes and versions only | Phone (debug page): install, "not newer" refused, a tampered copy refused before the store was touched, rollback, restart persistence. F17: `ModelUpdaterTest` (19), `DesktopOfflineModelInstallTest` (7), `LivenessOfflineModelInstallTest` (10), widget tests (6). The real test zips were run through `installZip` with the built-in keys: installed, tampered refused, zip-slip refused, rolled back | F17 was not tried in a logged-in client, because there is no backend. The role gate is proven by tests and the release build. The Android phone check opens the same production page from the debug build (not run yet: the user runs it on the phone) |
 | **BT-7** Optimise liveness processing for low-resource Android devices | 🟡 | Benchmark-chosen defaults (CPU, 2 threads); frames paced to 15/s, newest frame only; 8 fps passive; per-ABI APKs; int8 SFace ([P5 bench](part5-android-benchmark.md)) | S23 FE: 26.6 ms per frame p50; the arm64 split APK is 151.3 MiB, against 256 MiB for the single arm64-targeted APK; INT8 for the liveness models measured and rejected (slower and less accurate) | Only one mid-to-high-end phone tested (F11). A reduced ONNX Runtime build is in the F10 backlog (F10b) |
 | **BT-8** Hardware acceleration where available | ✅ | Analyzer key `accelerator` (CPU, XNNPACK, NNAPI) with CPU fallback; `factory.activeAccelerator()` reports what runs | `OnnxModelsAcceleratorTest`; phone: every provider gave the reference scores (difference below 0.00005); XNNPACK about 2x and NNAPI about 4x slower than CPU, so CPU is the default | No GPU provider evaluated |
 
@@ -412,7 +424,7 @@ The screen is specified once for both clients in [ui-liveness-spec.md](ui-livene
 | **D2.12** Maximum retry/failure flow | ✅ | [UI spec §3, §6](ui-liveness-spec.md) | As UI-7.2 | — |
 | **D2.13** Device error handling | ✅ | [UI spec §3](ui-liveness-spec.md) (DEVICE_ERROR row) | Desktop screen 10; Android screens 15–16 | — |
 | **D2.14** Online/offline UI behaviour | ✅ | [UI spec §1](ui-liveness-spec.md), principle 3: identical | — | — |
-| **D2.15** Consistent Desktop and Android experience | ✅ | One spec, same states, texts and message keys | Desktop `LivenessMessagesTest` (catalogue equals the spec); Android ARB tests (44 keys in six languages) | Translations are machine-translated. Desktop has English, Arabic and French (the languages v1.2.0.2 ships); Android has six languages |
+| **D2.15** Consistent Desktop and Android experience | ✅ | One spec, same states, texts and message keys | Desktop `LivenessMessagesTest` (catalogue equals the spec); Android ARB tests (44 keys in six languages; F17 adds 15 keys for the model page, PR pending) | Translations are machine-translated. Desktop has English, Arabic and French (the languages v1.2.0.2 ships); Android has six languages |
 
 ### 13.3 Implementation / build
 
@@ -433,8 +445,8 @@ The screen is specified once for both clients in [ui-liveness-spec.md](ui-livene
 | **D3.13** Online/offline support | ✅ | Section 6 | Section 6 | — |
 | **D3.14** Configuration support | ✅ | Section 5 | Section 5 | — |
 | **D3.15** Audit and diagnostic logging | ✅ | As ET-20 | As ET-20 | — |
-| **D3.16** Desktop Registration Client changes | ✅ | `desktop-integration/person4-desktop.diff` (55 text files) plus 14 screen images; [P4 doc](part4-desktop-integration.md) | As of 2026-10-26: `registration-services` 105 liveness tests (Part 1's 72, Part 4's 33) and `registration-client` 28 tests pass ([P4 §10](part4-desktop-integration.md)) | Compiled and tested, not launched end to end (needs a registered machine, database and server) |
-| **D3.17** Android Registration Client changes | ✅ | `android-integration/patches/` (35 patches against v1.1.1), `person5-liveness.diff`, `scripts/` | As of 2026-10-26: 95 module tests, 84 Flutter tests and 3 clientmanager tests pass. A fresh clone with the patches gave a tree identical to the integration branch (P5-6) | 14 upstream v1.1.1 clientmanager tests fail identically before any liveness change ([P5 §10](part5-android-integration.md)) |
+| **D3.16** Desktop Registration Client changes | ✅ | `desktop-integration/person4-desktop.diff` (55 text files on `main`, 63 with F17, PR pending) plus 14 screen images; [P4 doc](part4-desktop-integration.md) | As of 2026-10-26: `registration-services` 105 liveness tests (Part 1's 72, Part 4's 33) and `registration-client` 28 tests pass ([P4 §10](part4-desktop-integration.md)). With the pending PRs (2026-10-27), counted by the Part 4 test command (147 and 28 on `main`): `registration-services` 158 and `registration-client` 31, and `RecordedVideoE2ETest` 5 of 5 | Compiled and tested, not launched end to end (needs a registered machine, database and server) |
+| **D3.17** Android Registration Client changes | ✅ | `android-integration/patches/` (35 patches against v1.1.1 on `main`; 40 with the pending PRs), `person5-liveness.diff`, `scripts/` | As of 2026-10-26: 95 module tests, 84 Flutter tests and 3 clientmanager tests pass. A fresh clone with the patches gave a tree identical to the integration branch (P5-6). With the pending PRs (2026-10-27): 105 module tests and 90 Flutter tests; the fresh-clone apply again gives the branch's tree, with the patches and with the consolidated diff | 14 upstream v1.1.1 clientmanager tests fail identically before any liveness change ([P5 §10](part5-android-integration.md)) |
 
 ---
 
@@ -442,21 +454,30 @@ The screen is specified once for both clients in [ui-liveness-spec.md](ui-livene
 
 | Gap | Effect | Next step | Source |
 |---|---|---|---|
-| **F2: a second screen cue** | Close-up screen attacks are caught by one cue only, the session moiré cap, measured on one phone and one webcam with a thin margin (1.37 vs 1.435) | Design on `main`; prototype in progress (not merged). The recommended first cue is bezel and screen edges that move with the face, as a second session cap (forces a challenge, never rejects) | [part2-f2-screen-cue-design.md](part2-f2-screen-cue-design.md) |
-| **F3: print attacks not yet evaluated** | APCER for `print_flat` and `print_curved` is unknown | Recording is planned; the tools already support both species (`LiveAnalyzerDemo --mode dataset --only print_flat,print_curved`), then re-run `PadEvaluation` | [P2 eval §7](part2-iso30107-evaluation.md), [P2 dataset §8](part2-dataset-protocol.md) |
+| **F2: a second screen cue** | Close-up screen attacks are caught by one cue only, the session moiré cap, measured on one phone and one webcam with a thin margin (1.37 vs 1.435) | The design is on `main`. Three prototypes were measured, all with negative results (PR pending): bezel and edges that move with the face, banding, and colour. None ships, so the moiré cap stays the only screen cue. Next: lossless multi-device recordings, or fine-tuning MiniFASNet on close-up screens with the multi-subject data | [part2-f2-screen-cue-design.md](part2-f2-screen-cue-design.md) |
+| **F3: prints evaluated on one bona fide subject** (PR pending) | Prints and cut-outs give APCER 0/6, 0/6 and 0/28, but the cut-out margin is thin (highest window median 0.82). The cost of the F18 guards on real faces (1 of 7 passive passes became a challenge) is known for s01 only | Re-check per subject on the F9 data with `models/tools/session_guard_replay.py`. If more than 25% of real-face passive passes become challenges, evaluate a volatility threshold of 0.80 | [P2 eval §4–§5](part2-iso30107-evaluation.md) |
 | **F5: replay on a monitor** | `screen_replay_monitor` has 0 takes | Record replays on a second screen (laptop, tablet, external monitor) | [P2 eval §3](part2-iso30107-evaluation.md), [F2 design §4](part2-f2-screen-cue-design.md) |
 | **F9: single-subject evaluation is provisional** | All PAD rates, the moiré cap and the 0.85 / 0.30 thresholds rest on subject s01, one webcam and one phone | At least 10 subjects with varied skin tones, glasses, more phones and cameras; then re-check the thresholds with the rule in [P2 eval §5](part2-iso30107-evaluation.md) | [P2 eval §6](part2-iso30107-evaluation.md) |
 | **F10b: reduced ONNX Runtime build (F10 backlog)** | ONNX Runtime is 32.6 MiB of the 151.3 MiB arm64 APK | Build a reduced ONNX Runtime with only the operators the five models use | [P5 bench §G](part5-android-benchmark.md), [P5 §11](part5-android-integration.md) |
 | **F11: low-end phone performance** | Only a Samsung Galaxy S23 FE was tested; times and the 370 MB session memory may not hold on low-end devices | Benchmark a low-end phone with the debug page; try `intraOpThreads` 1, XNNPACK, a smaller `detectorMaxWidth` | [P5 bench, "Low-end phones"](part5-android-benchmark.md) |
 | **No MOSIP backend** | Neither client was run end to end. Desktop hooks were checked by compilation, code review, unit tests and rendered screens; Android hooks by the debug page's "Hook gates" (the same `LivenessGate.run` call), widget tests and code review. No SBI capture was made on Android | Run both clients against a MOSIP environment with a real L0/L1 device | [P4 §11](part4-desktop-integration.md), [P5 §11](part5-android-integration.md) |
-| **Password-only gates prove presence, not identity** | Android operator login, packet authentication and supervisor approval, and Desktop password login, run liveness after a password with no face match: a live person is present, but not necessarily the operator or supervisor who logged in | Planned: bind the liveness best frame to the operator's onboarded face template with `FaceMatcher` where one exists; otherwise keep the check presence-only and audit that it was | [P4 §3 (b2)](part4-desktop-integration.md), [P5 §3 (b)–(e)](part5-android-integration.md) |
+| **Password-only gates prove presence, not identity** | Android operator login, packet authentication and supervisor approval, and Desktop password login, run liveness after a password with no face match: a live person is present, but not necessarily the operator or supervisor who logged in | F15, design in progress: bind the liveness best frame to the operator's onboarded face template with `FaceMatcher` where one exists; otherwise keep the check presence-only and audit that it was. The threshold needs its own calibration: the binding's 0.45 was set on same-session pairs | [P4 §3 (b2)](part4-desktop-integration.md), [P5 §3 (b)–(e)](part5-android-integration.md) |
 | **Android liveness frames come from the phone camera** | On Android the liveness stream is CameraX, not the L0/L1 device; the SBI capture stays the stored face | By design: the Android SBI has no stream. Mitigated by F1 face binding (the SBI capture is stored only if it matches the live face) | [P1 arch §5](part1-frame-streaming-architecture.md), [UI spec §6](ui-liveness-spec.md) |
-| **No real attack clips in the automated tests** | `RecordedVideoE2ETest` ships one synthetic no-face clip, and consented recordings stay local, so no automated test replays a real attack | Planned: privacy-safe regression clips of public-domain NASA portraits shown on a phone screen or printed, recorded as attack clips for `RecordedVideoE2ETest` | [part1-test-data-protocol.md](part1-test-data-protocol.md), [P2 dataset §3](part2-dataset-protocol.md) |
-| **No production offline model install** | Offline install exists only in Android debug and profile builds and through `ModelBundleTool`; production clients can update models only online | Planned: on both clients, install a signed bundle from a local folder in the admin settings, through the same `ModelStore.install` verification | [P2 arch §7](part2-pad-architecture.md), [P5 §4](part5-android-integration.md) |
 | **Translations are machine-translated** | Arabic, French, Hindi, Kannada and Tamil texts need a native speaker's review. Desktop carries Arabic and French only | Native-speaker review; add Hindi, Kannada and Tamil to the Desktop when the client has full translations | [UI spec, Appendix A](ui-liveness-spec.md) |
 | **Development signing key** | The model bundle is signed with `mosip-liveness-dev-2026-10` | Replace it with a production key held in an HSM or offline signing machine, then re-sign and release | [P2 arch §8](part2-pad-architecture.md), [models/README.md](../models/README.md) |
 
+**Closed by the pending PRs:**
+- **Real attack clips in the automated tests** (F16): four clips of a public-domain NASA portrait, printed or on a
+  phone, run by `RecordedVideoE2ETest` with every build (BT-3).
+- **Production offline model install** (F17): a signed bundle zip from removable media on both clients, in release
+  builds, for supervisors and admins, verified before its version is compared (BT-6). It has not been tried in a
+  logged-in client.
+- **Prints passing on a retry** (F18): the session print guards (OV-13).
+
 Other open items recorded in the documents:
+- **Part 1's development webcam paths use sarxos** (F13, PR pending). In a soak the library crashed after about 25
+  camera restarts. The evaluation tools moved to OpenCV; `LivenessHarness` webcam mode and the Desktop
+  `source=webcam` development option still use sarxos. Production capture (SBI) is not affected.
 - **No real L0/L1 hardware.** Every manual hardware check in [part1-qa-checklist.md](part1-qa-checklist.md) is open.
 - **Contract proposals P1–P7 are not applied** ([contract-change-proposals.md](contract-change-proposals.md)). The most visible effect is P1: the operator cooldown is in memory and resets when the app restarts.
 - **No model update server.** Online updates are built and tested against a laptop server, and are off by default.
@@ -480,17 +501,18 @@ Android.
 | PAD evaluation | `PadEvaluation --data eval-data` (needs consented local recordings, which are never committed) | repository root ([P2 eval §7](part2-iso30107-evaluation.md)) |
 
 **Where test counts are recorded.** Current counts are as of 2026-10-26 (the merge verification and PR #7). A count
-recorded for an earlier phase is labelled with that phase.
+recorded for an earlier phase is labelled with that phase. Counts "with the pending PRs" are from 2026-10-27, on the
+branch that carries F3, F13, F16, F17 and F18 (`f17-offline-model-install`, stacked on `part2-f3-f18`).
 
 | Suite | Count | Recorded in |
 |---|---|---|
 | `liveness-api`, `-core`, `-fake`, `-tools` | 288 as of 2026-10-26: api 5, core 227, fake 44, tools 12; `liveness-core` line coverage gated at 85%. At round 4 (2026-10-23): 273 (api 5, core 214, fake 44, tools 10), core line coverage 96.8% | [README, Part 3](../README.md), [P5 §10](part5-android-integration.md); round 4 in [P3 design §14](person3-design.md) and [PART3_STATUS](../PART3_STATUS.md) |
-| `liveness-analyzer` | 238 as of 2026-10-26; coverage gated at 80% | [README, Part 2](../README.md), [P5 §10](part5-android-integration.md) |
-| `liveness-eval` | 38 as of 2026-10-26 | same |
-| `registration-services` (Registration Client v1.2.0.2 build) | 105 liveness tests as of 2026-10-26: Part 1's 72 and Part 4's 33. The Part 4 test command also runs the existing audit (4), login (26) and config sync (12) suites | [README, Part 4](../README.md), [P4 §10](part4-desktop-integration.md) |
-| `registration-client` | 28 as of 2026-10-26 | same |
+| `liveness-analyzer` | 238 as of 2026-10-26; coverage gated at 80%. 253 with the pending PRs | [README, Part 2](../README.md), [P5 §10](part5-android-integration.md) |
+| `liveness-eval` | 38 as of 2026-10-26; 62 with the pending PRs | same |
+| `registration-services` (Registration Client v1.2.0.2 build) | 105 liveness tests as of 2026-10-26: Part 1's 72 and Part 4's 33. The Part 4 test command also runs the existing audit (4), login (26) and config sync (12) suites, 147 in all. With the pending PRs the command runs 158: the four F16 clips and the F17 tests (7) are added | [README, Part 4](../README.md), [P4 §10](part4-desktop-integration.md) |
+| `registration-client` | 28 as of 2026-10-26; 31 with the pending PRs | same |
 | Part 1 device pipeline | 96 at Part 1's delivery: 72 in `registration-services` (still 72), and 24 that moved with the heuristic analyzer to `liveness-analyzer` (counted in its 238). MockMDS patch: `FaceStreamProviderTest` 7 | [README, Part 1](../README.md) |
-| Android `android/liveness` module | 95 as of 2026-10-26 | [P5 §10](part5-android-integration.md), [android-integration/README.md](../android-integration/README.md) |
-| Flutter `test/liveness` | 84 as of 2026-10-26 | same |
+| Android `android/liveness` module | 95 as of 2026-10-26; 105 with the pending PRs | [P5 §10](part5-android-integration.md), [android-integration/README.md](../android-integration/README.md) |
+| Flutter `test/liveness` | 84 as of 2026-10-26; 90 with the pending PRs | same |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | 3 | [P5 §10](part5-android-integration.md) |
 | Part 3 requirement audit | 29 DONE, 0 PARTIAL, 0 MISSING, 0 BROKEN | [PART3_STATUS](../PART3_STATUS.md) |
