@@ -31,9 +31,9 @@ Metrics: per take, the median of its frames' softmax[1], read against the engine
 takes: the passed share (0.85 or above: passes passively) and the not-rejected share (0.30 or above). Also the mean
 score per class. Reported per fold and pooled over the folds.
 
-Privacy: crops are face images, kept in memory only. --out must be inside an eval-data folder (gitignored). The report
-has aggregates only: counts, rates and means, no images and no per-frame or per-take values. Fine-tuned weights are
-written only with --save-weights, also under --out.
+Privacy: crops are face images, kept in memory only. --out must be below this repository's eval-data folder
+(gitignored). The report has aggregates only: counts, rates and means, no images and no per-frame or per-take values.
+Fine-tuned weights are written only with --save-weights, also under --out.
 """
 import argparse
 import math
@@ -41,6 +41,7 @@ import random
 import re
 import statistics
 import sys
+import tempfile
 import time
 from datetime import date
 from pathlib import Path
@@ -303,14 +304,20 @@ def map_line(person, codes):
     return "- Subject map: none."
 
 
-def inside_eval_data(path):
-    return "eval-data" in Path(path).resolve().parts
+EVAL_DATA = TOOLS.parents[1] / "eval-data"
+
+
+def inside_eval_data(path, root=EVAL_DATA):
+    """Whether path resolves to a folder below this repository's own eval-data (gitignored), as f9-reeval.ps1
+    checks -Out; another folder that happens to be named eval-data does not count."""
+    p, r = Path(path).resolve(), Path(root).resolve()
+    return p != r and p.is_relative_to(r)
 
 
 def run(args):
     data, out = Path(args.data), Path(args.out)
     if not inside_eval_data(out):
-        raise SystemExit("--out must be inside an eval-data folder (gitignored): crops and weights are face data")
+        raise SystemExit(f"--out must be under {EVAL_DATA.resolve()} (gitignored): crops and weights are face data")
     torch.set_num_threads(args.threads)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -423,7 +430,16 @@ def self_test():
         tally.add(PRINT, v)
     assert tally.row() == ["2/3", "1/3", "0.517", "1/3", "2/3", "0.450"], tally.row()
     assert Tally().row()[0] == "-"
-    assert inside_eval_data("eval-data/f2b/x") and not inside_eval_data("docs/x")
+    # --out: only below this repository's eval-data (task 20, E5): not a folder elsewhere that is named eval-data,
+    # not a path that leaves it with "..", not eval-data itself.
+    assert inside_eval_data(EVAL_DATA / "f2b" / "x") and not inside_eval_data(TOOLS / "docs")
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d) / "repo" / "eval-data"
+        assert inside_eval_data(root / "f2b" / "run", root)
+        assert not inside_eval_data(Path(d) / "backup" / "eval-data" / "run", root)
+        assert not inside_eval_data(root / ".." / "docs", root)
+        assert not inside_eval_data(root, root)
+    assert not inside_eval_data(Path(TOOLS.anchor) / "backup" / "eval-data" / "f2b")
 
     torch.manual_seed(0)
     model = load_model(MODELS["v2"], None)  # random weights: plumbing only

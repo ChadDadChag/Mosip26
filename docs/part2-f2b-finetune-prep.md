@@ -46,10 +46,11 @@ Run it from the Mosip26 root, in the `mosip-liveness` venv:
 
 ## Privacy
 
-Crops are face images. They exist only in memory. `--out` must be inside an `eval-data` folder (gitignored), and the
-tool refuses anything else. The report holds counts, rates and means only: no image, and no per-frame or per-take
-value. Fine-tuned weights are written only with `--save-weights`, and only under `--out`. They are trained on people's
-faces, so they stay in `eval-data/` until a bundle decision.
+Crops are face images. They exist only in memory. `--out` must be below this repository's own `eval-data` folder
+(gitignored), and the tool refuses anything else, including another folder named `eval-data`. The report holds
+counts, rates and means only: no image, and no per-frame or per-take value. Fine-tuned weights are written only with
+`--save-weights`, and only under `--out`. They are trained on people's faces, so they stay in `eval-data/` until a
+bundle decision.
 
 ## What the real run needs
 
