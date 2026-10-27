@@ -14,8 +14,8 @@ docstring, and Java parity tests compare against its golden outputs.
 flowchart TD
     F[Frame RGB or GRAY8] --> D[YuNet detect<br/>on a ~320 px wide copy]
     D --> C{face count}
-    C -- 0 --> R0[reset session moire<br/>empty analysis]
-    C -- ">1" --> R2[reset session moire<br/>primary box only, score NaN]
+    C -- 0 --> R0[reset session moire<br/>and volatility window<br/>empty analysis]
+    C -- ">1" --> R2[reset session moire<br/>and volatility window<br/>primary box only, score NaN]
     C -- 1 --> RC[replay cues: moire, glare]
     RC --> Q[quality: luma, clipped highlights,<br/>blur absolute and relative to the session,<br/>size, centring, cut-off]
     Q --> M[FaceMesh V2: 478 points, ROI 1.5x<br/>tracked from the previous landmarks,<br/>else from YuNet with eyes levelled]
@@ -25,7 +25,8 @@ flowchart TD
     G -- no --> PG[score NaN, pose_gated<br/>moire still counted]
     G -- yes --> PAD[MiniFASNet V2 at 2.7x and V1SE at 4.0x<br/>score = mean of P real]
     PAD --> CAP[session moire cap<br/>rolling median of 10 >= 1.40<br/>score = min score, 0.60]
-    CAP --> FA[FrameAnalysis]
+    CAP --> GU[session print guards, F18<br/>volatility: 2nd-lowest of 10 below 0.85<br/>latch: once a 3-frame median below 0.30<br/>score = min score, 0.60]
+    GU --> FA[FrameAnalysis]
     NM --> FA
     PG --> FA
 ```
@@ -36,7 +37,7 @@ flowchart TD
 | replay cues + quality | `qualityIssues`: TOO_DARK, TOO_BRIGHT (mean luma, or more than 30% clipped pixels), BLURRY (Laplacian variance below 15, or below 0.45 × the session's rolling median: F6), FACE_TOO_SMALL, FACE_TOO_LARGE, FACE_OFF_CENTER, FACE_CUT_OFF |
 | mesh | `landmarks`: eyes (6 points each, the contract's EAR order), irises, mouth, nose, chin, forehead. The ROI follows the previous frame's landmarks while the face box overlaps (F7) |
 | pose | `yawDeg`, `pitchDeg`, `rollDeg` |
-| PAD + cap | `livenessScore` in [0, 1], NaN when not computed |
+| PAD, moiré cap, print guards | `livenessScore` in [0, 1], NaN when not computed |
 | audit | `padDetails` (section 4), `processingMs` |
 
 ## 2. How Part 3 uses a FrameAnalysis
@@ -53,10 +54,15 @@ flowchart LR
 
 - A frame is *eligible* for the passive window when it has exactly one face, no quality issue, a score, and |yaw| and
   |pitch| of 25° or less.
-- The moiré cap (section 3) is tuned to these two consumers. A capped score of 0.60 can never reach PassiveEvaluator's
-  0.85, and it can never trip PadMonitor's 0.30.
+- The moiré cap and the print guards (section 3) are tuned to these two consumers. A capped score of 0.60 can never
+  reach PassiveEvaluator's 0.85, and it can never trip PadMonitor's 0.30.
 
-## 3. The session moiré cap
+## 3. Session caps
+
+Both caps below live in the analyzer, which serves exactly one session, retries included (Part 3 creates it when the
+session starts). Part 3 needs no change for either. A new session gets a new analyzer and starts clean.
+
+### 3.1 The moiré cap
 
 **The problem.** A phone photo held about 10 cm from the camera fools both MiniFASNet models. In round 1, 4 of 6
 such takes passed passively, at 0.89–0.95. At that distance the models' crops contain only screen content.
@@ -83,6 +89,83 @@ is `log10(max / median)` of the Hann-windowed 64 × 64 DFT magnitude over radii 
 
 Full numbers are in [part2-iso30107-evaluation.md](part2-iso30107-evaluation.md).
 
+### 3.2 The print guards (F18)
+
+**The problem.** In live sessions a printed cut-out passed twice: once at 0.9998 (a discarded run), then at 0.944. The
+second time, the cut-out was held about 20 cm from the camera, so its face was 162–179 px wide, the size of a real face.
+- Both models often scored it live, but over 20 s its per-frame score swung between 0.06 and 0.99.
+- It failed attempt 1 and attempt 2 with PAD_FAILURE and attempt 3 with CHALLENGE_FAILED. It then passed on attempt 4,
+  because every retry restarts Part 3's passive window: the session had four tries.
+- The moiré cap held attempt 1 (print halftone, moiré median 1.43–1.56). During attempt 4 the median was 1.36–1.40,
+  just under the cap.
+
+**The rules.** Both caps lower the score to at most 0.60. That forces a challenge and never causes a rejection.
+
+| Guard | Fires when | Then | Lifts |
+|---|---|---|---|
+| PAD latch (A) | the median of the last 3 scores (after the moiré cap, the scores Part 3's PadMonitor sees) is below `padLatchThreshold` 0.30 | every later score of the session is at most `padLatchCapScore` 0.60 | never within the session; a new session has a new analyzer |
+| Volatility cap (C) | at least 5 of the last 10 scored single-face frames are known and the second-lowest of their model scores is below `volatilityMinScore` 0.85 | this frame's score is at most `volatilityCapScore` 0.60 | by itself, once the low frames leave the window |
+
+Details:
+- **Which frames count.** Frames without a score are skipped. The latch's history is never cleared, as in PadMonitor.
+  The volatility window holds model scores, (V2 live + V1SE live) / 2 before any cap. Any face count other than 1
+  clears it, as it clears the moiré buffer.
+- **Why the volatility cap cannot get stuck.** A capped score never enters its window.
+- **Logging.** When the latch fires, the analyzer logs one line with numbers only (`java.util.logging`, INFO).
+- **The specification.** `reference_pipeline.session_guards`, checked by `GUARDS_SELF_TEST` (`--guards`) and
+  replayed by the Java `PadGuardsTest`. On all 130 recorded takes, the Java scores equal the spec's within 2.4e-8
+  (5,833 scored frames).
+
+**Why 0.85 for the volatility cap** (fix round F18, decided by the planner):
+- The window that passed live had a second-lowest score of 0.822. At 0.85, the same pattern is capped even on a first
+  attempt, before any latch.
+- At 0.75 only the latch would stop it.
+- The cost is a challenge, never a rejection: about 1 in 7 real-face passive passes become challenges (below).
+- To re-check on multi-subject data (F9), use `models/tools/session_guard_replay.py` per subject. If more than 25% of
+  real-face passive passes become challenges across subjects, 0.80 is the next value to evaluate.
+
+**Evidence.** Single-subject bona fide, provisional.
+
+Recorded takes (`PadEvaluation`, production defaults):
+
+| | Guards off | Guards on |
+|---|---|---|
+| attack takes that pass passively | 0/119 | 0/119 |
+| attack zones (challenge, reject, non-response) | unchanged | unchanged |
+| bona fide PAD rejections | 0/11 | **0/11** |
+| bona fide passive passes | 7/11 | 6/11 (1 "far" take goes to a challenge) |
+| takes where the latch ever fired | – | bona fide 0/11, attacks 99/119 |
+
+Live sessions (`SessionDemo`, eval-data logs):
+
+| | Result |
+|---|---|
+| attack sessions, cut-outs and the NASA print | 29, **none passed**. 17 were judged (face at least 80 px); the others timed out as FACE_TOO_SMALL |
+| attempts that would have passed without the guards | 1 of 63 decided attempts: the cut-out that passed before, again on attempt 4 (0.923). With the guards it went to a challenge and failed it. Either guard alone blocks it |
+| real-face sessions | 10: 6 passive passes, 3 passed after a challenge, 1 timed out (FACE_TOO_SMALL at about 1 m); **0 PAD rejections**; the latch never fired |
+| real-face passive passes moved to a challenge by the guards | 1 of 7 (moving head) |
+
+The same live logs and recorded takes, replayed through the spec with other settings:
+
+| Setting | Live real-face passive passes | Live attack sessions with a passive pass | Recorded bona fide passive | Recorded attacks passing |
+|---|---|---|---|---|
+| no guards | 7/10 | 2 | 7/8 | 0/64 |
+| latch only | 7/10 | 0 | 7/8 | 0/64 |
+| **latch + volatility 0.85 (default)** | 6/10 | 0 | 6/8 | 0/64 |
+| latch + volatility 0.80 | 6/10 | 0 | 7/8 | 0/64 |
+| latch + volatility 0.75 | 7/10 | 0 | 7/8 | 0/64 |
+| volatility 0.85 alone | 6/10 | 0 | 6/8 | 0/64 |
+| volatility 0.80 alone | 6/10 | 1 | 7/8 | 0/64 |
+
+- The live columns cover 30 attack sessions (the 29 above and the earlier run that passed) and the 10 real-face
+  sessions.
+- The recorded counts are over the takes that reached a passive window.
+
+**What it does not cover.** The latch lives as long as the session. A new session starts clean.
+- The UIs retry with `session.retry()`, which keeps the latch.
+- An operator who starts a new session after a final failure gets a fresh analyzer. The operator workflow's cooldown
+  limits that.
+
 ## 4. `padDetails`: audit keys
 
 `padDetails` is for the audit trail only and is never shown in the UI. It has at most 8 keys, so an audit record
@@ -90,7 +173,7 @@ stays small and fixed in shape.
 
 | Frame kind | Keys, in order |
 |---|---|
-| scored | `minifas_v2_live`, `minifas_v1se_live`, `minifas_v2_c0`, `minifas_v2_c2`, `minifas_v1se_spoof` (= V1SE c0 + c2), `moire`, `moire_med` (session rolling median), `moire_cap` (1 when the cap or veto applied, else 0) |
+| scored | `minifas_v2_live`, `minifas_v1se_live`, `minifas_v2_c0`, `moire`, `moire_med` (session rolling median), `moire_cap` (1 when the cap or veto applied, else 0), `volatility_cap` (1 when the volatility cap applied, else 0), `pad_latch` (1 while the session is latched, else 0) |
 | pose-gated | `pose_gated` (1), `moire`, `moire_med` |
 | no mesh | `moire`, `moire_med` |
 | no face / several faces | empty |
@@ -99,6 +182,11 @@ stays small and fixed in shape.
   embeddings, and nothing that could rebuild a face.
 - Part 3's `PassiveEvaluator.padDetailMedians()` aggregates these keys over the passive window for the audit record.
 - Glare is still computed but is not in `padDetails`. Tools read it through `OnnxFaceAnalyzer.lastReplayCues()`.
+- **F18 changed two keys.** `volatility_cap` and `pad_latch` replaced `minifas_v2_c2` and `minifas_v1se_spoof`. The
+  softmax makes the old keys redundant, so they can still be derived:
+  - V2 c2 = 1 − `minifas_v2_live` − `minifas_v2_c0`;
+  - V1SE spoof = 1 − `minifas_v1se_live`.
+  Nothing read the two old keys.
 
 ## 5. Conventions (contract)
 
@@ -114,8 +202,9 @@ stays small and fixed in shape.
 
 - `OnnxFaceAnalyzerFactory` loads and verifies the bundle once, on the first `create()` or on `preload()`, and builds
   one ONNX session per model. These sessions are **shared** by every analyzer and are thread-safe.
-- `create()` returns a **new analyzer per session**. Each analyzer owns its scratch buffers and its session moiré
-  state, and is not thread-safe. Part 3 already uses one analyzer per session.
+- `create()` returns a **new analyzer per session**. Each analyzer owns its scratch buffers and its session state
+  (moiré cap, relative blur, print guards), and is not thread-safe. Part 3 already uses one analyzer per session, and
+  its retries keep it.
 - Closing an analyzer releases nothing shared. Closing the factory closes the sessions.
 - Call `factory.preload()` at application start-up. That moves the verification and session build (about 0.2 s warm,
   about 1 s in a fresh JVM) out of the first session.
@@ -290,6 +379,10 @@ They are not in Part 3's `liveness-default.properties`. The prefix is `mosip.reg
 | `moireCapScore` | 0.60 | the capped score; must be in (0, 1) |
 | `moireWindow` / `moireMinFrames` | 10 / 3 | rolling-median length, and the values needed before the cap applies |
 | `moireVetoThreshold` | off | a number enables the hard veto (score 0) |
+| `padLatchThreshold` | 0.30 | F18 PAD latch: a 3-frame score median below this caps the rest of the session; `off` disables it |
+| `padLatchCapScore` | 0.60 | the latched cap; in (0, 1) and above `padLatchThreshold` |
+| `volatilityMinScore` | 0.85 | F18 volatility cap: a second-lowest model score of the last 10 below this caps the score; `off` disables it |
+| `volatilityCapScore` | 0.60 | the volatility cap; in (0, 1) |
 
 Face binding has its own key, outside the analyzer prefix: `mosip.registration.liveness.face.binding.cosineThreshold`
 (default 0.45; section 12).
@@ -420,6 +513,22 @@ minimum was 0.742). Cells: min / median / max.
 **Binding is not presentation attack detection.** A photo of the same person on a screen still matches (int8 median
 0.585). Binding must run after liveness passed, never instead of it.
 
+**Limits: photo against photo** (F3; 42 photos of 15 people, labels confirmed by the photos' owner; int8;
+aggregates only).
+- **Same person, two photos** (62 pairs): median 0.548, minimum 0.305. FNMR is 9.7% / 24.2% / 38.7% at
+  0.40 / 0.45 / 0.50.
+- **Different people** (799 pairs): FMR is 2.9% / 0.6% / 0.3% at the same thresholds; the maximum is 0.503.
+- **The photos against live faces:**
+  - s01's photos against s01's recorded takes (11 pairs): 0.545–0.734, so no non-match at 0.45.
+  - The photos against the recorded subject (451 pairs) and against the NASA portraits (2,100 pairs): none at 0.45
+    or above (maxima 0.357 and 0.323).
+- **Why 0.45 stays for binding.** Binding compares the live best frame with an SBI capture taken minutes later: same
+  person, same day, similar light. Those genuine pairs score 0.65–0.96 (s01, 55 pairs). The photo pairs above were
+  taken months apart, on other cameras, and compressed; they are a harder comparison.
+- **F15 needs its own calibration.** Matching a live face against onboarded templates or older photos is the
+  photo-against-photo case: at 0.45 it would reject about 1 genuine person in 4. F15 must not reuse
+  `cosineThreshold` without its own genuine and impostor set.
+
 **Cost.**
 - One face (detection, alignment, SFace): laptop 204–211 ms, phone 36.8 ms (int8); a comparison of two images takes
   0.40–0.42 s on the laptop and 76 ms on the phone, once per capture.
@@ -437,9 +546,10 @@ minimum was 0.742). Cells: min / median / max.
 | Limitation | Effect | What would fix it |
 |---|---|---|
 | Evaluation has a single subject (s01), one webcam and one phone | Error rates are indicative only | More subjects and devices, using the protocol in `docs/part2-dataset-protocol.md` |
-| Printed photos are not yet evaluated | Unknown APCER for print species | The user records `print_flat` and `print_curved`, then re-runs `PadEvaluation` |
+| Printed photos can score live | At real-face size a printed cut-out scored 0.06–0.99 frame to frame and passed passively on a retry, twice live. Recorded prints of s01 and 13 other people: 0 of 57 passed (`docs/part2-iso30107-evaluation.md`) | **Mitigated (F18):** the PAD latch and the volatility cap (section 3.2). Live: 29 attack sessions, none passed. Real faces: 0 rejections, about 1 in 7 passive passes become challenges. To re-check per subject on F9 data |
 | Moiré depends on the device | The 1.40 cap was set on one phone and one camera (margin 1.37 vs 1.435) | Re-validate on more screens and cameras before enabling the veto |
 | A blown-out face used to pass as "usable" | Webcam auto-exposure keeps the mean luma near 110 | **Fixed (Phase 6c):** TOO_BRIGHT also fires when more than 30% of the face crop is clipped |
 | Motion blur passes the absolute blur threshold | Head-motion frames can stay "usable" | **Fixed (F6):** BLURRY also below 0.45 × the session's rolling lapVar median. Moving bona fide frames: 0% → 29% BLURRY; normal frames unchanged (100% usable) |
 | Near-profile poses lose the mesh, or are pose-gated | No score above 30° yaw or 25° pitch; landmarks were lost at about 62–66° | **Improved (F7):** the mesh ROI tracks the previous landmarks. Live, the largest yaw with landmarks went from +66° / −62° to +69° / −73°. Beyond that, YuNet loses the face. No score is expected there: Part 3 waits for a frontal face, and a turn challenge needs only 20° |
 | A capped attack still goes to a challenge | A tilted phone photo passed BLINK and SMILE once (Phase 5) | **Mitigated (Phase 6c):** Part 3's pose-drift guard (12°) during BLINK and SMILE; PadMonitor still watches every challenge frame |
+| A second face counts only from 20% of the largest face's area (`detectorSecondFaceMinAreaRatio`, section 9) | **By design.** People far behind the registrant must not fail the session, and the face analysed is the largest one, the person in front. So a small face beside the live face is ignored. Live: the participant's face plus one printed cut-out beside it PASSED on the live face (0.9991, 2.8 s) without a MULTIPLE_FACES hint; every analysed frame counted one face. Faces of comparable size do trigger problem statement section 9: two cut-outs side by side (1 session) and a group-photo print (2 sessions) each failed all 4 attempts with MULTIPLE_FACES (hint at about 1.3 s, first failure at about 2.5 s, MAX_RETRIES_EXCEEDED at about 13.1 s) | Nothing for PAD: the analysed face is the live one, and face binding (section 12) checks that the stored face is that person. Lower the ratio only if a policy requires that nobody else is visible at all, and accept failed sessions from bystanders |

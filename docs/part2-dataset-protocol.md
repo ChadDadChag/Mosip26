@@ -192,9 +192,30 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
        of the largest face's area);
      - n: two cut-outs side by side;
      - o: a printed group photo, once per group photo.
-     Each is expected to fail every attempt with MULTIPLE_FACES (about 1.5 s of several faces), and the session to
-     end FAILED with MAX_RETRIES_EXCEEDED, never PASSED. Only the event log is kept (`liveness-eval/target/`), with
-     no frames.
+     n and o are expected to fail every attempt with MULTIPLE_FACES (about 1.5 s of several faces), and the session
+     to end FAILED with MAX_RETRIES_EXCEEDED, never PASSED. m passes on the live face if the cut-out's face stays
+     under 20% of the live face's area, which is by design (`docs/part2-pad-architecture.md`, section 13). Only the
+     event log is kept (`liveness-eval/target/`, or `-LogDir eval-data\sessions`), with no frames.
+  7. **Single-print retest and the combined retest (F18).**
+     `scripts\session-series.ps1 -Plan <cases> -LogDir eval-data\sessions` runs real-engine sessions with one
+     printed cut-out at a time (numbered 1 to 6 on the back).
+     - **Attack cases** (the presenter's face out of view):
+       - y = still, CLOSE: the face in the cut-out as big on screen as a real face, about a quarter of the window's
+         width;
+       - v = the same size, with slight natural hand motion;
+       - w = the same size, forced challenges from TURN_LEFT and TURN_RIGHT: the cut-out is rotated to fake a turn;
+       - x = the same size, forced challenges from BLINK and SMILE: the cut-out is tilted to fake them;
+       - u = the NASA A4 print.
+     - **Real-face cases** (prints face down): a = normal, i = close (face about a third of the picture),
+       j = far (about 1 m), k = approaching during the check, l = moving.
+     - **Distances do not work for cut-outs.** s and t (still at about 20 and 30 cm) gave faces of 25–60 px, below
+       the 80 px minimum, so the sessions timed out without judging the print. Use y, v, w and x. At about 1 m a
+       real face is also below 80 px.
+     - **The log** keeps every analysed frame's numbers, never the frames: pose, face size, the score, both models'
+       live probabilities, moiré and the cap state, the volatility cap and PAD latch flags, and quality issues.
+     - **Replay.** `models/tools/session_guard_replay.py <log>` replays a log through the print-guard spec, and
+       Part 3's first passive window per attempt, with and without each guard.
+     - **Plan length.** Keep plans to about 15 runs. Two longer series windows ended early (exit 116, F13).
 
 ## 9. Evaluation
 
