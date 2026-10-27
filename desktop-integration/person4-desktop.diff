@@ -83,7 +83,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,779 @@
+@@ -0,0 +1,781 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -528,7 +528,9 @@ new file mode 100644
 +One window for all three workflows; only the title and the recovery text differ. The preview is the device's live
 +stream, mirrored like a selfie (the frames given to the engine are never mirrored), with the face oval. The oval's
 +colour always comes with an icon and a text. Rendered by `LivenessScreenDemo --snapshots` from the production classes
-+at the window's size, 720×820 (the face is a public-domain NASA portrait used by Part 2's fixtures). The layout,
++at the window's size, 720×820 (the face is a public-domain NASA portrait used by Part 2's fixtures). On a screen with
++less usable height (1366×768, or 1920×1080 at 150%), the window is as high as the screen allows, and the camera card
++gives up the height, so the buttons stay on screen. The layout,
 +colours and type are `docs/ui-liveness-spec.md` §9, the same as on Android.
 +
 +| | | |
@@ -768,7 +770,7 @@ new file mode 100644
 +| `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
 +| `DesktopModelUpdateTest` | online model update after a config sync, against a local HTTP server: enabled + newer bundle → INSTALLED with the bundled base kept for rollback, and the reload audits MODEL_LOADED with the new version; disabled or no URL → no request; a failure → audited as FAILED, the sync returns at once, the models stay; a running session keeps its analyzer until it ends |
 +| `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
-+| `LivenessViewLayoutTest` | the visual design (spec §9) on the 14 documented states, at 720×820 (the window) and 1280×800: buttons on screen, 48 high and of equal width; content centred and at most 560 wide; the camera card 4:3 at about 45% of the height, the badge on the oval's top centre; nothing overlaps; the status at most 2 lines; one attempts line after a failure. Arabic mirrored, except the camera card. Also at 480, 320 and 240 wide, in English and Arabic: a wrapped status keeps its badge beside its longest line, the two centred in the card, and a wrapped tip continues under its text, beside its bullet. Skipped without a JavaFX toolkit |
++| `LivenessViewLayoutTest` | the visual design (spec §9) on the 14 documented states, at 720×820 (the window), 720×688 (the window fitted to a 1366×768 screen) and 1280×800: buttons on screen, 48 high and of equal width; content centred and at most 560 wide; the camera card 4:3 at about 45% of the height, the badge on the oval's top centre; nothing overlaps; the status at most 2 lines; one attempts line after a failure. Arabic mirrored, except the camera card. Also at 480, 320 and 240 wide, in English and Arabic: a wrapped status keeps its badge beside its longest line, the two centred in the card, and a wrapped tip continues under its text, beside its bullet. Rendering the same state again leaves the status text unchanged; at 125%, 150% and 175% scaling no label or button text is cut short. Skipped without a JavaFX toolkit |
 +| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice; F15: one retry, and only when a new session can help |
 +| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders; "attempts left" is a plural in English and French (0, 1, 3); every formatted liveness text in en, fr and ar keeps its apostrophes and leaves no placeholder |
 +| `DesktopOfflineModelInstallTest` | F17 on the real service with signed bundles: install and reload; tampered or unsigned zips refused as MODEL_INTEGRITY_FAILED, also when they claim an older version; same or older refused; zip-slip; rollback, then nothing earlier; the role gate and the config switch; the audit has codes, versions and the user id, never a path |
@@ -1161,7 +1163,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
    and there is no best frame.
  
-@@ -423,20 +489,417 @@ The best frame is dropped after the comparison, when a new session starts, when
+@@ -423,20 +489,418 @@ The best frame is dropped after the comparison, when a new session starts, when
  (unless an armed SBI capture is under way: the SBI app itself pauses the client) and after 5 minutes. An armed capture
  whose best frame was dropped meanwhile fails closed.
  
@@ -1278,8 +1280,9 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +  - the English status takes at most 2 lines;
 +  - a failed attempt shows one attempts line;
 +  - the right-to-left order.
-+- Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window) and 1280×800, and in
-+  Arabic, with the same checks where they apply.
++- Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window), 720×688 (the window
++  on a 1366×768 screen, as high as the screen allows) and 1280×800, and in Arabic, with the same checks where they
++  apply.
 +
 +**Screenshots.**
 +- `docs/images/android`: from `test/liveness/liveness_screenshots_test.dart`, with the fake engine's events and the
@@ -2168,10 +2171,11 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessGate.java
-@@ -0,0 +1,372 @@
+@@ -0,0 +1,387 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.util.Collection;
++import java.util.List;
 +import java.util.Locale;
 +import java.util.Optional;
 +import java.util.function.Consumer;
@@ -2200,6 +2204,7 @@ new file mode 100644
 +import javafx.scene.control.ButtonBar;
 +import javafx.scene.control.ButtonType;
 +import javafx.stage.Modality;
++import javafx.stage.Screen;
 +import javafx.stage.Stage;
 +import javafx.stage.StageStyle;
 +import javafx.stage.Window;
@@ -2421,8 +2426,21 @@ new file mode 100644
 +			stage.initOwner(owner);
 +		}
 +		stage.setResizable(false);
++		view.fitTo(screenOf(owner).getVisualBounds());
 +		stage.setScene(new Scene(view.root()));
 +		return stage;
++	}
++
++	/** The screen that holds most of the owner window, else the primary screen. */
++	private static Screen screenOf(Window owner) {
++		if (owner != null) {
++			List<Screen> screens = Screen.getScreensForRectangle(owner.getX(), owner.getY(), owner.getWidth(),
++					owner.getHeight());
++			if (!screens.isEmpty()) {
++				return screens.get(0);
++			}
++		}
++		return Screen.getPrimary();
 +	}
 +
 +	/** One gate run: one session, one window, one outcome. */
@@ -3045,7 +3063,7 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessView.java
-@@ -0,0 +1,491 @@
+@@ -0,0 +1,503 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.io.IOException;
@@ -3067,6 +3085,7 @@ new file mode 100644
 +import javafx.fxml.FXMLLoader;
 +import javafx.geometry.NodeOrientation;
 +import javafx.geometry.Pos;
++import javafx.geometry.Rectangle2D;
 +import javafx.scene.AccessibleAttribute;
 +import javafx.scene.Node;
 +import javafx.scene.Parent;
@@ -3115,6 +3134,8 @@ new file mode 100644
 +	static final double STATUS_SIZE = 20;
 +	static final double STATUS_MIN_SIZE = 16;
 +	static final Duration STATUS_FADE = Duration.millis(200);
++	/** Room for the window's title bar when {@link #fitTo} fits the window to a screen. */
++	static final double TITLE_BAR = 40;
 +	static final String ATTEMPTS_LEFT = "liveness.retry.attempts_left";
 +
 +	private static final Map<LivenessScreenModel.Icon, String> ICONS = new EnumMap<>(LivenessScreenModel.Icon.class);
@@ -3221,6 +3242,16 @@ new file mode 100644
 +		return root;
 +	}
 +
++	/**
++	 * Fits the window to a screen's usable area ({@code Screen.getVisualBounds()}): the FXML's 720x820 at most, less
++	 * on a smaller screen (1366x768, or 1920x1080 at 150%), so the buttons stay on it. The camera card gives up the
++	 * height. Call before the window is shown.
++	 */
++	public void fitTo(Rectangle2D visualBounds) {
++		root.setPrefSize(Math.min(root.getPrefWidth(), visualBounds.getWidth()),
++				Math.min(root.getPrefHeight(), visualBounds.getHeight() - TITLE_BAR));
++	}
++
 +	public void setOnRetry(Runnable r) { onRetry = r; }
 +	public void setOnCancel(Runnable r) { onCancel = r; }
 +	public void setOnClose(Runnable r) { onClose = r; }
@@ -3265,8 +3296,7 @@ new file mode 100644
 +			crossFade();
 +		}
 +		lastStatus = statusText;
-+		statusMessage = statusText;
-+		status.setText(statusText); // resize() breaks it into its lines
++		statusMessage = statusText; // resize() sets the label's text once, in its lines
 +
 +		String icon = ICONS.get(m.icon());
 +		camera.badgeIcon().setContent(icon);
@@ -4592,7 +4622,7 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
-@@ -0,0 +1,433 @@
+@@ -0,0 +1,434 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.awt.image.BufferedImage;
@@ -4776,6 +4806,7 @@ new file mode 100644
 +		LivenessView view = LivenessView.load(LivenessMessages.english(), true);
 +		Stage stage = new Stage();
 +		stage.setTitle(LivenessMessages.english().text(model.title()));
++		view.fitTo(javafx.stage.Screen.getPrimary().getVisualBounds()); // as the gate does
 +		stage.setScene(new Scene(view.root()));
 +		view.render(model);
 +		PreviewFrameSource source = new PreviewFrameSource(device);
@@ -5428,7 +5459,7 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessViewLayoutTest.java
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,422 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import static org.junit.Assert.assertEquals;
@@ -5454,15 +5485,18 @@ new file mode 100644
 +import javafx.geometry.Bounds;
 +import javafx.geometry.NodeOrientation;
 +import javafx.geometry.Point2D;
++import javafx.geometry.Rectangle2D;
 +import javafx.scene.Node;
 +import javafx.scene.Parent;
 +import javafx.scene.control.Button;
 +import javafx.scene.control.Label;
 +import javafx.scene.layout.HBox;
++import javafx.scene.layout.Region;
 +import javafx.scene.shape.LineTo;
 +import javafx.scene.shape.MoveTo;
 +import javafx.scene.shape.PathElement;
 +import javafx.scene.text.Text;
++import javafx.stage.Stage;
 +
 +/**
 + * {@code docs/ui-liveness-spec.md} §9 on the Desktop: every documented state (the screen demo's, {@code
@@ -5496,6 +5530,95 @@ new file mode 100644
 +	@Test
 +	public void everyStateFitsALargeScreen() throws Exception {
 +		everyState(LivenessMessages.english(), 1280, 800);
++	}
++
++	/**
++	 * The window is 720x820 and not resizable. A 1366x768 screen, or 1920x1080 at 150%, has about 728 px of usable
++	 * height: with the title bar, the buttons were below the screen (task 19 review). The window now takes at most the
++	 * screen's usable height, and every state fits there.
++	 */
++	@Test
++	public void theWindowFitsAShortScreenAndEveryStateFitsThere() throws Exception {
++		AtomicReference<double[]> sizes = new AtomicReference<>();
++		onFx(() -> {
++			LivenessView short768 = LivenessView.load(LivenessMessages.english(), false);
++			short768.fitTo(new Rectangle2D(0, 0, 1366, 728)); // 1366x768 less a 40 px taskbar
++			LivenessView large = LivenessView.load(LivenessMessages.english(), false);
++			large.fitTo(new Rectangle2D(0, 0, 1920, 1040));
++			Region s768 = (Region) short768.root(), big = (Region) large.root();
++			sizes.set(new double[] { s768.getPrefWidth(), s768.getPrefHeight(), big.getPrefWidth(), big.getPrefHeight() });
++			short768.dispose();
++			large.dispose();
++		});
++		double[] s = sizes.get();
++		assertEquals(720, s[0], 0);
++		assertEquals(728 - LivenessView.TITLE_BAR, s[1], 0);
++		assertEquals(720, s[2], 0);
++		assertEquals(820, s[3], 0);
++		everyState(LivenessMessages.english(), s[0], s[1]);
++	}
++
++	/**
++	 * A render sets the status label's text once, already in its lines, and not at all when the status is the same:
++	 * each change is a relayout and, for a screen reader, a text change (task 19 review).
++	 */
++	@Test
++	public void aRenderChangesTheStatusTextOnlyWhenTheStatusChanges() throws Exception {
++		int[] wrapped = new int[1];
++		for (double width : new double[] { 720, 320 }) {
++			for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
++				onFx(() -> {
++					LivenessView v = LivenessScreenDemo.layOut(s, LivenessMessages.english(), width, 820, null);
++					wrapped[0] += v.status().getText().contains("\n") ? 1 : 0;
++					List<String> changes = new ArrayList<>();
++					v.status().textProperty().addListener((o, a, b) -> changes.add(b));
++					LivenessScreenModel same = new LivenessScreenModel(s.workflow, 3);
++					s.drive.accept(same);
++					v.render(same);
++					assertEquals(s.name + " at " + (int) width + ": " + changes, 0, changes.size());
++					v.dispose();
++				});
++			}
++		}
++		assertTrue("a wrapped status was rendered", wrapped[0] > 0);
++	}
++
++	/** At 125%, 150% and 175% display scaling no status, tip or button text is cut short. */
++	@Test
++	public void noTextIsCutShortAtFractionalScaling() throws Exception {
++		for (double scale : new double[] { 1.25, 1.5, 1.75 }) {
++			for (double width : new double[] { 720, 480, 320 }) {
++				for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
++					onFx(() -> {
++						LivenessView v = LivenessScreenDemo.layOut(s, LivenessMessages.english(), width, 820, null);
++						Stage stage = new Stage();
++						stage.setRenderScaleX(scale);
++						stage.setRenderScaleY(scale);
++						stage.setScene(v.root().getScene());
++						for (int i = 0; i < 2; i++) {
++							v.root().applyCss();
++							v.root().layout();
++						}
++						String at = s.name + " at " + (int) width + " x" + scale;
++						assertTrue(at + ": sizes snap to the scale's pixels", Math.abs(v.status().snapSizeX(1) - 1) > 0.1);
++						for (Node n : v.root().lookupAll(".label")) {
++							Label l = (Label) n;
++							Text drawn = (Text) l.lookup(".text");
++							if (shown(l) && drawn != null) {
++								assertEquals(at, l.getText(), drawn.getText());
++							}
++						}
++						for (Button b : v.buttons()) {
++							Text drawn = (Text) b.lookup(".text");
++							if (b.isManaged() && drawn != null) {
++								assertEquals(at, b.getText(), drawn.getText());
++							}
++						}
++						v.dispose();
++					});
++				}
++			}
++		}
 +	}
 +
 +	/**
