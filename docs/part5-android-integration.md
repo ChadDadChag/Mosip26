@@ -481,8 +481,22 @@ approval (e). F1 has nothing to bind there, so each of them now calls `IdentityB
    - packet authentication: nothing submitted;
    - approval: nothing approved.
 
-The similarity reaches Dart only in debug and profile builds; production screens never show a score. Android has no
-failed-login counter for this, and the Room rows have no creation time, so there is no template age in the audit.
+The similarity reaches Dart only in debug and profile builds; production screens never show a score. The Room rows
+have no creation time, so there is no template age in the audit.
+
+**Failed logins.**
+- A rejection on the first attempt of the password login counts as one failed login. `LivenessApi.verifyIdentity`
+  calls `LoginService.recordFailedLoginAttempt`, the counter behind the login lockout, via
+  `IdentityBinding.countsAsFailedLogin`.
+- It counts once per login, so cancelling the retry cannot hide it.
+- Packet authentication and approval are not counted, as on Desktop.
+- An `Error` during the check refuses the step instead of leaving it waiting.
+
+**The user id of onboarded faces.** Operator onboarding stores the face under the `user_id` preference.
+`SessionManager.saveAuthToken` now writes it: the token's preferred user name, which onboarding already uses for IDA
+and the user details. Before this (task 19 review), nothing wrote it, so faces were stored under an empty id and F15
+found none. Faces onboarded before the fix are still stored under the empty id: onboard again before F15 can bind
+them.
 
 **Without a backend (debug and profile builds).** Nobody can log in or onboard on the development phone, so the
 debug page's "Identity binding test (F15)" card exercises the production path:

@@ -554,10 +554,12 @@ similar enough. So the FMR below is a "password stolen and face similar" rate, n
 - the same YuNet detection and SFace alignment as `compare`, on both sides;
 - the best similarity over the readable templates decides: MATCH at or above
   `mosip.registration.liveness.face.binding.identity.threshold` (`AnalyzerConfig.identityCosineThreshold`, default
-  **0.40**, provisional), else NO_MATCH;
+  **0.40**, provisional), else NO_MATCH. The value must be in [0.30, 1.0]: lower values would let almost any face
+  match, so they are refused like a malformed value;
 - a null template (undecodable), or one without exactly one face, is unreadable;
 - no template gives NOT_BOUND_NO_TEMPLATE, only unreadable ones NOT_BOUND_UNREADABLE (the host decides what those
-  mean), and a live image without exactly one face gives NO_LIVE_FACE;
+  mean), and a live image without exactly one face gives NO_LIVE_FACE. A readable template without a finite
+  similarity (a degenerate feature) gives NO_MATCH, never "not bound";
 - `IdentityResult` holds the outcome, the similarity, the threshold and the counts. The features exist only during
   the call.
 

@@ -488,7 +488,7 @@ Part 2's `FaceMatcher.identify` does the comparison: the best of several templat
 |---|---|
 | MATCH | The flow goes on. |
 | Not the user's face, no live face, or an error | `liveness.error.identity_not_verified` in a dialog with **Retry** and **Cancel**. Retry runs one new liveness session. |
-| The same after the retry, or Cancel | The step is refused with `liveness.error.identity_not_verified`. Login: logged out, back to the login page; on Desktop it counts as a failed login. Packet authentication and approval: nothing is submitted or approved. |
+| The same after the retry, Cancel, or a retry session that does not pass | The step is refused with `liveness.error.identity_not_verified`. Login: logged out, back to the login page; it counts as one failed login (Desktop at the end, Android at the first rejection), so cancelling the retry cannot hide it. Packet authentication and approval: nothing is submitted or approved. |
 | No onboarded face, or none decodes to one face | The flow goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the step is refused at once. |
 | Liveness disabled for the workflow | The legacy flow, unchanged. |
 
