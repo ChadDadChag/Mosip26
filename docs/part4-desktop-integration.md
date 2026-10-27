@@ -666,6 +666,11 @@ failures, nothing skipped.
 tests and the 3 `LivenessViewLayoutTest` tests. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds.
 No failures, nothing skipped.
 
+**Results with task 16b (2026-10-28):** `registration-services` 175 tests pass. `registration-client` 40 tests pass: the
+37 above, plus 2 `LivenessMessagesTest` tests (the plurals, apostrophes in formatted texts) and the wrapping test of
+`LivenessViewLayoutTest`. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds. No failures,
+nothing skipped.
+
 | Test | What it proves |
 |---|---|
 | `DesktopLivenessServiceTest` | real engine + signed ONNX models + recorded clip through the deferred source → FAILED with `lastCause=FACE_NOT_DETECTED`, audited through the audit module with the session id; workflow disabled by synced config → legacy flow; config sync applies to the next session; scripted engine is development-only and skips binding |
