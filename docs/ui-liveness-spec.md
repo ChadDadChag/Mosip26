@@ -170,6 +170,7 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
 | `liveness.retry.attempts_left` | {n} attempt(s) left | ATTEMPT_FAILED |
 | `liveness.error.max_attempts_reached` | Face verification could not be completed. | FAILED_FINAL (§10.7) |
 | `liveness.error.device_problem` | Camera/device not available. Check the connection and try again. | DEVICE_ERROR, final device failure |
+| `liveness.error.identity_not_verified` | Face verification could not be completed for this user. Please try again. | F15: liveness passed, but the live face is not the user's onboarded face (outside the liveness screen; section 6) |
 | `liveness.recovery.resident` | Please contact the supervisor. The resident can be registered using the biometric exception process. | FAILED_FINAL, resident |
 | `liveness.recovery.operator` | Please contact your administrator or try again later. | FAILED_FINAL, operator |
 | `liveness.recovery.supervisor` | Please contact your administrator. | FAILED_FINAL, supervisor |
@@ -261,6 +262,7 @@ liveness.error.liveness_not_verified=We could not verify face liveness. Please t
 liveness.error.verification_not_completed=Face verification could not be completed. Please try again.
 liveness.error.max_attempts_reached=Face verification could not be completed.
 liveness.error.device_problem=Camera/device not available. Check the connection and try again.
+liveness.error.identity_not_verified=Face verification could not be completed for this user. Please try again.
 liveness.tips.title=Tips:
 liveness.tips.look_at_camera=Look directly at the camera.
 liveness.tips.face_visible=Ensure your face is clearly visible.
@@ -310,6 +312,7 @@ liveness.button.open_settings=Open settings
 "liveness_error_verification_not_completed": "Face verification could not be completed. Please try again.",
 "liveness_error_max_attempts_reached": "Face verification could not be completed.",
 "liveness_error_device_problem": "Camera/device not available. Check the connection and try again.",
+"liveness_error_identity_not_verified": "Face verification could not be completed for this user. Please try again.",
 "liveness_tips_title": "Tips:",
 "liveness_tips_look_at_camera": "Look directly at the camera.",
 "liveness_tips_face_visible": "Ensure your face is clearly visible.",
@@ -493,7 +496,7 @@ as frame times or scores are allowed only on separate debug-only screens that ar
 
 ## Appendix A. The liveness texts in five more languages (machine-translated)
 
-The Android client has the 44 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
+The Android client has the 45 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
 `app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
 paste. **All five languages are machine-translated and need a review by a native speaker before release.** The ARB
 files carry the same note, as `"@@x-liveness-translation"`.
@@ -564,6 +567,7 @@ liveness.error.liveness_not_verified=تعذّر التحقق من حيوية ا�
 liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
 liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
 liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
+liveness.error.identity_not_verified=تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.
 liveness.tips.title=نصائح:
 liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
 liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
@@ -614,6 +618,7 @@ liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00e9rifier la vivaci
 liveness.error.verification_not_completed=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e. Veuillez r\u00e9essayer.
 liveness.error.max_attempts_reached=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e.
 liveness.error.device_problem=Cam\u00e9ra ou appareil indisponible. V\u00e9rifiez la connexion et r\u00e9essayez.
+liveness.error.identity_not_verified=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e pour cet utilisateur. Veuillez r\u00e9essayer.
 liveness.tips.title=Conseils\u00a0:
 liveness.tips.look_at_camera=Regardez directement la cam\u00e9ra.
 liveness.tips.face_visible=Assurez-vous que votre visage est bien visible.
@@ -664,6 +669,7 @@ liveness.error.liveness_not_verified=हम चेहरे की जीवं�
 liveness.error.verification_not_completed=चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
 liveness.error.max_attempts_reached=चेहरा सत्यापन पूरा नहीं हो सका।
 liveness.error.device_problem=कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।
+liveness.error.identity_not_verified=इस उपयोगकर्ता के लिए चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
 liveness.tips.title=सुझाव:
 liveness.tips.look_at_camera=सीधे कैमरे की ओर देखें।
 liveness.tips.face_visible=सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।
@@ -714,6 +720,7 @@ liveness.error.liveness_not_verified=ಮುಖದ ಜೀವಂತಿಕೆಯನ
 liveness.error.verification_not_completed=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
 liveness.error.max_attempts_reached=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.
 liveness.error.device_problem=ಕ್ಯಾಮರಾ/ಸಾಧನ ಲಭ್ಯವಿಲ್ಲ. ಸಂಪರ್ಕವನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
+liveness.error.identity_not_verified=ಈ ಬಳಕೆದಾರರಿಗೆ ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
 liveness.tips.title=ಸಲಹೆಗಳು:
 liveness.tips.look_at_camera=ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
 liveness.tips.face_visible=ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.
@@ -764,6 +771,7 @@ liveness.error.liveness_not_verified=முக உயிர்ப்பைச்
 liveness.error.verification_not_completed=முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
 liveness.error.max_attempts_reached=முக சரிபார்ப்பை முடிக்க முடியவில்லை.
 liveness.error.device_problem=கேமரா/சாதனம் கிடைக்கவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.
+liveness.error.identity_not_verified=இந்தப் பயனருக்கான முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
 liveness.tips.title=குறிப்புகள்:
 liveness.tips.look_at_camera=நேரடியாக கேமராவைப் பார்க்கவும்.
 liveness.tips.face_visible=உங்கள் முகம் தெளிவாகத் தெரிவதை உறுதிசெய்யவும்.

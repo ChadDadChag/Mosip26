@@ -136,6 +136,36 @@ public class FaceBinding {
 		armed = null;
 	}
 
+	/** The armed live face for a check without an SBI capture: the frame, or why there is none. */
+	static final class Live {
+		final String sessionId;
+		final Frame frame;
+		/** Null, NOT_ARMED (none, or another workflow's), EXPIRED or NO_LIVE_FRAME. */
+		final String problem;
+
+		Live(String sessionId, Frame frame, String problem) {
+			this.sessionId = sessionId;
+			this.frame = frame;
+			this.problem = problem;
+		}
+	}
+
+	/**
+	 * F15: consumes the arming for identity binding ({@link IdentityBinding}), which has no SBI capture. Never null; a
+	 * missing, other-workflow or expired arming comes back as a problem.
+	 */
+	synchronized Live takeLive(WorkflowType workflow) {
+		Armed a = armed;
+		armed = null;
+		if (a == null || a.workflow != workflow) {
+			return new Live(a == null ? null : a.sessionId, null, "NOT_ARMED");
+		}
+		if (clock.getAsLong() > a.expiresAtMs) {
+			return new Live(a.sessionId, null, "EXPIRED");
+		}
+		return new Live(a.sessionId, a.bestFrame, a.bestFrame == null ? "NO_LIVE_FRAME" : null);
+	}
+
 	/**
 	 * Decides whether a face capture of {@code workflow} may be used. Consumes the arming in every case. Call it on a
 	 * background thread: decoding and matching take about 100 ms.

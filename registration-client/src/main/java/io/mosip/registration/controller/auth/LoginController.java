@@ -37,6 +37,7 @@ import io.mosip.registration.controller.ClientApplication;
 import io.mosip.registration.controller.FXUtils;
 import io.mosip.registration.controller.device.Streamer;
 import io.mosip.registration.controller.liveness.LivenessGate;
+import io.mosip.registration.controller.liveness.LivenessMessages;
 import io.mosip.registration.controller.reg.HeaderController;
 import io.mosip.registration.controller.reg.Validations;
 import io.mosip.registration.dto.AuthenticationValidatorDTO;
@@ -855,8 +856,10 @@ public class LoginController extends BaseController implements Initializable {
 	 */
 	private void loadNextScreen(UserDTO userDTO, String loginMode) {
 		if (RegistrationConstants.PWORD.equalsIgnoreCase(loginMode) && livenessGate.gatesPasswordLogin(loginList)) {
-			// Face liveness after a successful password (as on Android): the operator must be present in person.
-			livenessGate.run(WorkflowType.OPERATOR, ClientApplication.getPrimaryStage(), outcome -> {
+			// Face liveness after a successful password (as on Android): the operator must be present in person, and
+			// (F15) be the user whose face was onboarded on this machine.
+			livenessGate.runWithIdentity(WorkflowType.OPERATOR, ClientApplication.getPrimaryStage(), userDTO.getId(),
+					outcome -> {
 				if (outcome.proceed()) {
 					proceedAfterLogin(userDTO, loginMode);
 				} else {
@@ -866,6 +869,11 @@ public class LoginController extends BaseController implements Initializable {
 					loginList.clear();
 					SessionContext.destroySession();
 					loadInitialScreen(ClientApplication.getPrimaryStage());
+					if (outcome == LivenessGate.Outcome.IDENTITY_NOT_VERIFIED) {
+						// F15: a failed login, as a wrong password is (it shows the text, and may lock the account).
+						validateInvalidLogin(userDTO, LivenessMessages.forApplicationLanguage()
+								.text(LivenessGate.IDENTITY_NOT_VERIFIED_KEY));
+					}
 				}
 			});
 			return;

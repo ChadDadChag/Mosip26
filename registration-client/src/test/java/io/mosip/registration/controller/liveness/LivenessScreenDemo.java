@@ -1,11 +1,16 @@
 package io.mosip.registration.controller.liveness;
 
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -13,6 +18,13 @@ import java.util.function.Consumer;
 
 import javax.imageio.ImageIO;
 
+import io.mosip.biometrics.util.ConvertRequestDto;
+import io.mosip.biometrics.util.face.FaceEncoder;
+import io.mosip.registration.audit.AuditManagerService;
+import io.mosip.registration.constants.AuditEvent;
+import io.mosip.registration.constants.Components;
+import io.mosip.registration.context.ApplicationContext;
+import io.mosip.registration.dto.ResponseDTO;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 import io.mosip.registration.liveness.api.ChallengeType;
 import io.mosip.registration.liveness.api.ConfigProvider;
@@ -28,6 +40,9 @@ import io.mosip.registration.liveness.api.LivenessService;
 import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.DefaultLivenessService;
+import io.mosip.registration.liveness.desktop.DesktopAuditSink;
+import io.mosip.registration.liveness.desktop.DesktopLivenessConfig;
+import io.mosip.registration.liveness.desktop.IdentityBinding;
 import io.mosip.registration.liveness.device.mock.MockFrameSource;
 import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
 import io.mosip.registration.liveness.device.util.PreviewFrameSource;
@@ -46,12 +61,22 @@ import javafx.stage.Stage;
  *   LivenessScreenDemo --snapshots &lt;dir&gt; [--face &lt;image&gt;]     every screen state as PNG (the UI deliverable)
  *   LivenessScreenDemo --scenario PASS_ACTIVE [--workflow operator] the scripted engine, interactive
  *   LivenessScreenDemo --live webcam|video:&lt;file.mjpeg&gt;          the real engine and models on a webcam or clip
+ *   LivenessScreenDemo --live webcam --identity enroll|verify     F15 identity binding on a test template
+ *   LivenessScreenDemo --identity delete                          deletes the test template
  * </pre>
+ * {@code --identity enroll} turns a PASSED session's best frame into an ISO/IEC 19794-5 record (MOSIP's encoder, as
+ * an onboarded face) in {@value #DEFAULT_TEMPLATE} (or {@code --template}, which must be under {@code eval-data/}: the
+ * folder is gitignored, so the face never leaves this computer). {@code --identity verify} runs the client's
+ * {@code IdentityBinding} on a PASSED session against it and prints the outcome and the similarity (the client never
+ * shows a score).
  * It drives exactly the classes the client uses ({@link LivenessScreenModel}, {@link LivenessView}); only the
  * Spring wiring of {@link LivenessGate} is replaced. It lives in the test sources, so it never ships in the client jar
  * (it writes PNG files and can open a webcam); run it on the test classpath (docs/part4-desktop-integration.md §10).
  */
 public final class LivenessScreenDemo {
+
+	/** F15 diagnostics: the test template, a stand-in for an onboarded face, in the gitignored eval-data/. */
+	static final String DEFAULT_TEMPLATE = "eval-data/f15/test-template.iso";
 
 	private LivenessScreenDemo() {
 	}
@@ -60,6 +85,19 @@ public final class LivenessScreenDemo {
 		Map<String, String> a = new HashMap<>();
 		for (int i = 0; i + 1 < args.length; i += 2) {
 			a.put(args[i], args[i + 1]);
+		}
+		String identity = a.get("--identity");
+		if (identity != null && !Arrays.asList("enroll", "verify", "delete").contains(identity)) {
+			throw new IllegalArgumentException("--identity enroll|verify|delete");
+		}
+		File template = templateFile(a.get("--template"));
+		if ("delete".equals(identity)) {
+			System.out.println(Files.deleteIfExists(template.toPath()) ? "F15 test template deleted: " + template
+					: "No F15 test template at " + template);
+			return;
+		}
+		if (identity != null && a.get("--live") == null) {
+			throw new IllegalArgumentException("--identity " + identity + " needs --live webcam|video:<file>");
 		}
 		CountDownLatch started = new CountDownLatch(1);
 		Platform.startup(started::countDown);
@@ -73,7 +111,7 @@ public final class LivenessScreenDemo {
 		Platform.setImplicitExit(true);
 		Platform.runLater(() -> {
 			try {
-				interactive(workflow, a.get("--scenario"), a.get("--live"));
+				interactive(workflow, a.get("--scenario"), a.get("--live"), identity, template);
 			} catch (Exception e) {
 				e.printStackTrace();
 				Platform.exit();
@@ -81,15 +119,26 @@ public final class LivenessScreenDemo {
 		});
 	}
 
+	/** The test template's file; refused outside an eval-data folder, so a face can never land in a tracked path. */
+	static File templateFile(String path) throws IOException {
+		File f = new File(path == null ? DEFAULT_TEMPLATE : path);
+		if (!f.getCanonicalPath().replace('\\', '/').contains("/eval-data/")) {
+			throw new IllegalArgumentException("the F15 test template must be under eval-data/ (gitignored): " + f);
+		}
+		return f;
+	}
+
 	// ------------------------------------------------------------------ interactive
 
-	private static void interactive(WorkflowType workflow, String scenario, String live) throws Exception {
+	private static void interactive(WorkflowType workflow, String scenario, String live, String identity,
+			File template) throws Exception {
 		Map<String, String> cfg = new HashMap<>();
 		ConfigProvider config = cfg::get;
 		LivenessService service;
 		FrameSource device;
+		OnnxFaceAnalyzerFactory analyzers = null;
 		if (live != null) {
-			OnnxFaceAnalyzerFactory analyzers = new OnnxFaceAnalyzerFactory();
+			analyzers = new OnnxFaceAnalyzerFactory();
 			analyzers.preload();
 			service = DefaultLivenessService.builder().config(config).analyzerFactory(analyzers)
 					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
@@ -129,6 +178,7 @@ public final class LivenessScreenDemo {
 			System.exit(0);
 		});
 		stage.show();
+		final OnnxFaceAnalyzerFactory matchers = analyzers;
 		session.start(source, new LivenessListener() {
 			@Override
 			public void onEvent(LivenessEvent e) {
@@ -142,12 +192,80 @@ public final class LivenessScreenDemo {
 			@Override
 			public void onComplete(LivenessResult r) {
 				System.out.println("RESULT " + r.decision + " " + (r.failureCode == null ? r.passPath : r.failureCode));
+				if (identity != null && r.passed()) {
+					identity(identity, template, matchers, workflow, r);
+				}
 				Platform.runLater(() -> {
 					model.onComplete(r);
 					view.render(model);
 				});
 			}
 		});
+	}
+
+	/** F15 on a PASSED session: enroll its best frame as the test template, or verify it against the template. */
+	private static void identity(String mode, File template, OnnxFaceAnalyzerFactory matchers, WorkflowType workflow,
+			LivenessResult passed) {
+		try {
+			if ("enroll".equals(mode)) {
+				ByteArrayOutputStream png = new ByteArrayOutputStream();
+				ImageIO.write(image(passed.bestFrame), "png", png);
+				ConvertRequestDto request = new ConvertRequestDto();
+				request.setVersion("ISO19794_5_2011");
+				request.setModality("Face");
+				request.setPurpose("REGISTRATION");
+				request.setImageType(0);
+				request.setInputBytes(png.toByteArray());
+				byte[] iso = FaceEncoder.convertFaceImageToISO(request);
+				Files.createDirectories(template.getAbsoluteFile().getParentFile().toPath());
+				Files.write(template.toPath(), iso);
+				System.out.println("F15 test template enrolled: " + template + " (" + iso.length
+						+ " bytes, gitignored; delete it with --identity delete)");
+				return;
+			}
+			final byte[] iso = template.isFile() ? Files.readAllBytes(template.toPath()) : null;
+			ApplicationContext.getInstance(); // DesktopLivenessConfig reads the (empty) application map first
+			IdentityBinding binding = new IdentityBinding(w -> true, new DesktopLivenessConfig(), null,
+					IdentityBinding.onnx(matchers::createMatcher),
+					userId -> iso == null ? Collections.<IdentityBinding.Template>emptyList()
+							: Collections.singletonList(new IdentityBinding.Template(iso, template.lastModified())),
+					new DesktopAuditSink(PRINTED_AUDIT, Runnable::run), false);
+			IdentityBinding.Verdict v = binding.verifyLive(workflow, "f15-test-user", IdentityBinding.GATE_DIAGNOSTICS, 1,
+					passed.sessionId, passed.bestFrame);
+			System.out.println(String.format(Locale.ROOT, "F15 identity check: %s, similarity %.3f (development only)", v,
+					v.similarity));
+		} catch (Exception e) {
+			System.out.println("F15 " + mode + " failed: " + e);
+		}
+	}
+
+	/** The audit records of the demo's identity check, printed (the client writes them to its audit table). */
+	private static final AuditManagerService PRINTED_AUDIT = new AuditManagerService() {
+		@Override
+		public void audit(AuditEvent e, Components c, String refId, String refIdType) {
+			audit(e, c, refId, refIdType, null);
+		}
+
+		@Override
+		public void audit(AuditEvent e, Components c, String refId, String refIdType, String description) {
+			System.out.println("AUDIT " + e.getId() + " " + e.getName() + " " + description);
+		}
+
+		@Override
+		public ResponseDTO deleteAuditLogs() {
+			return null;
+		}
+	};
+
+	private static BufferedImage image(Frame f) {
+		BufferedImage img = new BufferedImage(f.width(), f.height(), BufferedImage.TYPE_INT_RGB);
+		byte[] rgb = f.rgb();
+		for (int y = 0, i = 0; y < f.height(); y++) {
+			for (int x = 0; x < f.width(); x++, i += 3) {
+				img.setRGB(x, y, (rgb[i] & 0xff) << 16 | (rgb[i + 1] & 0xff) << 8 | (rgb[i + 2] & 0xff));
+			}
+		}
+		return img;
 	}
 
 	// ------------------------------------------------------------------ snapshots

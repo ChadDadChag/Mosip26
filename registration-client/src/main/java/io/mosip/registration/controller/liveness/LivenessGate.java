@@ -1,6 +1,8 @@
 package io.mosip.registration.controller.liveness;
 
 import java.util.Collection;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,10 +20,14 @@ import io.mosip.registration.liveness.api.LivenessSession;
 import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.desktop.DesktopLivenessConfig;
 import io.mosip.registration.liveness.desktop.DesktopLivenessService;
+import io.mosip.registration.liveness.desktop.IdentityBinding;
 import io.mosip.registration.liveness.device.util.PreviewFrameSource;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -43,18 +49,33 @@ import javafx.util.Duration;
  * </ul>
  * It never throws: any error inside it ends as BLOCKED with the generic text (fail closed). The accept or reject
  * decision comes only from {@code onComplete(result)}; events only drive the screen.
+ *
+ * <p>The password login, which no face capture follows, uses {@link #runWithIdentity} instead (F15): after the
+ * session PASSED, the live face must also be the user's onboarded face.
  */
 @Component
 public class LivenessGate {
 
 	private static final Logger LOGGER = AppConfig.getLogger(LivenessGate.class);
 
+	/** The text when identity binding (F15) rejects the live face. Generic: never a score or a reason. */
+	public static final String IDENTITY_NOT_VERIFIED_KEY = "liveness.error.identity_not_verified";
+	/** Liveness sessions per identity gate: the first, and one retry after a rejection. */
+	static final int IDENTITY_ATTEMPTS = 2;
+
 	public enum Outcome {
-		PROCEED, CANCELLED, BLOCKED;
+		PROCEED, CANCELLED, BLOCKED,
+		/** F15: liveness passed, but the live face was not verified as the user's onboarded face, after the retry. */
+		IDENTITY_NOT_VERIFIED;
 
 		public boolean proceed() {
 			return this == PROCEED;
 		}
+	}
+
+	/** What follows an identity check: go on, offer the one retry, or stop. */
+	enum IdentityStep {
+		PROCEED, RETRY, NOT_VERIFIED
 	}
 
 	@Autowired
@@ -115,6 +136,81 @@ public class LivenessGate {
 			session.cancel();
 			showUnavailable(workflow, owner, done);
 		}
+	}
+
+	/**
+	 * F15: {@link #run}, then identity binding for {@code userId} ({@link IdentityBinding}): the live face must be the
+	 * user's face onboarded on this machine. A rejection shows {@value #IDENTITY_NOT_VERIFIED_KEY} with Retry, which
+	 * runs one new liveness session; a second rejection, Cancel, or a rejection that a retry cannot fix ends as
+	 * {@link Outcome#IDENTITY_NOT_VERIFIED}. The caller counts that as a failed login. {@code done} is called once, on
+	 * the JavaFX thread.
+	 */
+	public void runWithIdentity(WorkflowType workflow, Window owner, String userId, Consumer<Outcome> done) {
+		identityAttempt(workflow, owner, userId, 1, done);
+	}
+
+	private void identityAttempt(WorkflowType workflow, Window owner, String userId, int attempt,
+			Consumer<Outcome> done) {
+		run(workflow, owner, outcome -> {
+			if (!outcome.proceed()) {
+				done.accept(outcome);
+				return;
+			}
+			// Loading, decoding and matching take a few hundred ms: off the JavaFX thread.
+			Thread worker = new Thread(() -> {
+				IdentityBinding.Verdict v = null;
+				try {
+					v = livenessService.identity().verify(workflow, userId, IdentityBinding.GATE_PASSWORD_LOGIN, attempt);
+				} catch (RuntimeException e) {
+					LOGGER.error("Identity binding could not run for {}: {}", workflow, e.getClass().getSimpleName());
+				}
+				final IdentityStep step = v == null ? (attempt < IDENTITY_ATTEMPTS ? IdentityStep.RETRY
+						: IdentityStep.NOT_VERIFIED) : identityStep(v.accepted(), v.retryable(), attempt);
+				LOGGER.info("Identity binding for {}: {} (attempt {})", workflow, v == null ? "ERROR" : v, attempt);
+				Platform.runLater(() -> afterIdentity(step, workflow, owner, userId, attempt, done));
+			}, "liveness-identity");
+			worker.setDaemon(true);
+			worker.start();
+		});
+	}
+
+	/** The step after an identity check: one retry, and only when a new liveness session can change the result. */
+	static IdentityStep identityStep(boolean accepted, boolean retryable, int attempt) {
+		if (accepted) {
+			return IdentityStep.PROCEED;
+		}
+		return retryable && attempt < IDENTITY_ATTEMPTS ? IdentityStep.RETRY : IdentityStep.NOT_VERIFIED;
+	}
+
+	private void afterIdentity(IdentityStep step, WorkflowType workflow, Window owner, String userId, int attempt,
+			Consumer<Outcome> done) {
+		if (step == IdentityStep.PROCEED) {
+			done.accept(Outcome.PROCEED);
+			return;
+		}
+		if (step == IdentityStep.NOT_VERIFIED) {
+			done.accept(Outcome.IDENTITY_NOT_VERIFIED);
+			return;
+		}
+		try {
+			LivenessMessages texts = LivenessMessages.forApplicationLanguage();
+			ButtonType retry = new ButtonType(texts.text("liveness.button.retry"), ButtonBar.ButtonData.OK_DONE);
+			ButtonType cancel = new ButtonType(texts.text("liveness.button.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
+			Alert alert = new Alert(Alert.AlertType.WARNING, texts.text(IDENTITY_NOT_VERIFIED_KEY), retry, cancel);
+			alert.setHeaderText(null);
+			alert.setTitle(texts.text("liveness.title." + workflow.name().toLowerCase(Locale.ROOT)));
+			if (owner != null) {
+				alert.initOwner(owner);
+			}
+			Optional<ButtonType> choice = alert.showAndWait();
+			if (choice.isPresent() && choice.get() == retry) {
+				identityAttempt(workflow, owner, userId, attempt + 1, done);
+				return;
+			}
+		} catch (RuntimeException e) {
+			LOGGER.error("Identity binding retry could not be offered: {}", e.getClass().getSimpleName());
+		}
+		done.accept(Outcome.IDENTITY_NOT_VERIFIED);
 	}
 
 	/** The fail-closed screen: generic text, recovery guidance, Close. */

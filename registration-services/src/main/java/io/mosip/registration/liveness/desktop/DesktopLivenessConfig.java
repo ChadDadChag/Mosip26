@@ -42,6 +42,13 @@ public class DesktopLivenessConfig implements ConfigProvider {
 	public static final String SOURCE_KEY = PREFIX + "desktop.source";
 
 	public static final String BINDING_ENABLED_KEY = PREFIX + "binding.enabled";
+	/** F15: after a password-only liveness gate, the live face must be the user's onboarded face (default true). */
+	public static final String IDENTITY_ENABLED_KEY = PREFIX + "binding.identity.enabled";
+	/**
+	 * F15: true blocks a user who has no readable onboarded face on this machine; false (the default) lets them in
+	 * on presence alone, audited NOT_BOUND_NO_TEMPLATE or NOT_BOUND_UNREADABLE.
+	 */
+	public static final String IDENTITY_REQUIRE_TEMPLATE_KEY = PREFIX + "binding.identity.requireTemplate";
 	public static final String SBI_FRAME_TIMEOUT_KEY = PREFIX + "desktop.sbi.frameTimeoutMs";
 	public static final String SBI_FRAME_STRIDE_KEY = PREFIX + "desktop.sbi.frameStride";
 	public static final String SBI_RECONNECTS_KEY = PREFIX + "desktop.sbi.maxReconnectAttempts";
