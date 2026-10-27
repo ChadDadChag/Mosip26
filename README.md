@@ -220,7 +220,8 @@ order and byte-identical through `MjpegFrameReader`.
     hung the demo's exit once, which is F13b. Since F13b the development tools default to `OpenCvWebcamFrameGrabber`
     (the openpnp OpenCV that the evaluation tools already use, F13) and release the camera before they exit, with a
     watchdog against a hung shutdown (`WebcamGrabbers.exit`). The OpenCV grabber in these tools has not been run with
-    a camera yet.
+    a camera yet. If OpenCV cannot open the camera once (for example, another program holds it), that frame source
+    stays on sarxos, and its shutdown hook, until the tool restarts: close the other program and restart the tool.
   - `CameraXFrameSource` type-checks against stubs of the CameraX/Android types it uses. Its YUV→RGB conversion,
     rotation (0/90/180/270) and stride were run on synthetic frames. It has not been built with the Android SDK or
     run on a device.
