@@ -143,6 +143,40 @@ public class IdentityBindingTest {
 		}
 	}
 
+	/** Both F15 switches: true/yes/1/on and false/no/0/off in any case; anything else is the default (A4, task 20). */
+	@Test
+	public void bothSwitchesReadYesNoOneZeroOnOffAndKeepTheirDefaultOtherwise() {
+		outcome = "NOT_BOUND_NO_TEMPLATE";
+		stored = Collections.emptyList();
+		for (String on : new String[] { "true", "YES", "1", " on " }) {
+			synced.put(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, on);
+			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
+			assertFalse(on, identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).accepted());
+		}
+		for (String off : new String[] { "false", "No", "0", "OFF", "required", "" }) {
+			synced.put(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, off);
+			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
+			assertTrue(off, identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).accepted());
+		}
+
+		outcome = "MATCH";
+		stored = Collections.singletonList(new IdentityBinding.Template(new byte[] { 1 }, 70 * DAY));
+		for (String off : new String[] { "false", "NO", "0", "off" }) {
+			synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, off);
+			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
+			assertEquals(off, IdentityBinding.Verdict.Kind.DISABLED,
+					identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).kind);
+		}
+		for (String on : new String[] { "true", "Yes", "1", "on", "disabled" }) {
+			synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, on);
+			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
+			assertEquals(on, IdentityBinding.Verdict.Kind.MATCH,
+					identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).kind);
+		}
+		assertNull(DesktopLivenessConfig.parseSwitch("disabled"));
+		assertNull(DesktopLivenessConfig.parseSwitch(null));
+	}
+
 	@Test
 	public void everyOtherFailureFailsClosed() {
 		identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);

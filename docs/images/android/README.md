@@ -28,5 +28,7 @@ appears. The system status and navigation bars are cropped; 540 px wide.
 | `19-max-attempts-supervisor.png` | FAILED_FINAL, max attempts, supervisor recovery | MAX_RETRIES_EXCEEDED, SUPERVISOR |
 | `20-operator-cooldown-refusal.png` | cooldown refusal (an immediate FAILED_FINAL) | OPERATOR again within the 60 s cooldown |
 
-The oval colour always comes with an icon. The debug-only model chip is hidden in placeholder mode. English only:
-the other languages fall back to English until their translations are added.
+The oval colour always comes with an icon. The debug-only model chip is hidden in placeholder mode. The screenshots
+are in English. The app has the liveness texts in all six of its languages (English, Arabic, French, Hindi, Kannada
+and Tamil), added in fix round 4; the five non-English ones are machine-translated and need a native speaker's review
+(see [`docs/ui-liveness-spec.md`](../../ui-liveness-spec.md) Appendix A).
