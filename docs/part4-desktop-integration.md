@@ -172,7 +172,7 @@ It is a second factor after the password: a false match lets in someone who has 
 |---|---|
 | MATCH | The login goes on. |
 | NO_MATCH, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_ARMED, EXPIRED, ERROR | The client shows "Face verification could not be completed for this user. Please try again." with Retry and Cancel. Retry runs one new liveness session. No score is shown. |
-| The same after the retry, or Cancel | `IDENTITY_NOT_VERIFIED`: the user is logged out, the login page is shown, and the client counts one failed login (below). |
+| The same after the retry, Cancel, or a retry session that does not pass (cancelled, closed, failed) | `IDENTITY_NOT_VERIFIED`: the user is logged out, the login page is shown, and the client counts one failed login (below). |
 | NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE | No onboarded face on this machine, or none decodes to one face. The login goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the login is refused at once, because a retry cannot help. |
 | Liveness off for OPERATOR, or `binding.identity.enabled=false` | The login goes on as before. The second case is audited `SKIPPED`. |
 
@@ -489,9 +489,11 @@ bundled defaults (audited in `LIVENESS_CONFIG_LOADED` as `configError`).
 **Face binding and analyzer**: `binding.enabled` (true), `binding.cosineThreshold` (0.45), and Part 2's optional
 `analyzer.*` keys ([part2-pad-architecture.md](part2-pad-architecture.md)).
 
-**Identity binding (F15, section 2.5)**: `binding.identity.enabled` (true), `binding.identity.threshold` (0.40,
-provisional), `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence
-alone, audited).
+**Identity binding (F15, section 2.5)**:
+- `binding.identity.enabled` (true; only an explicit `false` switches it off);
+- `binding.identity.threshold` (0.40, provisional; valid from 0.30 to 1.0);
+- `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence alone,
+  audited).
 
 **Desktop** (`mosip.registration.liveness.face.desktop.*`):
 
