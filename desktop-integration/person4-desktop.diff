@@ -83,7 +83,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,766 @@
+@@ -0,0 +1,770 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -576,10 +576,11 @@ new file mode 100644
 +`analyzer.*` keys ([part2-pad-architecture.md](part2-pad-architecture.md)).
 +
 +**Identity binding (F15, section 2.5)**:
-+- `binding.identity.enabled` (true; only an explicit `false` switches it off);
++- `binding.identity.enabled` (true; `false`, `no`, `0` or `off` switches it off, `true`, `yes`, `1` or `on` keeps it
++  on, any other value keeps the default with a warning in the log);
 +- `binding.identity.threshold` (0.40, provisional; valid from 0.30 to 1.0);
 +- `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence alone,
-+  audited).
++  audited; read like `enabled`, so only `true`, `yes`, `1` or `on` turns it on).
 +
 +**Desktop** (`mosip.registration.liveness.face.desktop.*`):
 +
@@ -731,9 +732,9 @@ new file mode 100644
 +
 +(`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 +
-+**Results (2026-10-26, with the follow-ups):** `registration-services` 147 tests pass: the 33 Desktop tests plus the
-+existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
-+`registration-client` 28 tests pass. No failures, nothing skipped.
++**Results (as of 2026-10-26, with the follow-ups):** `registration-services` 105 liveness tests pass: Part 1's 72 and
++Part 4's 33. `registration-client` 28 tests pass. The command also runs the existing audit (4), login (26) and config
++sync (`GlobalParamServiceTest`, 12) suites, which pass too. No failures, nothing skipped.
 +
 +**Results with F17 (2026-10-27):** `registration-services` 158 tests pass. That is the 147 above, plus the four F16
 +regression clips in `RecordedVideoE2ETest` (Part 2) and the 7 `DesktopOfflineModelInstallTest` tests.
@@ -838,6 +839,9 @@ new file mode 100644
 +  a face device must therefore be connected for every operator login while operator liveness is enabled; set the key
 +  to false (or `operator.enabled=false`) where that is not wanted. OTP-only, fingerprint and iris logins are not gated.
 +- The operator cooldown is in memory (Part 3, proposal P1).
++- The F15 identity threshold (`binding.identity.threshold`), like the `analyzer.*` settings, is read when the
++  models are built: at start, and after a model install, update or rollback. A config sync reloads only the policies,
++  so a new threshold from a sync applies after a restart.
 +- An F15 rejection after the retry is one failed login (section 2.5). On a clean count it locks the account only if
 +  `mosip.registration.invalid_login_count` is 1. After earlier wrong passwords it can be the failure that reaches the
 +  limit, because a correct password does not reset the count.
@@ -5375,11 +5379,12 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DesktopLivenessConfig.java
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,192 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.io.IOException;
 +import java.io.InputStream;
++import java.util.Locale;
 +import java.util.Map;
 +import java.util.Properties;
 +import java.util.TreeMap;
@@ -5479,6 +5484,30 @@ new file mode 100644
 +	public boolean getBoolean(String key, boolean fallback) {
 +		String v = get(key);
 +		return v == null ? fallback : Boolean.parseBoolean(v);
++	}
++
++	/**
++	 * A switch where a typo must not flip it: true, yes, 1 or on is on; false, no, 0 or off is off (any case);
++	 * unset is {@code fallback}, and any other value is {@code fallback} with a warning.
++	 */
++	public boolean getSwitch(String key, boolean fallback) {
++		Boolean v = parseSwitch(get(key));
++		if (v == null && get(key) != null) {
++			LOGGER.warn("Ignoring invalid value for {} (true/false, yes/no, 1/0 or on/off): {}", key, get(key));
++		}
++		return v == null ? fallback : v;
++	}
++
++	/** true/yes/1/on, false/no/0/off (any case, trimmed), else null. */
++	static Boolean parseSwitch(String value) {
++		switch (value == null ? "" : value.trim().toLowerCase(Locale.ROOT)) {
++			case "true": case "yes": case "1": case "on":
++				return Boolean.TRUE;
++			case "false": case "no": case "0": case "off":
++				return Boolean.FALSE;
++			default:
++				return null;
++		}
 +	}
 +
 +	public long getLong(String key, long fallback) {
@@ -6681,8 +6710,8 @@ new file mode 100644
 +			return new Verdict(Verdict.Kind.LIVENESS_DISABLED, "LIVENESS_DISABLED", Double.NaN);
 +		}
 +		Map<String, String> d = details(userId, gate, attempt);
-+		// Only an explicit "false" switches F15 off: a typo ("yes", "1", "on") must not.
-+		if ("false".equalsIgnoreCase(config.get(DesktopLivenessConfig.IDENTITY_ENABLED_KEY))) {
++		// Only false/no/0/off switches F15 off: any other value keeps it on, with a warning.
++		if (!config.getSwitch(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, true)) {
 +			return finish(workflow, sessionId, new Verdict(Verdict.Kind.DISABLED, "SKIPPED", Double.NaN), d);
 +		}
 +		if (problem != null) {
@@ -6720,7 +6749,7 @@ new file mode 100644
 +		if ("MATCH".equals(id.outcome)) {
 +			kind = Verdict.Kind.MATCH;
 +		} else if (id.outcome.startsWith("NOT_BOUND")) {
-+			boolean required = config.getBoolean(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, false);
++			boolean required = config.getSwitch(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, false);
 +			d.put("requireTemplate", String.valueOf(required));
 +			kind = required ? Verdict.Kind.REJECTED : Verdict.Kind.NOT_BOUND;
 +		} else {
@@ -8175,7 +8204,7 @@ diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/IdentityBindingTest.java
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,303 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import static org.junit.Assert.assertArrayEquals;
@@ -8319,6 +8348,40 @@ new file mode 100644
 +			assertFalse("a new liveness session cannot help", required.retryable());
 +			assertTrue(audit.last().description.contains("requireTemplate=true"));
 +		}
++	}
++
++	/** Both F15 switches: true/yes/1/on and false/no/0/off in any case; anything else is the default (A4, task 20). */
++	@Test
++	public void bothSwitchesReadYesNoOneZeroOnOffAndKeepTheirDefaultOtherwise() {
++		outcome = "NOT_BOUND_NO_TEMPLATE";
++		stored = Collections.emptyList();
++		for (String on : new String[] { "true", "YES", "1", " on " }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, on);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertFalse(on, identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).accepted());
++		}
++		for (String off : new String[] { "false", "No", "0", "OFF", "required", "" }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, off);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertTrue(off, identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).accepted());
++		}
++
++		outcome = "MATCH";
++		stored = Collections.singletonList(new IdentityBinding.Template(new byte[] { 1 }, 70 * DAY));
++		for (String off : new String[] { "false", "NO", "0", "off" }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, off);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertEquals(off, IdentityBinding.Verdict.Kind.DISABLED,
++					identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).kind);
++		}
++		for (String on : new String[] { "true", "Yes", "1", "on", "disabled" }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, on);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertEquals(on, IdentityBinding.Verdict.Kind.MATCH,
++					identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).kind);
++		}
++		assertNull(DesktopLivenessConfig.parseSwitch("disabled"));
++		assertNull(DesktopLivenessConfig.parseSwitch(null));
 +	}
 +
 +	@Test
