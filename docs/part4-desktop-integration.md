@@ -646,9 +646,9 @@ From `registration-client/registration` (JDK 11; first build online):
 
 (`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 
-**Results (2026-10-26, with the follow-ups):** `registration-services` 147 tests pass: the 33 Desktop tests plus the
-existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
-`registration-client` 28 tests pass. No failures, nothing skipped.
+**Results (as of 2026-10-26, with the follow-ups):** `registration-services` 105 liveness tests pass: Part 1's 72 and
+Part 4's 33. `registration-client` 28 tests pass. The command also runs the existing audit (4), login (26) and config
+sync (`GlobalParamServiceTest`, 12) suites, which pass too. No failures, nothing skipped.
 
 **Results with F17 (2026-10-27):** `registration-services` 158 tests pass. That is the 147 above, plus the four F16
 regression clips in `RecordedVideoE2ETest` (Part 2) and the 7 `DesktopOfflineModelInstallTest` tests.
