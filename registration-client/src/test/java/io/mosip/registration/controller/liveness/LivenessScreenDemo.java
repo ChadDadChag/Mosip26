@@ -65,7 +65,8 @@ import javafx.stage.Stage;
  *   LivenessScreenDemo --identity delete                          deletes the test template
  * </pre>
  * {@code --identity enroll} turns a PASSED session's best frame into an ISO/IEC 19794-5 record (MOSIP's encoder, as
- * an onboarded face) in {@value #DEFAULT_TEMPLATE} (or {@code --template}, which must be under {@code eval-data/}: the
+ * an onboarded face) in {@value #DEFAULT_TEMPLATE} (or {@code --template}, or the JVM property {@value
+ * #TEMPLATE_PROPERTY} for a path with spaces; it must be under {@code eval-data/}: the
  * folder is gitignored, so the face never leaves this computer). {@code --identity verify} runs the client's
  * {@code IdentityBinding} on a PASSED session against it and prints the outcome and the similarity (the client never
  * shows a score).
@@ -77,6 +78,8 @@ public final class LivenessScreenDemo {
 
 	/** F15 diagnostics: the test template, a stand-in for an onboarded face, in the gitignored eval-data/. */
 	static final String DEFAULT_TEMPLATE = "eval-data/f15/test-template.iso";
+	/** The template path as a JVM property (Maven passes it whole, spaces included). */
+	static final String TEMPLATE_PROPERTY = "liveness.f15.template";
 
 	private LivenessScreenDemo() {
 	}
@@ -90,7 +93,7 @@ public final class LivenessScreenDemo {
 		if (identity != null && !Arrays.asList("enroll", "verify", "delete").contains(identity)) {
 			throw new IllegalArgumentException("--identity enroll|verify|delete");
 		}
-		File template = templateFile(a.get("--template"));
+		File template = templateFile(a.getOrDefault("--template", System.getProperty(TEMPLATE_PROPERTY)));
 		if ("delete".equals(identity)) {
 			System.out.println(Files.deleteIfExists(template.toPath()) ? "F15 test template deleted: " + template
 					: "No F15 test template at " + template);
