@@ -91,6 +91,71 @@ class FaceMatcherTest {
     }
 
     @Test
+    void identifyUsesTheBestReadableTemplate() throws Exception {
+        GoldenFixtures.Image other = crop(crew, 160, 90, 150, 200);
+        GoldenFixtures.Image grey = GoldenFixtures.raw(fill(portrait.rgb.length, (byte) 128), portrait.width, portrait.height);
+        try (FaceMatcher m = matcher(AnalyzerConfig.defaults())) {
+            assertThat(m.identityThreshold()).isEqualTo(0.40);
+            IdentityResult self = m.identify(frame(portrait), java.util.Arrays.asList(frame(mirrored)));
+            assertThat(self.outcome).isEqualTo(IdentityResult.Outcome.MATCH);
+            assertThat(self.similarity).isCloseTo(goldenMirrorCosine, within(1e-3));
+            assertThat(self.threshold).isEqualTo(0.40);
+            assertThat(self.templates).isEqualTo(1);
+            assertThat(self.unreadable).isZero();
+
+            IdentityResult someoneElse = m.identify(frame(portrait), java.util.Arrays.asList(frame(other)));
+            assertThat(someoneElse.outcome).as("%s", someoneElse).isEqualTo(IdentityResult.Outcome.NO_MATCH);
+            assertThat(someoneElse.matched()).isFalse();
+            assertThat(someoneElse.notBound()).isFalse();
+
+            // Several templates: the best similarity decides; unreadable ones (null, no face, several faces) are counted.
+            IdentityResult several = m.identify(frame(portrait),
+                    java.util.Arrays.asList(frame(other), null, frame(grey), frame(crew), frame(mirrored)));
+            assertThat(several.outcome).isEqualTo(IdentityResult.Outcome.MATCH);
+            assertThat(several.similarity).isCloseTo(self.similarity, within(1e-9));
+            assertThat(several.templates).isEqualTo(5);
+            assertThat(several.unreadable).isEqualTo(3);
+        }
+    }
+
+    @Test
+    void identifyIsNotBoundWithoutAReadableTemplate() throws Exception {
+        GoldenFixtures.Image grey = GoldenFixtures.raw(fill(portrait.rgb.length, (byte) 128), portrait.width, portrait.height);
+        try (FaceMatcher m = matcher(AnalyzerConfig.defaults())) {
+            IdentityResult none = m.identify(frame(portrait), java.util.Collections.<Frame>emptyList());
+            assertThat(none.outcome).isEqualTo(IdentityResult.Outcome.NOT_BOUND_NO_TEMPLATE);
+            assertThat(none.notBound()).isTrue();
+            assertThat(m.identify(frame(portrait), null).outcome).isEqualTo(IdentityResult.Outcome.NOT_BOUND_NO_TEMPLATE);
+            IdentityResult unreadable = m.identify(frame(portrait), java.util.Arrays.asList(frame(grey), frame(crew), null));
+            assertThat(unreadable.outcome).as("no face, four faces, undecodable")
+                    .isEqualTo(IdentityResult.Outcome.NOT_BOUND_UNREADABLE);
+            assertThat(unreadable.similarity).isNaN();
+            assertThat(unreadable.unreadable).isEqualTo(3);
+            assertThat(unreadable.notBound()).isTrue();
+            assertThat(m.identify(frame(crew), java.util.Arrays.asList(frame(portrait))).outcome)
+                    .isEqualTo(IdentityResult.Outcome.NO_LIVE_FACE);
+            assertThat(m.identify(frame(grey), java.util.Arrays.asList(frame(portrait))).outcome)
+                    .isEqualTo(IdentityResult.Outcome.NO_LIVE_FACE);
+        }
+    }
+
+    @Test
+    void theIdentityThresholdIsSeparateFromTheBindingThreshold() throws Exception {
+        Map<String, String> cfg = new HashMap<String, String>();
+        cfg.put(AnalyzerConfig.IDENTITY_THRESHOLD_KEY, "0.99");
+        try (FaceMatcher m = matcher(AnalyzerConfig.fromConfig(cfg::get))) {
+            assertThat(m.threshold()).as("F1 unchanged").isEqualTo(0.45);
+            assertThat(m.identityThreshold()).isEqualTo(0.99);
+            assertThat(m.compare(frame(portrait), frame(mirrored)).outcome).isEqualTo(MatchResult.Outcome.MATCH);
+            assertThat(m.identify(frame(portrait), java.util.Arrays.asList(frame(mirrored))).outcome)
+                    .as("0.956 < 0.99").isEqualTo(IdentityResult.Outcome.NO_MATCH);
+            m.close();
+            assertThatThrownBy(() -> m.identify(frame(portrait), java.util.Arrays.asList(frame(mirrored))))
+                    .isInstanceOf(LivenessEngineException.class);
+        }
+    }
+
+    @Test
     void badInputAndAClosedMatcherFail() throws Exception {
         FaceMatcher m = matcher(AnalyzerConfig.defaults());
         assertThatThrownBy(() -> m.compare(null, frame(portrait)))

@@ -67,6 +67,24 @@ class AnalyzerConfigTest {
     }
 
     @Test
+    void theIdentityThresholdHasItsOwnKey() {
+        assertThat(AnalyzerConfig.defaults().identityCosineThreshold).isEqualTo(0.40);
+        assertThat(AnalyzerConfig.IDENTITY_THRESHOLD_KEY)
+                .isEqualTo("mosip.registration.liveness.face.binding.identity.threshold");
+        Map<String, String> m = new HashMap<String, String>();
+        m.put(AnalyzerConfig.IDENTITY_THRESHOLD_KEY, " 0.42 ");
+        AnalyzerConfig c = AnalyzerConfig.fromConfig(provider(m));
+        assertThat(c.identityCosineThreshold).isEqualTo(0.42);
+        assertThat(c.bindingCosineThreshold).as("F1 keeps its own").isEqualTo(0.45);
+        assertThat(c.toBuilder().build().identityCosineThreshold).isEqualTo(0.42);
+        m.put(AnalyzerConfig.IDENTITY_THRESHOLD_KEY, "low");
+        assertThatThrownBy(() -> AnalyzerConfig.fromConfig(provider(m)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(AnalyzerConfig.IDENTITY_THRESHOLD_KEY);
+        assertThatThrownBy(() -> AnalyzerConfig.builder().identityCosineThreshold(-1.5).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("identity.threshold");
+    }
+
+    @Test
     void defaultsMatchTheReferencePipeline() {
         AnalyzerConfig c = AnalyzerConfig.defaults();
         assertThat(c.intraOpThreads).isEqualTo(2);
