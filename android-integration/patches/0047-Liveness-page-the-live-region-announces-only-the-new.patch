@@ -1,7 +1,7 @@
 From ed14f911890b3fd9d0561a7682507c1b1f2b5cd0 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 02:44:38 +0530
-Subject: [PATCH 47/48] Liveness page: the live region announces only the new
+Subject: [PATCH 47/50] Liveness page: the live region announces only the new
  status; landscape and large text scroll (task 19 review)
 
 - Live region: during the 200 ms status cross-fade, the outgoing status was still in the semantics tree. The live

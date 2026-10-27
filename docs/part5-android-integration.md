@@ -467,14 +467,15 @@ approval (e). F1 has nothing to bind there, so each of them now calls `IdentityB
 `LivenessGate.run`:
 1. The liveness gate, as before. Cancelled or blocked: as before.
 2. Pigeon `verifyIdentity(sessionId, userId, gate, attempt)`. On the binding thread:
-   - `LivenessServiceHolder.verifyIdentity` takes the PASSED session's held best frame (`FaceBinding.take`; it is
-     used once);
+   - `LivenessServiceHolder.verifyIdentity` takes the PASSED session's held best frame (`FaceBinding.take`), only
+     if that session ran the gate's workflow (Operator for the login and packet authentication, Supervisor for the
+     approval). It is used once, and no frame stays held after the check, whatever the outcome (SKIPPED included);
    - it reads the user's Face rows of Room `user_biometric`. Onboarding stores each as a bare ISO 19794-5 record
      (`IdentityTemplates.fromRoom`). Each is decoded as F1 decodes an SBI face: `FaceBDIR`, then
      `BindingImages.decode`;
    - Part 2's `FaceMatcher.identify` compares them: the best of several templates, threshold 0.40;
    - the result is audited (REG-EVT-020).
-3. MATCH, or no readable onboarded face (presence only, unless `requireTemplate=true`): the step goes on.
+3. MATCH, or no readable onboarded face (presence only, unless `requireTemplate` is on): the step goes on.
 4. Otherwise a dialog shows `liveness.error.identity_not_verified` with Retry and Cancel. Retry runs one new liveness
    session. A second rejection, Cancel, or a rejection a retry cannot fix refuses the step with the same text:
    - login: logged out, back to the login page;
@@ -595,7 +596,8 @@ at start-up, and after a sync that changes them.
 | `qualityRelativeBlurRatio`, `meshTracking` | 0.45, true | `AnalyzerConfig` (F6 relative blur, `off` disables it; F7 landmark tracking) |
 | `padLatchThreshold`, `padLatchCapScore`, `volatilityMinScore`, `volatilityCapScore` | 0.30, 0.60, 0.85, 0.60 | `AnalyzerConfig` (F18 print guards; `off` disables a threshold) |
 
-An invalid analyzer config is logged, and the Android defaults are used instead.
+An invalid analyzer setting is logged at WARN, with its key, and then every analyzer setting uses the Android
+defaults, not only the invalid one.
 
 ### Android keys (Part 5)
 
@@ -605,9 +607,9 @@ An invalid analyzer config is logged, and the Android defaults are used instead.
 | `mosip.registration.liveness.face.android.exposureAssist` | true | `false` turns the dim-face exposure assist off |
 | `mosip.registration.liveness.face.binding.enabled` | true | `false`: face captures are stored without face binding, each one audited SKIPPED |
 | `mosip.registration.liveness.face.binding.cosineThreshold` | 0.45 | face binding MATCH at or above this cosine (read by the analyzer config) |
-| `mosip.registration.liveness.face.binding.identity.enabled` | true | F15: `false` skips identity binding after the password-only gates (audited SKIPPED) |
+| `mosip.registration.liveness.face.binding.identity.enabled` | true | F15: `false`, `no`, `0` or `off` skips identity binding after the password-only gates (audited SKIPPED); `true`, `yes`, `1` or `on` keeps it; any other value keeps the default, with a warning in the log |
 | `mosip.registration.liveness.face.binding.identity.threshold` | 0.40 | F15: the live face is the onboarded user at or above this cosine (provisional; Part 2 section 12.1) |
-| `mosip.registration.liveness.face.binding.identity.requireTemplate` | false | F15: `true` refuses a user without a readable onboarded face; `false` lets them in on presence alone, audited |
+| `mosip.registration.liveness.face.binding.identity.requireTemplate` | false | F15: `true`, `yes`, `1` or `on` refuses a user without a readable onboarded face; `false`, `no`, `0` or `off` lets them in on presence alone, audited; any other value keeps the default, with a warning in the log |
 | `mosip.registration.liveness.model.update.enabled` | false | `true` schedules the online model update (needs the URL) |
 | `mosip.registration.liveness.model.update.url` | none | the index, `latest.json`, over HTTPS |
 | `mosip.registration.liveness.model.update.intervalHours` | 24 | hours between checks (at least 1) |
@@ -786,14 +788,15 @@ It shows scores and model versions, but never camera images other than the live 
 
 ### Automated
 
-Counts as of 2026-10-26.
+Counts as of 2026-10-28.
 
 | suite | tests | covers |
 |---|---|---|
-| `android/liveness` module (JVM) | **112**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped (6); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
-| Flutter `test/liveness` | **240**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with Roboto: no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines, one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141). Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
+| `android/liveness` module (JVM) | **115**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped and the frame dropped, the failed-login rule, both switches in every spelling, a frame held for another workflow or session refused and dropped (9); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
+| Flutter `test/liveness` | **287**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with Roboto: no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines, one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47). Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
-| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 257, eval 65 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
+| clientmanager `SessionManagerTest` | **14**, all passing | upstream's tests, and the login token's user name stored as the user id that onboarding uses, removed at logout (task 19) |
+| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 258, eval 66 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
 
 **Upstream test failures (not ours).** `:clientmanager:testDebugUnitTest` has **14 failing tests
 in upstream v1.1.1**:
@@ -859,6 +862,15 @@ provisional.
   - The three hooks were checked by code review and the gate's tests only.
 - **F15, faces onboarded before the user id fix (task 19).** Faces onboarded before this fix are stored under an
   empty user id; the operator must onboard again.
+- **One invalid analyzer setting resets them all (task 20).** If any analyzer value (the identity threshold included)
+  is invalid, every analyzer setting uses the Android defaults, not only that one. The log has a WARN line that names
+  the key.
+- **The hint line on a phone screen (task 20).** Measured with the test fonts at 412×915 dp and at the S23 FE's
+  411×891 dp (with no system bars, and with a 32 dp status bar and a 48 dp button navigation bar): in English and
+  French the camera card stays at its 45% cap, so a hint never moves it. At text scale 1.0 every guidance hint takes
+  one line; at 1.3 the "No face detected" hint takes two, and the progress row below it moves down by one line.
+  Screens with less than 420 dp for the content use the scrolling layout. Arabic, Hindi, Kannada and Tamil were not
+  measured with their own fonts.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
