@@ -184,6 +184,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
 **Error mapping.** Always go through `event.error.userMessage()` and never switch on the raw `ErrorCode` in the UI:
 `NONE` shows nothing, and the other four values map to `liveness.error.<value in lower case>`.
 
+### 4.5 Model bundle texts (F17: offline install and rollback, supervisors and admins)
+
+These texts are outside the liveness screen. They are shown on the Desktop home page's operational tasks and on the
+Android "Face liveness models" page. `{0}` is the bundle version; Android's ARB uses `{version}`. The version is filled
+in literally, not with MessageFormat, because the translations contain apostrophes. A result never shows a path, a
+file name or an exception message.
+
+| Key | Text | Where |
+|---|---|---|
+| `liveness.model.title` | Face liveness models | Android page title, operational task |
+| `liveness.model.current` | Models in use: {0} | Android page |
+| `liveness.model.install` | Install model bundle | button, Desktop tile |
+| `liveness.model.rollback` | Roll back model bundle | button, Desktop tile |
+| `liveness.model.select_file` | Select a model bundle (.zip) | file picker title |
+| `liveness.model.working` | Working on the model bundle… please wait. | while it runs |
+| `liveness.model.installed` | Model bundle {0} installed. New liveness checks use it. | INSTALLED |
+| `liveness.model.rolled_back` | Models rolled back to {0}. New liveness checks use them. | ROLLED_BACK |
+| `liveness.model.not_newer` | This model bundle is not newer than the models in use. Nothing was changed. | the same or an older version |
+| `liveness.model.invalid` | This file is not a valid signed model bundle. Nothing was changed. | tampered, unsigned or malformed (MODEL_INTEGRITY_FAILED) |
+| `liveness.model.nothing_to_roll_back` | There is no earlier model bundle to roll back to. | rollback with nothing earlier |
+| `liveness.model.failed` | The model bundle could not be installed. Nothing was changed. Please try again. | storage problem |
+| `liveness.model.rollback_failed` | The models could not be rolled back. Nothing was changed. | rollback failed |
+| `liveness.model.not_allowed` | Only a supervisor or an administrator can change the face liveness models. | role or feature check failed |
+| `liveness.model.confirm_rollback` | Roll back to the previous face liveness models? New liveness checks will use them. | rollback confirmation |
+
+**Translations.** The Arabic and French texts are in the Desktop `messages_ar` / `messages_fr` bundles, and all five
+languages are in the Android ARB files. They are machine-translated and need native-speaker review (the second batch
+of the translation review sheet).
+
 ## 5. Message keys and ready-to-paste catalogues
 
 - **Canonical keys** are dotted lower case, as above. `liveness.challenge.<name lower>` is already fixed by the
