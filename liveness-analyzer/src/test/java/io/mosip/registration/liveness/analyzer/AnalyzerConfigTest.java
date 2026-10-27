@@ -196,6 +196,40 @@ class AnalyzerConfigTest {
         assertInvalid(AnalyzerConfig.builder().moireVetoThreshold(-1), "moireVetoThreshold");
     }
 
+    @Test
+    void thePrintGuardsAreOnByDefaultAndCanBeSetOrSwitchedOff() {
+        AnalyzerConfig d = AnalyzerConfig.defaults();
+        assertThat(d.padLatchThreshold).isEqualTo(0.30);
+        assertThat(d.padLatchCapScore).isEqualTo(0.60);
+        assertThat(d.volatilityMinScore).isEqualTo(0.85);
+        assertThat(d.volatilityCapScore).isEqualTo(0.60);
+        AnalyzerConfig set = AnalyzerConfig.fromConfig(provider(keys("padLatchThreshold", "0.25", "padLatchCapScore",
+                "0.65", "volatilityMinScore", "0.9", "volatilityCapScore", "0.5")));
+        assertThat(set.padLatchThreshold).isEqualTo(0.25);
+        assertThat(set.padLatchCapScore).isEqualTo(0.65);
+        assertThat(set.volatilityMinScore).isEqualTo(0.9);
+        assertThat(set.volatilityCapScore).isEqualTo(0.5);
+        assertThat(set.toBuilder().build().volatilityCapScore).isEqualTo(0.5);
+        AnalyzerConfig off = AnalyzerConfig.fromConfig(provider(keys("padLatchThreshold", "off", "volatilityMinScore",
+                "OFF")));
+        assertThat(off.padLatchThreshold).isNaN();
+        assertThat(off.volatilityMinScore).isNaN();
+        assertThat(off.toBuilder().build().padLatchThreshold).isNaN();
+
+        assertInvalid(AnalyzerConfig.builder().padLatchThreshold(0), "padLatchThreshold");
+        assertInvalid(AnalyzerConfig.builder().padLatchThreshold(1), "padLatchThreshold");
+        assertInvalid(AnalyzerConfig.builder().padLatchCapScore(1), "padLatchCapScore");
+        // The cap must stay above the latch threshold: a latched person goes to a challenge, never to PAD_FAILURE.
+        assertInvalid(AnalyzerConfig.builder().padLatchThreshold(0.5).padLatchCapScore(0.4), "padLatchCapScore");
+        assertThat(AnalyzerConfig.builder().padLatchThreshold(Double.NaN).padLatchCapScore(0.2).build().padLatchCapScore)
+                .isEqualTo(0.2);
+        assertInvalid(AnalyzerConfig.builder().volatilityMinScore(0), "volatilityMinScore");
+        assertInvalid(AnalyzerConfig.builder().volatilityMinScore(1.2), "volatilityMinScore");
+        assertInvalid(AnalyzerConfig.builder().volatilityCapScore(0), "volatilityCapScore");
+        assertThatThrownBy(() -> AnalyzerConfig.fromConfig(provider(keys("volatilityCapScore", "high"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("volatilityCapScore");
+    }
+
     private static void assertInvalid(AnalyzerConfig.Builder b, String key) {
         assertThatThrownBy(b::build).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(AnalyzerConfig.KEY_PREFIX + key);
