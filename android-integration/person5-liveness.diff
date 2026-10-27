@@ -382,10 +382,10 @@ index 640ac66..48272d9 100644
              Log.e(TAG, "Failed to parse rcapture response", e);
 diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
 new file mode 100644
-index 0000000..8274395
+index 0000000..98a8e27
 --- /dev/null
 +++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
-@@ -0,0 +1,788 @@
+@@ -0,0 +1,794 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -848,6 +848,12 @@ index 0000000..8274395
 +            LivenessServiceHolder.ModelBundleResult r = holder.rollbackOfflineBundle();
 +            main.post(() -> result.success(toPigeon(r)));
 +        });
++    }
++
++    /** Diagnostics builds: the debug page's entry to the production page; the holder ignores it in release builds. */
++    @Override
++    public void setModelBundleDiagnosticOverride(@NonNull Boolean on) {
++        holder.setDiagnosticModelBundleOverride(BuildConfig.LIVENESS_DIAGNOSTICS && on);
 +    }
 +
 +    private static void copyAtMost(ContentResolver resolver, Uri uri, File to, long max) throws IOException {
@@ -1565,16 +1571,16 @@ index 0000000..686d49a
 +-keep class ai.onnxruntime.** { *; }
 diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
 new file mode 100644
-index 0000000..343ad2f
+index 0000000..1cf54d7
 --- /dev/null
 +++ b/android/liveness/engine-sync.txt
 @@ -0,0 +1,14 @@
 +# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
-+engine commit b3586d5
-+libs/liveness-api-1.2.0.2.jar 8470dbc8283bd48fe8c2b191e3a8aff60c1229540a71db2d8198ef175a5539eb
-+libs/liveness-core-1.2.0.2.jar 631e96b4f1bb2cf482aea52a54c9d013760122ef627acdc214bbeb947e3888aa
-+libs/liveness-fake-1.2.0.2.jar 5b45f2c37461f233dd3ae1a5cf95e53cb61c1815d0d182b9da451f174b663469
-+libs/liveness-analyzer-1.2.0.2.jar 9ba043e4b82be03a6d74ae9235496fa9d1d9973635403b4f93188ac2a9236e45
++engine commit 2e389a0
++libs/liveness-api-1.2.0.2.jar 18ead7957c62e38cbd6f0be9614f6ffb0df50a2adbd4d5e7802fdff7eefb7f5a
++libs/liveness-core-1.2.0.2.jar ee7c692b631669f79adba2969226283efb1bd1260aab107065527679fd6bb6c7
++libs/liveness-fake-1.2.0.2.jar 6fc90ed9dfcb1bcafed72464bd009881539c1467b2a9f33997100d5b0f7a61fe
++libs/liveness-analyzer-1.2.0.2.jar a3573f96a46b0e4d59bca6f25619fbdef900ec44024934dbf1a73e185968bb04
 +assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
 +assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
 +assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
@@ -1910,10 +1916,10 @@ index 0000000..1e80ea3
 +}
 diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
 new file mode 100644
-index 0000000..1d894d5
+index 0000000..64c959e
 --- /dev/null
 +++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,190 @@
 +package io.mosip.registration.liveness.android;
 +
 +import android.util.Log;
@@ -2019,10 +2025,11 @@ index 0000000..1d894d5
 +    /**
 +     * F17 offline install or rollback: {@link AuditEvent#LIVENESS_MODEL_UPDATE} (REG-EVT-019) with the outcome, the
 +     * error code of a bad bundle, the reason code, the versions before and after, the duration, the trigger (offline or
-+     * rollback) and the user id. Codes, versions and the id only: no path, no exception message.
++     * rollback), the user id and, when a debug build's diagnostic override stood in for the role check,
++     * roleCheck=diagnostics-override. Codes, versions and the id only: no path, no exception message.
 +     */
 +    public void modelBundle(String outcome, String errorCode, String reason, String fromVersion, String toVersion,
-+                            long durationMs, String trigger, String userId) {
++                            long durationMs, String trigger, String userId, boolean diagnosticOverride) {
 +        try {
 +            Map<String, String> d = new java.util.LinkedHashMap<>();
 +            d.put("outcome", outcome);
@@ -2033,6 +2040,7 @@ index 0000000..1d894d5
 +            d.put("durationMs", Long.toString(durationMs));
 +            d.put("trigger", trigger);
 +            d.put("userId", userId == null ? "NA" : userId);
++            if (diagnosticOverride) d.put("roleCheck", "diagnostics-override");
 +            String text = details(AuditEvent.LIVENESS_MODEL_UPDATE, null, d);
 +            executor.execute(() -> write(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME, text));
 +        } catch (RuntimeException e) {
@@ -2876,10 +2884,10 @@ index 0000000..085dbae
 +}
 diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
 new file mode 100644
-index 0000000..7ecf395
+index 0000000..cfe6c81
 --- /dev/null
 +++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
-@@ -0,0 +1,689 @@
+@@ -0,0 +1,709 @@
 +package io.mosip.registration.liveness.android;
 +
 +import android.content.Context;
@@ -3235,6 +3243,8 @@ index 0000000..7ecf395
 +    };
 +
 +    private volatile ModelBundleUser modelBundleUser = NOBODY;
++    // Debug and profile builds only: the debug page's entry to the production page sets it (no backend, no login).
++    private volatile boolean diagnosticRoleOverride;
 +
 +    /** What an offline install or a rollback did; the UI maps it to a generic text, never to paths or exceptions. */
 +    public enum ModelBundleOutcome { INSTALLED, ROLLED_BACK, NOT_NEWER, INVALID, NOTHING_TO_ROLL_BACK, NOT_ALLOWED, FAILED }
@@ -3262,9 +3272,23 @@ index 0000000..7ecf395
 +        return v == null || !"false".equalsIgnoreCase(v.trim());
 +    }
 +
++    /**
++     * Debug and profile builds: lets the debug page open the production page without a logged-in supervisor (the
++     * development phone has no MOSIP backend, so nobody can log in). Ignored unless {@code diagnostics} (never in a
++     * release build); the config switch still applies, and every action it allows is audited with
++     * roleCheck=diagnostics-override.
++     */
++    public void setDiagnosticModelBundleOverride(boolean on) {
++        diagnosticRoleOverride = diagnostics && on;
++    }
++
++    private boolean roleOverridden() {
++        return diagnostics && diagnosticRoleOverride;
++    }
++
 +    /** The production page and its entry are shown only when this is true; the actions check it again. */
 +    public boolean modelBundleActionsAllowed() {
-+        return offlineInstallEnabled() && modelBundleUser.maySupervise();
++        return offlineInstallEnabled() && (modelBundleUser.maySupervise() || roleOverridden());
 +    }
 +
 +    /** The model bundle version new sessions use (store or bundled), or null when unreadable. */
@@ -3334,12 +3358,16 @@ index 0000000..7ecf395
 +    private ModelBundleResult bundleAudit(String trigger, String from, String to, String outcome, String reason,
 +                                          String errorCode, long start, ModelBundleOutcome result) {
 +        String user;
++        boolean supervises;
 +        try {
 +            user = modelBundleUser.id();
++            supervises = modelBundleUser.maySupervise();
 +        } catch (RuntimeException e) {
 +            user = null;
++            supervises = false;
 +        }
-+        audit.modelBundle(outcome, errorCode, reason, from, to, SystemClock.elapsedRealtime() - start, trigger, user);
++        audit.modelBundle(outcome, errorCode, reason, from, to, SystemClock.elapsedRealtime() - start, trigger, user,
++                !supervises && roleOverridden());
 +        return new ModelBundleResult(result, from, to);
 +    }
 +
@@ -5388,10 +5416,10 @@ index 0000000..1096b15
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessOfflineModelInstallTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessOfflineModelInstallTest.java
 new file mode 100644
-index 0000000..8724b38
+index 0000000..b55f54d
 --- /dev/null
 +++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessOfflineModelInstallTest.java
-@@ -0,0 +1,255 @@
+@@ -0,0 +1,315 @@
 +package io.mosip.registration.liveness.android;
 +
 +import static org.junit.Assert.assertEquals;
@@ -5401,6 +5429,7 @@ index 0000000..8724b38
 +import static org.mockito.ArgumentMatchers.argThat;
 +import static org.mockito.ArgumentMatchers.eq;
 +import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.never;
 +import static org.mockito.Mockito.timeout;
 +import static org.mockito.Mockito.verify;
 +import static org.mockito.Mockito.when;
@@ -5443,8 +5472,9 @@ index 0000000..8724b38
 +
 +/**
 + * F17: the production offline model install and rollback, end to end with the real models re-signed with a throwaway
-+ * key (no development key in tests): install and reload, refusals that leave the store unchanged, rollback, the role
-+ * gate and the config switch, and the REG-EVT-019 audit (codes, versions and the user id only).
++ * key (no development key in tests): install and reload, refusals that leave the store unchanged (a tampered zip is
++ * invalid whatever version it claims), rollback, the role gate, the debug builds' role override (ignored by release
++ * builds) and the config switch, and the REG-EVT-019 audit (codes, versions and the user id only).
 + */
 +public class LivenessOfflineModelInstallTest {
 +
@@ -5460,12 +5490,14 @@ index 0000000..8724b38
 +    private final GlobalParamRepository globalParams = mock(GlobalParamRepository.class);
 +    private final AuditManagerService auditManager = mock(AuditManagerService.class);
 +    private KeyPair kp;
++    private Context context;
++    private File bundled;
 +    private LivenessServiceHolder holder;
 +    private boolean supervisor = true;
 +
 +    @Before
 +    public void setUp() throws Exception {
-+        Context context = mock(Context.class);
++        context = mock(Context.class);
 +        when(context.getApplicationContext()).thenReturn(context);
 +        when(context.getAssets()).thenReturn(mock(AssetManager.class));
 +        when(context.getFilesDir()).thenReturn(files.newFolder("files"));
@@ -5473,13 +5505,18 @@ index 0000000..8724b38
 +        KeyPairGenerator g = KeyPairGenerator.getInstance("EC");
 +        g.initialize(new ECGenParameterSpec("secp256r1"));
 +        kp = g.generateKeyPair();
-+        File bundled = files.newFolder("bundled");
++        bundled = files.newFolder("bundled");
 +        for (Map.Entry<String, byte[]> e : bundle(BUNDLED).entrySet()) {
 +            Files.write(new File(bundled, e.getKey()).toPath(), e.getValue());
 +        }
-+        holder = new LivenessServiceHolder(context, globalParams, auditManager, false, new DirectoryBundleSource(bundled),
-+                new TrustedKeys(Collections.singletonMap(KEY_ID, kp.getPublic())));
-+        holder.setModelBundleUser(new LivenessServiceHolder.ModelBundleUser() {
++        holder = holder(false); // a release build
++    }
++
++    /** A holder as a release ({@code diagnostics} false) or a debug/profile build makes it, with the test user. */
++    private LivenessServiceHolder holder(boolean diagnostics) {
++        LivenessServiceHolder h = new LivenessServiceHolder(context, globalParams, auditManager, diagnostics,
++                new DirectoryBundleSource(bundled), new TrustedKeys(Collections.singletonMap(KEY_ID, kp.getPublic())));
++        h.setModelBundleUser(new LivenessServiceHolder.ModelBundleUser() {
 +            @Override public boolean maySupervise() {
 +                return supervisor;
 +            }
@@ -5488,6 +5525,7 @@ index 0000000..8724b38
 +                return "sup-17";
 +            }
 +        });
++        return h;
 +    }
 +
 +    /** manifest.json, manifest.sig and the real models, as bundle {@code version} signed with the throwaway key. */
@@ -5562,6 +5600,8 @@ index 0000000..8724b38
 +        assertEquals(1, holder.analyzerSwaps());
 +        verifyAudit("outcome=INSTALLED", "fromVersion=" + BUNDLED, "toVersion=" + NEWER, "trigger=offline",
 +                "userId=sup-17");
++        verify(auditManager, never()).audit(eq(AuditEvent.LIVENESS_MODEL_UPDATE), eq(Components.HOME),
++                argThat(text -> text.contains("roleCheck"))); // a real supervisor: no override marker
 +        assertTrue("the picked copy is the caller's to delete", zip.exists());
 +    }
 +
@@ -5578,6 +5618,54 @@ index 0000000..8724b38
 +        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
 +        assertEquals(0, holder.analyzerSwaps());
 +        verifyAudit("outcome=FAILED", "errorCode=MODEL_INTEGRITY_FAILED", "reason=BUNDLE_INVALID", "trigger=offline");
++    }
++
++    @Test
++    public void aTamperedZipThatClaimsAnOlderVersionIsInvalidNotNotNewer() throws Exception {
++        Map<String, byte[]> entries = bundle("pad-2026.09.1");
++        byte[] model = entries.get(ModelRole.DETECTOR.fileName()).clone();
++        model[model.length / 2] ^= 1;
++        entries.put(ModelRole.DETECTOR.fileName(), model);
++
++        ModelBundleResult r = holder.installOfflineBundle(zip("tampered-older.zip", entries));
++
++        assertEquals("verified before the version check", ModelBundleOutcome.INVALID, r.outcome);
++        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
++        verifyAudit("outcome=FAILED", "errorCode=MODEL_INTEGRITY_FAILED", "reason=BUNDLE_INVALID", "trigger=offline");
++        // The same files untouched: verified, then refused as not newer.
++        assertEquals(ModelBundleOutcome.NOT_NEWER,
++                holder.installOfflineBundle(zip("older.zip", bundle("pad-2026.09.1"))).outcome);
++    }
++
++    @Test
++    public void releaseBuildsIgnoreTheDiagnosticRoleOverride() throws Exception {
++        supervisor = false;
++        holder.setDiagnosticModelBundleOverride(true); // what the debug page calls; holder is a release build's
++
++        assertFalse(holder.modelBundleActionsAllowed());
++        assertEquals(ModelBundleOutcome.NOT_ALLOWED, holder.installOfflineBundle(zip("newer.zip", bundle(NEWER))).outcome);
++        assertEquals(ModelBundleOutcome.NOT_ALLOWED, holder.rollbackOfflineBundle().outcome);
++        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
++    }
++
++    @Test
++    public void aDebugBuildOpensTheProductionPageWithTheOverrideAndAuditsIt() throws Exception {
++        supervisor = false; // no backend on a development phone: nobody is logged in
++        LivenessServiceHolder debug = holder(true);
++        assertFalse(debug.modelBundleActionsAllowed());
++        debug.setDiagnosticModelBundleOverride(true); // the debug page opens the production page
++        assertTrue(debug.modelBundleActionsAllowed());
++
++        assertEquals(ModelBundleOutcome.INSTALLED, debug.installOfflineBundle(zip("newer.zip", bundle(NEWER))).outcome);
++        verifyAudit("outcome=INSTALLED", "trigger=offline", "roleCheck=diagnostics-override");
++        assertEquals(ModelBundleOutcome.ROLLED_BACK, debug.rollbackOfflineBundle().outcome);
++        verifyAudit("outcome=ROLLED_BACK", "trigger=rollback", "roleCheck=diagnostics-override");
++
++        debug.setDiagnosticModelBundleOverride(false); // the page is closed
++        assertFalse(debug.modelBundleActionsAllowed());
++        debug.setDiagnosticModelBundleOverride(true);
++        synced.put(LivenessServiceHolder.OFFLINE_INSTALL_KEY, "false"); // the config switch still applies
++        assertFalse(debug.modelBundleActionsAllowed());
 +    }
 +
 +    @Test
@@ -27410,10 +27498,10 @@ index 0000000..0f9f317
 +}
 diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
 new file mode 100644
-index 0000000..d7c208b
+index 0000000..7e54266
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_debug_page.dart
-@@ -0,0 +1,954 @@
+@@ -0,0 +1,977 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -27432,6 +27520,7 @@ index 0000000..d7c208b
 +import 'package:registration_client/provider/global_provider.dart';
 +import 'package:registration_client/ui/liveness/liveness_gate.dart';
 +import 'package:registration_client/ui/liveness/liveness_page.dart';
++import 'package:registration_client/ui/liveness/model_bundle_page.dart';
 +
 +/// Debug and profile builds only (never release): runs liveness sessions
 +/// against the real or the fake engine and shows the raw events and the result
@@ -27706,6 +27795,24 @@ index 0000000..d7c208b
 +    // The new analyzer loads in the background; its version shows once loaded.
 +    await Future<void>.delayed(const Duration(seconds: 2));
 +    if (mounted) await _refreshPolicy();
++  }
++
++  /// F17: the production "Face liveness models" page, with the production
++  /// Pigeon methods (file picker, installZip, reload, audit). Nobody can log
++  /// in without a backend, so a diagnostics-only override stands in for the
++  /// supervisor role while the page is open; release builds ignore it.
++  Future<void> _openProductionModelPage() async {
++    try {
++      await _api.setModelBundleDiagnosticOverride(true);
++      if (!mounted) return;
++      await Navigator.push(context,
++          MaterialPageRoute(builder: (_) => const ModelBundlePage()));
++    } finally {
++      await _api.setModelBundleDiagnosticOverride(false);
++      _addLog('production model page closed (diagnostic role override off)');
++      await _refreshDiagnostics();
++      if (mounted) await _refreshPolicy();
++    }
 +  }
 +
 +  @override
@@ -28234,6 +28341,10 @@ index 0000000..d7c208b
 +                      'staging: files/bundle-staging/ (adb push a signed bundle)'),
 +                  if (_bundleMessage != null)
 +                    Text(_bundleMessage!, style: const TextStyle(fontWeight: FontWeight.bold)),
++                  ElevatedButton(
++                      key: const Key('openProductionModelPage'),
++                      onPressed: busy ? null : _openProductionModelPage,
++                      child: const Text('Face liveness models (production page)')),
 +                  Wrap(
 +                    spacing: 8,
 +                    children: [
@@ -29681,10 +29792,10 @@ index dea5aef..5bbebee 100644
 \ No newline at end of file
 diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
 new file mode 100644
-index 0000000..afa819b
+index 0000000..f8e17e4
 --- /dev/null
 +++ b/pigeon/liveness.dart
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,174 @@
 +import 'package:pigeon/pigeon.dart';
 +
 +/// The parts of a workflow's liveness policy the UI needs (from the synced
@@ -29817,6 +29928,11 @@ index 0000000..afa819b
 +  /// again (supervisors and admins). Audited with trigger=rollback.
 +  @async
 +  ModelBundleActionResult rollbackModelBundleFromSettings();
++
++  /// F17, diagnostics builds only: the debug page sets it while it shows the
++  /// production model page, so the page works without a logged-in supervisor
++  /// (no backend on a development phone). Release builds ignore it.
++  void setModelBundleDiagnosticOverride(bool on);
 +
 +  /// Diagnostics builds only: checks for an online model update now. A
 +  /// non-empty [indexUrl] first sets the update URL and enabled overrides (in

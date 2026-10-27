@@ -347,16 +347,29 @@ All three end in the same `ModelStore.install(staged, bundled)`.
   1. The picked document is copied to the cache, at most 64 MiB + 1 byte.
   2. Part 2's `ModelUpdater.installZip` unpacks it into a fresh `update.tmp-*` directory, the same as an online update:
      flat entries only, manifest-listed names (at most 16), zip-slip refused, sizes capped.
-  3. `ModelStore.install` verifies the bundle; the analyzer then reloads.
+  3. `ModelStore.install` verifies the signature, sizes and hashes, and only then refuses a version that is not newer;
+     the analyzer then reloads.
   4. The copy and the temporary directory are deleted.
 - **Refusals.** A tampered, unsigned or malformed zip shows "This file is not a valid signed model bundle. Nothing was
-  changed." (MODEL_INTEGRITY_FAILED). The same or an older version is refused. In both cases the store is unchanged.
+  changed." (MODEL_INTEGRITY_FAILED), whatever version it claims. A verified bundle of the same or an older version is
+  refused as not newer. In both cases the store is unchanged.
 - **Checks and audit.** `LivenessServiceHolder` checks the role and the key again before acting (fail closed), and
   audits REG-EVT-019 with `trigger=offline` or `trigger=rollback` (section 6).
+- **Without a backend (debug and profile builds).** A development phone has no MOSIP backend, so nobody can log in as a
+  supervisor and the home page never shows the task. The debug page (Login page, **Liveness test**) has
+  **Face liveness models (production page)**. It opens the same page with the same production Pigeon methods: the
+  file picker, `installZip`, the reload and the audit.
+  - While that page is open, a diagnostics-only override stands in for the supervisor role
+    (`setDiagnosticModelBundleOverride`). The holder honours it only when it was built with diagnostics
+    (`BuildConfig.LIVENESS_DIAGNOSTICS`), so release builds ignore it.
+  - The config switch still applies, and every action it allows is audited with `roleCheck=diagnostics-override`.
+  - The release build's role gate is therefore proven by the unit and widget tests and by the release build itself,
+    not on a device: `LivenessOfflineModelInstallTest` checks that a release holder ignores the override.
 - **Test bundle.** The F17 phone check uses `pad-2026.10.8`: the 10.5 model files re-signed with the development key
-  under a new version (kept outside the repository, like the key). After the check it is rolled back, so the phone
-  returns to the bundled 10.5. The next real bundle (F2b) must be `pad-2026.10.9` or later. A device still on the
-  test bundle refuses anything not newer than 10.8, and two different bundles must never share a version.
+  under a new version (kept outside the repository, like the key). It runs on the debug build through the route
+  above. After the check it is rolled back, so the phone returns to the bundled 10.5. The next real bundle (F2b) must
+  be `pad-2026.10.9` or later. A device still on the test bundle refuses anything not newer than 10.8, and two
+  different bundles must never share a version.
 
 ```mermaid
 sequenceDiagram
@@ -578,7 +591,7 @@ engine.
 | REG-EVT-016 | LIVENESS_MODEL_INTEGRITY_FAILED | system | the bundle did not verify, or the analyzer could not be built | errorCode, reason (engine) or phase=preload (Android) |
 | REG-EVT-017 | LIVENESS_CONFIG_LOADED | system | a workflow's policy is resolved after start or reload | engine, policy (one-line summary of all policy fields), configError |
 | REG-EVT-018 | LIVENESS_FACE_BINDING | system | an armed SBI face capture was compared with the liveness face (or binding is off: SKIPPED) | outcome (MATCH, NO_MATCH, NO_FACE_A/B, MULTIPLE_FACES_A/B, ERROR, SKIPPED), similarity (2 decimals), threshold |
-| REG-EVT-019 | LIVENESS_MODEL_UPDATE | system | an online model update check finished, or an offline install or rollback from the production page (F17) (module HOME) | online: outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (scheduled, manual, scheduled-offline). F17 (trigger offline or rollback): outcome (INSTALLED, UP_TO_DATE, FAILED, ROLLED_BACK, REFUSED), errorCode (MODEL_INTEGRITY_FAILED for a bad bundle), reason (a `Reason` code, NOT_NEWER, NOTHING_TO_ROLL_BACK or NOT_ALLOWED), fromVersion, toVersion, durationMs, userId; never a path |
+| REG-EVT-019 | LIVENESS_MODEL_UPDATE | system | an online model update check finished, or an offline install or rollback from the production page (F17) (module HOME) | online: outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (scheduled, manual, scheduled-offline). F17 (trigger offline or rollback): outcome (INSTALLED, UP_TO_DATE, FAILED, ROLLED_BACK, REFUSED), errorCode (MODEL_INTEGRITY_FAILED for a bad bundle), reason (a `Reason` code, NOT_NEWER, NOTHING_TO_ROLL_BACK or NOT_ALLOWED), fromVersion, toVersion, durationMs, userId, and roleCheck=diagnostics-override when a debug build's override stood in for the role; never a path |
 
 **No images.**
 - No audit record contains an image, pixels, landmarks or a face template.
@@ -719,7 +732,7 @@ It shows scores and model versions, but never camera images other than the live 
 
 | suite | tests | covers |
 |---|---|---|
-| `android/liveness` module (JVM) | **102**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered, older, zip-slip, rollback, role gate, config switch (7) |
+| `android/liveness` module (JVM) | **105**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10) |
 | Flutter `test/liveness` | **90**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 44 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale (12); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6) |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
 | engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 238, eval 38 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
