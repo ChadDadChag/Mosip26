@@ -61,9 +61,10 @@ import java.util.concurrent.atomic.AtomicReference;
  *   s  printed cut-out No. k ("s3" = cut-out 3), still, about 20 cm, RESIDENT (single-print retest)
  *   t  printed cut-out No. k, still, about 30 cm,                     RESIDENT
  *   u  the NASA A4 print, still, about 30 cm,                          RESIDENT
- *   v  printed cut-out No. k, slight natural hand motion, about 20 cm, RESIDENT
- *   w  printed cut-out No. k, about 20 cm, ROTATED to fake a turn, RESIDENT, forced, pool TURN_LEFT,TURN_RIGHT
- *   x  printed cut-out No. k, about 20 cm, TILTED to fake a blink or smile, RESIDENT, forced, pool BLINK,SMILE
+ *   y  printed cut-out No. k, still, CLOSE (its face as big on screen as a real face), RESIDENT
+ *   v  printed cut-out No. k, CLOSE, slight natural hand motion, RESIDENT
+ *   w  printed cut-out No. k, CLOSE, ROTATED to fake a turn, RESIDENT, forced, pool TURN_LEFT,TURN_RIGHT
+ *   x  printed cut-out No. k, CLOSE, TILTED to fake a blink or smile, RESIDENT, forced, pool BLINK,SMILE
  *   i  real face, close (face about a third of the picture), RESIDENT
  *   j  real face, far (about 1 m),                            RESIDENT
  *   k  real face, approaching the camera slowly during the check, RESIDENT
@@ -125,13 +126,17 @@ final class SessionDemo {
         String t = token.trim().toLowerCase(Locale.ROOT);
         if (t.isEmpty()) throw new IllegalArgumentException("empty plan entry");
         char c = t.charAt(0);
-        boolean numbered = c == 's' || c == 't' || c == 'v' || c == 'w' || c == 'x';
+        boolean numbered = c == 's' || c == 't' || c == 'v' || c == 'w' || c == 'x' || c == 'y';
         if (numbered != t.length() > 1) {
             throw new IllegalArgumentException(numbered ? "case '" + c + "' needs the cut-out number, for example " + c + "3"
                     : "case '" + c + "' takes no number, got '" + token + "'");
         }
         int k = numbered ? Integer.parseInt(t.substring(1)) : 0;
         String still = ", your face out of view: hold it STILL and steady until FINISHED";
+        // Cut-out faces are a few cm tall: at 20-30 cm most were too small to judge (FACE_TOO_SMALL), so the
+        // later cases ask for the size of the face on screen, as large as a real face, instead of a distance.
+        String close = "CUT-OUT " + k + " CLOSE: the face in it as big on screen as a real face (about a quarter of the"
+                + " window's width),";
         switch (c) {
             case 's': return new Case("s", WorkflowType.RESIDENT, false,
                     "CUT-OUT " + k + " about 20 cm from the camera, face to the lens" + still, k);
@@ -139,15 +144,14 @@ final class SessionDemo {
                     "CUT-OUT " + k + " about 30 cm from the camera, face to the lens" + still, k);
             case 'u': return new Case("u", WorkflowType.RESIDENT, false,
                     "NASA A4 PRINT about 30 cm from the camera, face to the lens" + still);
-            case 'v': return new Case("v", WorkflowType.RESIDENT, false, "CUT-OUT " + k + " about 20 cm from the camera,"
-                    + " face to the lens, your face out of view: hold it in your hand with SLIGHT NATURAL MOTION (do not"
-                    + " shake it) until FINISHED", k);
-            case 'w': return new Case("w", WorkflowType.RESIDENT, true, "CUT-OUT " + k + " about 20 cm from the camera,"
-                    + " your face out of view: when asked to TURN, ROTATE the cut-out to that side (as the person would turn"
-                    + " their head) and back; until FINISHED", k, "TURN_LEFT,TURN_RIGHT");
-            case 'x': return new Case("x", WorkflowType.RESIDENT, true, "CUT-OUT " + k + " about 20 cm from the camera,"
-                    + " your face out of view: when asked to BLINK or SMILE, TILT the cut-out (top edge toward you and"
-                    + " back); until FINISHED", k, "BLINK,SMILE");
+            case 'y': return new Case("y", WorkflowType.RESIDENT, false, close + " face to the lens" + still, k);
+            case 'v': return new Case("v", WorkflowType.RESIDENT, false, close + " face to the lens, your face out of"
+                    + " view: hold it in your hand with SLIGHT NATURAL MOTION (do not shake it) until FINISHED", k);
+            case 'w': return new Case("w", WorkflowType.RESIDENT, true, close + " your face out of view: when asked to"
+                    + " TURN, ROTATE the cut-out to that side (as the person would turn their head) and back; until"
+                    + " FINISHED", k, "TURN_LEFT,TURN_RIGHT");
+            case 'x': return new Case("x", WorkflowType.RESIDENT, true, close + " your face out of view: when asked to"
+                    + " BLINK or SMILE, TILT the cut-out (top edge toward you and back); until FINISHED", k, "BLINK,SMILE");
             default: return scripted(c);
         }
     }
@@ -187,7 +191,7 @@ final class SessionDemo {
             case 'l': return new Case("l", WorkflowType.RESIDENT, false, "REAL FACE, MOVING: look at the camera and move"
                     + " your head gently (small turns and nods) until FINISHED");
             default: throw new IllegalArgumentException("unknown case '" + c
-                    + "' (a..h, i, j, k, l, m, n, o, p, q, r, s1, t1, u, v1, w1, x1)");
+                    + "' (a..h, i, j, k, l, m, n, o, p, q, r, s1, t1, u, v1, w1, x1, y1)");
         }
     }
 

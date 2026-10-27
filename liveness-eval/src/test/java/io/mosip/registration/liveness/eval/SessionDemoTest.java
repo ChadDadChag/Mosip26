@@ -67,7 +67,8 @@ class SessionDemoTest {
         assertThat(SessionDemo.scripted(" T6 ").instruction).startsWith("CUT-OUT 6 about 30 cm");
         assertThat(SessionDemo.scripted("u").instruction).startsWith("NASA A4 PRINT about 30 cm");
         assertThat(SessionDemo.scripted("u").item).isZero();
-        assertThat(SessionDemo.scripted("v2").instruction).startsWith("CUT-OUT 2 about 20 cm").contains("SLIGHT NATURAL MOTION");
+        assertThat(SessionDemo.scripted("v2").instruction).startsWith("CUT-OUT 2 CLOSE").contains("SLIGHT NATURAL MOTION");
+        assertThat(SessionDemo.scripted("y4").instruction).startsWith("CUT-OUT 4 CLOSE").contains("as big on screen as a real face", "STILL");
         assertThat(SessionDemo.scripted("m").instruction).startsWith("MULTI-FACE");
         assertThatThrownBy(() -> SessionDemo.scripted("s")).hasMessageContaining("s3");
         assertThatThrownBy(() -> SessionDemo.scripted("m2")).hasMessageContaining("takes no number");
@@ -108,7 +109,7 @@ class SessionDemoTest {
         assertThat(w.forceActive).isTrue();
         assertThat(w.item).isEqualTo(2);
         assertThat(w.types).isEqualTo("TURN_LEFT,TURN_RIGHT");
-        assertThat(w.instruction).startsWith("CUT-OUT 2 about 20 cm").contains("your face out of view", "ROTATE");
+        assertThat(w.instruction).startsWith("CUT-OUT 2 CLOSE").contains("your face out of view", "ROTATE");
         SessionDemo.Case x = SessionDemo.scripted("x1");
         assertThat(x.forceActive).isTrue();
         assertThat(x.types).isEqualTo("BLINK,SMILE");
