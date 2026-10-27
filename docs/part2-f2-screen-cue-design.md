@@ -345,6 +345,39 @@ So the recordings could hide only bands under about 1 grey level. Either the att
 conditions (DC dimming, or an exposure long enough to average the PWM), or its bands are fainter than that. A
 lossless recording at 30 fps, with the screen at 30% brightness (PWM on), would settle it.
 
+**Lossless confirmation.** Three 3-second PNG takes (`--only f2_banding`), 90 frames each, none repeated, at
+28.5–28.9 effective fps:
+- `nasa_fill_pwm30`: the phone close with the NASA portrait at 30% brightness;
+- `nasa_fill_100`: the same at 100%;
+- `close_whole_30fps`: the subject's own face, close.
+
+The banding tool's `--takes` mode gave these results:
+- **At 30% the band is there.** A period of about 17 rows (16.5–17.7) is among the three strongest peaks of the
+  take-average spectrum in all three areas:
+
+  | Area | Peaks at about 17 rows |
+  |---|---|
+  | 4.0× region | 3.0× and 2.9× |
+  | Face | 3.8× and 3.1× |
+  | Whole frame | 2.7× and 2.5× |
+
+  At a row time of 50–70 µs, that is PWM at about 0.8–1.2 kHz.
+- **At 100% it is gone.** No period is common to the three areas, and the strongest peaks are 2.0–2.7×.
+- **It is too faint to use.** The session maxima at 30% are below the round-1 bona fide maxima, so no threshold
+  catches the screen without failing real faces:
+
+  | Statistic | Screen at 30% | Round-1 bona fide maximum |
+  |---|---|---|
+  | `bandScore`, 4.0× region | 8.16 | 10.28 |
+  | `bandScore`, face | 6.29 | 19.54 |
+  | `driftScore` | 3.26 | 7.07 |
+
+  The bona fide take here peaks as high as the screen's band (3.4–4.3× at 27–28 and 11 rows), though its
+  `driftScore` is only 0.90.
+- **The decision stands: banding does not ship.** A usable band would have to be several times stronger, for
+  example from a phone with low-frequency PWM or a camera with a shorter row time. An attacker avoids it anyway by
+  setting the screen to full brightness.
+
 ### 6.3 Colour and white point (section 3.3): does not ship
 
 **What was built.** `models/tools/f2_colour_prototype.py`, a development tool only. Per frame, from the RGB pixels,
@@ -374,7 +407,8 @@ bound it.
 
 - **Today.** The session moiré cap remains the only screen cue. Its margin on `*_fill` is the risk to watch: the
   median moiré of the `selfie_fill` takes is 1.44–1.49, against the 1.40 cap.
-- **Next step.** The multi-device recordings of section 4, with a lossless or high-quality 30 fps recording and PWM
-  phones at low brightness, would show whether banding exists at all in the field.
+- **Next step.** The lossless takes (section 6.2) show that this phone bands at 30% brightness, but too faintly to
+  use. The multi-device recordings of section 4, lossless at 30 fps with PWM phones at low brightness, would show
+  whether any common phone bands strongly enough.
 - **Next cue.** Fine-tuning MiniFASNet on close-up screens (section 3.4) is the most direct fix for the case that
   fills the view, and needs the multi-subject dataset.
