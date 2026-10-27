@@ -286,17 +286,20 @@ frames, not from the assist, which never acted.
 | d | Rollback | "rolled back to pad-2026.10.1", reloaded in 235 ms; the next session passed and reported `pad-2026.10.1` |
 | e | restart the app | the new process loaded `pad-2026.10.1` (259 ms) |
 
-**Not built: automatic download (`ModelUpdateWorker`).** The design:
-- A WorkManager job with a network-connected constraint reads a URL from
-  `mosip.registration.liveness.model.update.url`.
-- It downloads the manifest, the signature and the model files into a private staging folder
-  (not external storage).
-- It calls the same install path: verify, then `ModelStore.install`, then reload. A failure
-  leaves the current bundle in place and is audited.
-- It retries with backoff. Downloads are capped by the same per-file size limit as
-  `DirectoryBundleSource`.
-- A test setup would use `python -m http.server` with `adb reverse`, and a debug-only
-  network-security config allowing cleartext for 127.0.0.1 only.
+**Automatic download (`ModelUpdateWorker`): built in fix round 4.** It was not part of this phase
+(P5-5), which tested the install path above with a bundle staged by `adb push`. The online update
+was built later, in fix round 4:
+- A periodic WorkManager job with a network-connected constraint reads
+  `mosip.registration.liveness.model.update.url` (off by default).
+- It uses Part 2's `ModelUpdater`: a small index (`latest.json`), then a zip whose size and
+  SHA-256 are checked.
+- It installs through the same path: verify, then `ModelStore.install`, then reload. A failure
+  leaves the current bundle in place and is audited (REG-EVT-019).
+- It was tested on the phone against a laptop server through `adb reverse`: INSTALLED,
+  UP_TO_DATE, a zip with a flipped byte, a manifest edited after signing, and a wrong URL.
+
+The design and the evidence are in [part5-android-integration.md](part5-android-integration.md),
+section 3 (j) and the FR-4 rows of section 10.
 
 ## F. Airplane mode
 

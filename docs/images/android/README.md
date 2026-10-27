@@ -31,6 +31,8 @@ the size of the earlier phone screenshots, with Roboto; no system bars.
 | `19-max-attempts-supervisor.png` | FAILED_FINAL, max attempts, supervisor recovery | MAX_RETRIES_EXCEEDED, SUPERVISOR |
 | `20-operator-cooldown-refusal.png` | cooldown refusal (an immediate FAILED_FINAL) | MAX_RETRIES_EXCEEDED on attempt 1, OPERATOR |
 
-The oval colour always comes with the state badge, an icon. The debug-only model chip is off. English only: the other
-languages fall back to English until their translations are added. On the phone itself the screen is the same; the
-test renders the semibold status in Roboto's bold face, which the SDK ships.
+The oval colour always comes with the state badge, an icon. The debug-only model chip is off. The screenshots are in
+English. The app has the liveness texts in all six of its languages (English, Arabic, French, Hindi, Kannada and
+Tamil), added in fix round 4; the five non-English ones are machine-translated and need a native speaker's review
+(see [`docs/ui-liveness-spec.md`](../../ui-liveness-spec.md) Appendix A). On the phone itself the screen is the same;
+the test renders the semibold status in Roboto's bold face, which the SDK ships.

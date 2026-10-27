@@ -494,10 +494,11 @@ bundled defaults (audited in `LIVENESS_CONFIG_LOADED` as `configError`).
 `analyzer.*` keys ([part2-pad-architecture.md](part2-pad-architecture.md)).
 
 **Identity binding (F15, section 2.5)**:
-- `binding.identity.enabled` (true; only an explicit `false` switches it off);
+- `binding.identity.enabled` (true; `false`, `no`, `0` or `off` switches it off, `true`, `yes`, `1` or `on` keeps it
+  on, any other value keeps the default with a warning in the log);
 - `binding.identity.threshold` (0.40, provisional; valid from 0.30 to 1.0);
 - `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence alone,
-  audited).
+  audited; read like `enabled`, so only `true`, `yes`, `1` or `on` turns it on).
 
 **Desktop** (`mosip.registration.liveness.face.desktop.*`):
 
@@ -649,9 +650,9 @@ From `registration-client/registration` (JDK 11; first build online):
 
 (`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 
-**Results (2026-10-26, with the follow-ups):** `registration-services` 147 tests pass: the 33 Desktop tests plus the
-existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
-`registration-client` 28 tests pass. No failures, nothing skipped.
+**Results (as of 2026-10-26, with the follow-ups):** `registration-services` 105 liveness tests pass: Part 1's 72 and
+Part 4's 33. `registration-client` 28 tests pass. The command also runs the existing audit (4), login (26) and config
+sync (`GlobalParamServiceTest`, 12) suites, which pass too. No failures, nothing skipped.
 
 **Results with F17 (2026-10-27):** `registration-services` 158 tests pass. That is the 147 above, plus the four F16
 regression clips in `RecordedVideoE2ETest` (Part 2) and the 7 `DesktopOfflineModelInstallTest` tests.
@@ -767,6 +768,9 @@ when its window closed: sarxos' JVM shutdown hook waited for its own processor t
   a face device must therefore be connected for every operator login while operator liveness is enabled; set the key
   to false (or `operator.enabled=false`) where that is not wanted. OTP-only, fingerprint and iris logins are not gated.
 - The operator cooldown is in memory (Part 3, proposal P1).
+- The F15 identity threshold (`binding.identity.threshold`), like the `analyzer.*` settings, is read when the
+  models are built: at start, and after a model install, update or rollback. A config sync reloads only the policies,
+  so a new threshold from a sync applies after a restart.
 - An F15 rejection after the retry is one failed login (section 2.5). On a clean count it locks the account only if
   `mosip.registration.invalid_login_count` is 1. After earlier wrong passwords it can be the failure that reaches the
   limit, because a correct password does not reset the count.

@@ -240,8 +240,8 @@ public class IdentityBinding {
 			return new Verdict(Verdict.Kind.LIVENESS_DISABLED, "LIVENESS_DISABLED", Double.NaN);
 		}
 		Map<String, String> d = details(userId, gate, attempt);
-		// Only an explicit "false" switches F15 off: a typo ("yes", "1", "on") must not.
-		if ("false".equalsIgnoreCase(config.get(DesktopLivenessConfig.IDENTITY_ENABLED_KEY))) {
+		// Only false/no/0/off switches F15 off: any other value keeps it on, with a warning.
+		if (!config.getSwitch(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, true)) {
 			return finish(workflow, sessionId, new Verdict(Verdict.Kind.DISABLED, "SKIPPED", Double.NaN), d);
 		}
 		if (problem != null) {
@@ -279,7 +279,7 @@ public class IdentityBinding {
 		if ("MATCH".equals(id.outcome)) {
 			kind = Verdict.Kind.MATCH;
 		} else if (id.outcome.startsWith("NOT_BOUND")) {
-			boolean required = config.getBoolean(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, false);
+			boolean required = config.getSwitch(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, false);
 			d.put("requireTemplate", String.valueOf(required));
 			kind = required ? Verdict.Kind.REJECTED : Verdict.Kind.NOT_BOUND;
 		} else {

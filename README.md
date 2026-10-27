@@ -199,9 +199,10 @@ order and byte-identical through `MjpegFrameReader`.
 ## Test status (be aware)
 
 - **Real build.** The suite runs inside the real Registration Client v1.2.0.2 build (JDK 11, the upstream MOSIP
-  classes, no stubs), with the "Build and test" command above. The Part 1 liveness tests total 96, all passing: the
-  original 83, plus 13 new. 72 of them run in `registration-services`. The other 24 test the Part 2 heuristic
-  analyzer and moved with it to `liveness-analyzer`.
+  classes, no stubs), with the "Build and test" command above. At Part 1's delivery the Part 1 liveness tests totalled
+  96, all passing: the original 83, plus 13 new. 72 of them run in `registration-services` (still 72 as of
+  2026-10-26). The other 24 test the Part 2 heuristic analyzer and moved with it to `liveness-analyzer`, where they
+  are counted in its 238.
 - **New tests:**
   - preview tee
   - harness model and headless run
@@ -220,7 +221,8 @@ order and byte-identical through `MjpegFrameReader`.
     hung the demo's exit once, which is F13b. Since F13b the development tools default to `OpenCvWebcamFrameGrabber`
     (the openpnp OpenCV that the evaluation tools already use, F13) and release the camera before they exit, with a
     watchdog against a hung shutdown (`WebcamGrabbers.exit`). The OpenCV grabber in these tools has not been run with
-    a camera yet.
+    a camera yet. If OpenCV cannot open the camera once (for example, another program holds it), that frame source
+    stays on sarxos, and its shutdown hook, until the tool restarts: close the other program and restart the tool.
   - `CameraXFrameSource` type-checks against stubs of the CameraX/Android types it uses. Its YUV→RGB conversion,
     rotation (0/90/180/270) and stride were run on synthetic frames. It has not been built with the Android SDK or
     run on a device.
@@ -245,7 +247,7 @@ Use the same setup as above (JDK 11, Registration Client v1.2.0.2 checkout, patc
 
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip
 
-This runs about 270 tests, enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
+As of 2026-10-26 this runs 288 tests (api 5, core 227, fake 44, tools 12), enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
 
 ## Use (Parts 4 and 5)
 
@@ -290,7 +292,7 @@ This builds standalone from this repository with JDK 11. PowerShell, from the re
     mvn -f liveness-analyzer/pom.xml install -Dgpg.skip
     mvn -f liveness-eval/pom.xml verify -Dgpg.skip
 
-`liveness-analyzer` runs about 190 tests:
+As of 2026-10-26, `liveness-analyzer` runs 238 tests and `liveness-eval` 38. The analyzer tests include:
 - Java vs Python parity on public-domain golden images, stage by stage.
 - Bundle tampering cases.
 - The session moiré cap.
@@ -375,7 +377,7 @@ That runs these steps:
 4. Generates the Pigeon code.
 5. Builds an arm64 debug APK.
 
-The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 95 module tests and 84 Flutter tests.
+The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass, as of 2026-10-26: 95 liveness module tests and 84 Flutter tests (`test/liveness`).
 
 **Documentation:**
 - [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations
@@ -398,7 +400,7 @@ The face is accepted, or the authentication completes, only when the session ret
 | Path | What |
 |---|---|
 | `registration-client/.../controller/liveness/` | `LivenessGate` (the one call each flow makes), `LivenessScreenModel` (spec state table), `LivenessView` + `fxml/LivenessCheck.fxml` + `liveness.css` (the screen), `LivenessMessages`; in the test sources, `LivenessScreenDemo` (screens as PNG, interactive demo; not in the client jar) |
-| `registration-services/.../liveness/desktop/` | `DesktopLivenessService` (engine, device, preload, config reload, metrics), `FaceBinding`, `DesktopLivenessConfig` (synced global config), `DesktopAuditSink` (audit module, `REG-LIV-001..011`) |
+| `registration-services/.../liveness/desktop/` | `DesktopLivenessService` (engine, device, preload, config reload, metrics), `FaceBinding`, `DesktopLivenessConfig` (synced global config), `DesktopAuditSink` (audit module, `REG-LIV-001..012`) |
 | hooks | `GenericBiometricsController`, `BiometricsController`, `LoginController`, `AuthenticationController`, `EODAuthenticationController`, `BaseController.captureAndValidateFace`, `SessionContext.validateFace`, `ClientApplication` (preload) |
 | `docs/part4-registration-default.properties` | the liveness block for the server's `registration-default.properties` |
 | `docs/images/part4/` | the Desktop UI screens |
@@ -406,9 +408,9 @@ The face is accepted, or the authentication completes, only when the session ret
 Build and test (JDK 11, from `registration-client/registration`):
 
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip
-    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip
+    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip
 
-Result: registration-services 129 tests, registration-client 27 tests, all passing (outside a git checkout add `-Dmaven.gitcommitid.skip=true`).
+Result as of 2026-10-26, all passing: registration-services 105 liveness tests (Part 1's 72, Part 4's 33) and registration-client 28. The command also runs the existing audit (`AuditFactoryTest`, 4), login (`LoginServiceTest`, 26) and config sync (`GlobalParamServiceTest`, 12) suites, which pass too. Outside a git checkout add `-Dmaven.gitcommitid.skip=true`.
 
 **Documentation:**
 - [docs/part4-desktop-integration.md](docs/part4-desktop-integration.md): architecture, the hooks, face binding, sequence diagrams (resident, operator login, packet authentication, supervisor approval, failure, device, config sync), UI screens, configuration, audit and diagnostic logging, metrics, online/offline, security and privacy, testing, limitations
