@@ -61,7 +61,7 @@ new file mode 100644
 +# Part 4: Desktop integration patch
 +
 +`person4-desktop.diff` is every Part 4 change as one diff, relative to `registration-client/registration` at
-+v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 67 text files:
++v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 69 text files:
 +- new liveness classes, tests and docs;
 +- the liveness block appended to the Arabic and French message bundles, and two tile titles appended to the label
 +  bundles;
@@ -83,7 +83,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,766 @@
+@@ -0,0 +1,774 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -528,21 +528,23 @@ new file mode 100644
 +One window for all three workflows; only the title and the recovery text differ. The preview is the device's live
 +stream, mirrored like a selfie (the frames given to the engine are never mirrored), with the face oval. The oval's
 +colour always comes with an icon and a text. Rendered by `LivenessScreenDemo --snapshots` from the production classes
-+(the face is a public-domain NASA portrait used by Part 2's fixtures).
++at the window's size, 720×820 (the face is a public-domain NASA portrait used by Part 2's fixtures). The layout,
++colours and type are `docs/ui-liveness-spec.md` §9, the same as on Android.
 +
 +| | | |
 +|---|---|---|
-+| ![Checking](images/part4/01-checking.png) **Passive check** "Checking face liveness…", blue, indeterminate | ![Guidance](images/part4/02-guidance.png) **Positioning guidance** (hint line, warning icon) | ![Blink](images/part4/03-challenge-blink.png) **Challenge prompt**, amber, step 1 of 2 |
++| ![Checking](images/part4/01-checking.png) **Passive check** "Checking face liveness…", blue | ![Guidance](images/part4/02-guidance.png) **Positioning guidance** (hint line, warning icon) | ![Blink](images/part4/03-challenge-blink.png) **Challenge prompt**, amber, step 1 of 2 |
 +| ![Progress](images/part4/04-challenge-progress.png) **Real-time feedback** "Please continue", progress | ![Detected](images/part4/05-action-detected.png) **Action detected**, green | ![Hold](images/part4/06-hold-still-look-at-camera.png) **Hold still** + "look at the camera" after a turn |
 +| ![Passed](images/part4/07-passed.png) **Passed**: continues after ~1 s | ![Retry](images/part4/08-attempt-failed-retry.png) **Retry** available: attempts left, tips | ![PAD](images/part4/09-pad-failure-generic.png) **PAD failure**: the generic text only |
 +| ![Device](images/part4/10-device-error.png) **Device error** with Retry | ![Max](images/part4/11-max-attempts-resident.png) **Maximum attempts**: resident recovery (biometric exception process) | ![Operator](images/part4/12-operator-login-challenge.png) **Operator** authentication |
 +| ![Supervisor](images/part4/13-supervisor-final-failure.png) **Supervisor** failure | ![Unavailable](images/part4/14-unavailable-fail-closed.png) **Fail closed** (engine unavailable) | |
 +
-+Behaviour (spec §2, §3, §7): Retry only after a failed attempt or a recoverable device error; Cancel until the end;
-+Close only on the final failure; no score, threshold, model or PAD detail is ever shown; the status line is 24 px and
-+the hint 18 px; buttons are 48 px high and keyboard-focusable (Retry/Close take focus, Esc = Cancel); the challenge icon
-+pulses unless `desktop.animations=false`; every status change updates the status label's accessible text and notifies
-+the screen reader.
++Behaviour (spec §2, §3, §7, §9): Retry only after a failed attempt or a recoverable device error; Cancel until the
++end; Close only on the final failure; no score, threshold, model or PAD detail is ever shown; the status is 20 px
++semibold (at most 2 lines) and the hint 15 px; after a failed attempt the progress row shows only the attempts left;
++buttons are 48 px high, of equal width and keyboard-focusable (Retry/Close take focus, Esc = Cancel); the status
++cross-fades in 200 ms unless `desktop.animations=false`; the window is mirrored for Arabic, except the camera card;
++every status change updates the status label's accessible text and notifies the screen reader.
 +
 +Online and offline look identical: nothing on the screen depends on the network.
 +
@@ -590,7 +592,7 @@ new file mode 100644
 +| `sbi.maxReconnectAttempts`, `sbi.reconnectBackoffMs` | 3, 500 | reconnects after a mid-stream drop |
 +| `autoContinueMs` | 1000 | how long the success state stays |
 +| `operator.gatePasswordLogin` | true | OPERATOR liveness after a successful password login (skipped when a face login step follows) |
-+| `animations` | true | challenge icon pulse (false = reduced motion) |
++| `animations` | true | the 200 ms status cross-fade (false = reduced motion) |
 +| `metricsAuditEvery` | 20 | audit a metrics snapshot every N sessions (0 = never) |
 +| `modelStoreDir` | `<client folder>/.liveness-models` | model store (signed bundles only); the online model update installs here |
 +
@@ -745,6 +747,11 @@ new file mode 100644
 +identity retry rule in `LivenessGateTest`. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds. No
 +failures, nothing skipped.
 +
++**Results with F13b and the visual design (2026-10-28):** `registration-services` 175 tests pass (F13b's
++`WebcamGrabbersTest` adds 6). `registration-client` 37 tests pass: the 32 above, plus the 2 `LivenessScreenDemoTest`
++tests and the 3 `LivenessViewLayoutTest` tests. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds.
++No failures, nothing skipped.
++
 +| Test | What it proves |
 +|---|---|
 +| `DesktopLivenessServiceTest` | real engine + signed ONNX models + recorded clip through the deferred source → FAILED with `lastCause=FACE_NOT_DETECTED`, audited through the audit module with the session id; workflow disabled by synced config → legacy flow; config sync applies to the next session; scripted engine is development-only and skips binding |
@@ -756,6 +763,7 @@ new file mode 100644
 +| `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
 +| `DesktopModelUpdateTest` | online model update after a config sync, against a local HTTP server: enabled + newer bundle → INSTALLED with the bundled base kept for rollback, and the reload audits MODEL_LOADED with the new version; disabled or no URL → no request; a failure → audited as FAILED, the sync returns at once, the models stay; a running session keeps its analyzer until it ends |
 +| `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
++| `LivenessViewLayoutTest` | the visual design (spec §9) on the 14 documented states, at 720×820 (the window) and 1280×800: buttons on screen, 48 high and of equal width; content centred and at most 560 wide; the camera card 4:3 at about 45% of the height, the badge on the oval's top centre; nothing overlaps; the status at most 2 lines; one attempts line after a failure. Arabic mirrored, except the camera card. Skipped without a JavaFX toolkit |
 +| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice; F15: one retry, and only when a new session can help |
 +| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
 +| `DesktopOfflineModelInstallTest` | F17 on the real service with signed bundles: install and reload; tampered or unsigned zips refused as MODEL_INTEGRITY_FAILED, also when they claim an older version; same or older refused; zip-slip; rollback, then nothing earlier; the role gate and the config switch; the audit has codes, versions and the user id, never a path |
@@ -854,7 +862,7 @@ diff --git a/docs/part4-registration-default.properties b/docs/part4-registratio
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-registration-default.properties
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,79 @@
 +# ----------------------------------------------------------------------------------------------------------------
 +# Face liveness / PAD for the Registration Client (Desktop Part 4, Android Part 5).
 +# Append to registration-default.properties in mosip-config. The client syncs it into its local GLOBAL_PARAM table,
@@ -918,6 +926,7 @@ new file mode 100644
 +# Operator liveness right after a successful password login (as on Android). Skipped when a face login step
 +# follows (it runs its own check). false = password login as before.
 +mosip.registration.liveness.face.desktop.operator.gatePasswordLogin=true
++# The 200 ms status cross-fade on the liveness screen. false = reduced motion.
 +mosip.registration.liveness.face.desktop.animations=true
 +mosip.registration.liveness.face.desktop.metricsAuditEvery=20
 +# Offline model store (signed bundles only). Empty = <client folder>/.liveness-models
@@ -936,7 +945,72 @@ new file mode 100644
 diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 --- a/docs/ui-liveness-spec.md
 +++ b/docs/ui-liveness-spec.md
-@@ -94,6 +94,19 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+@@ -29,33 +29,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+ 
+ ```
+ +------------------------------------------------------------+
+-|  <Title per workflow>                              [Cancel] |
++|  <Title per workflow>                                      |
+ +------------------------------------------------------------+
++|              +------------------------------+              |
++|              |          (badge)             |  camera card |
++|              |        ( face oval )         |  oval colour |
++|              |   live preview, mirrored     |  + badge     |
++|              +------------------------------+              |
++|   +----------------------------------------------------+   |
++|   |  (icon)  STATUS (e.g. "Please blink")              |   |  status card
++|   +----------------------------------------------------+   |
++|         hint line (guidance, e.g. "Please move closer")    |
++|   Step 1 of 2   [=====] [==---]          Attempt 1 of 4    |
++|   (failure only) tips card                                 |
+ |                                                            |
+-|                 +------------------------+                 |
+-|                 |   live camera preview  |                 |
+-|                 |      ( face oval )     |  <- oval colour |
+-|                 |   mirrored, oval guide |     + icon      |
+-|                 +------------------------+                 |
+-|                                                            |
+-|   [icon]  STATUS LINE (large, e.g. "Please blink")         |
+-|           hint line (guidance, e.g. "Please move closer")  |
+-|                                                            |
+-|   Step 1 of 2   [=========-----------]   Attempt 1 of 4    |
+-|                                                            |
+-|   (failure only) tips list                                 |
+-|                                                            |
+-|            [ Retry ]    [ Cancel ]    [ Close ]            |
++|   [         Retry          ]   [         Cancel         ]  |
+ +------------------------------------------------------------+
+ ```
+ 
++The sizes, colours and type are in §9.
++
+ - **Title:** `liveness.title.<workflow>`.
+ - **Preview:** the full camera preview with a face-oval guide. The oval outline takes the state colour, always
+-  together with an icon. Colour is never the only signal.
+-- **Status line:** the main message, large (at least 24 sp/pt). The challenge prompt goes here.
+-- **Hint line:** positioning guidance, smaller. It is empty when there is nothing to say.
+-- **Step "i of n"** and the **progress bar:** only during challenges.
+-- **"Attempt a of m":** `a` = `event.attemptNumber`, `m` = `policy(workflow).maxRetries + 1`.
++  together with the state badge (an icon). Colour is never the only signal.
++- **Status card:** the main message, 20 sp/px semibold, at most 2 lines. The challenge prompt goes here.
++- **Hint line:** positioning guidance or feedback, 15 sp/px. It is empty when there is nothing to say. After a final
++  failure it holds the recovery text.
++- **Step "i of n"** and the **step bar** (one segment per challenge): only during challenges.
++- **"Attempt a of m":** `a` = `event.attemptNumber`, `m` = `policy(workflow).maxRetries + 1`, while the session runs.
++  After a failed attempt the progress row shows only `liveness.retry.attempts_left`, never both.
+ - **Buttons:**
+   - **Retry** only after ATTEMPT_FAILED, or after a DEVICE_ERROR with `recoverable = true`.
+   - **Cancel** always, except after PASSED and FAILED_FINAL.
+@@ -82,6 +84,8 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+ | `onComplete(CANCELLED)` | none | none | none | none | close the screen and return to the previous one. No message (`UserMessage.NONE`); log only. |
+ 
+ **Notes on the table:**
++- **Progress** is what the screen model holds; §9 says how it is drawn. "Indeterminate" draws no bar (no animation),
++  only "Attempt a of m". The `liveness.retry.attempts_left` hint is drawn in the progress row.
+ - **Tips.** With ATTEMPT_FAILED and `userMessage() == LIVENESS_NOT_VERIFIED`, also show the tips list
+   (`liveness.tips.*`, §4.2). With VERIFICATION_NOT_COMPLETED (which covers PAD failures), show no tips. With
+   DEVICE_PROBLEM, show no tips.
+@@ -94,6 +98,19 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
    hint, including during HOLD_STILL.
  - **Use the event's data, not cached state.** Use `challengeIndex` / `challengeCount` (1-based) from the event. Do
    not show `timeoutMs` as a countdown in seconds; an optional subtle shrinking ring is fine.
@@ -956,7 +1030,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  
  ## 4. Texts (English)
  
-@@ -157,6 +170,7 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+@@ -157,6 +174,7 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
  | `liveness.retry.attempts_left` | {n} attempt(s) left | ATTEMPT_FAILED |
  | `liveness.error.max_attempts_reached` | Face verification could not be completed. | FAILED_FINAL (§10.7) |
  | `liveness.error.device_problem` | Camera/device not available. Check the connection and try again. | DEVICE_ERROR, final device failure |
@@ -964,7 +1038,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  | `liveness.recovery.resident` | Please contact the supervisor. The resident can be registered using the biometric exception process. | FAILED_FINAL, resident |
  | `liveness.recovery.operator` | Please contact your administrator or try again later. | FAILED_FINAL, operator |
  | `liveness.recovery.supervisor` | Please contact your administrator. | FAILED_FINAL, supervisor |
-@@ -171,6 +185,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+@@ -171,6 +189,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
  **Error mapping.** Always go through `event.error.userMessage()` and never switch on the raw `ErrorCode` in the UI:
  `NONE` shows nothing, and the other four values map to `liveness.error.<value in lower case>`.
  
@@ -1000,7 +1074,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  ## 5. Message keys and ready-to-paste catalogues
  
  - **Canonical keys** are dotted lower case, as above. `liveness.challenge.<name lower>` is already fixed by the
-@@ -219,6 +262,7 @@ liveness.error.liveness_not_verified=We could not verify face liveness. Please t
+@@ -219,6 +266,7 @@ liveness.error.liveness_not_verified=We could not verify face liveness. Please t
  liveness.error.verification_not_completed=Face verification could not be completed. Please try again.
  liveness.error.max_attempts_reached=Face verification could not be completed.
  liveness.error.device_problem=Camera/device not available. Check the connection and try again.
@@ -1008,7 +1082,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  liveness.tips.title=Tips:
  liveness.tips.look_at_camera=Look directly at the camera.
  liveness.tips.face_visible=Ensure your face is clearly visible.
-@@ -268,6 +312,7 @@ liveness.button.open_settings=Open settings
+@@ -268,6 +316,7 @@ liveness.button.open_settings=Open settings
  "liveness_error_verification_not_completed": "Face verification could not be completed. Please try again.",
  "liveness_error_max_attempts_reached": "Face verification could not be completed.",
  "liveness_error_device_problem": "Camera/device not available. Check the connection and try again.",
@@ -1016,7 +1090,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  "liveness_tips_title": "Tips:",
  "liveness_tips_look_at_camera": "Look directly at the camera.",
  "liveness_tips_face_visible": "Ensure your face is clearly visible.",
-@@ -289,9 +334,13 @@ liveness.button.open_settings=Open settings
+@@ -289,9 +338,13 @@ liveness.button.open_settings=Open settings
  "liveness_button_open_settings": "Open settings"
  ```
  
@@ -1033,7 +1107,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  
  **Key lookup from events:**
  
-@@ -362,6 +411,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
+@@ -362,6 +415,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
    also opens the app's settings. No session is started without the permission.
  - **Config after a sync**: the client re-reads the liveness config after every global-param refresh (sync). New
    sessions use it; a running session keeps its policy and analyzer.
@@ -1044,7 +1118,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
    and there is no best frame.
  
-@@ -423,6 +476,29 @@ The best frame is dropped after the comparison, when a new session starts, when
+@@ -423,20 +480,416 @@ The best frame is dropped after the comparison, when a new session starts, when
  (unless an armed SBI capture is under way: the SBI app itself pauses the client) and after 5 minutes. An armed capture
  whose best frame was dropped meanwhile fails closed.
  
@@ -1074,10 +1148,100 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  ## 7. Accessibility
  
  - **Screen readers.** Announce every status-line change: the prompt, the result and the failure text. Use
-@@ -440,3 +516,299 @@ whose best frame was dropped meanwhile fails closed.
+   TalkBack/`SemanticsService.announce` on Android and `accessibleText` with a live-region notification on JavaFX.
+   Do not announce progress ticks; announce the hint at most once per change.
+-- **Large text.** The status line is at least 24 sp/pt and the hint at least 18. Respect the system font scale,
+-  and let the layout grow rather than truncate.
++- **Large text.** The status is 20 sp/px semibold and the hint 15 (§9). Respect the system font scale, and let the
++  layout grow rather than truncate: at a large scale the camera card gives up height first, and only the tips
++  scroll, never the buttons.
+ - **Never rely on colour alone.** Every oval colour is paired with an icon, and every state has a text. The
+   red/green states are also distinguishable by shape (cross or check).
+ - **Touch targets** are at least 48 dp. Cancel stays reachable with one hand on phones.
+-- **Motion.** Challenge icons may animate, but keep the animation off when the system "reduce motion" setting is on.
++- **Motion.** A 200 ms cross-fade when the status changes, nothing else (§9). It is off when the system "reduce
++  motion" setting is on (Android) or with `desktop.animations=false` (Desktop).
+ 
+ ## 8. Diagnostics
+ 
  `policy.diagnosticMode = true` adds detail to logs and the audit trail only (scores, model version, timings). It
  **never** changes what is on screen. Production screens look identical whatever the setting. Developer overlays such
  as frame times or scores are allowed only on separate debug-only screens that are not reachable in release builds.
++
++## 9. Visual design
++
++Both clients draw the screen with the same tokens: Android in `lib/ui/liveness/liveness_style.dart`, Desktop in
++`liveness.css` and `LivenessView`. This section is visual only. The states, texts and message keys are §3–§5, and the
++500 ms guidance debounce (§4.3) is unchanged.
++
++**Layout, top to bottom:**
++1. the client's title bar (unchanged);
++2. the camera card;
++3. the status card;
++4. the hint line;
++5. the progress row;
++6. the tips (failure only);
++7. the button row, pinned to the bottom.
++
++The content is centred and at most 560 dp/px wide. A phone at 360×640 or 412×915 dp never scrolls, in any state. At a
++1.3 text scale only the tips may scroll, never the buttons.
++
++| Element | Tokens |
++|---|---|
++| Camera card | 3:4 on the phone, 4:3 on Desktop; radius 16. At most 45% of the screen height; it takes what is left, so it is smaller when the tips need the room. The face oval has a 4 dp stroke in the state colour, with a 40% black scrim outside the oval |
++| State badge | a 28 dp circle in the state colour, with a 1.5 dp white ring and an 18 dp icon. It sits on the oval's top centre, inside the card; the same badge starts the status card |
++| Status card | the badge and one message, centred. 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
++| Hint line | 15 sp/px regular, grey-700 (#616161), centred, with the warning icon (#B26A00) beside guidance. While guidance can still arrive (the session runs and has not failed), the line keeps 20 dp even when it is empty |
++| Progress row | During challenges: "Step i of n" at the start, a segmented bar, "Attempt a of m" at the end. Captions are 13 sp/px grey-700, each at most 35% of the row. One segment per challenge, 6 dp high, 4 dp apart, grey #E0E0E0: done steps are filled with the primary colour, the current one is half filled and fills further with the challenge's progress. Otherwise "Attempt a of m" alone, centred, while the session runs. After a failed attempt only "n attempt(s) left" (15 sp/px). No bar outside challenges |
++| Tips | failure only (LIVENESS_NOT_VERIFIED). A light-grey card (#F5F5F5), radius 12, 14 sp/px, bullets. On the phone at most 40% of the content height; beyond that it scrolls |
++| Buttons | one row of equal widths (a single button is as wide as one of two), 48 dp/px high, radius 12, 12 apart, 15 sp/px semibold. Retry and Close are filled with the primary colour; Cancel and Open settings are outlined in it. Retry only when a retry exists (§2) |
++
++**Colours.** The same hex on both clients:
++
++| State | Colour | Badge icon on it | Contrast |
++|---|---|---|---|
++| Checking, guidance; also done steps and filled buttons | primary #1C43A1 (the Android app bar's blue) | white | 8.9:1 |
++| Challenge | amber #E8890C | #1F1F1F | 6.3:1 (white would be 2.6:1) |
++| Passed, action detected | green #2E7D32 | white | 5.1:1 |
++| Failure, PAD, device | red #D32F2F | white | 5.0:1 |
++| Starting | grey #616161 | white | 6.2:1 |
++
++Text is #212121 (16.1:1 on white, at least 13.6:1 on every 10% status tint) or #616161 (6.2:1 on white, 5.7:1 on the
++tips card). The outlined buttons' #1C43A1 on white is 8.9:1. The warning icon is 4.2:1, where non-text needs 3:1. A
++colour always comes with an icon and a text (§7).
++
++**Type.** Each client's own family: Roboto on Android; Segoe UI on Windows, with its Semibold face for 600. Status
++20/600, body 15/400, tips 14/400, caption 13/400. No ALL CAPS.
++
++**Motion.** A 200 ms cross-fade when the status changes, and nothing else; the Desktop challenge-icon pulse is gone.
++It is off when the system's reduce-motion setting is on (Android) or with `desktop.animations=false` (Desktop).
++
++**Accessibility.**
++- Touch targets are at least 48 dp.
++- The status card and the hint line are live regions on Android; on Desktop the status label's accessible text is
++  updated (§7). The badges, the preview and the step bar are hidden from screen readers, because the texts say the
++  same.
++- Right-to-left languages are mirrored: on Android by Flutter's text direction, on Desktop by `NodeOrientation` for
++  Arabic, Persian, Hebrew and Urdu. The camera card and the state icons are not mirrored: they show the user's
++  physical left and right.
++
++**Tests.**
++- Android, `test/liveness/liveness_page_layout_test.dart`: every state at 360×640 and 412×915 dp, in English, in
++  Arabic and at a 1.3 text scale, with Roboto loaded. It checks:
++  - no overflow, and nothing scrolls but the tips;
++  - the buttons are on screen and 48 high;
++  - the camera card is 3:4 and at least 30% of the height (15% with the tips);
++  - the badge is on the oval's top centre;
++  - the English status takes at most 2 lines;
++  - a failed attempt shows one attempts line;
++  - the right-to-left order.
++- Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window) and 1280×800, and in
++  Arabic, with the same checks where they apply.
++
++**Screenshots.**
++- `docs/images/android`: from `test/liveness/liveness_screenshots_test.dart`, with the fake engine's events and the
++  grey placeholder instead of a camera; 540×1110 px.
++- `docs/images/part4`: from `LivenessScreenDemo --snapshots`, with the public-domain NASA portrait; 720×820 px.
 +
 +## Appendix A. The liveness texts in five more languages (machine-translated)
 +
@@ -1839,6 +2003,123 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
  						} catch (RegBaseCheckedException | IOException exception) {
  							LOGGER.error("AuthenticationController", APPLICATION_NAME, APPLICATION_ID,
  									"Exception while getting the scanned biometrics for user authentication: caused by "
+diff --git a/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessCameraCard.java b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessCameraCard.java
+new file mode 100644
+--- /dev/null
++++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessCameraCard.java
+@@ -0,0 +1,112 @@
++package io.mosip.registration.controller.liveness;
++
++import javafx.geometry.HPos;
++import javafx.geometry.NodeOrientation;
++import javafx.geometry.VPos;
++import javafx.scene.control.Label;
++import javafx.scene.image.ImageView;
++import javafx.scene.layout.Region;
++import javafx.scene.layout.StackPane;
++import javafx.scene.shape.Ellipse;
++import javafx.scene.shape.Rectangle;
++import javafx.scene.shape.SVGPath;
++import javafx.scene.shape.Shape;
++
++/**
++ * The camera card of the liveness screen ({@code docs/ui-liveness-spec.md} §9): the mirrored preview in a 4:3 card
++ * with rounded corners, a 40% scrim outside the face oval, the oval in the state colour and the state badge on the
++ * oval's top centre. The card is the largest centred 4:3 rectangle in the space this region is given, so it shrinks
++ * when the screen needs room (the tips). Always laid out left to right: the preview and the turn arrows show the
++ * user's physical left and right in every language.
++ */
++public final class LivenessCameraCard extends Region {
++
++	static final double RADIUS = 16;
++	static final double BADGE = 28;
++	/** The oval as shares of the card: centre (0.5, 0.489), radii (0.233, 0.406), the 480x360 card's before. */
++	static final double OVAL_CY = 176.0 / 360, OVAL_RX = 112.0 / 480, OVAL_RY = 146.0 / 360;
++
++	private final Region frame = new Region();
++	private final ImageView preview = new ImageView();
++	private final Label placeholder = new Label();
++	private final Ellipse oval = new Ellipse();
++	private final StackPane badge = new StackPane();
++	private final SVGPath badgeIcon = new SVGPath();
++	private final Rectangle clip = new Rectangle();
++	private Shape scrim;
++	private double cardWidth = -1, cardHeight = -1;
++
++	public LivenessCameraCard() {
++		setNodeOrientation(NodeOrientation.LEFT_TO_RIGHT);
++		frame.getStyleClass().add("liveness-preview");
++		preview.setPreserveRatio(true);
++		preview.setScaleX(-1); // a selfie view; the engine's frames are never mirrored
++		placeholder.getStyleClass().add("liveness-preview-placeholder");
++		placeholder.setWrapText(true);
++		oval.getStyleClass().add("liveness-oval");
++		badge.getStyleClass().add("liveness-badge");
++		badgeIcon.getStyleClass().add("liveness-badge-icon");
++		badgeIcon.setScaleX(0.75); // the 24 px Material paths at 18 px
++		badgeIcon.setScaleY(0.75);
++		badge.getChildren().add(badgeIcon);
++		clip.setArcWidth(2 * RADIUS);
++		clip.setArcHeight(2 * RADIUS);
++		setClip(clip);
++		setMouseTransparent(true);
++		getChildren().addAll(frame, preview, placeholder, oval, badge);
++	}
++
++	ImageView preview() { return preview; }
++	Label placeholder() { return placeholder; }
++	Ellipse oval() { return oval; }
++	StackPane badge() { return badge; }
++	SVGPath badgeIcon() { return badgeIcon; }
++
++	/** The card's size within this region, after layout. */
++	double cardWidth() { return cardWidth; }
++	double cardHeight() { return cardHeight; }
++
++	@Override
++	protected double computeMinWidth(double height) {
++		return 160;
++	}
++
++	@Override
++	protected double computeMinHeight(double width) {
++		return 120;
++	}
++
++	@Override
++	protected void layoutChildren() {
++		double w = getWidth(), h = getHeight();
++		double ch = Math.min(h, w * 3 / 4), cw = ch * 4 / 3;
++		double x = (w - cw) / 2, y = (h - ch) / 2;
++		if (cw != cardWidth || ch != cardHeight) {
++			cardWidth = cw;
++			cardHeight = ch;
++			oval.setRadiusX(cw * OVAL_RX);
++			oval.setRadiusY(ch * OVAL_RY);
++			if (scrim != null) {
++				getChildren().remove(scrim);
++			}
++			scrim = Shape.subtract(new Rectangle(cw, ch),
++					new Ellipse(cw / 2, ch * OVAL_CY, oval.getRadiusX(), oval.getRadiusY()));
++			scrim.getStyleClass().add("liveness-mask");
++			getChildren().add(getChildren().indexOf(oval), scrim);
++			preview.setFitWidth(cw);
++			preview.setFitHeight(ch);
++		}
++		clip.setX(x);
++		clip.setY(y);
++		clip.setWidth(cw);
++		clip.setHeight(ch);
++		frame.resizeRelocate(x, y, cw, ch);
++		layoutInArea(preview, x, y, cw, ch, 0, HPos.CENTER, VPos.CENTER);
++		layoutInArea(placeholder, x + 24, y, cw - 48, ch - 16, 0, HPos.CENTER, VPos.BOTTOM);
++		scrim.relocate(x, y);
++		oval.setCenterX(x + cw / 2);
++		oval.setCenterY(y + ch * OVAL_CY);
++		double top = Math.max(y, oval.getCenterY() - oval.getRadiusY() - BADGE / 2);
++		badge.resizeRelocate(oval.getCenterX() - BADGE / 2, top, BADGE, BADGE);
++	}
++}
 diff --git a/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessGate.java b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessGate.java
 new file mode 100644
 --- /dev/null
@@ -2220,16 +2501,19 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessMessages.java
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,162 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.text.MessageFormat;
++import java.util.Arrays;
 +import java.util.Collections;
++import java.util.HashSet;
 +import java.util.LinkedHashMap;
 +import java.util.Locale;
 +import java.util.Map;
 +import java.util.MissingResourceException;
 +import java.util.ResourceBundle;
++import java.util.Set;
 +import java.util.function.Function;
 +
 +import io.mosip.registration.constants.RegistrationConstants;
@@ -2301,25 +2585,46 @@ new file mode 100644
 +	public static final String[] TIP_KEYS = { "liveness.tips.look_at_camera", "liveness.tips.face_visible",
 +			"liveness.tips.lighting", "liveness.tips.capture_area", "liveness.tips.follow_prompt" };
 +
-+	private final Function<String, String> lookup;
++	/** Languages written right to left (MOSIP's three-letter codes and the two-letter ones). */
++	private static final Set<String> RIGHT_TO_LEFT = new HashSet<>(Arrays.asList("ara", "ar", "heb", "he", "fas",
++			"fa", "urd", "ur"));
 +
-+	private LivenessMessages(Function<String, String> lookup) {
++	private final Function<String, String> lookup;
++	private final boolean rightToLeft;
++
++	private LivenessMessages(Function<String, String> lookup, boolean rightToLeft) {
 +		this.lookup = lookup;
++		this.rightToLeft = rightToLeft;
 +	}
 +
 +	/** Texts in the client's current application language. */
 +	public static LivenessMessages forApplicationLanguage() {
-+		final ResourceBundle current = bundle(ApplicationContext.applicationLanguage());
++		String lang = ApplicationContext.applicationLanguage();
++		final ResourceBundle current = bundle(lang);
 +		final ResourceBundle english = bundle("eng");
 +		return new LivenessMessages(key -> {
 +			String v = find(current, key);
 +			return v != null ? v : find(english, key);
-+		});
++		}, isRightToLeft(lang));
 +	}
 +
 +	/** Built-in English only (tests, the screen demo). */
 +	public static LivenessMessages english() {
-+		return new LivenessMessages(key -> null);
++		return new LivenessMessages(key -> null, false);
++	}
++
++	/** Texts from one bundle, English where it has none (tests, the screen demo in another language). */
++	static LivenessMessages of(ResourceBundle bundle, String lang) {
++		return new LivenessMessages(key -> find(bundle, key), isRightToLeft(lang));
++	}
++
++	static boolean isRightToLeft(String lang) {
++		return lang != null && RIGHT_TO_LEFT.contains(lang.toLowerCase(Locale.ROOT));
++	}
++
++	/** The screen is mirrored for this language. */
++	public boolean rightToLeft() {
++		return rightToLeft;
 +	}
 +
 +	public String text(LivenessScreenModel.Text t) {
@@ -2693,7 +2998,7 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessView.java
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,419 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.io.IOException;
@@ -2704,32 +3009,36 @@ new file mode 100644
 +import io.mosip.registration.liveness.api.Frame;
 +import io.mosip.registration.liveness.device.util.PreviewFrameSource;
 +import javafx.animation.AnimationTimer;
-+import javafx.animation.Animation;
-+import javafx.animation.ScaleTransition;
++import javafx.animation.FadeTransition;
++import javafx.animation.ParallelTransition;
 +import javafx.fxml.FXML;
 +import javafx.fxml.FXMLLoader;
++import javafx.geometry.NodeOrientation;
++import javafx.geometry.Pos;
 +import javafx.scene.AccessibleAttribute;
 +import javafx.scene.Parent;
++import javafx.scene.SnapshotParameters;
 +import javafx.scene.control.Button;
 +import javafx.scene.control.Label;
-+import javafx.scene.control.ProgressBar;
 +import javafx.scene.image.ImageView;
 +import javafx.scene.image.PixelFormat;
 +import javafx.scene.image.WritableImage;
 +import javafx.scene.layout.BorderPane;
 +import javafx.scene.layout.HBox;
-+import javafx.scene.layout.Pane;
++import javafx.scene.layout.Priority;
++import javafx.scene.layout.Region;
 +import javafx.scene.layout.StackPane;
 +import javafx.scene.layout.VBox;
-+import javafx.scene.shape.Ellipse;
-+import javafx.scene.shape.Rectangle;
++import javafx.scene.paint.Color;
 +import javafx.scene.shape.SVGPath;
-+import javafx.scene.shape.Shape;
++import javafx.scene.text.Font;
++import javafx.scene.text.Text;
 +import javafx.util.Duration;
 +
 +/**
 + * Renders a {@link LivenessScreenModel} ({@code fxml/LivenessCheck.fxml}, {@code liveness.css}) and shows the
-+ * device's live frames in the preview.
++ * device's live frames in the preview. The layout and tokens are {@code docs/ui-liveness-spec.md} §9, the same as
++ * the Android client's.
 + *
 + * <p>The preview is mirrored like a selfie by the view only ({@code scaleX=-1}); the frames the engine analyses are
 + * never mirrored. Frames arrive on the device thread; only the newest is kept and drawn once per screen refresh.
@@ -2739,6 +3048,16 @@ new file mode 100644
 +
 +	static final String FXML = "/fxml/LivenessCheck.fxml";
 +	static final String CSS = "/liveness.css";
++
++	/** §9 tokens the stylesheet cannot express. */
++	static final double MAX_CONTENT_WIDTH = 560;
++	static final double CAMERA_SHARE = 0.45;
++	static final double BUTTON_GAP = 12;
++	static final double STATUS_MIN_HEIGHT = 80;
++	static final double STATUS_SIZE = 20;
++	static final double STATUS_MIN_SIZE = 16;
++	static final Duration STATUS_FADE = Duration.millis(200);
++	static final String ATTEMPTS_LEFT = "liveness.retry.attempts_left";
 +
 +	private static final Map<LivenessScreenModel.Icon, String> ICONS = new EnumMap<>(LivenessScreenModel.Icon.class);
 +	private static final String WARNING_ICON = "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z";
@@ -2759,23 +3078,24 @@ new file mode 100644
 +
 +	@FXML private BorderPane root;
 +	@FXML private Label title;
-+	@FXML private StackPane previewPane;
-+	@FXML private Label previewPlaceholder;
-+	@FXML private ImageView preview;
-+	@FXML private Pane overlay;
-+	@FXML private Ellipse oval;
-+	@FXML private StackPane ovalBadge;
-+	@FXML private SVGPath ovalIcon;
++	@FXML private VBox content;
++	@FXML private LivenessCameraCard camera;
++	@FXML private StackPane statusCard;
++	@FXML private HBox statusRow;
 +	@FXML private StackPane statusBadge;
 +	@FXML private SVGPath statusIcon;
 +	@FXML private Label status;
 +	@FXML private HBox hintRow;
 +	@FXML private SVGPath hintIcon;
 +	@FXML private Label hint;
++	@FXML private StackPane progressRow;
++	@FXML private HBox stepRow;
 +	@FXML private Label step;
-+	@FXML private ProgressBar progress;
++	@FXML private HBox segments;
 +	@FXML private Label attempt;
++	@FXML private Label progressText;
 +	@FXML private VBox tips;
++	@FXML private HBox buttonRow;
 +	@FXML private Button retryButton;
 +	@FXML private Button cancelButton;
 +	@FXML private Button closeButton;
@@ -2784,11 +3104,12 @@ new file mode 100644
 +	private final boolean animations;
 +	private final AtomicReference<Frame> pendingFrame = new AtomicReference<>();
 +	private WritableImage image;
-+	private ScaleTransition pulse;
++	private ParallelTransition fade;
 +	private Runnable onRetry = () -> { };
 +	private Runnable onCancel = () -> { };
 +	private Runnable onClose = () -> { };
 +	private LivenessScreenModel.Tone lastTone;
++	private String lastStatus;
 +
 +	private final AnimationTimer previewTimer = new AnimationTimer() {
 +		@Override
@@ -2805,7 +3126,7 @@ new file mode 100644
 +		this.animations = animations;
 +	}
 +
-+	/** Loads the screen. {@code animations=false} keeps the challenge icon still (reduced motion). */
++	/** Loads the screen. {@code animations=false} turns the status fade off (reduced motion). */
 +	public static LivenessView load(LivenessMessages messages, boolean animations) throws IOException {
 +		LivenessView view = new LivenessView(messages, animations);
 +		FXMLLoader loader = new FXMLLoader(LivenessView.class.getResource(FXML));
@@ -2817,14 +3138,21 @@ new file mode 100644
 +
 +	private void init() {
 +		root.getStylesheets().add(LivenessView.class.getResource(CSS).toExternalForm());
-+		Shape mask = Shape.subtract(new Rectangle(480, 360), new Ellipse(oval.getCenterX(), oval.getCenterY(),
-+				oval.getRadiusX(), oval.getRadiusY()));
-+		mask.getStyleClass().add("liveness-mask");
-+		overlay.getChildren().add(0, mask);
++		// Mirrored for right-to-left languages; the camera card and the state icons keep the user's left and right.
++		root.setNodeOrientation(messages.rightToLeft() ? NodeOrientation.RIGHT_TO_LEFT : NodeOrientation.LEFT_TO_RIGHT);
++		statusBadge.setNodeOrientation(NodeOrientation.LEFT_TO_RIGHT);
 +		hintIcon.setContent(WARNING_ICON);
 +		retryButton.setText(messages.text("liveness.button.retry"));
 +		cancelButton.setText(messages.text("liveness.button.cancel"));
 +		closeButton.setText(messages.text("liveness.button.close"));
++		for (Region r : new Region[] { hintRow, progressRow, tips }) {
++			r.setMinHeight(Region.USE_PREF_SIZE); // only the camera card gives up height
++		}
++		statusCard.setMinHeight(STATUS_MIN_HEIGHT); // two status lines; the status never needs more
++		VBox.setVgrow(camera, Priority.NEVER);
++		root.widthProperty().addListener((o, a, b) -> resize());
++		root.heightProperty().addListener((o, a, b) -> resize());
++		resize();
 +		showPreview(false, "");
 +		previewTimer.start();
 +	}
@@ -2843,9 +3171,9 @@ new file mode 100644
 +
 +	/** Shows the live preview, or the placeholder text instead (no frames, e.g. the scripted engine). */
 +	public void showPreview(boolean live, String placeholder) {
-+		preview.setVisible(live);
-+		previewPlaceholder.setVisible(!live);
-+		previewPlaceholder.setText(placeholder);
++		camera.preview().setVisible(live);
++		camera.placeholder().setVisible(!live);
++		camera.placeholder().setText(placeholder);
 +	}
 +
 +	/** Called on the device thread for every frame. Never blocks. */
@@ -2862,7 +3190,7 @@ new file mode 100644
 +	private void draw(Frame f) {
 +		if (image == null || (int) image.getWidth() != f.width() || (int) image.getHeight() != f.height()) {
 +			image = new WritableImage(f.width(), f.height());
-+			preview.setImage(image);
++			camera.preview().setImage(image);
 +			showPreview(true, "");
 +		}
 +		image.getPixelWriter().setPixels(0, 0, f.width(), f.height(), PixelFormat.getByteRgbInstance(), f.rgb(), 0,
@@ -2871,36 +3199,53 @@ new file mode 100644
 +
 +	public void render(LivenessScreenModel m) {
 +		title.setText(messages.text(m.title()));
-+		setText(status, m.status());
-+		setText(hint, m.hint());
-+		hintIcon.setVisible(m.hint() != null && m.hintIsGuidance());
-+		hintIcon.setManaged(hintIcon.isVisible());
++		String statusText = messages.text(m.status());
++		boolean statusChanged = lastStatus != null && !statusText.equals(lastStatus);
++		if (statusChanged) {
++			crossFade();
++		}
++		lastStatus = statusText;
++		status.setText(statusText);
 +
 +		String icon = ICONS.get(m.icon());
-+		ovalIcon.setContent(icon);
++		camera.badgeIcon().setContent(icon);
 +		statusIcon.setContent(icon);
 +		if (m.tone() != lastTone) {
 +			root.getStyleClass().removeIf(c -> c.startsWith("tone-"));
 +			root.getStyleClass().add("tone-" + m.tone().name().toLowerCase());
 +			lastTone = m.tone();
 +		}
-+		animateChallengeIcon(m.tone() == LivenessScreenModel.Tone.CHALLENGE);
 +
-+		switch (m.progressMode()) {
-+			case INDETERMINATE:
-+				progress.setVisible(true);
-+				progress.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-+				break;
-+			case DETERMINATE:
-+				progress.setVisible(true);
-+				progress.setProgress(m.progress());
-+				break;
-+			default:
-+				progress.setVisible(false);
-+				break;
++		// The hint line: guidance or feedback, or the recovery text; the attempts left go to the progress row.
++		// While guidance can still arrive the line keeps its place, so nothing below it jumps.
++		boolean attemptsLeft = m.hint() != null && ATTEMPTS_LEFT.equals(m.hint().key);
++		LivenessScreenModel.Text secondary = attemptsLeft ? null : m.hint();
++		boolean reserve = m.terminal() == LivenessScreenModel.Terminal.NONE && m.tone() != LivenessScreenModel.Tone.FAILURE;
++		hint.setText(secondary == null ? "" : messages.text(secondary));
++		hintIcon.setVisible(secondary != null && m.hintIsGuidance());
++		hintIcon.setManaged(hintIcon.isVisible());
++		hintRow.setVisible(secondary != null);
++		hintRow.setManaged(secondary != null || reserve);
++		hintRow.setPrefHeight(secondary == null ? 20 : Region.USE_COMPUTED_SIZE);
++
++		// The progress row: Step i of n, the step bar, Attempt a of m; after a failed attempt only the attempts left.
++		boolean bar = m.step() != null && m.progressMode() == LivenessScreenModel.ProgressMode.DETERMINATE;
++		stepRow.setVisible(bar && !attemptsLeft);
++		progressText.setStyle(attemptsLeft ? "-fx-font-size: 15px;" : ""); // body size, as the hint line it replaces
++		if (attemptsLeft) {
++			progressText.setText(messages.text(m.hint()));
++		} else if (!bar && m.attempt() != null) {
++			progressText.setText(messages.text(m.attempt()));
++		} else {
++			progressText.setText("");
 +		}
-+		setText(step, m.step());
-+		setText(attempt, m.attempt());
++		progressText.setVisible(!stepRow.isVisible() && !progressText.getText().isEmpty());
++		if (stepRow.isVisible()) {
++			step.setText(messages.text(m.step()));
++			setText(attempt, m.attempt());
++			attempt.setManaged(attempt.isVisible());
++			segments((Integer) m.step().args[0], (Integer) m.step().args[1], m.progress());
++		}
 +
 +		tips.getChildren().clear();
 +		tips.setVisible(m.showTips());
@@ -2910,8 +3255,9 @@ new file mode 100644
 +			t.getStyleClass().add("liveness-tips-title");
 +			tips.getChildren().add(t);
 +			for (String key : LivenessMessages.TIP_KEYS) {
-+				Label l = new Label("• " + messages.text(key));
++				Label l = new Label("•  " + messages.text(key));
 +				l.setWrapText(true);
++				l.setMinHeight(Region.USE_PREF_SIZE);
 +				tips.getChildren().add(l);
 +			}
 +		}
@@ -2919,6 +3265,7 @@ new file mode 100644
 +		show(retryButton, m.showRetry());
 +		show(cancelButton, m.showCancel());
 +		show(closeButton, m.showClose());
++		resize();
 +		Button focus = m.showRetry() ? retryButton : m.showClose() ? closeButton : null;
 +		if (focus != null) {
 +			focus.requestFocus();
@@ -2931,6 +3278,113 @@ new file mode 100644
 +		}
 +	}
 +
++	/** Sizes what depends on the window: the camera card (45% of the height), the text widths and the buttons. */
++	private void resize() {
++		double width = root.getWidth() > 0 ? root.getWidth() : root.getPrefWidth();
++		double height = root.getHeight() > 0 ? root.getHeight() : root.getPrefHeight();
++		double w = Math.min(MAX_CONTENT_WIDTH, width - 48);
++		double cameraHeight = Math.min(height * CAMERA_SHARE, w * 3 / 4);
++		camera.setPrefSize(w, cameraHeight);
++		camera.setMaxHeight(cameraHeight);
++		double statusWidth = w - 24 - LivenessCameraCard.BADGE - statusRow.getSpacing();
++		status.setMaxWidth(statusWidth);
++		hint.setMaxWidth(w - 24);
++		progressText.setMaxWidth(w);
++		step.setMaxWidth(w * 0.35);
++		attempt.setMaxWidth(w * 0.35);
++		fitStatus(statusWidth);
++
++		int count = 0;
++		for (Button b : new Button[] { retryButton, cancelButton, closeButton }) {
++			count += b.isManaged() ? 1 : 0;
++		}
++		int slots = Math.max(count, 2);
++		double buttonWidth = (w - BUTTON_GAP * (slots - 1)) / slots;
++		for (Button b : new Button[] { retryButton, cancelButton, closeButton }) {
++			b.setMinWidth(buttonWidth);
++			b.setPrefWidth(buttonWidth);
++			b.setMaxWidth(buttonWidth);
++		}
++	}
++
++	/** The status at 20 px; a long one steps down towards 16 px where 20 would need a third line. */
++	private void fitStatus(double width) {
++		status.applyCss();
++		String text = status.getText();
++		String name = status.getFont().getName();
++		double size = STATUS_SIZE;
++		while (size > STATUS_MIN_SIZE && lines(text, new Font(name, size), width) > 2) {
++			size--;
++		}
++		status.setStyle(size == STATUS_SIZE ? "" : "-fx-font-size: " + size + "px;");
++	}
++
++	static int lines(String text, Font font, double width) {
++		Text t = new Text(text == null || text.isEmpty() ? "X" : text);
++		t.setFont(font);
++		t.setWrappingWidth(width);
++		double wrapped = t.getLayoutBounds().getHeight();
++		t.setWrappingWidth(0);
++		t.setText("X");
++		return (int) Math.round(wrapped / t.getLayoutBounds().getHeight());
++	}
++
++	/** One segment per challenge: done ones full, the current one at least half, filling with the progress. */
++	private void segments(int index, int count, double progress) {
++		if (segments.getChildren().size() != count) {
++			segments.getChildren().clear();
++			for (int i = 0; i < count; i++) {
++				StackPane segment = new StackPane();
++				segment.getStyleClass().add("liveness-segment");
++				segment.setAlignment(Pos.CENTER_LEFT);
++				segment.setMinHeight(6);
++				segment.setMaxHeight(6);
++				segment.setPrefWidth(0);
++				segment.setMaxWidth(Double.MAX_VALUE);
++				HBox.setHgrow(segment, Priority.ALWAYS);
++				Region fill = new Region();
++				fill.getStyleClass().add("liveness-segment-fill");
++				fill.setMinWidth(0);
++				fill.setMaxHeight(6);
++				segment.getChildren().add(fill);
++				segments.getChildren().add(segment);
++			}
++		}
++		for (int i = 1; i <= count; i++) {
++			StackPane segment = (StackPane) segments.getChildren().get(i - 1);
++			Region fill = (Region) segment.getChildren().get(0);
++			double f = i < index ? 1 : i == index ? Math.max(0.5, progress) : 0;
++			fill.prefWidthProperty().bind(segment.widthProperty().multiply(f));
++			fill.maxWidthProperty().bind(segment.widthProperty().multiply(f));
++			fill.setVisible(f > 0);
++		}
++	}
++
++	/** A 200 ms cross-fade from the previous status to the new one (reduced motion: none). */
++	private void crossFade() {
++		if (!animations || root.getScene() == null) {
++			return;
++		}
++		if (fade != null) {
++			fade.jumpTo("end");
++		}
++		SnapshotParameters p = new SnapshotParameters();
++		p.setFill(Color.TRANSPARENT);
++		ImageView old = new ImageView(statusRow.snapshot(p, null));
++		old.setManaged(false);
++		old.relocate(statusRow.getLayoutX(), statusRow.getLayoutY());
++		old.setMouseTransparent(true);
++		statusCard.getChildren().add(old);
++		FadeTransition out = new FadeTransition(STATUS_FADE, old);
++		out.setToValue(0);
++		FadeTransition in = new FadeTransition(STATUS_FADE, statusRow);
++		in.setFromValue(0);
++		in.setToValue(1);
++		fade = new ParallelTransition(out, in);
++		fade.setOnFinished(e -> statusCard.getChildren().remove(old));
++		fade.play();
++	}
++
 +	private void setText(Label label, LivenessScreenModel.Text text) {
 +		label.setText(text == null ? "" : messages.text(text));
 +		label.setVisible(text != null);
@@ -2941,33 +3395,28 @@ new file mode 100644
 +		b.setManaged(visible);
 +	}
 +
-+	private void animateChallengeIcon(boolean on) {
-+		if (!animations) {
-+			return;
-+		}
-+		if (on && pulse == null) {
-+			pulse = new ScaleTransition(Duration.millis(700), ovalBadge);
-+			pulse.setFromX(1);
-+			pulse.setFromY(1);
-+			pulse.setToX(1.18);
-+			pulse.setToY(1.18);
-+			pulse.setAutoReverse(true);
-+			pulse.setCycleCount(Animation.INDEFINITE);
-+			pulse.play();
-+		} else if (!on && pulse != null) {
-+			pulse.stop();
-+			ovalBadge.setScaleX(1);
-+			ovalBadge.setScaleY(1);
-+			pulse = null;
-+		}
-+	}
-+
 +	/** Stops the preview timer and any animation; call when the window closes. */
 +	public void dispose() {
 +		previewTimer.stop();
-+		animateChallengeIcon(false);
++		if (fade != null) {
++			fade.stop();
++		}
 +		pendingFrame.set(null);
 +	}
++
++	// ------------------------------------------------------------------ read side for the layout tests
++
++	LivenessCameraCard camera() { return camera; }
++	StackPane statusCard() { return statusCard; }
++	Label status() { return status; }
++	Label hint() { return hint; }
++	Label step() { return step; }
++	HBox segments() { return segments; }
++	Label attempt() { return attempt; }
++	Label progressText() { return progressText; }
++	VBox tips() { return tips; }
++	VBox content() { return content; }
++	Button[] buttons() { return new Button[] { retryButton, cancelButton, closeButton }; }
 +}
 diff --git a/registration-client/src/main/java/io/mosip/registration/controller/liveness/ModelBundleTexts.java b/registration-client/src/main/java/io/mosip/registration/controller/liveness/ModelBundleTexts.java
 new file mode 100644
@@ -3209,26 +3658,23 @@ diff --git a/registration-client/src/main/resources/fxml/LivenessCheck.fxml b/re
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/resources/fxml/LivenessCheck.fxml
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,75 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +
++<?import io.mosip.registration.controller.liveness.LivenessCameraCard?>
 +<?import javafx.geometry.Insets?>
 +<?import javafx.scene.control.Button?>
 +<?import javafx.scene.control.Label?>
-+<?import javafx.scene.control.ProgressBar?>
-+<?import javafx.scene.image.ImageView?>
 +<?import javafx.scene.layout.BorderPane?>
 +<?import javafx.scene.layout.HBox?>
-+<?import javafx.scene.layout.Pane?>
-+<?import javafx.scene.layout.Region?>
 +<?import javafx.scene.layout.StackPane?>
 +<?import javafx.scene.layout.VBox?>
-+<?import javafx.scene.shape.Ellipse?>
 +<?import javafx.scene.shape.SVGPath?>
 +
-+<!-- Face liveness screen (docs/ui-liveness-spec.md §2), the same for the resident, operator and supervisor flows.
++<!-- Face liveness screen (docs/ui-liveness-spec.md §2 and §9), the same for the resident, operator and supervisor
++     flows: camera card, status card, progress row, tips (failure only), and the buttons pinned to the bottom.
 +     Controller: io.mosip.registration.controller.liveness.LivenessView (set by the loader). -->
-+<BorderPane fx:id="root" styleClass="liveness-root" prefWidth="720" prefHeight="760"
++<BorderPane fx:id="root" styleClass="liveness-root" prefWidth="720" prefHeight="820"
 +            xmlns="http://javafx.com/javafx/11" xmlns:fx="http://javafx.com/fxml/1">
 +    <top>
 +        <HBox styleClass="liveness-header" alignment="CENTER_LEFT">
@@ -3236,61 +3682,55 @@ new file mode 100644
 +        </HBox>
 +    </top>
 +    <center>
-+        <VBox alignment="TOP_CENTER" spacing="14">
-+            <padding><Insets top="16" right="24" bottom="8" left="24" /></padding>
++        <VBox fx:id="content" alignment="TOP_CENTER" maxWidth="560">
++            <BorderPane.margin><Insets top="16" right="24" left="24" /></BorderPane.margin>
 +
-+            <!-- Live preview, mirrored like a selfie (display only), with the face-oval guide. -->
-+            <StackPane fx:id="previewPane" styleClass="liveness-preview" minWidth="480" minHeight="360"
-+                       maxWidth="480" maxHeight="360">
-+                <ImageView fx:id="preview" fitWidth="480" fitHeight="360" preserveRatio="true" scaleX="-1" />
-+                <Pane fx:id="overlay" mouseTransparent="true" minWidth="480" minHeight="360" maxWidth="480"
-+                      maxHeight="360">
-+                    <Ellipse fx:id="oval" centerX="240" centerY="176" radiusX="112" radiusY="146"
-+                             styleClass="liveness-oval" />
-+                    <StackPane fx:id="ovalBadge" layoutX="316" layoutY="270" styleClass="liveness-badge"
-+                               minWidth="44" minHeight="44" maxWidth="44" maxHeight="44">
-+                        <SVGPath fx:id="ovalIcon" styleClass="liveness-badge-icon" />
++            <!-- The mirrored preview with the face-oval guide and the state badge. -->
++            <LivenessCameraCard fx:id="camera" />
++
++            <!-- The status: badge and one message, centred. -->
++            <StackPane fx:id="statusCard" styleClass="liveness-status-card">
++                <VBox.margin><Insets top="12" /></VBox.margin>
++                <HBox fx:id="statusRow" alignment="CENTER" spacing="10">
++                    <StackPane fx:id="statusBadge" styleClass="liveness-status-badge" minWidth="28" minHeight="28"
++                               maxWidth="28" maxHeight="28">
++                        <SVGPath fx:id="statusIcon" styleClass="liveness-badge-icon" scaleX="0.75" scaleY="0.75" />
 +                    </StackPane>
-+                </Pane>
-+                <!-- Shown instead of frames (the scripted development engine). -->
-+                <Label fx:id="previewPlaceholder" styleClass="liveness-preview-placeholder" wrapText="true"
-+                       StackPane.alignment="BOTTOM_CENTER" />
++                    <Label fx:id="status" styleClass="liveness-status" wrapText="true" />
++                </HBox>
 +            </StackPane>
 +
-+            <!-- Status line (large) and hint line. -->
-+            <HBox alignment="CENTER" spacing="10">
-+                <StackPane fx:id="statusBadge" styleClass="liveness-status-badge" minWidth="36" minHeight="36"
-+                           maxWidth="36" maxHeight="36">
-+                    <SVGPath fx:id="statusIcon" styleClass="liveness-badge-icon" />
-+                </StackPane>
-+                <Label fx:id="status" styleClass="liveness-status" wrapText="true" maxWidth="600" />
-+            </HBox>
-+            <HBox fx:id="hintRow" alignment="CENTER" spacing="8" minHeight="28">
-+                <SVGPath fx:id="hintIcon" styleClass="liveness-hint-icon" />
-+                <Label fx:id="hint" styleClass="liveness-hint" wrapText="true" maxWidth="600" />
++            <!-- Guidance or feedback, or the recovery text of a final failure. -->
++            <HBox fx:id="hintRow" alignment="CENTER" spacing="6">
++                <VBox.margin><Insets top="8" /></VBox.margin>
++                <SVGPath fx:id="hintIcon" styleClass="liveness-hint-icon" scaleX="0.75" scaleY="0.75" />
++                <Label fx:id="hint" styleClass="liveness-hint" wrapText="true" />
 +            </HBox>
 +
-+            <!-- Step i of n, progress, Attempt a of m. -->
-+            <HBox alignment="CENTER" spacing="16">
-+                <Label fx:id="step" styleClass="liveness-meta" minWidth="110" />
-+                <ProgressBar fx:id="progress" styleClass="liveness-progress" prefWidth="300" prefHeight="14" />
-+                <Label fx:id="attempt" styleClass="liveness-meta" minWidth="110" />
-+            </HBox>
++            <!-- Step i of n, the step bar, Attempt a of m; after a failed attempt only the attempts left. -->
++            <StackPane fx:id="progressRow" minHeight="24">
++                <VBox.margin><Insets top="8" /></VBox.margin>
++                <HBox fx:id="stepRow" alignment="CENTER" spacing="12">
++                    <Label fx:id="step" styleClass="liveness-meta" />
++                    <HBox fx:id="segments" styleClass="liveness-segments" spacing="4" alignment="CENTER" HBox.hgrow="ALWAYS" />
++                    <Label fx:id="attempt" styleClass="liveness-meta" />
++                </HBox>
++                <Label fx:id="progressText" styleClass="liveness-meta" wrapText="true" />
++            </StackPane>
 +
 +            <!-- Failure only (LIVENESS_NOT_VERIFIED): the problem statement's additional guidance. -->
-+            <VBox fx:id="tips" styleClass="liveness-tips" spacing="4" maxWidth="520" />
++            <VBox fx:id="tips" styleClass="liveness-tips" spacing="4">
++                <VBox.margin><Insets top="12" /></VBox.margin>
++            </VBox>
 +        </VBox>
 +    </center>
 +    <bottom>
-+        <HBox alignment="CENTER" spacing="16" styleClass="liveness-buttons">
-+            <padding><Insets top="8" right="24" bottom="20" left="24" /></padding>
-+            <Button fx:id="retryButton" styleClass="liveness-button-primary" minWidth="140" minHeight="48"
-+                    onAction="#onRetry" />
-+            <Region minWidth="0" />
-+            <Button fx:id="cancelButton" styleClass="liveness-button" minWidth="140" minHeight="48"
-+                    onAction="#onCancel" cancelButton="true" />
-+            <Button fx:id="closeButton" styleClass="liveness-button-primary" minWidth="140" minHeight="48"
-+                    onAction="#onClose" />
++        <HBox fx:id="buttonRow" alignment="CENTER" spacing="12" styleClass="liveness-buttons">
++            <padding><Insets top="8" right="24" bottom="16" left="24" /></padding>
++            <Button fx:id="retryButton" styleClass="liveness-button-primary" minHeight="48" onAction="#onRetry" />
++            <Button fx:id="cancelButton" styleClass="liveness-button" minHeight="48" onAction="#onCancel"
++                    cancelButton="true" />
++            <Button fx:id="closeButton" styleClass="liveness-button-primary" minHeight="48" onAction="#onClose" />
 +        </HBox>
 +    </bottom>
 +</BorderPane>
@@ -3403,8 +3843,10 @@ diff --git a/registration-client/src/main/resources/liveness.css b/registration-
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/resources/liveness.css
-@@ -0,0 +1,141 @@
-+/* Face liveness screen (docs/ui-liveness-spec.md §2 and §7). Colours always come with an icon and a text. */
+@@ -0,0 +1,164 @@
++/* Face liveness screen (docs/ui-liveness-spec.md §2, §7 and §9). Colours always come with an icon and a text.
++   The tokens are the Android client's (LivenessStyle): primary #1C43A1, challenge #E8890C, success #2E7D32,
++   failure #D32F2F, neutral #616161; text #212121 and #616161. */
 +
 +.liveness-root {
 +    -fx-background-color: #ffffff;
@@ -3422,48 +3864,65 @@ new file mode 100644
 +    -fx-font-weight: bold;
 +}
 +
++/* Camera card: 4:3, radius 16 (LivenessCameraCard), 40% scrim outside the oval, 4 px oval. */
 +.liveness-preview {
-+    -fx-background-color: #1f2328;
-+    -fx-background-radius: 8;
++    -fx-background-color: #616161;
++    -fx-background-radius: 16;
 +}
 +
 +.liveness-preview-placeholder {
-+    -fx-text-fill: #c9d1d9;
-+    -fx-font-size: 16px;
++    -fx-text-fill: #ffffff;
++    -fx-font-size: 15px;
 +    -fx-text-alignment: center;
-+    -fx-padding: 24;
 +}
 +
 +.liveness-oval {
 +    -fx-fill: transparent;
-+    -fx-stroke-width: 5;
-+    -fx-stroke-dash-array: null;
++    -fx-stroke-width: 4;
 +}
 +
 +.liveness-mask {
-+    -fx-fill: rgba(0, 0, 0, 0.45);
++    -fx-fill: rgba(0, 0, 0, 0.40);
 +}
 +
++/* The state badge, on the oval and in the status card: a 28 px circle in the state colour. */
 +.liveness-badge, .liveness-status-badge {
-+    -fx-background-radius: 50%;
-+    -fx-background-color: #8a8f98;
++    -fx-background-radius: 14;
++    -fx-border-color: #ffffff;
++    -fx-border-width: 1.5;
++    -fx-border-radius: 14;
 +}
 +
 +.liveness-badge-icon {
 +    -fx-fill: #ffffff;
 +}
 +
++/* Status card: the state colour at 10%, a 1 px border, radius 12; 20 px semibold, centred, at most 2 lines. */
++.liveness-status-card {
++    -fx-background-radius: 12;
++    -fx-border-radius: 12;
++    -fx-border-width: 1;
++    -fx-padding: 12;
++}
++
++/* Weight 600: JavaFX does not derive Segoe UI's semibold face from -fx-font-weight, so it is named. */
++.liveness-status, .liveness-tips-title, .liveness-button, .liveness-button-primary {
++    -fx-font-family: "Segoe UI Semibold";
++}
++
 +.liveness-status {
-+    -fx-font-size: 24px;
-+    -fx-font-weight: bold;
-+    -fx-text-fill: #1f2328;
++    -fx-font-size: 20px;
++    -fx-text-fill: #212121;
 +    -fx-text-alignment: center;
++    -fx-alignment: center;
++    -fx-line-spacing: 2;
 +}
 +
 +.liveness-hint {
-+    -fx-font-size: 18px;
-+    -fx-text-fill: #3d444d;
++    -fx-font-size: 15px;
++    -fx-text-fill: #616161;
 +    -fx-text-alignment: center;
++    -fx-alignment: center;
 +}
 +
 +.liveness-hint-icon {
@@ -3471,80 +3930,84 @@ new file mode 100644
 +}
 +
 +.liveness-meta {
-+    -fx-font-size: 15px;
-+    -fx-text-fill: #3d444d;
++    -fx-font-size: 13px;
++    -fx-text-fill: #616161;
++    -fx-text-alignment: center;
++    -fx-alignment: center;
 +}
 +
-+.liveness-progress .bar {
-+    -fx-background-color: #1e6fd9;
-+    -fx-background-insets: 1;
-+    -fx-background-radius: 6;
++/* Step bar: one segment per challenge; done filled, the current one at least half. */
++.liveness-segment {
++    -fx-background-color: #e0e0e0;
++    -fx-background-radius: 3;
 +}
 +
-+.liveness-progress .track {
-+    -fx-background-radius: 6;
++.liveness-segment-fill {
++    -fx-background-color: #1c43a1;
++    -fx-background-radius: 3;
 +}
 +
 +.liveness-tips {
-+    -fx-background-color: #f6f8fa;
-+    -fx-background-radius: 6;
-+    -fx-padding: 10 16 10 16;
++    -fx-background-color: #f5f5f5;
++    -fx-background-radius: 12;
++    -fx-padding: 10 14 10 14;
 +}
 +
 +.liveness-tips .label {
-+    -fx-font-size: 16px;
-+    -fx-text-fill: #1f2328;
++    -fx-font-size: 14px;
++    -fx-text-fill: #212121;
 +}
 +
-+.liveness-tips-title {
-+    -fx-font-weight: bold;
-+}
-+
++/* Buttons: one row, equal widths, 48 high, radius 12; filled for Retry and Close, outlined for Cancel. */
 +.liveness-button, .liveness-button-primary {
-+    -fx-font-size: 16px;
-+    -fx-background-radius: 6;
++    -fx-font-size: 15px;
++    -fx-background-radius: 12;
++    -fx-border-radius: 12;
 +    -fx-cursor: hand;
 +}
 +
 +.liveness-button {
 +    -fx-background-color: #ffffff;
-+    -fx-border-color: #2c3e50;
-+    -fx-border-radius: 6;
-+    -fx-text-fill: #2c3e50;
++    -fx-border-color: #1c43a1;
++    -fx-border-width: 1;
++    -fx-text-fill: #1c43a1;
 +}
 +
 +.liveness-button-primary {
-+    -fx-background-color: #2c3e50;
++    -fx-background-color: #1c43a1;
 +    -fx-text-fill: #ffffff;
 +}
 +
 +.liveness-button:focused, .liveness-button-primary:focused {
-+    -fx-border-color: #e39b00;
++    -fx-border-color: #e8890c;
 +    -fx-border-width: 3;
-+    -fx-border-radius: 6;
 +}
 +
-+/* Tones: oval stroke and badge background. */
-+.tone-neutral .liveness-oval { -fx-stroke: #8a8f98; }
-+.tone-neutral .liveness-badge, .tone-neutral .liveness-status-badge { -fx-background-color: #6e7681; }
++/* Tones: oval stroke, badges and the status card. */
++.tone-neutral .liveness-oval { -fx-stroke: #616161; }
++.tone-neutral .liveness-badge, .tone-neutral .liveness-status-badge { -fx-background-color: #616161; }
++.tone-neutral .liveness-status-card { -fx-background-color: rgba(97, 97, 97, 0.10); -fx-border-color: #616161; }
 +
-+.tone-checking .liveness-oval { -fx-stroke: #1e6fd9; }
-+.tone-checking .liveness-badge, .tone-checking .liveness-status-badge { -fx-background-color: #1e6fd9; }
++.tone-checking .liveness-oval { -fx-stroke: #1c43a1; }
++.tone-checking .liveness-badge, .tone-checking .liveness-status-badge { -fx-background-color: #1c43a1; }
++.tone-checking .liveness-status-card { -fx-background-color: rgba(28, 67, 161, 0.10); -fx-border-color: #1c43a1; }
 +
-+.tone-challenge .liveness-oval { -fx-stroke: #e39b00; }
-+.tone-challenge .liveness-badge, .tone-challenge .liveness-status-badge { -fx-background-color: #b26a00; }
-+.tone-challenge .liveness-progress .bar { -fx-background-color: #e39b00; }
++.tone-challenge .liveness-oval { -fx-stroke: #e8890c; }
++.tone-challenge .liveness-badge, .tone-challenge .liveness-status-badge { -fx-background-color: #e8890c; }
++.tone-challenge .liveness-badge-icon { -fx-fill: #1f1f1f; }
++.tone-challenge .liveness-status-card { -fx-background-color: rgba(232, 137, 12, 0.10); -fx-border-color: #e8890c; }
 +
-+.tone-detected .liveness-oval { -fx-stroke: #2e9e4f; }
-+.tone-detected .liveness-badge, .tone-detected .liveness-status-badge { -fx-background-color: #23803f; }
-+.tone-detected .liveness-progress .bar { -fx-background-color: #2e9e4f; }
++.tone-detected .liveness-oval, .tone-success .liveness-oval { -fx-stroke: #2e7d32; }
++.tone-detected .liveness-badge, .tone-detected .liveness-status-badge,
++.tone-success .liveness-badge, .tone-success .liveness-status-badge { -fx-background-color: #2e7d32; }
++.tone-detected .liveness-status-card, .tone-success .liveness-status-card {
++    -fx-background-color: rgba(46, 125, 50, 0.10);
++    -fx-border-color: #2e7d32;
++}
 +
-+.tone-success .liveness-oval { -fx-stroke: #2e9e4f; }
-+.tone-success .liveness-badge, .tone-success .liveness-status-badge { -fx-background-color: #23803f; }
-+.tone-success .liveness-progress .bar { -fx-background-color: #2e9e4f; }
-+
-+.tone-failure .liveness-oval { -fx-stroke: #c62828; }
-+.tone-failure .liveness-badge, .tone-failure .liveness-status-badge { -fx-background-color: #c62828; }
++.tone-failure .liveness-oval { -fx-stroke: #d32f2f; }
++.tone-failure .liveness-badge, .tone-failure .liveness-status-badge { -fx-background-color: #d32f2f; }
++.tone-failure .liveness-status-card { -fx-background-color: rgba(211, 47, 47, 0.10); -fx-border-color: #d32f2f; }
 diff --git a/registration-client/src/main/resources/messages_ar.properties b/registration-client/src/main/resources/messages_ar.properties
 --- a/registration-client/src/main/resources/messages_ar.properties
 +++ b/registration-client/src/main/resources/messages_ar.properties
@@ -3956,7 +4419,7 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
-@@ -0,0 +1,392 @@
+@@ -0,0 +1,433 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.awt.image.BufferedImage;
@@ -3965,10 +4428,12 @@ new file mode 100644
 +import java.io.IOException;
 +import java.nio.file.Files;
 +import java.nio.file.Paths;
++import java.util.ArrayList;
 +import java.util.Arrays;
 +import java.util.Collections;
 +import java.util.HashMap;
 +import java.util.LinkedHashMap;
++import java.util.List;
 +import java.util.Locale;
 +import java.util.Map;
 +import java.util.concurrent.CountDownLatch;
@@ -4066,8 +4531,11 @@ new file mode 100644
 +		Platform.startup(started::countDown);
 +		started.await();
 +		if (a.containsKey("--snapshots")) {
-+			snapshots(new File(a.get("--snapshots")), a.get("--face"));
-+			Platform.exit();
++			try {
++				snapshots(new File(a.get("--snapshots")), a.get("--face"));
++			} finally {
++				Platform.exit(); // also after a failure, or the JavaFX thread keeps the JVM alive
++			}
 +			return;
 +		}
 +		WorkflowType workflow = WorkflowType.valueOf(a.getOrDefault("--workflow", "resident").toUpperCase());
@@ -4243,11 +4711,26 @@ new file mode 100644
 +
 +	// ------------------------------------------------------------------ snapshots
 +
-+	private static void snapshots(File dir, String face) throws Exception {
-+		if (!dir.isDirectory() && !dir.mkdirs()) {
-+			throw new IOException("cannot create " + dir);
++	/** The snapshot size: the client's liveness window (720x820, LivenessCheck.fxml). */
++	static final double SNAPSHOT_WIDTH = 720, SNAPSHOT_HEIGHT = 820;
++
++	/** One documented screen state: its file name, workflow, events, and whether the camera shows frames. */
++	static final class Screen {
++		final String name;
++		final WorkflowType workflow;
++		final Consumer<LivenessScreenModel> drive;
++		final boolean frames;
++
++		Screen(String name, WorkflowType workflow, Consumer<LivenessScreenModel> drive, boolean frames) {
++			this.name = name;
++			this.workflow = workflow;
++			this.drive = drive;
++			this.frames = frames;
 +		}
-+		Frame still = face == null ? null : still(new File(face));
++	}
++
++	/** The states of docs/images/part4, in order. */
++	static List<Screen> screens() {
 +		Map<String, Consumer<LivenessScreenModel>> states = new LinkedHashMap<>();
 +		states.put("01-checking", m -> {
 +			ev(m, LivenessEvent.of(Type.STARTED, 1));
@@ -4280,21 +4763,52 @@ new file mode 100644
 +		states.put("11-max-attempts-resident", m -> ev(m,
 +				LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.MAX_RETRIES_EXCEEDED, 4, 0, false)));
 +
++		List<Screen> screens = new ArrayList<>();
 +		for (Map.Entry<String, Consumer<LivenessScreenModel>> s : states.entrySet()) {
-+			boolean noFrames = s.getKey().startsWith("10-");
-+			snap(new File(dir, s.getKey() + ".png"), WorkflowType.RESIDENT, s.getValue(), noFrames ? null : still);
++			screens.add(new Screen(s.getKey(), WorkflowType.RESIDENT, s.getValue(), !s.getKey().startsWith("10-")));
 +		}
-+		snap(new File(dir, "12-operator-login-challenge.png"), WorkflowType.OPERATOR,
-+				m -> ev(m, LivenessEvent.prompt(ChallengeType.SMILE, 1, 1, 6000, 1)), still);
-+		snap(new File(dir, "13-supervisor-final-failure.png"), WorkflowType.SUPERVISOR,
-+				m -> ev(m, LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.PAD_FAILURE, 3, 0, false)), still);
-+		snap(new File(dir, "14-unavailable-fail-closed.png"), WorkflowType.OPERATOR,
-+				LivenessScreenModel::showUnavailable, null);
++		screens.add(new Screen("12-operator-login-challenge", WorkflowType.OPERATOR,
++				m -> ev(m, LivenessEvent.prompt(ChallengeType.SMILE, 1, 1, 6000, 1)), true));
++		screens.add(new Screen("13-supervisor-final-failure", WorkflowType.SUPERVISOR,
++				m -> ev(m, LivenessEvent.failure(Type.FAILED_FINAL, ErrorCode.PAD_FAILURE, 3, 0, false)), true));
++		screens.add(new Screen("14-unavailable-fail-closed", WorkflowType.OPERATOR,
++				LivenessScreenModel::showUnavailable, false));
++		return screens;
++	}
++
++	private static void snapshots(File dir, String face) throws Exception {
++		if (!dir.isDirectory() && !dir.mkdirs()) {
++			throw new IOException("cannot create " + dir);
++		}
++		Frame still = face == null ? null : still(new File(face));
++		for (Screen s : screens()) {
++			snap(new File(dir, s.name + ".png"), s.workflow, s.drive, s.frames ? still : null);
++		}
 +		System.out.println("Wrote liveness screens to " + dir.getAbsolutePath());
 +	}
 +
 +	private static void ev(LivenessScreenModel m, LivenessEvent e) {
 +		m.onEvent(e, System.nanoTime() / 1_000_000 + 10_000);
++	}
++
++	/** The view of one state in a scene of the given size, laid out (JavaFX thread). */
++	static LivenessView layOut(Screen s, LivenessMessages messages, double width, double height, Frame still)
++			throws IOException {
++		LivenessScreenModel model = new LivenessScreenModel(s.workflow, 3);
++		s.drive.accept(model);
++		LivenessView view = LivenessView.load(messages, false);
++		new Scene(view.root(), width, height);
++		if (still != null) {
++			view.showStill(still);
++		} else {
++			view.showPreview(false, ""); // no frames from the device
++		}
++		view.render(model);
++		for (int i = 0; i < 2; i++) { // the second pass sizes what the first one's window size decided
++			view.root().applyCss();
++			view.root().layout();
++		}
++		return view;
 +	}
 +
 +	private static void snap(File out, WorkflowType workflow, Consumer<LivenessScreenModel> drive, Frame still)
@@ -4303,19 +4817,9 @@ new file mode 100644
 +		CountDownLatch done = new CountDownLatch(1);
 +		Platform.runLater(() -> {
 +			try {
-+				LivenessScreenModel model = new LivenessScreenModel(workflow, 3);
-+				drive.accept(model);
-+				LivenessView view = LivenessView.load(LivenessMessages.english(), false);
-+				Scene scene = new Scene(view.root());
-+				if (still != null) {
-+					view.showStill(still);
-+				} else {
-+					view.showPreview(false, ""); // no frames from the device
-+				}
-+				view.render(model);
-+				view.root().applyCss();
-+				view.root().layout();
-+				WritableImage img = scene.snapshot(null);
++				LivenessView view = layOut(new Screen(out.getName(), workflow, drive, still != null),
++						LivenessMessages.english(), SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT, still);
++				WritableImage img = view.root().getScene().snapshot(null);
 +				view.dispose();
 +				ImageIO.write(SwingFXUtils.fromFXImage(img, null), "png", out);
 +			} catch (Exception e) {
@@ -4745,6 +5249,207 @@ new file mode 100644
 +				code, null, 0.9f, Collections.<ChallengeType>emptyList(), 1, 1000, "s-1", "test");
 +		assertNotNull(r);
 +		return r;
++	}
++}
+diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessViewLayoutTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessViewLayoutTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessViewLayoutTest.java
+@@ -0,0 +1,196 @@
++package io.mosip.registration.controller.liveness;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertTrue;
++
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Locale;
++import java.util.ResourceBundle;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicReference;
++
++import org.junit.Assume;
++import org.junit.BeforeClass;
++import org.junit.Test;
++
++import javafx.application.Platform;
++import javafx.geometry.Bounds;
++import javafx.geometry.NodeOrientation;
++import javafx.scene.Node;
++import javafx.scene.Parent;
++import javafx.scene.control.Button;
++import javafx.scene.control.Label;
++
++/**
++ * {@code docs/ui-liveness-spec.md} §9 on the Desktop: every documented state (the screen demo's, {@code
++ * docs/images/part4}) at the client's window size, 720x820, and at 1280x800. The buttons are on screen, 48 high and of
++ * equal width; the content is centred and at most 560 wide; the camera card keeps 4:3 at about 45% of the height,
++ * with the badge on the oval's top centre; nothing overlaps; the status takes at most 2 lines; a failed attempt
++ * shows one attempts line. Arabic is mirrored, except the camera card. Skipped without a JavaFX toolkit (headless).
++ */
++public class LivenessViewLayoutTest {
++
++	private static final String ARABIC_RETRY = "إعادة المحاولة";
++
++	@BeforeClass
++	public static void toolkit() throws InterruptedException {
++		CountDownLatch started = new CountDownLatch(1);
++		try {
++			Platform.startup(started::countDown);
++		} catch (IllegalStateException alreadyRunning) {
++			started.countDown();
++		} catch (RuntimeException | UnsatisfiedLinkError headless) {
++			Assume.assumeNoException("no JavaFX toolkit", headless);
++		}
++		assertTrue(started.await(10, TimeUnit.SECONDS));
++	}
++
++	@Test
++	public void everyStateFitsTheClientWindow() throws Exception {
++		everyState(LivenessMessages.english(), 720, 820);
++	}
++
++	@Test
++	public void everyStateFitsALargeScreen() throws Exception {
++		everyState(LivenessMessages.english(), 1280, 800);
++	}
++
++	@Test
++	public void arabicIsMirroredExceptTheCameraCard() throws Exception {
++		ResourceBundle ar = ResourceBundle.getBundle("messages", new Locale("ar"), getClass().getClassLoader(),
++				ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES));
++		LivenessMessages messages = LivenessMessages.of(ar, "ara");
++		assertTrue(messages.rightToLeft());
++		everyState(messages, 720, 820);
++		for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
++			onFx(() -> {
++				LivenessView v = LivenessScreenDemo.layOut(s, messages, 720, 820, null);
++				assertEquals(NodeOrientation.RIGHT_TO_LEFT, v.root().getEffectiveNodeOrientation());
++				assertEquals(NodeOrientation.LEFT_TO_RIGHT, v.camera().getEffectiveNodeOrientation());
++				assertEquals(-1, v.camera().preview().getScaleX(), 0); // still a selfie view
++				// The status badge right of the text; the step label right of the bar; Retry right of Cancel.
++				Node badge = v.statusCard().lookup(".liveness-status-badge");
++				assertTrue(s.name, centerX(badge) > centerX(v.status()));
++				if (shown(v.segments())) {
++					assertTrue(s.name, centerX(v.step()) > centerX(v.segments()));
++				}
++				Button[] b = v.buttons();
++				if (b[0].isManaged() && b[1].isManaged()) {
++					assertEquals(ARABIC_RETRY, b[0].getText());
++					assertTrue(s.name, centerX(b[0]) > centerX(b[1]));
++				}
++				v.dispose();
++			});
++		}
++	}
++
++	private static void everyState(LivenessMessages messages, double width, double height) throws Exception {
++		for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
++			onFx(() -> {
++				LivenessView v = LivenessScreenDemo.layOut(s, messages, width, height, null);
++				String at = s.name + " at " + (int) width + "x" + (int) height;
++
++				// Content: centred, at most 560 wide, above the buttons.
++				Bounds content = scene(v.content());
++				assertTrue(at, content.getWidth() <= LivenessView.MAX_CONTENT_WIDTH + 0.5);
++				assertEquals(at, width / 2, content.getMinX() + content.getWidth() / 2, 0.5);
++				List<Button> buttons = new ArrayList<>();
++				for (Button b : v.buttons()) {
++					if (b.isManaged()) {
++						buttons.add(b);
++					}
++				}
++				for (Button b : buttons) {
++					Bounds r = scene(b);
++					assertTrue(at + " " + b.getText(), r.getMinY() >= 0 && r.getMaxY() <= height);
++					assertTrue(at + " " + b.getText(), r.getHeight() >= 48);
++					assertEquals(at, scene(buttons.get(0)).getWidth(), r.getWidth(), 0.5);
++				}
++				double lowest = 0;
++				for (Node n : v.content().getChildren()) {
++					if (n.isManaged()) {
++						lowest = Math.max(lowest, scene(n).getMaxY());
++					}
++				}
++				if (!buttons.isEmpty()) {
++					assertTrue(at + ": content ends at " + lowest, lowest <= scene(buttons.get(0)).getMinY());
++				}
++
++				// The camera card: 4:3, about 45% of the height (less with the tips), the badge on the oval's top.
++				LivenessCameraCard c = v.camera();
++				assertEquals(at, 4.0 / 3, c.cardWidth() / c.cardHeight(), 0.01);
++				assertTrue(at + ": camera " + c.cardHeight(), c.cardHeight() <= height * LivenessView.CAMERA_SHARE + 0.5);
++				assertTrue(at + ": camera " + c.cardHeight(), c.cardHeight() >= height * (shown(v.tips()) ? 0.25 : 0.40));
++				Bounds badge = scene(c.badge());
++				Bounds oval = scene(c.oval());
++				assertEquals(at, oval.getMinX() + oval.getWidth() / 2, badge.getMinX() + badge.getWidth() / 2, 1);
++				assertEquals(at, oval.getMinY() + 2, badge.getMinY() + badge.getHeight() / 2, 1.5); // + half the stroke
++				assertEquals(at, LivenessCameraCard.BADGE, badge.getWidth(), 0.5);
++				assertTrue(at, scene(v.statusCard()).getMinY() >= scene(c).getMaxY());
++
++				// The status: at most 2 lines.
++				Label status = v.status();
++				assertTrue(at + ": " + status.getText(),
++						LivenessView.lines(status.getText(), status.getFont(), status.getMaxWidth()) <= 2);
++
++				// A failed attempt: the attempts left, never "Attempt a of m" as well.
++				if (s.name.startsWith("08-") || s.name.startsWith("09-")) {
++					assertTrue(at, shown(v.progressText()));
++					assertEquals(at, 15, v.progressText().getFont().getSize(), 0.01); // body size, not a caption
++					assertTrue(at, !shown(v.attempt()));
++					String attemptOf = messages.text("liveness.progress.attempt", 1, 4);
++					for (Node n : v.root().lookupAll(".label")) {
++						assertTrue(at, !shown(n) || !attemptOf.equals(((Label) n).getText()));
++					}
++				}
++				v.dispose();
++			});
++		}
++	}
++
++	private static Bounds scene(Node n) {
++		return n.localToScene(n.getBoundsInLocal());
++	}
++
++	private static double centerX(Node n) {
++		Bounds b = scene(n);
++		return b.getMinX() + b.getWidth() / 2;
++	}
++
++	/** Visible, with every parent visible. */
++	private static boolean shown(Node n) {
++		for (Parent p = n.getParent(); p != null; p = p.getParent()) {
++			if (!p.isVisible()) {
++				return false;
++			}
++		}
++		return n.isVisible();
++	}
++
++	interface FxCheck {
++		void run() throws Exception;
++	}
++
++	private static void onFx(FxCheck check) throws Exception {
++		AtomicReference<Throwable> failure = new AtomicReference<>();
++		CountDownLatch done = new CountDownLatch(1);
++		Platform.runLater(() -> {
++			try {
++				check.run();
++			} catch (Throwable t) {
++				failure.set(t);
++			} finally {
++				done.countDown();
++			}
++		});
++		assertTrue(done.await(30, TimeUnit.SECONDS));
++		if (failure.get() instanceof Exception) {
++			throw (Exception) failure.get();
++		}
++		if (failure.get() != null) {
++			throw (Error) failure.get();
++		}
 +	}
 +}
 diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/ModelBundleTextsTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/ModelBundleTextsTest.java
@@ -6982,7 +7687,7 @@ new file mode 100644
 +# which runs its own liveness check). false = password login as before.
 +mosip.registration.liveness.face.desktop.operator.gatePasswordLogin=true
 +
-+# Pulse the challenge icon; false for reduced motion.
++# The 200 ms status cross-fade on the liveness screen; false for reduced motion.
 +mosip.registration.liveness.face.desktop.animations=true
 +
 +# Audit an anonymised metrics snapshot (LIVENESS_METRICS) every N completed sessions (0 = never).

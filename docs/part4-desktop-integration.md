@@ -661,6 +661,11 @@ modules succeeds. No failures, nothing skipped.
 identity retry rule in `LivenessGateTest`. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds. No
 failures, nothing skipped.
 
+**Results with F13b and the visual design (2026-10-28):** `registration-services` 175 tests pass (F13b's
+`WebcamGrabbersTest` adds 6). `registration-client` 37 tests pass: the 32 above, plus the 2 `LivenessScreenDemoTest`
+tests and the 3 `LivenessViewLayoutTest` tests. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds.
+No failures, nothing skipped.
+
 | Test | What it proves |
 |---|---|
 | `DesktopLivenessServiceTest` | real engine + signed ONNX models + recorded clip through the deferred source → FAILED with `lastCause=FACE_NOT_DETECTED`, audited through the audit module with the session id; workflow disabled by synced config → legacy flow; config sync applies to the next session; scripted engine is development-only and skips binding |
