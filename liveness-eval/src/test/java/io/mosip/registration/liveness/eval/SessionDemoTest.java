@@ -81,6 +81,8 @@ class SessionDemoTest {
         pad.put("moire", 1.5f);
         pad.put("moire_med", 1.25f);
         pad.put("moire_cap", 0f);
+        pad.put("volatility_cap", 1f);
+        pad.put("pad_latch", 0f);
         io.mosip.registration.liveness.api.Frame frame = new io.mosip.registration.liveness.api.Frame(
                 new byte[640 * 480 * 3], 640, 480, 0, 0, "test");
         FrameAnalysis a = new FrameAnalysis(frame, 1, new float[] {100, 80, 160, 192}, null, 3, -2, 1.5f,
@@ -93,8 +95,32 @@ class SessionDemoTest {
         String json = SessionDemo.json(SessionDemo.scripted("t4"), 2, r, rf);
         assertThat(json).startsWith("{\"case\":\"t2\",\"workflow\":\"RESIDENT\",\"forced\":false,\"item\":4")
                 .contains("\"frameFields\":[\"t\",\"faces\",\"yaw\",\"pitch\",\"ear\",\"score\",\"boxWidth\",\"roll\","
-                        + "\"areaFrac\",\"v2Live\",\"v1seLive\",\"moire\",\"moireMed\",\"moireCap\",\"issues\"]")
-                .contains("[40,1,3.000,-2.000,null,0.990,160.000,1.500,0.100,0.970,0.880,1.500,1.250,0.000,\"TOO_DARK FACE_TOO_SMALL\"]")
-                .contains("[80,1,1.000,1.000,null,0.900,null,0.000,null,null,null,null,null,null,\"\"]");
+                        + "\"areaFrac\",\"v2Live\",\"v1seLive\",\"moire\",\"moireMed\",\"moireCap\",\"volCap\",\"padLatch\","
+                        + "\"issues\"]")
+                .contains("[40,1,3.000,-2.000,null,0.990,160.000,1.500,0.100,0.970,0.880,1.500,1.250,0.000,1.000,0.000,"
+                        + "\"TOO_DARK FACE_TOO_SMALL\"]")
+                .contains("[80,1,1.000,1.000,null,0.900,null,0.000,null,null,null,null,null,null,null,null,\"\"]");
+    }
+
+    @Test
+    void theCombinedRetestCasesBringTheirOwnChallengePoolAndRealFaceCases() {
+        SessionDemo.Case w = SessionDemo.scripted("w2");
+        assertThat(w.forceActive).isTrue();
+        assertThat(w.item).isEqualTo(2);
+        assertThat(w.types).isEqualTo("TURN_LEFT,TURN_RIGHT");
+        assertThat(w.instruction).startsWith("CUT-OUT 2 about 20 cm").contains("your face out of view", "ROTATE");
+        SessionDemo.Case x = SessionDemo.scripted("x1");
+        assertThat(x.forceActive).isTrue();
+        assertThat(x.types).isEqualTo("BLINK,SMILE");
+        assertThat(x.instruction).contains("TILT", "your face out of view");
+        assertThat(SessionDemo.scripted("s1").types).isNull();
+        for (String real : new String[] {"a", "i", "j", "k", "l"}) {
+            SessionDemo.Case c = SessionDemo.scripted(real);
+            assertThat(c.forceActive).isFalse();
+            assertThat(c.workflow).isEqualTo(io.mosip.registration.liveness.api.WorkflowType.RESIDENT);
+            assertThat(c.instruction).startsWith("REAL FACE");
+        }
+        assertThat(SessionDemo.scripted("k").instruction).contains("APPROACHING", "SLOWLY");
+        assertThatThrownBy(() -> SessionDemo.scripted("w")).hasMessageContaining("w3");
     }
 }
