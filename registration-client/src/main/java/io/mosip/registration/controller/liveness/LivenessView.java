@@ -1,9 +1,14 @@
 package io.mosip.registration.controller.liveness;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import io.mosip.registration.liveness.api.Frame;
 import io.mosip.registration.liveness.device.util.PreviewFrameSource;
@@ -15,6 +20,7 @@ import javafx.fxml.FXMLLoader;
 import javafx.geometry.NodeOrientation;
 import javafx.geometry.Pos;
 import javafx.scene.AccessibleAttribute;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.SnapshotParameters;
 import javafx.scene.control.Button;
@@ -29,8 +35,12 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.MoveTo;
+import javafx.scene.shape.PathElement;
 import javafx.scene.shape.SVGPath;
 import javafx.scene.text.Font;
+import javafx.scene.text.FontSmoothingType;
+import javafx.scene.text.TextAlignment;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
 
@@ -52,6 +62,7 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 	static final double MAX_CONTENT_WIDTH = 560;
 	static final double CAMERA_SHARE = 0.45;
 	static final double BUTTON_GAP = 12;
+	static final double BULLET_GAP = 8;
 	static final double STATUS_MIN_HEIGHT = 80;
 	static final double STATUS_SIZE = 20;
 	static final double STATUS_MIN_SIZE = 16;
@@ -109,6 +120,8 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 	private Runnable onClose = () -> { };
 	private LivenessScreenModel.Tone lastTone;
 	private String lastStatus;
+	/** The status text as one string; the label holds it broken into lines. */
+	private String statusMessage = "";
 
 	private final AnimationTimer previewTimer = new AnimationTimer() {
 		@Override
@@ -204,7 +217,8 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 			crossFade();
 		}
 		lastStatus = statusText;
-		status.setText(statusText);
+		statusMessage = statusText;
+		status.setText(statusText); // resize() breaks it into its lines
 
 		String icon = ICONS.get(m.icon());
 		camera.badgeIcon().setContent(icon);
@@ -254,10 +268,17 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 			t.getStyleClass().add("liveness-tips-title");
 			tips.getChildren().add(t);
 			for (String key : LivenessMessages.TIP_KEYS) {
-				Label l = new Label("•  " + messages.text(key));
-				l.setWrapText(true);
+				// The bullet apart from the text, so a wrapped tip continues under its text.
+				Label bullet = new Label("•");
+				bullet.setMinWidth(Region.USE_PREF_SIZE);
+				// resize() gives the text its lines, as for the status: a wrapping label counts a line's trailing
+				// space, which would shift a wrapped tip's first line. The lines are not mirrored with the layout,
+				// so right-to-left text is aligned right.
+				Label l = new Label();
+				l.setUserData(messages.text(key));
+				l.setTextAlignment(messages.rightToLeft() ? TextAlignment.RIGHT : TextAlignment.LEFT);
 				l.setMinHeight(Region.USE_PREF_SIZE);
-				tips.getChildren().add(l);
+				tips.getChildren().add(new HBox(BULLET_GAP, bullet, l));
 			}
 		}
 
@@ -285,13 +306,28 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 		double cameraHeight = Math.min(height * CAMERA_SHARE, w * 3 / 4);
 		camera.setPrefSize(w, cameraHeight);
 		camera.setMaxHeight(cameraHeight);
-		double statusWidth = w - 24 - LivenessCameraCard.BADGE - statusRow.getSpacing();
+		// The card's padding (12) and border (1) on both sides, the badge and the gap.
+		double statusWidth = w - 26 - LivenessCameraCard.BADGE - statusRow.getSpacing();
 		status.setMaxWidth(statusWidth);
 		hint.setMaxWidth(w - 24);
 		progressText.setMaxWidth(w);
 		step.setMaxWidth(w * 0.35);
 		attempt.setMaxWidth(w * 0.35);
 		fitStatus(statusWidth);
+		// The status in its lines, with the label's own wrapping off: the label is then as wide as its longest
+		// line, so the badge stays next to a wrapped status and the two are centred together.
+		status.setText(String.join("\n", wrap(statusMessage, status.getFont(), statusWidth)));
+		// Each tip in its lines beside its bullet (inside the card's 14 px padding).
+		for (Node row : tips.getChildren()) {
+			if (row instanceof HBox) {
+				Label bullet = (Label) ((HBox) row).getChildren().get(0);
+				Label text = (Label) ((HBox) row).getChildren().get(1);
+				text.applyCss();
+				bullet.applyCss();
+				double tipWidth = w - 28 - bullet.prefWidth(-1) - BULLET_GAP;
+				text.setText(String.join("\n", wrap((String) text.getUserData(), text.getFont(), tipWidth)));
+			}
+		}
 
 		int count = 0;
 		for (Button b : new Button[] { retryButton, cancelButton, closeButton }) {
@@ -308,24 +344,60 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 
 	/** The status at 20 px; a long one steps down towards 16 px where 20 would need a third line. */
 	private void fitStatus(double width) {
+		status.setStyle("");
 		status.applyCss();
-		String text = status.getText();
 		String name = status.getFont().getName();
 		double size = STATUS_SIZE;
-		while (size > STATUS_MIN_SIZE && lines(text, new Font(name, size), width) > 2) {
+		while (size > STATUS_MIN_SIZE && lines(statusMessage, new Font(name, size), width) > 2) {
 			size--;
 		}
 		status.setStyle(size == STATUS_SIZE ? "" : "-fx-font-size: " + size + "px;");
+		status.applyCss(); // the label's font is now the one the lines are broken for
 	}
 
+	/**
+	 * The lines of {@code text} wrapped at {@code width} where JavaFX itself breaks them, without their trailing
+	 * spaces. A wrapping label is as wide as its maximum and counts a line's trailing space when it centres it, so
+	 * the status gets these lines explicitly instead: each is then centred exactly, in a label as wide as the longest.
+	 */
+	static List<String> wrap(String text, Font font, double width) {
+		Text t = measure(text, font);
+		t.setWrappingWidth(width);
+		TreeMap<Long, int[]> lines = new TreeMap<>(); // line top -> {first char, end}
+		Matcher word = VISIBLE.matcher(text);
+		while (word.find()) {
+			for (PathElement e : t.rangeShape(word.start(), word.end())) {
+				if (e instanceof MoveTo) { // the word's (first) line
+					lines.merge(Math.round(((MoveTo) e).getY()), new int[] { word.start(), word.end() },
+							(a, b) -> new int[] { Math.min(a[0], b[0]), Math.max(a[1], b[1]) });
+					break;
+				}
+			}
+		}
+		List<String> out = new ArrayList<>();
+		for (int[] line : lines.values()) {
+			out.add(text.substring(line[0], line[1]));
+		}
+		return out;
+	}
+
+	private static final Pattern VISIBLE = Pattern.compile("\\S+");
+
 	static int lines(String text, Font font, double width) {
-		Text t = new Text(text == null || text.isEmpty() ? "X" : text);
-		t.setFont(font);
+		Text t = measure(text == null || text.isEmpty() ? "X" : text, font);
 		t.setWrappingWidth(width);
 		double wrapped = t.getLayoutBounds().getHeight();
 		t.setWrappingWidth(0);
 		t.setText("X");
 		return (int) Math.round(wrapped / t.getLayoutBounds().getHeight());
+	}
+
+	/** A text measured as a label draws it: the default stylesheet (Modena) gives control text LCD smoothing. */
+	private static Text measure(String text, Font font) {
+		Text t = new Text(text);
+		t.setFont(font);
+		t.setFontSmoothingType(FontSmoothingType.LCD);
+		return t;
 	}
 
 	/** One segment per challenge: done ones full, the current one at least half, filling with the progress. */

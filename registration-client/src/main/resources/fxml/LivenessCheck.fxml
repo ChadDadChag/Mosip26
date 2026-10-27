@@ -35,7 +35,8 @@
                                maxWidth="28" maxHeight="28">
                         <SVGPath fx:id="statusIcon" styleClass="liveness-badge-icon" scaleX="0.75" scaleY="0.75" />
                     </StackPane>
-                    <Label fx:id="status" styleClass="liveness-status" wrapText="true" />
+                    <!-- Not wrapping: LivenessView gives it its lines (as wide as the longest). -->
+                    <Label fx:id="status" styleClass="liveness-status" />
                 </HBox>
             </StackPane>
 

@@ -64,7 +64,7 @@ public final class LivenessMessages {
 		m.put("liveness.tips.lighting", "Improve lighting.");
 		m.put("liveness.tips.capture_area", "Keep your face within the capture area.");
 		m.put("liveness.tips.follow_prompt", "Follow the prompted action.");
-		m.put("liveness.retry.attempts_left", "{0} attempt(s) left");
+		m.put("liveness.retry.attempts_left", "{0,choice,0#{0} attempts left|1#{0} attempt left|1<{0} attempts left}");
 		m.put("liveness.progress.step", "Step {0} of {1}");
 		m.put("liveness.progress.attempt", "Attempt {0} of {1}");
 		m.put("liveness.recovery.resident", "Please contact the supervisor. The resident can be registered using the biometric exception process.");
@@ -138,7 +138,10 @@ public final class LivenessMessages {
 		if (args == null || args.length == 0) {
 			return pattern;
 		}
-		return new MessageFormat(pattern, Locale.ROOT).format(args);
+		// The texts write apostrophes as they are (French "l'"); MessageFormat would read a single one as a quote and
+		// drop it, so they are doubled here. Inside a choice pattern an apostrophe would need more than that; no text
+		// has one there, and LivenessMessagesTest checks that every formatted text keeps its apostrophes.
+		return new MessageFormat(pattern.replace("'", "''"), Locale.ROOT).format(args);
 	}
 
 	private static ResourceBundle bundle(String lang) {

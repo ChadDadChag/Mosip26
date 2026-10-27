@@ -4,12 +4,16 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.Assume;
 import org.junit.BeforeClass;
@@ -18,10 +22,16 @@ import org.junit.Test;
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.geometry.NodeOrientation;
+import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.layout.HBox;
+import javafx.scene.shape.LineTo;
+import javafx.scene.shape.MoveTo;
+import javafx.scene.shape.PathElement;
+import javafx.scene.text.Text;
 
 /**
  * {@code docs/ui-liveness-spec.md} §9 on the Desktop: every documented state (the screen demo's, {@code
@@ -57,11 +67,135 @@ public class LivenessViewLayoutTest {
 		everyState(LivenessMessages.english(), 1280, 800);
 	}
 
+	/**
+	 * A wrapped status keeps its badge next to its longest line, the two centred in the card; a wrapped tip continues
+	 * under its text, not under the bullet. Narrow windows (480, 320 and 240 wide) make both happen, left to right and
+	 * in Arabic.
+	 */
 	@Test
-	public void arabicIsMirroredExceptTheCameraCard() throws Exception {
+	public void wrappedStatusesHugTheirBadgeAndWrappedTipsHang() throws Exception {
+		Map<String, Integer> met = new HashMap<>();
+		for (LivenessMessages messages : new LivenessMessages[] { LivenessMessages.english(), arabic() }) {
+			for (double width : new double[] { 720, 480, 320, 240 }) {
+				for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
+					onFx(() -> {
+						LivenessView v = LivenessScreenDemo.layOut(s, messages, width, 820, null);
+						checkWrapping(v, s.name + " at " + (int) width + (messages.rightToLeft() ? " ar" : " en"), met);
+						v.dispose();
+					});
+				}
+			}
+		}
+		for (String k : new String[] { "status ltr", "status rtl", "tip ltr", "tip rtl" }) {
+			assertTrue(k + " met: " + met, met.getOrDefault(k, 0) > 0);
+		}
+	}
+
+	private static void checkWrapping(LivenessView v, String at, Map<String, Integer> met) {
+		boolean rtl = v.root().getEffectiveNodeOrientation() == NodeOrientation.RIGHT_TO_LEFT;
+		String dir = rtl ? " rtl" : " ltr";
+		List<double[]> lines = lines(v.status());
+		if (lines.size() > 1) {
+			met.merge("status" + dir, 1, Integer::sum);
+			double left = Double.MAX_VALUE, right = -Double.MAX_VALUE;
+			for (double[] line : lines) {
+				left = Math.min(left, line[0]);
+				right = Math.max(right, line[1]);
+			}
+			Bounds badge = scene(v.statusCard().lookup(".liveness-status-badge"));
+			double gap = rtl ? badge.getMinX() - right : left - badge.getMaxX();
+			assertTrue(at + ": badge to the longest line " + gap, gap >= 0 && gap <= 14);
+			double group = rtl ? (left + badge.getMaxX()) / 2 : (badge.getMinX() + right) / 2;
+			Bounds card = scene(v.statusCard());
+			assertEquals(at + ": group centred", card.getMinX() + card.getWidth() / 2, group, 2);
+			// The label draws exactly its lines, none cut short.
+			assertEquals(at, v.status().getText(), ((Text) v.status().lookup(".text")).getText());
+			assertEquals(at + ": " + v.status().getText(), v.status().getText().split("\n").length, lines.size());
+		}
+		for (Node row : v.tips().getChildren()) {
+			if (!(row instanceof HBox)) {
+				continue; // the title
+			}
+			Node bullet = ((HBox) row).getChildren().get(0);
+			Label text = (Label) ((HBox) row).getChildren().get(1);
+			List<double[]> tip = lines(text);
+			assertTrue(at, !text.getText().startsWith("•"));
+			// Every tip starts next to its bullet, wrapped or not.
+			Bounds dot = scene(bullet);
+			double start = rtl ? dot.getMinX() - tip.get(0)[1] : tip.get(0)[0] - dot.getMaxX();
+			assertEquals(at + ": bullet to text, " + text.getText(), LivenessView.BULLET_GAP, start, 2);
+			if (tip.size() < 2) {
+				continue;
+			}
+			met.merge("tip" + dir, 1, Integer::sum);
+			Bounds b = scene(bullet);
+			for (double[] line : tip) {
+				if (rtl) {
+					assertEquals(at + ": " + text.getText(), tip.get(0)[1], line[1], 1);
+					assertTrue(at, line[1] < b.getMinX());
+				} else {
+					assertEquals(at + ": " + text.getText(), tip.get(0)[0], line[0], 1);
+					assertTrue(at, line[0] > b.getMaxX());
+				}
+			}
+		}
+	}
+
+	/** A label's lines, top to bottom, as {left, right} in scene coordinates: its visible characters only. */
+	private static List<double[]> lines(Label label) {
+		Text text = (Text) label.lookup(".text");
+		List<double[]> boxes = new ArrayList<>(); // {left, right, top, bottom}
+		Matcher word = Pattern.compile("\\S+").matcher(text.getText());
+		while (word.find()) {
+			double[] box = null;
+			for (PathElement e : text.rangeShape(word.start(), word.end())) {
+				double x, y;
+				if (e instanceof MoveTo) {
+					x = ((MoveTo) e).getX();
+					y = ((MoveTo) e).getY();
+					if (box != null) {
+						boxes.add(box);
+					}
+					box = null;
+				} else if (e instanceof LineTo) {
+					x = ((LineTo) e).getX();
+					y = ((LineTo) e).getY();
+				} else {
+					continue;
+				}
+				Point2D p = text.localToScene(x, y);
+				box = box == null ? new double[] { p.getX(), p.getX(), p.getY(), p.getY() }
+						: new double[] { Math.min(box[0], p.getX()), Math.max(box[1], p.getX()),
+								Math.min(box[2], p.getY()), Math.max(box[3], p.getY()) };
+			}
+			if (box != null) {
+				boxes.add(box);
+			}
+		}
+		boxes.sort((a, c) -> Double.compare(a[2], c[2]));
+		List<double[]> lines = new ArrayList<>();
+		for (double[] b : boxes) {
+			double[] last = lines.isEmpty() ? null : lines.get(lines.size() - 1);
+			if (last != null && (b[2] + b[3]) / 2 < last[3]) {
+				last[0] = Math.min(last[0], b[0]);
+				last[1] = Math.max(last[1], b[1]);
+				last[3] = Math.max(last[3], b[3]);
+			} else {
+				lines.add(new double[] { b[0], b[1], b[2], b[3] });
+			}
+		}
+		return lines;
+	}
+
+	private LivenessMessages arabic() {
 		ResourceBundle ar = ResourceBundle.getBundle("messages", new Locale("ar"), getClass().getClassLoader(),
 				ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES));
-		LivenessMessages messages = LivenessMessages.of(ar, "ara");
+		return LivenessMessages.of(ar, "ara");
+	}
+
+	@Test
+	public void arabicIsMirroredExceptTheCameraCard() throws Exception {
+		LivenessMessages messages = arabic();
 		assertTrue(messages.rightToLeft());
 		everyState(messages, 720, 820);
 		for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
