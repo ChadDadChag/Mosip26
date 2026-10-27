@@ -456,6 +456,146 @@ class ModelUpdaterTest {
         assertThat(stale).doesNotExist();
     }
 
+    // ---- installZip (F17: offline install from local or removable media) ----
+
+    private static File write(File dir, String name, byte[] data) throws IOException {
+        File f = new File(dir, name);
+        java.nio.file.Files.write(f.toPath(), data);
+        return f;
+    }
+
+    private static ModelUpdater offline() {
+        return ModelUpdater.builder().build();
+    }
+
+    @Test
+    void anOfflineZipIsInstalledAndItsTemporaryDirectoryIsRemoved(@TempDir File tmp) throws Exception {
+        Map<ModelRole, byte[]> real = TestModels.load();
+        MapSource bundled = new MapSource(files(OLD, real));
+        ModelStore store = new ModelStore(new File(tmp, "store"));
+        File zip = write(tmp, "bundle.zip", zip(files(NEW, real)));
+
+        assertThat(ModelUpdater.activeVersion(store, bundled)).isEqualTo(OLD);
+        UpdateResult r = offline().installZip(zip, store, bundled, trust);
+
+        assertThat(ModelUpdater.activeVersion(store, bundled)).isEqualTo(NEW);
+        assertThat(r.status()).as(r.toString()).isEqualTo(Status.INSTALLED);
+        assertThat(r.version()).isEqualTo(NEW);
+        assertThat(store.installedVersions()).containsExactly(OLD, NEW);
+        assertNoLeftovers(store);
+        assertThat(zip).exists(); // the operator's file is left alone
+        try (OnnxFaceAnalyzerFactory f = new OnnxFaceAnalyzerFactory(bundled, store, trust, AnalyzerConfig.defaults())) {
+            assertThat(f.modelVersion()).isEqualTo(NEW);
+        }
+        // The same zip again is refused; a rollback is the store's explicit operator action.
+        UpdateResult again = offline().installZip(zip, store, bundled, trust);
+        assertThat(again.status()).isEqualTo(Status.UP_TO_DATE);
+        assertThat(again.version()).isEqualTo(NEW);
+        assertThat(store.rollback(trust)).isEqualTo(OLD);
+        assertNoLeftovers(store);
+    }
+
+    @Test
+    void anOfflineZipThatIsNotNewerIsRefusedAndTheStoreIsUnchanged(@TempDir File tmp) throws Exception {
+        ModelStore store = new ModelStore(new File(tmp, "store"));
+        UpdateResult same = offline().installZip(write(tmp, "same.zip", zip(OLD)), store, bundled(), trust);
+        assertThat(same.status()).isEqualTo(Status.UP_TO_DATE);
+        assertThat(same.version()).isEqualTo(OLD);
+        UpdateResult older = offline().installZip(write(tmp, "older.zip", zip("pad-2026.09.3")), store, bundled(), trust);
+        assertThat(older.status()).isEqualTo(Status.UP_TO_DATE);
+        assertUntouched(store);
+    }
+
+    @Test
+    void aTamperedOrUnsignedOfflineZipFailsClosed(@TempDir File tmp) throws Exception {
+        ModelStore store = new ModelStore(new File(tmp, "store"));
+        Map<String, byte[]> f = files(NEW, TestBundles.fakeModels(11));
+        String model = ModelRole.DETECTOR.fileName();
+        byte[] flipped = f.get(model).clone();
+        flipped[flipped.length / 2] ^= 1; // one byte of a model, the manifest and signature unchanged
+        UpdateResult tampered = offline().installZip(write(tmp, "tampered.zip",
+                rawZip(packLayout(f, f.get("manifest.sig"), model, flipped))), store, bundled(), trust);
+        assertFailed(tampered, Reason.BUNDLE_INVALID);
+        assertThat(tampered.version()).isEqualTo(NEW);
+        // Without manifest.sig the zip lacks a named entry; with a garbage signature the install refuses it.
+        assertFailed(offline().installZip(write(tmp, "unsigned.zip", rawZip("manifest.json", f.get("manifest.json"))),
+                store, bundled(), trust), Reason.ZIP_INVALID);
+        byte[] garbage = (TestBundles.KEY_ID + ":00").getBytes(StandardCharsets.US_ASCII);
+        assertFailed(offline().installZip(write(tmp, "badsig.zip", rawZip(packLayout(f, garbage, model, f.get(model)))),
+                store, bundled(), trust), Reason.BUNDLE_INVALID);
+        assertUntouched(store);
+    }
+
+    @Test
+    void aTamperedOfflineZipIsInvalidEvenWhenItsVersionIsNotNewer(@TempDir File tmp) throws Exception {
+        ModelStore store = new ModelStore(new File(tmp, "store"));
+        String model = ModelRole.DETECTOR.fileName();
+        byte[] garbage = (TestBundles.KEY_ID + ":00").getBytes(StandardCharsets.US_ASCII);
+        for (String version : new String[] {"pad-2026.09.3", OLD}) { // older than, and the same as, the app's own
+            Map<String, byte[]> f = files(version, TestBundles.fakeModels(14));
+            byte[] flipped = f.get(model).clone();
+            flipped[flipped.length / 2] ^= 1;
+            UpdateResult tampered = offline().installZip(write(tmp, version + "-tampered.zip",
+                    rawZip(packLayout(f, f.get("manifest.sig"), model, flipped))), store, bundled(), trust);
+            assertFailed(tampered, Reason.BUNDLE_INVALID); // verify first: never reported as "not newer"
+            assertFailed(offline().installZip(write(tmp, version + "-badsig.zip",
+                    rawZip(packLayout(f, garbage, model, f.get(model)))), store, bundled(), trust), Reason.BUNDLE_INVALID);
+            // The same files untouched: verified, then refused as not newer.
+            UpdateResult valid = offline().installZip(write(tmp, version + ".zip", zip(f)), store, bundled(), trust);
+            assertThat(valid.status()).as(valid.toString()).isEqualTo(Status.UP_TO_DATE);
+            assertThat(valid.version()).isEqualTo(OLD);
+        }
+        assertUntouched(store);
+    }
+
+    /** The pack layout of a bundle's files, with this signature and one model's bytes replaced. */
+    private static Object[] packLayout(Map<String, byte[]> f, byte[] sig, String model, byte[] modelBytes) {
+        Object[] layout = new Object[(2 + ModelRole.values().length) * 2];
+        int i = 0;
+        layout[i++] = "manifest.json";
+        layout[i++] = f.get("manifest.json");
+        layout[i++] = "manifest.sig";
+        layout[i++] = sig;
+        for (ModelRole role : ModelRole.values()) {
+            layout[i++] = role.fileName();
+            layout[i++] = role.fileName().equals(model) ? modelBytes : f.get(role.fileName());
+        }
+        return layout;
+    }
+
+    @Test
+    void anOfflineZipSlipOversizeOrOverlongZipIsRefused(@TempDir File tmp) throws Exception {
+        File root = new File(tmp, "store");
+        ModelStore store = new ModelStore(root);
+        Map<String, byte[]> f = files(NEW, TestBundles.fakeModels(12));
+        assertFailed(offline().installZip(write(tmp, "slip.zip", rawZip("manifest.json", f.get("manifest.json"),
+                "../evil.onnx", new byte[] {6})), store, bundled(), trust), Reason.ZIP_ENTRY_REFUSED);
+        assertThat(new File(tmp, "evil.onnx")).doesNotExist();
+        assertThat(new File(root, "evil.onnx")).doesNotExist();
+        assertFailed(offline().installZip(write(tmp, "abs.zip", rawZip("manifest.json", f.get("manifest.json"),
+                "/abs.onnx", new byte[] {6})), store, bundled(), trust), Reason.ZIP_ENTRY_REFUSED);
+        // A manifest naming more files than a bundle can have.
+        StringBuilder many = new StringBuilder("{\"bundleVersion\": \"" + NEW + "\", \"files\": [");
+        for (int k = 0; k <= ModelUpdater.MAX_MANIFEST_FILES; k++) {
+            many.append(k > 0 ? ", " : "").append("{\"name\": \"f").append(k).append(".onnx\", \"size\": 1}");
+        }
+        many.append("]}");
+        UpdateResult overlong = offline().installZip(write(tmp, "many.zip",
+                rawZip("manifest.json", many.toString().getBytes(StandardCharsets.UTF_8))), store, bundled(), trust);
+        assertFailed(overlong, Reason.ZIP_INVALID);
+        assertThat(overlong.detail()).contains("more than " + ModelUpdater.MAX_MANIFEST_FILES);
+        // Larger than 64 MiB: refused before it is opened (a sparse file, no 64 MiB write).
+        File big = new File(tmp, "big.zip");
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(big, "rw")) {
+            raf.setLength(ModelUpdater.MAX_ZIP_BYTES + 1L);
+        }
+        assertFailed(offline().installZip(big, store, bundled(), trust), Reason.ZIP_SIZE);
+        assertFailed(offline().installZip(new File(tmp, "missing.zip"), store, bundled(), trust), Reason.STORAGE);
+        assertFailed(offline().installZip(write(tmp, "text.zip", "not a zip".getBytes(StandardCharsets.US_ASCII)), store,
+                bundled(), trust), Reason.ZIP_INVALID);
+        assertUntouched(store);
+    }
+
     @Test
     void packHelpersRejectBadInput() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> ModelUpdater.indexJson("v1", "x.zip", "00", 1))

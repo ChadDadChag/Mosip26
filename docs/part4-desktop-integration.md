@@ -68,7 +68,8 @@ flowchart LR
 | `LivenessView` | client | Renders the model (`fxml/LivenessCheck.fxml`, `liveness.css`); live preview mirrored for display only; screen-reader notifications. |
 | `LivenessMessages` | client | Message lookup: app language, then English, then the built-in English catalogue (identical to the spec, checked by a test). |
 | `LivenessScreenDemo` | client (test sources) | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. Not in the client jar (§10). |
-| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, checks for a newer signed model bundle after a sync (when enabled), metrics. |
+| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, checks for a newer signed model bundle after a sync (when enabled), installs a signed bundle zip from removable media or rolls back (F17, supervisors and admins), metrics. |
+| `ModelBundleTexts` | client | F17: the `liveness.model.*` message key for each install or rollback outcome; the version is filled in literally (the translations contain apostrophes). |
 | `FaceBinding` | services | F1: the next face capture of the workflow must match the PASSED session's best frame. |
 | `DesktopLivenessConfig` | services | `ConfigProvider` over `ApplicationContext.map()` (synced global config + local preferences) with bundled Desktop defaults. |
 | `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..012`. |
@@ -87,7 +88,9 @@ flowchart LR
 | `ClientApplication` | `preloadAsync()` after device discovery at start-up. |
 | `AuditEvent`, `Components`, `AuditReferenceIdTypes`, `AuditManagerService(Impl)` | New events `REG-LIV-*`, component `REG-MOD-153`, reference type `LIVENESS_SESSION_ID`, and an `audit(..., description)` overload that stores the details. |
 | `GlobalParamServiceImpl` (services) | After a successful config sync, publishes a `ConfigSyncedEvent` (the online model update listens). A failing listener never reaches the sync. |
-| `messages_en.properties` | The shared liveness catalogue (spec §5), English. |
+| `PacketHandlerController`, `fxml/RegistrationOfficerPacketLayout.fxml` | F17: two operational-task tiles, "Install model bundle" (a `FileChooser` for the zip) and "Roll back model bundle" (after a confirmation), shown only to supervisors and admins while `model.offlineInstall.enabled` is true. The work runs off the UI thread; the result is a generic alert (`ModelBundleTexts`). The upstream files are copied byte for byte (CRLF, `-text`), so the overlay changes only the added lines. |
+| `labels_en/ar/fr.properties` | F17: the two tile titles (`installModelBundle`, `rollbackModelBundle`), appended to the upstream bytes. |
+| `messages_en.properties` | The shared liveness catalogue (spec §5), English; F17's `liveness.model.*` texts (spec §4.5). |
 | poms | `registration-services` → `liveness-fake` (dev engine); `registration-client` → JUnit (tests). |
 
 ## 2. Integration
@@ -453,6 +456,34 @@ The check is Part 2's `ModelUpdater` on the service's background thread: HTTPS o
 INSTALLED, new sessions use the new bundle; a running session keeps its models. Any failure is audited and the current
 models stay. Without a sync (offline) nothing is checked.
 
+**Offline model install (F17)** (the same key as Android):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `mosip.registration.liveness.model.offlineInstall.enabled` | true | supervisors and admins see "Install model bundle" and "Roll back model bundle" in the home page's operational tasks; `false` hides both |
+
+How it works:
+- **Who.** Logged-in users with `REGISTRATION_SUPERVISOR` or `REGISTRATION_ADMIN`. `PacketHandlerController` shows the
+  two tiles only then, and `DesktopLivenessService` checks the role and the key again before acting (fail closed).
+- **Install.** A `FileChooser` picks the zip that `ModelBundleTool pack` writes, the same zip the online update
+  downloads. `installOfflineBundle(File)` hands it to Part 2's `ModelUpdater.installZip`:
+  - at most 64 MiB;
+  - flat entries only, `manifest.json` first, then exactly `manifest.sig` and the files the manifest names (at most
+    16), each at most its declared size; zip-slip and absolute paths are refused;
+  - unpacked into a fresh `update.tmp-*` directory in the store, which is deleted afterwards;
+  - `ModelStore.install`: signature, sizes, hashes, anti-rollback, atomic switch.
+- **Results.**
+  - A tampered, unsigned or malformed zip is refused as `MODEL_INTEGRITY_FAILED`, whatever version it claims: the
+    signature, sizes and hashes are checked before the version, so a tamper attempt is never reported or audited as
+    "not newer".
+  - The same or an older version is refused once it has verified.
+  - In both cases the store is unchanged.
+  - On success, new sessions use the new models; a running session keeps its own.
+- **Rollback.** `rollbackModelBundle()` makes the previous bundle current again, after a confirmation. It is an
+  explicit operator action that bypasses anti-rollback, and the previous bundle is verified again.
+- **The screens.** Every result is a generic, localised alert (`liveness.model.*`, §4.5 of the UI spec). The alerts
+  never show a path, a file name or an exception.
+
 **Development only, JVM properties** (never read from synced config, so no config push can weaken liveness):
 `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine, `...desktop.fake.scenario=PASS_ACTIVE` etc.),
 `-Dmosip.registration.liveness.face.desktop.source=webcam|video:<file.mjpeg>|images:<dir>` (mock device instead of SBI),
@@ -479,7 +510,7 @@ characters; longer records are split into numbered parts).
 | REG-LIV-009 | LIVENESS_CONFIG_LOADED | policy resolved (start, after a sync) | policy summary, configError |
 | REG-LIV-010 | LIVENESS_FACE_BINDING | Desktop: capture compared with the live face | outcome, similarity, threshold, accepted |
 | REG-LIV-011 | LIVENESS_METRICS | Desktop: every `metricsAuditEvery` sessions | anonymised counters and rates (§7) |
-| REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5) | outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point) |
+| REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5); an offline install or a rollback (F17) | online: outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point). Offline (`trigger=offline`) and rollback (`trigger=rollback`): outcome (INSTALLED, UP_TO_DATE, FAILED, ROLLED_BACK, REFUSED), errorCode (MODEL_INTEGRITY_FAILED for a bad bundle), reason (a `Reason` code, NOT_NEWER, NOTHING_TO_ROLL_BACK or NOT_ALLOWED), fromVersion, toVersion, durationMs, userId; never a path |
 
 The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019); the ids differ because the Desktop's
 `REG-EVT-009..018` were already taken.
@@ -509,7 +540,8 @@ client jars), so the network never decides whether liveness is enforced. Config 
 the last synced values offline; a sync while online is picked up by the next session. Model updates are installed only
 as signed bundles (Part 2 `ModelStore`: verified, never older, atomic switch); without one the bundled models are used.
 When enabled, a successful sync also checks for a newer bundle online (§5); offline, the installed or bundled models
-keep working.
+keep working. Without a network at all, a supervisor or admin can install a signed bundle zip from removable media, or
+roll back, from the home page (F17, §5).
 The screen and texts are identical online and offline.
 
 ## 9. Security and privacy
@@ -552,6 +584,11 @@ From `registration-client/registration` (JDK 11; first build online):
 existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
 `registration-client` 28 tests pass. No failures, nothing skipped.
 
+**Results with F17 (2026-10-27):** `registration-services` 158 tests pass. That is the 147 above, plus the four F16
+regression clips in `RecordedVideoE2ETest` (Part 2) and the 7 `DesktopOfflineModelInstallTest` tests.
+`registration-client` 31 tests pass: the 28 above plus the 3 `ModelBundleTextsTest` tests. `mvn install` of both
+modules succeeds. No failures, nothing skipped.
+
 | Test | What it proves |
 |---|---|
 | `DesktopLivenessServiceTest` | real engine + signed ONNX models + recorded clip through the deferred source → FAILED with `lastCause=FACE_NOT_DETECTED`, audited through the audit module with the session id; workflow disabled by synced config → legacy flow; config sync applies to the next session; scripted engine is development-only and skips binding |
@@ -565,6 +602,8 @@ existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalPar
 | `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
 | `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
 | `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
+| `DesktopOfflineModelInstallTest` | F17 on the real service with signed bundles: install and reload; tampered or unsigned zips refused as MODEL_INTEGRITY_FAILED, also when they claim an older version; same or older refused; zip-slip; rollback, then nothing earlier; the role gate and the config switch; the audit has codes, versions and the user id, never a path |
+| `ModelBundleTextsTest` | F17: every outcome has its own key, a failed rollback says so; the version is filled in literally (apostrophes survive); every key in English, Arabic and French, translated, with the placeholder kept; the two tile titles in all three label bundles |
 
 **Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
 can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
@@ -584,6 +623,13 @@ arguments):
 - The full Registration Client was compiled and its liveness, audit and login tests run, but it was **not launched end
   to end** (that needs a registered machine, the local database and a server for the first sync). The hooks were
   checked by compilation and code review, the screen by rendering it, the services by the tests above.
+- **The F17 offline install was not tried in the client** for the same reason: its tiles appear only to a logged-in
+  supervisor or admin, and logging in needs a registered machine and a server. `DesktopOfflineModelInstallTest`
+  proves it on the real `DesktopLivenessService` with signed bundles: install and reload, tampered or unsigned zips
+  refused (also when they claim an older version), same or older refused, zip-slip, rollback, the role gate and the
+  config switch. `ModelBundleTextsTest` proves the texts. The tiles, the file chooser and the alerts were checked by
+  compilation and code review only. Android has the same limit; its debug build opens the same production page
+  from the Login page instead (part 5).
 - **No SBI hardware and no MockMDS run** in Part 4. The SBI path is Part 1's, tested there (unplug/replug, recorded
   clips, MockMDS 45/45 frames).
 - **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was

@@ -59,6 +59,11 @@ public class DesktopLivenessConfig implements ConfigProvider {
 	/** Plain HTTP to 127.0.0.1 or localhost for the update (development and tests only). JVM property only. */
 	public static final String MODEL_UPDATE_INSECURE_LOCALHOST_KEY =
 			"mosip.registration.liveness.model.update.allowInsecureLocalhost";
+	/**
+	 * F17: supervisors and admins may install a signed bundle zip from removable media, and roll back (on by default:
+	 * the signature and anti-rollback checks make it safe). false hides the actions.
+	 */
+	public static final String MODEL_OFFLINE_INSTALL_ENABLED_KEY = "mosip.registration.liveness.model.offlineInstall.enabled";
 
 	private final Supplier<Map<String, Object>> appConfig;
 	private final Properties defaults;
