@@ -77,7 +77,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,646 @@
+@@ -0,0 +1,662 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -553,8 +553,10 @@ new file mode 100644
 +  - unpacked into a fresh `update.tmp-*` directory in the store, which is deleted afterwards;
 +  - `ModelStore.install`: signature, sizes, hashes, anti-rollback, atomic switch.
 +- **Results.**
-+  - A tampered, unsigned or malformed zip is refused as `MODEL_INTEGRITY_FAILED`.
-+  - The same or an older version is refused.
++  - A tampered, unsigned or malformed zip is refused as `MODEL_INTEGRITY_FAILED`, whatever version it claims: the
++    signature, sizes and hashes are checked before the version, so a tamper attempt is never reported or audited as
++    "not newer".
++  - The same or an older version is refused once it has verified.
 +  - In both cases the store is unchanged.
 +  - On success, new sessions use the new models; a running session keeps its own.
 +- **Rollback.** `rollbackModelBundle()` makes the previous bundle current again, after a confirmation. It is an
@@ -662,6 +664,11 @@ new file mode 100644
 +existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
 +`registration-client` 28 tests pass. No failures, nothing skipped.
 +
++**Results with F17 (2026-10-27):** `registration-services` 158 tests pass. That is the 147 above, plus the four F16
++regression clips in `RecordedVideoE2ETest` (Part 2) and the 7 `DesktopOfflineModelInstallTest` tests.
++`registration-client` 31 tests pass: the 28 above plus the 3 `ModelBundleTextsTest` tests. `mvn install` of both
++modules succeeds. No failures, nothing skipped.
++
 +| Test | What it proves |
 +|---|---|
 +| `DesktopLivenessServiceTest` | real engine + signed ONNX models + recorded clip through the deferred source → FAILED with `lastCause=FACE_NOT_DETECTED`, audited through the audit module with the session id; workflow disabled by synced config → legacy flow; config sync applies to the next session; scripted engine is development-only and skips binding |
@@ -675,6 +682,8 @@ new file mode 100644
 +| `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
 +| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
 +| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
++| `DesktopOfflineModelInstallTest` | F17 on the real service with signed bundles: install and reload; tampered or unsigned zips refused as MODEL_INTEGRITY_FAILED, also when they claim an older version; same or older refused; zip-slip; rollback, then nothing earlier; the role gate and the config switch; the audit has codes, versions and the user id, never a path |
++| `ModelBundleTextsTest` | F17: every outcome has its own key, a failed rollback says so; the version is filled in literally (apostrophes survive); every key in English, Arabic and French, translated, with the placeholder kept; the two tile titles in all three label bundles |
 +
 +**Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
 +can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
@@ -694,6 +703,13 @@ new file mode 100644
 +- The full Registration Client was compiled and its liveness, audit and login tests run, but it was **not launched end
 +  to end** (that needs a registered machine, the local database and a server for the first sync). The hooks were
 +  checked by compilation and code review, the screen by rendering it, the services by the tests above.
++- **The F17 offline install was not tried in the client** for the same reason: its tiles appear only to a logged-in
++  supervisor or admin, and logging in needs a registered machine and a server. `DesktopOfflineModelInstallTest`
++  proves it on the real `DesktopLivenessService` with signed bundles: install and reload, tampered or unsigned zips
++  refused (also when they claim an older version), same or older refused, zip-slip, rollback, the role gate and the
++  config switch. `ModelBundleTextsTest` proves the texts. The tiles, the file chooser and the alerts were checked by
++  compilation and code review only. Android has the same limit; its debug build opens the same production page
++  from the Login page instead (part 5).
 +- **No SBI hardware and no MockMDS run** in Part 4. The SBI path is Part 1's, tested there (unplug/replug, recorded
 +  clips, MockMDS 45/45 frames).
 +- **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was
@@ -6835,7 +6851,7 @@ diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopOfflineModelInstallTest.java
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,236 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import static org.junit.Assert.assertEquals;
@@ -6958,10 +6974,8 @@ new file mode 100644
 +		assertTrue("the operator's file is left alone", zip.exists());
 +	}
 +
-+	@Test(timeout = 120_000)
-+	public void aTamperedOrUnsignedZipIsRefusedAndTheStoreIsUnchanged() throws Exception {
-+		DesktopLivenessService s = service();
-+		Map<String, byte[]> f = SignedTestBundles.bundle(NEWER, kp, SignedTestBundles.realModels());
++	/** A signed bundle of this version, packed as a zip, with one byte of the detector model flipped. */
++	private File tamperedZip(String version, Map<String, byte[]> f) throws Exception {
 +		Object[] layout = new Object[(2 + ModelRole.values().length) * 2];
 +		int i = 0;
 +		layout[i++] = VerifiedBundle.MANIFEST;
@@ -6977,8 +6991,15 @@ new file mode 100644
 +			layout[i++] = role.fileName();
 +			layout[i++] = b;
 +		}
++		return rawZip(version + "-tampered.zip", layout);
++	}
 +
-+		ModelBundleResult tampered = s.installOfflineBundle(rawZip("tampered.zip", layout));
++	@Test(timeout = 120_000)
++	public void aTamperedOrUnsignedZipIsRefusedAndTheStoreIsUnchanged() throws Exception {
++		DesktopLivenessService s = service();
++		Map<String, byte[]> f = SignedTestBundles.bundle(NEWER, kp, SignedTestBundles.realModels());
++
++		ModelBundleResult tampered = s.installOfflineBundle(tamperedZip(NEWER, f));
 +		assertEquals(ModelBundleOutcome.INVALID, tampered.outcome());
 +		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "trigger=offline");
 +		assertTrue(a, a.contains("outcome=FAILED") && a.contains("errorCode=MODEL_INTEGRITY_FAILED")
@@ -6996,6 +7017,19 @@ new file mode 100644
 +		assertEquals(ModelBundleOutcome.NOT_NEWER, s.installOfflineBundle(zip("pad-2026.09.1")).outcome());
 +		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "reason=NOT_NEWER");
 +		assertTrue(a, a.contains("outcome=UP_TO_DATE") && a.contains("trigger=offline"));
++		assertStoreUntouched();
++	}
++
++	@Test(timeout = 120_000)
++	public void aTamperedZipIsInvalidEvenWhenItsVersionIsNotNewer() throws Exception {
++		DesktopLivenessService s = service();
++		String older = "pad-2026.09.1";
++		ModelBundleResult r = s.installOfflineBundle(
++				tamperedZip(older, SignedTestBundles.bundle(older, kp, SignedTestBundles.realModels())));
++		assertEquals("verified before the version check", ModelBundleOutcome.INVALID, r.outcome());
++		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "trigger=offline");
++		assertTrue(a, a.contains("outcome=FAILED") && a.contains("errorCode=MODEL_INTEGRITY_FAILED")
++				&& a.contains("reason=BUNDLE_INVALID") && !a.contains("NOT_NEWER"));
 +		assertStoreUntouched();
 +	}
 +
