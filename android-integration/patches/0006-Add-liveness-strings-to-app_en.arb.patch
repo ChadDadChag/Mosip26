@@ -1,7 +1,7 @@
 From c9edc6894fc6d510301d75ba9df206e9fbc59381 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 18:46:18 +0530
-Subject: [PATCH 06/36] Add liveness strings to app_en.arb
+Subject: [PATCH 06/38] Add liveness strings to app_en.arb
 
 The 43 liveness_* keys of docs/ui-liveness-spec.md section 5 (Mosip26),
 copied from the spec's ARB block: titles, status, challenges, feedback,

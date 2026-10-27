@@ -1,7 +1,7 @@
 From 019be4f842132203a77496e6efa49cf31267024b Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 21:53:42 +0530
-Subject: [PATCH 22/36] AnalyzerBenchmark: on-device analyzer benchmark
+Subject: [PATCH 22/38] AnalyzerBenchmark: on-device analyzer benchmark
 
 For P5-5 (performance and accelerators). Runs over live frames the caller
 captured into memory (never written anywhere; the caller drops them).

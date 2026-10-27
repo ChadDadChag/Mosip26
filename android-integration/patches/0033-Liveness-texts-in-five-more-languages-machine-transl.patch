@@ -1,7 +1,7 @@
 From 4a65ac9e9d936542331d9198e22316f5820f51b1 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Mon, 26 Oct 2026 00:10:06 +0530
-Subject: [PATCH 33/36] Liveness texts in five more languages
+Subject: [PATCH 33/38] Liveness texts in five more languages
  (machine-translated), right to left
 
 The 44 liveness keys in app_ar, app_fr, app_hi, app_kn and app_ta.arb,

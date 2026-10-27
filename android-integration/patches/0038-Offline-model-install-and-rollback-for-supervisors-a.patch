@@ -1,0 +1,1606 @@
+From c916323d4ea2c9f3c5b4d4c5176432f413d02835 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Tue, 27 Oct 2026 19:03:26 +0530
+Subject: [PATCH 38/38] Offline model install and rollback for supervisors and
+ admins (F17)
+
+A production page, release builds included, that installs a signed
+face liveness model bundle zip from removable media and rolls back.
+- Home page operational tasks: "Face liveness models", shown only to
+  a logged-in supervisor or admin while
+  mosip.registration.liveness.model.offlineInstall.enabled is not
+  false (asked once). The page shows the version in use, Install model
+  bundle and Roll back model bundle (after a confirmation).
+- Install: the system file picker (ACTION_OPEN_DOCUMENT, zip types;
+  request code 17 in MainActivity.onActivityResult, no new plugin and
+  no storage permission). The picked file is copied to the cache (at
+  most 64 MiB + 1 byte), installed with the engine's
+  ModelUpdater.installZip (the online update's unpack rules and
+  verification, a temporary directory that is always deleted), then
+  the analyzer reloads; the copy is deleted. A running session keeps
+  its models.
+- LivenessServiceHolder: installOfflineBundle, rollbackOfflineBundle,
+  modelBundleActionsAllowed, activeModelVersion. Both actions check the
+  role and the switch again (fail closed). Outcomes INSTALLED,
+  ROLLED_BACK, NOT_NEWER, INVALID (MODEL_INTEGRITY_FAILED),
+  NOTHING_TO_ROLL_BACK, NOT_ALLOWED, FAILED; the page shows a generic
+  text, never a path or an exception.
+- Audit REG-EVT-019 (AndroidAuditSink.modelBundle) with trigger=offline
+  or rollback: outcome, errorCode, reason, fromVersion, toVersion,
+  durationMs, userId; never a path.
+- SessionManager stores is_admin (REGISTRATION_ADMIN) next to
+  is_supervisor and clears it on logout; currentUserId for the audit.
+- Pigeon: modelBundleActionsAllowed, activeModelVersion,
+  installModelBundleFromFile, rollbackModelBundleFromSettings.
+- Texts: 15 liveness_model_* keys in the six ARB files (non-English
+  machine-translated, marked for native-speaker review). The existing
+  liveness_ key-count tests skip the new prefix.
+- The debug page is unchanged.
+
+Tests: LivenessOfflineModelInstallTest (7: install and reload with a
+bundle signed by a throwaway key, tampered refused, older refused,
+zip-slip refused, rollback, role gate, switch off) and
+model_bundle_test.dart (6 widget and l10n tests).
+With the engine sync before it: module tests 102 (95 + 7), Flutter
+liveness tests 90 (84 + 6), all passing; flutter build apk --release
+--split-per-abi --target-platform android-arm64 builds (signed with
+the debug keystore: there is no release key here).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../registration_client/MainActivity.java     |   4 +
+ .../api_services/LivenessApi.java             | 142 ++++++++++
+ .../clientmanager/config/SessionManager.java  |  15 ++
+ .../liveness/android/AndroidAuditSink.java    |  24 ++
+ .../android/LivenessServiceHolder.java        | 154 ++++++++++-
+ .../LivenessOfflineModelInstallTest.java      | 255 ++++++++++++++++++
+ assets/l10n/app_ar.arb                        |  19 +-
+ assets/l10n/app_en.arb                        |  20 +-
+ assets/l10n/app_fr.arb                        |  19 +-
+ assets/l10n/app_hi.arb                        |  18 +-
+ assets/l10n/app_kn.arb                        |  18 +-
+ assets/l10n/app_ta.arb                        |  18 +-
+ .../model_bundle_service_impl.dart            |  57 ++++
+ lib/platform_spi/model_bundle_service.dart    |  42 +++
+ lib/ui/liveness/model_bundle_page.dart        | 171 ++++++++++++
+ lib/ui/onboard/home_page.dart                 |   9 +
+ pigeon/liveness.dart                          |  37 +++
+ test/liveness/liveness_controller_test.dart   |   2 +-
+ test/liveness/liveness_l10n_test.dart         |   4 +-
+ test/liveness/model_bundle_test.dart          | 178 ++++++++++++
+ 20 files changed, 1191 insertions(+), 15 deletions(-)
+ create mode 100644 android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessOfflineModelInstallTest.java
+ create mode 100644 lib/platform_android/model_bundle_service_impl.dart
+ create mode 100644 lib/platform_spi/model_bundle_service.dart
+ create mode 100644 lib/ui/liveness/model_bundle_page.dart
+ create mode 100644 test/liveness/model_bundle_test.dart
+
+diff --git a/android/app/src/main/java/io/mosip/registration_client/MainActivity.java b/android/app/src/main/java/io/mosip/registration_client/MainActivity.java
+index e1ea112..a094c9b 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/MainActivity.java
++++ b/android/app/src/main/java/io/mosip/registration_client/MainActivity.java
+@@ -441,6 +441,10 @@ public class MainActivity extends FlutterActivity {
+     @Override
+     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+         super.onActivityResult(requestCode, resultCode, data);
++        if (requestCode == LivenessApi.PICK_MODEL_BUNDLE) {
++            livenessApi.onModelBundlePicked(resultCode, data); // F17: completes on any result code
++            return;
++        }
+         if (requestCode == 3 && resultCode != Activity.RESULT_OK) {
+             biometricsDetailsApi.onRCaptureCancelled(); // face binding: drop an armed best frame
+         }
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index 95b95a2..8274395 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -8,7 +8,12 @@
+ package io.mosip.registration_client.api_services;
+ 
+ import android.Manifest;
++import android.app.Activity;
++import android.content.ActivityNotFoundException;
++import android.content.ContentResolver;
++import android.content.Intent;
+ import android.content.pm.PackageManager;
++import android.net.Uri;
+ import android.os.Handler;
+ import android.os.Looper;
+ import android.util.Log;
+@@ -20,6 +25,10 @@ import androidx.camera.view.PreviewView;
+ import androidx.core.content.ContextCompat;
+ 
+ import java.io.File;
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.OutputStream;
+ import java.lang.ref.WeakReference;
+ import java.util.ArrayList;
+ import java.util.List;
+@@ -33,6 +42,7 @@ import javax.inject.Singleton;
+ import io.flutter.embedding.engine.FlutterEngine;
+ import io.flutter.plugin.common.BinaryMessenger;
+ import io.flutter.plugin.common.EventChannel;
++import io.mosip.registration.clientmanager.config.SessionManager;
+ import io.mosip.registration.liveness.android.AnalyzerBenchmark;
+ import io.mosip.registration.liveness.android.BestFrameEncoder;
+ import io.mosip.registration.liveness.android.BindingImages;
+@@ -95,6 +105,13 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+     private int generation;
+     private boolean benchmarking;
+ 
++    /** F17: request code of the model bundle file picker (1-5 are the biometrics device intents). */
++    public static final int PICK_MODEL_BUNDLE = 17;
++    /** F17: the picked zip is copied to the cache first; at most this much (the install refuses a larger file). */
++    private static final long MAX_PICKED_BYTES = ModelUpdater.MAX_ZIP_BYTES + 1L;
++    // Main thread only: the Pigeon result waiting for the file picker.
++    private LivenessPigeon.Result<LivenessPigeon.ModelBundleActionResult> pendingModelBundlePick;
++
+     @Inject
+     public LivenessApi(LivenessServiceHolder holder) {
+         this.holder = holder;
+@@ -108,6 +125,18 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+     public void setup(@NonNull FlutterEngine flutterEngine) {
+         BinaryMessenger messenger = flutterEngine.getDartExecutor().getBinaryMessenger();
+         LivenessPigeon.LivenessApi.setup(messenger, this);
++        // F17: who may install or roll back models, as the session knows it (a supervisor or an admin).
++        holder.setModelBundleUser(new LivenessServiceHolder.ModelBundleUser() {
++            @Override
++            public boolean maySupervise() {
++                return SessionManager.getSessionManager(holder.context()).isSupervisorOrAdmin();
++            }
++
++            @Override
++            public String id() {
++                return SessionManager.getSessionManager(holder.context()).currentUserId();
++            }
++        });
+         new EventChannel(messenger, EVENT_CHANNEL).setStreamHandler(new EventChannel.StreamHandler() {
+             @Override
+             public void onListen(Object arguments, EventChannel.EventSink sink) {
+@@ -342,6 +371,119 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         });
+     }
+ 
++    // ---- F17: offline model install and rollback from the production page ----
++
++    @NonNull
++    @Override
++    public Boolean modelBundleActionsAllowed() {
++        return holder.modelBundleActionsAllowed();
++    }
++
++    @NonNull
++    @Override
++    public String activeModelVersion() {
++        String v = holder.activeModelVersion();
++        return v == null ? "" : v;
++    }
++
++    /**
++     * Production, not diagnostics-gated: the system file picker for a signed bundle zip, then
++     * {@link #onModelBundlePicked}. Refused at once, and audited, unless a supervisor or admin is logged in and the
++     * feature is on.
++     */
++    @Override
++    public void installModelBundleFromFile(@NonNull LivenessPigeon.Result<LivenessPigeon.ModelBundleActionResult> result) {
++        if (!holder.modelBundleActionsAllowed()) {
++            holder.background().execute(() -> {
++                LivenessServiceHolder.ModelBundleResult r = holder.installOfflineBundle(null); // NOT_ALLOWED, audited
++                main.post(() -> result.success(toPigeon(r)));
++            });
++            return;
++        }
++        MainActivity activity = activityRef == null ? null : activityRef.get();
++        if (activity == null) {
++            result.success(outcome("FAILED"));
++            return;
++        }
++        if (pendingModelBundlePick != null) pendingModelBundlePick.success(outcome("CANCELLED")); // a second tap wins
++        pendingModelBundlePick = result;
++        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
++        pick.addCategory(Intent.CATEGORY_OPENABLE);
++        pick.setType("*/*");
++        pick.putExtra(Intent.EXTRA_MIME_TYPES,
++                new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"});
++        try {
++            activity.startActivityForResult(pick, PICK_MODEL_BUNDLE);
++        } catch (ActivityNotFoundException e) {
++            pendingModelBundlePick = null;
++            result.success(outcome("FAILED"));
++        }
++    }
++
++    /**
++     * From {@code MainActivity.onActivityResult} for {@link #PICK_MODEL_BUNDLE}, whatever the result code: copies the
++     * picked document to the cache (at most 64 MiB + 1 byte, so a larger file is refused by the install), installs it
++     * on the background thread and deletes the copy. A closed picker is CANCELLED, with nothing to audit.
++     */
++    public void onModelBundlePicked(int resultCode, Intent data) {
++        LivenessPigeon.Result<LivenessPigeon.ModelBundleActionResult> result = pendingModelBundlePick;
++        pendingModelBundlePick = null;
++        if (result == null) return;
++        Uri uri = resultCode == Activity.RESULT_OK && data != null ? data.getData() : null;
++        if (uri == null) {
++            result.success(outcome("CANCELLED"));
++            return;
++        }
++        ContentResolver resolver = holder.context().getContentResolver();
++        holder.background().execute(() -> {
++            File copy = new File(holder.context().getCacheDir(), "model-bundle-" + UUID.randomUUID() + ".zip");
++            try {
++                copyAtMost(resolver, uri, copy, MAX_PICKED_BYTES);
++            } catch (IOException | RuntimeException e) {
++                Log.w(TAG, "picked model bundle not readable: " + e.getClass().getSimpleName());
++                if (copy.exists() && !copy.delete()) Log.w(TAG, "could not delete a partial model bundle copy");
++            }
++            LivenessServiceHolder.ModelBundleResult r;
++            try {
++                r = holder.installOfflineBundle(copy); // a missing copy is a STORAGE failure, audited
++            } finally {
++                if (copy.exists() && !copy.delete()) Log.w(TAG, "could not delete the model bundle copy");
++            }
++            main.post(() -> result.success(toPigeon(r)));
++        });
++    }
++
++    @Override
++    public void rollbackModelBundleFromSettings(
++            @NonNull LivenessPigeon.Result<LivenessPigeon.ModelBundleActionResult> result) {
++        holder.background().execute(() -> {
++            LivenessServiceHolder.ModelBundleResult r = holder.rollbackOfflineBundle();
++            main.post(() -> result.success(toPigeon(r)));
++        });
++    }
++
++    private static void copyAtMost(ContentResolver resolver, Uri uri, File to, long max) throws IOException {
++        try (InputStream in = resolver.openInputStream(uri); OutputStream out = new FileOutputStream(to)) {
++            if (in == null) throw new IOException("no stream");
++            byte[] buf = new byte[64 * 1024];
++            long total = 0;
++            int n;
++            while (total < max && (n = in.read(buf, 0, (int) Math.min(buf.length, max - total))) > 0) {
++                out.write(buf, 0, n);
++                total += n;
++            }
++        }
++    }
++
++    private static LivenessPigeon.ModelBundleActionResult toPigeon(LivenessServiceHolder.ModelBundleResult r) {
++        return new LivenessPigeon.ModelBundleActionResult.Builder().setOutcome(r.outcome.name())
++                .setFromVersion(r.fromVersion).setToVersion(r.toVersion).build();
++    }
++
++    private static LivenessPigeon.ModelBundleActionResult outcome(String outcome) {
++        return new LivenessPigeon.ModelBundleActionResult.Builder().setOutcome(outcome).build();
++    }
++
+     /**
+      * Captures {@value #BENCHMARK_FRAMES} frames into memory (never written anywhere), stops the camera, then runs
+      * {@link AnalyzerBenchmark} on its own thread and drops the frames. The report holds timings and parity only.
+diff --git a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
+index da20765..c264740 100644
+--- a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
++++ b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
+@@ -20,6 +20,8 @@ public class SessionManager {
+     public static final String IS_SUPERVISOR = "is_supervisor";
+     public static final String IS_OPERATOR = "is_operator";
+     public static final String IS_DEFAULT = "is_default";
++    /** F17: the token has REGISTRATION_ADMIN (offline face liveness model install). */
++    public static final String IS_ADMIN = "is_admin";
+     public static final String USER_NAME = "user_name";
+     public static final String USER_ID = "user_id";
+     public static final String USER_TOKEN = "user_token";
+@@ -75,10 +77,22 @@ public class SessionManager {
+         editor.putBoolean(IS_DEFAULT, roles.contains("Default"));
+         editor.putBoolean(IS_OFFICER, roles.contains("REGISTRATION_OFFICER"));
+         editor.putBoolean(IS_OPERATOR, roles.contains("REGISTRATION_OPERATOR"));
++        editor.putBoolean(IS_ADMIN, roles.contains("REGISTRATION_ADMIN"));
+         editor.apply();
+         return roles;
+     }
+ 
++    /** F17: the logged-in user may install or roll back face liveness models (a supervisor or an admin). */
++    public boolean isSupervisorOrAdmin() {
++        return sharedPreferences.getBoolean(IS_SUPERVISOR, false) || sharedPreferences.getBoolean(IS_ADMIN, false);
++    }
++
++    /** The logged-in user's id for audits (the user id, else the preferred user name), or null. */
++    public String currentUserId() {
++        String id = sharedPreferences.getString(USER_ID, null);
++        return id != null ? id : sharedPreferences.getString(PREFERRED_USERNAME, null);
++    }
++
+     public String fetchAuthToken() {
+         return this.context.getSharedPreferences(this.context.getString(R.string.app_name),
+                 Context.MODE_PRIVATE).getString(USER_TOKEN, null);
+@@ -106,6 +120,7 @@ public class SessionManager {
+         editor.remove(IS_DEFAULT);
+         editor.remove(IS_OFFICER);
+         editor.remove(IS_OPERATOR);
++        editor.remove(IS_ADMIN);
+         editor.remove(OPERATOR_CAPTURE_TRANSACTION_ID);
+         editor.apply();
+         return this.context.getSharedPreferences(this.context.getString(R.string.app_name),
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
+index e9aa848..1d894d5 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/AndroidAuditSink.java
+@@ -100,6 +100,30 @@ public final class AndroidAuditSink implements AuditSink {
+         }
+     }
+ 
++    /**
++     * F17 offline install or rollback: {@link AuditEvent#LIVENESS_MODEL_UPDATE} (REG-EVT-019) with the outcome, the
++     * error code of a bad bundle, the reason code, the versions before and after, the duration, the trigger (offline or
++     * rollback) and the user id. Codes, versions and the id only: no path, no exception message.
++     */
++    public void modelBundle(String outcome, String errorCode, String reason, String fromVersion, String toVersion,
++                            long durationMs, String trigger, String userId) {
++        try {
++            Map<String, String> d = new java.util.LinkedHashMap<>();
++            d.put("outcome", outcome);
++            if (errorCode != null) d.put("errorCode", errorCode);
++            if (reason != null) d.put("reason", reason);
++            d.put("fromVersion", fromVersion == null ? "NA" : fromVersion);
++            d.put("toVersion", toVersion == null ? "NA" : toVersion);
++            d.put("durationMs", Long.toString(durationMs));
++            d.put("trigger", trigger);
++            d.put("userId", userId == null ? "NA" : userId);
++            String text = details(AuditEvent.LIVENESS_MODEL_UPDATE, null, d);
++            executor.execute(() -> write(AuditEvent.LIVENESS_MODEL_UPDATE, Components.HOME, text));
++        } catch (RuntimeException e) {
++            Log.w(TAG, "could not record the model bundle action", e);
++        }
++    }
++
+     private void write(AuditEvent auditEvent, Components component, String text) {
+         try {
+             auditManager.audit(auditEvent, component, text);
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 91c2552..7ecf395 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -28,6 +28,7 @@ import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
+ import io.mosip.registration.clientmanager.spi.AuditManagerService;
+ import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
+ import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
++import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
+ import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
+ import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
+ import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
+@@ -111,6 +112,9 @@ public final class LivenessServiceHolder {
+     private final SwappableAnalyzerFactory analyzers;
+     private final TimedAnalyzerFactory timedAnalyzers;
+     private final DefaultLivenessService real;
++    // The app's signed bundle and the keys it trusts (tests: a bundle signed with a throwaway key).
++    private final BundleSource bundledModels;
++    private final TrustedKeys trustedKeys;
+     private final FaceBinding binding;
+     private volatile FakeLivenessService fake;
+     private String analyzerFingerprint; // guarded by this
+@@ -131,8 +135,17 @@ public final class LivenessServiceHolder {
+      */
+     public LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager,
+                                  boolean diagnostics) {
++        this(context, globalParams, auditManager, diagnostics, new AssetBundleSource(context.getApplicationContext()),
++                TrustedKeys.builtIn());
++    }
++
++    /** Tests: another bundled model source and its trusted keys. */
++    LivenessServiceHolder(Context context, GlobalParamRepository globalParams, AuditManagerService auditManager,
++                          boolean diagnostics, BundleSource bundledModels, TrustedKeys trustedKeys) {
+         this.context = context.getApplicationContext();
+         this.diagnostics = diagnostics;
++        this.bundledModels = bundledModels;
++        this.trustedKeys = trustedKeys;
+         this.audit = new AndroidAuditSink(auditManager);
+         this.baseConfig = new AndroidConfigProvider(globalParams);
+         AnalyzerConfig analyzerConfig = analyzerConfig(config);
+@@ -152,7 +165,7 @@ public final class LivenessServiceHolder {
+     }
+ 
+     private OnnxFaceAnalyzerFactory analyzerFactory(AnalyzerConfig analyzerConfig) {
+-        return new OnnxFaceAnalyzerFactory(new AssetBundleSource(context), modelStore(), TrustedKeys.builtIn(),
++        return new OnnxFaceAnalyzerFactory(bundledModels, modelStore(), trustedKeys,
+                 analyzerConfig);
+     }
+ 
+@@ -288,7 +301,7 @@ public final class LivenessServiceHolder {
+     public synchronized String installModelBundle(File dir) throws LivenessEngineException, IOException {
+         ModelStore store = modelStore();
+         String before = modelStoreStatus();
+-        String v = store.install(new DirectoryBundleSource(dir), new AssetBundleSource(context), TrustedKeys.builtIn());
++        String v = store.install(new DirectoryBundleSource(dir), bundledModels, trustedKeys);
+         Log.i(TAG, "model store: installed " + v + " from " + dir + " (before: " + before + "; now: "
+                 + modelStoreStatus() + ")");
+         reloadModels();
+@@ -297,7 +310,7 @@ public final class LivenessServiceHolder {
+ 
+     /** Operator action: the store's previous bundle becomes current again ({@link ModelStore#rollback}), then a reload. */
+     public synchronized String rollbackModelBundle() throws LivenessEngineException, IOException {
+-        String v = modelStore().rollback(TrustedKeys.builtIn());
++        String v = modelStore().rollback(trustedKeys);
+         Log.i(TAG, "model store: rolled back to " + v);
+         reloadModels();
+         return v;
+@@ -315,6 +328,139 @@ public final class LivenessServiceHolder {
+         return "installed " + store.installedVersions() + ", current " + (current == null ? "none (bundled)" : current);
+     }
+ 
++    // ---- F17: offline model install and rollback from the production page (supervisors and admins) ----
++
++    /** Offline model install from removable media: on unless the synced config says false. */
++    public static final String OFFLINE_INSTALL_KEY = "mosip.registration.liveness.model.offlineInstall.enabled";
++
++    /** Who is logged in, as the app knows it (SessionManager). Until the app sets one, nobody may act. */
++    public interface ModelBundleUser {
++        /** A logged-in supervisor or admin. */
++        boolean maySupervise();
++
++        /** The user id for the audit, or null. */
++        String id();
++    }
++
++    private static final ModelBundleUser NOBODY = new ModelBundleUser() {
++        @Override public boolean maySupervise() {
++            return false;
++        }
++
++        @Override public String id() {
++            return null;
++        }
++    };
++
++    private volatile ModelBundleUser modelBundleUser = NOBODY;
++
++    /** What an offline install or a rollback did; the UI maps it to a generic text, never to paths or exceptions. */
++    public enum ModelBundleOutcome { INSTALLED, ROLLED_BACK, NOT_NEWER, INVALID, NOTHING_TO_ROLL_BACK, NOT_ALLOWED, FAILED }
++
++    /** The outcome and the versions in use before and after (null when unknown). */
++    public static final class ModelBundleResult {
++        public final ModelBundleOutcome outcome;
++        public final String fromVersion, toVersion;
++
++        ModelBundleResult(ModelBundleOutcome outcome, String fromVersion, String toVersion) {
++            this.outcome = outcome;
++            this.fromVersion = fromVersion;
++            this.toVersion = toVersion;
++        }
++    }
++
++    /** The app's view of the logged-in user (null: nobody, fail closed). */
++    public void setModelBundleUser(ModelBundleUser user) {
++        this.modelBundleUser = user == null ? NOBODY : user;
++    }
++
++    /** {@value #OFFLINE_INSTALL_KEY}: true unless the synced config (or an override) says false. */
++    public boolean offlineInstallEnabled() {
++        String v = config.get(OFFLINE_INSTALL_KEY);
++        return v == null || !"false".equalsIgnoreCase(v.trim());
++    }
++
++    /** The production page and its entry are shown only when this is true; the actions check it again. */
++    public boolean modelBundleActionsAllowed() {
++        return offlineInstallEnabled() && modelBundleUser.maySupervise();
++    }
++
++    /** The model bundle version new sessions use (store or bundled), or null when unreadable. */
++    public String activeModelVersion() {
++        return ModelUpdater.activeVersion(modelStore(), bundledModels);
++    }
++
++    /**
++     * Installs a signed bundle zip from removable media ({@link ModelUpdater#installZip}: the online update's zip and
++     * verification, unpacked into a temporary directory that is deleted afterwards) and reloads; a running session
++     * keeps its models. Writes REG-EVT-019 with trigger=offline (codes, versions and the user id only). Blocking: call
++     * it on {@link #background()}.
++     */
++    public synchronized ModelBundleResult installOfflineBundle(File zip) {
++        long start = SystemClock.elapsedRealtime();
++        String from = activeModelVersion();
++        if (!modelBundleActionsAllowed()) {
++            return bundleAudit("offline", from, null, "REFUSED", "NOT_ALLOWED", null, start, ModelBundleOutcome.NOT_ALLOWED);
++        }
++        if (zip == null) {
++            return bundleAudit("offline", from, from, "FAILED", "STORAGE", null, start, ModelBundleOutcome.FAILED);
++        }
++        ModelUpdater.UpdateResult r = ModelUpdater.builder().build().installZip(zip, modelStore(), bundledModels, trustedKeys);
++        switch (r.status()) {
++            case INSTALLED:
++                Log.i(TAG, "model store: installed " + r.version() + " from removable media");
++                reloadModels();
++                return bundleAudit("offline", from, r.version(), "INSTALLED", null, null, start, ModelBundleOutcome.INSTALLED);
++            case UP_TO_DATE:
++                return bundleAudit("offline", from, from, "UP_TO_DATE", "NOT_NEWER", null, start, ModelBundleOutcome.NOT_NEWER);
++            default:
++                boolean storage = r.reason() == ModelUpdater.Reason.STORAGE;
++                return bundleAudit("offline", from, from, "FAILED", r.reason().name(),
++                        storage ? null : ErrorCode.MODEL_INTEGRITY_FAILED.name(), start,
++                        storage ? ModelBundleOutcome.FAILED : ModelBundleOutcome.INVALID);
++        }
++    }
++
++    /**
++     * Operator action from the production page: the store's previous bundle becomes current again
++     * ({@link ModelStore#rollback}, verified again), then a reload. Writes REG-EVT-019 with trigger=rollback.
++     */
++    public synchronized ModelBundleResult rollbackOfflineBundle() {
++        long start = SystemClock.elapsedRealtime();
++        String from = activeModelVersion();
++        if (!modelBundleActionsAllowed()) {
++            return bundleAudit("rollback", from, null, "REFUSED", "NOT_ALLOWED", null, start, ModelBundleOutcome.NOT_ALLOWED);
++        }
++        try {
++            String v = modelStore().rollback(trustedKeys);
++            Log.i(TAG, "model store: rolled back to " + v);
++            reloadModels();
++            return bundleAudit("rollback", from, activeModelVersion(), "ROLLED_BACK", null, null, start,
++                    ModelBundleOutcome.ROLLED_BACK);
++        } catch (IllegalStateException nothingEarlier) {
++            return bundleAudit("rollback", from, from, "REFUSED", "NOTHING_TO_ROLL_BACK", null, start,
++                    ModelBundleOutcome.NOTHING_TO_ROLL_BACK);
++        } catch (LivenessEngineException e) {
++            return bundleAudit("rollback", from, from, "FAILED", "BUNDLE_INVALID", e.code().name(), start,
++                    ModelBundleOutcome.INVALID);
++        } catch (IOException | RuntimeException e) {
++            Log.w(TAG, "model rollback failed: " + e.getClass().getSimpleName());
++            return bundleAudit("rollback", from, from, "FAILED", "STORAGE", null, start, ModelBundleOutcome.FAILED);
++        }
++    }
++
++    private ModelBundleResult bundleAudit(String trigger, String from, String to, String outcome, String reason,
++                                          String errorCode, long start, ModelBundleOutcome result) {
++        String user;
++        try {
++            user = modelBundleUser.id();
++        } catch (RuntimeException e) {
++            user = null;
++        }
++        audit.modelBundle(outcome, errorCode, reason, from, to, SystemClock.elapsedRealtime() - start, trigger, user);
++        return new ModelBundleResult(result, from, to);
++    }
++
+     /**
+      * Online model update ({@link ModelUpdates}): checks the configured index and installs a newer verified bundle
+      * into the store, then reloads as {@link #installModelBundle} does. Writes REG-EVT-019 with the outcome; the
+@@ -336,7 +482,7 @@ public final class LivenessServiceHolder {
+         }
+         long start = SystemClock.elapsedRealtime();
+         ModelUpdater.UpdateResult r = ModelUpdates.updater(diagnostics).check(index, modelStore(),
+-                new AssetBundleSource(context), TrustedKeys.builtIn());
++                bundledModels, trustedKeys);
+         onModelUpdate(r, SystemClock.elapsedRealtime() - start, trigger);
+         return r;
+     }
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessOfflineModelInstallTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessOfflineModelInstallTest.java
+new file mode 100644
+index 0000000..8724b38
+--- /dev/null
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessOfflineModelInstallTest.java
+@@ -0,0 +1,255 @@
++package io.mosip.registration.liveness.android;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertTrue;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.ArgumentMatchers.argThat;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.timeout;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
++
++import android.content.Context;
++import android.content.res.AssetManager;
++
++import org.junit.Before;
++import org.junit.Rule;
++import org.junit.Test;
++import org.junit.rules.TemporaryFolder;
++
++import java.io.ByteArrayOutputStream;
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.security.KeyPair;
++import java.security.KeyPairGenerator;
++import java.security.MessageDigest;
++import java.security.Signature;
++import java.security.spec.ECGenParameterSpec;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.zip.ZipEntry;
++import java.util.zip.ZipOutputStream;
++
++import io.mosip.registration.clientmanager.constant.AuditEvent;
++import io.mosip.registration.clientmanager.constant.Components;
++import io.mosip.registration.clientmanager.repository.GlobalParamRepository;
++import io.mosip.registration.clientmanager.spi.AuditManagerService;
++import io.mosip.registration.liveness.analyzer.integrity.DirectoryBundleSource;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
++import io.mosip.registration.liveness.android.LivenessServiceHolder.ModelBundleOutcome;
++import io.mosip.registration.liveness.android.LivenessServiceHolder.ModelBundleResult;
++
++/**
++ * F17: the production offline model install and rollback, end to end with the real models re-signed with a throwaway
++ * key (no development key in tests): install and reload, refusals that leave the store unchanged, rollback, the role
++ * gate and the config switch, and the REG-EVT-019 audit (codes, versions and the user id only).
++ */
++public class LivenessOfflineModelInstallTest {
++
++    private static final String KEY_ID = "android-test-key";
++    private static final String BUNDLED = "pad-2026.10.5";
++    private static final String NEWER = "pad-2026.10.6";
++    private static final File ASSET_MODELS = new File("src/main/assets/liveness/models");
++
++    @Rule
++    public TemporaryFolder files = new TemporaryFolder();
++
++    private final Map<String, String> synced = new HashMap<>();
++    private final GlobalParamRepository globalParams = mock(GlobalParamRepository.class);
++    private final AuditManagerService auditManager = mock(AuditManagerService.class);
++    private KeyPair kp;
++    private LivenessServiceHolder holder;
++    private boolean supervisor = true;
++
++    @Before
++    public void setUp() throws Exception {
++        Context context = mock(Context.class);
++        when(context.getApplicationContext()).thenReturn(context);
++        when(context.getAssets()).thenReturn(mock(AssetManager.class));
++        when(context.getFilesDir()).thenReturn(files.newFolder("files"));
++        when(globalParams.getCachedStringGlobalParam(anyString())).thenAnswer(i -> synced.get(i.<String>getArgument(0)));
++        KeyPairGenerator g = KeyPairGenerator.getInstance("EC");
++        g.initialize(new ECGenParameterSpec("secp256r1"));
++        kp = g.generateKeyPair();
++        File bundled = files.newFolder("bundled");
++        for (Map.Entry<String, byte[]> e : bundle(BUNDLED).entrySet()) {
++            Files.write(new File(bundled, e.getKey()).toPath(), e.getValue());
++        }
++        holder = new LivenessServiceHolder(context, globalParams, auditManager, false, new DirectoryBundleSource(bundled),
++                new TrustedKeys(Collections.singletonMap(KEY_ID, kp.getPublic())));
++        holder.setModelBundleUser(new LivenessServiceHolder.ModelBundleUser() {
++            @Override public boolean maySupervise() {
++                return supervisor;
++            }
++
++            @Override public String id() {
++                return "sup-17";
++            }
++        });
++    }
++
++    /** manifest.json, manifest.sig and the real models, as bundle {@code version} signed with the throwaway key. */
++    private Map<String, byte[]> bundle(String version) throws Exception {
++        StringBuilder list = new StringBuilder();
++        Map<String, byte[]> models = new LinkedHashMap<>();
++        for (ModelRole role : ModelRole.values()) {
++            byte[] b = Files.readAllBytes(new File(ASSET_MODELS, role.fileName()).toPath());
++            models.put(role.fileName(), b);
++            list.append(list.length() == 0 ? "" : ",\n").append("    {\"role\": \"").append(role.name())
++                    .append("\", \"name\": \"").append(role.fileName()).append("\", \"size\": ").append(b.length)
++                    .append(", \"sha256\": \"").append(hex(MessageDigest.getInstance("SHA-256").digest(b))).append("\"}");
++        }
++        byte[] manifest = ("{\n  \"schema\": 1,\n  \"bundleVersion\": \"" + version + "\",\n  \"keyId\": \"" + KEY_ID
++                + "\",\n  \"createdUtc\": \"2026-10-27T00:00:00Z\",\n  \"params\": { \"pitchBiasDeg\": -9.5 },\n"
++                + "  \"files\": [\n" + list + "\n  ]\n}\n").getBytes(StandardCharsets.UTF_8);
++        Signature s = Signature.getInstance("SHA256withECDSA");
++        s.initSign(kp.getPrivate());
++        s.update(manifest);
++        Map<String, byte[]> out = new LinkedHashMap<>();
++        out.put("manifest.json", manifest);
++        out.put("manifest.sig", (KEY_ID + ":" + hex(s.sign()) + "\n").getBytes(StandardCharsets.US_ASCII));
++        out.putAll(models);
++        return out;
++    }
++
++    /** A zip of these entries, in order (manifest.json first, as ModelBundleTool pack writes it). */
++    private File zip(String name, Map<String, byte[]> entries) throws IOException {
++        File f = files.newFile(name);
++        try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(f))) {
++            for (Map.Entry<String, byte[]> e : entries.entrySet()) {
++                z.putNextEntry(new ZipEntry(e.getKey()));
++                z.write(e.getValue());
++                z.closeEntry();
++            }
++        }
++        return f;
++    }
++
++    private static String hex(byte[] b) {
++        StringBuilder sb = new StringBuilder();
++        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
++        return sb.toString();
++    }
++
++    private void verifyAudit(String... parts) {
++        verifyAudits(1, parts);
++    }
++
++    /** Exactly {@code count} REG-EVT-019 records contain every part, and none of them a path. */
++    private void verifyAudits(int count, String... parts) {
++        verify(auditManager, timeout(5000).times(count)).audit(eq(AuditEvent.LIVENESS_MODEL_UPDATE), eq(Components.HOME),
++                argThat(text -> {
++                    for (String p : parts) if (!text.contains(p)) return false;
++                    return !text.contains(files.getRoot().getName()); // no path in the audit
++                }));
++    }
++
++    @Test
++    public void aSupervisorInstallsAValidZipAndTheModelsReload() throws Exception {
++        assertTrue(holder.modelBundleActionsAllowed());
++        assertEquals(BUNDLED, holder.activeModelVersion());
++        File zip = zip("newer.zip", bundle(NEWER));
++
++        ModelBundleResult r = holder.installOfflineBundle(zip);
++
++        assertEquals(ModelBundleOutcome.INSTALLED, r.outcome);
++        assertEquals(BUNDLED, r.fromVersion);
++        assertEquals(NEWER, r.toVersion);
++        assertEquals(NEWER, holder.activeModelVersion());
++        assertEquals("installed [" + BUNDLED + ", " + NEWER + "], current " + NEWER, holder.modelStoreStatus());
++        assertEquals(1, holder.analyzerSwaps());
++        verifyAudit("outcome=INSTALLED", "fromVersion=" + BUNDLED, "toVersion=" + NEWER, "trigger=offline",
++                "userId=sup-17");
++        assertTrue("the picked copy is the caller's to delete", zip.exists());
++    }
++
++    @Test
++    public void aTamperedByteIsRejectedAndTheStoreIsUnchanged() throws Exception {
++        Map<String, byte[]> entries = bundle(NEWER);
++        byte[] model = entries.get(ModelRole.DETECTOR.fileName()).clone();
++        model[model.length / 2] ^= 1;
++        entries.put(ModelRole.DETECTOR.fileName(), model);
++
++        ModelBundleResult r = holder.installOfflineBundle(zip("tampered.zip", entries));
++
++        assertEquals(ModelBundleOutcome.INVALID, r.outcome);
++        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
++        assertEquals(0, holder.analyzerSwaps());
++        verifyAudit("outcome=FAILED", "errorCode=MODEL_INTEGRITY_FAILED", "reason=BUNDLE_INVALID", "trigger=offline");
++    }
++
++    @Test
++    public void theSameOrAnOlderVersionIsRefused() throws Exception {
++        assertEquals(ModelBundleOutcome.NOT_NEWER, holder.installOfflineBundle(zip("same.zip", bundle(BUNDLED))).outcome);
++        assertEquals(ModelBundleOutcome.NOT_NEWER,
++                holder.installOfflineBundle(zip("older.zip", bundle("pad-2026.09.1"))).outcome);
++        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
++        verifyAudits(2, "outcome=UP_TO_DATE", "reason=NOT_NEWER", "trigger=offline");
++    }
++
++    @Test
++    public void aZipSlipEntryIsRejectedAndNothingIsWrittenOutside() throws Exception {
++        Map<String, byte[]> entries = new LinkedHashMap<>();
++        entries.put("manifest.json", bundle(NEWER).get("manifest.json"));
++        entries.put("../evil.onnx", new byte[] {6});
++
++        ModelBundleResult r = holder.installOfflineBundle(zip("slip.zip", entries));
++
++        assertEquals(ModelBundleOutcome.INVALID, r.outcome);
++        assertFalse(new File(files.getRoot(), "evil.onnx").exists());
++        assertFalse(new File(new File(files.getRoot(), "files"), "evil.onnx").exists());
++        verifyAudit("reason=ZIP_ENTRY_REFUSED", "errorCode=MODEL_INTEGRITY_FAILED");
++    }
++
++    @Test
++    public void aRollbackReturnsToTheBundledModels() throws Exception {
++        assertEquals(ModelBundleOutcome.NOTHING_TO_ROLL_BACK, holder.rollbackOfflineBundle().outcome);
++        assertEquals(ModelBundleOutcome.INSTALLED, holder.installOfflineBundle(zip("newer.zip", bundle(NEWER))).outcome);
++
++        ModelBundleResult r = holder.rollbackOfflineBundle();
++
++        assertEquals(ModelBundleOutcome.ROLLED_BACK, r.outcome);
++        assertEquals(NEWER, r.fromVersion);
++        assertEquals(BUNDLED, r.toVersion);
++        assertEquals(BUNDLED, holder.activeModelVersion());
++        assertEquals(2, holder.analyzerSwaps());
++        verifyAudit("outcome=ROLLED_BACK", "trigger=rollback", "fromVersion=" + NEWER, "toVersion=" + BUNDLED,
++                "userId=sup-17");
++        assertEquals(ModelBundleOutcome.NOTHING_TO_ROLL_BACK, holder.rollbackOfflineBundle().outcome);
++    }
++
++    @Test
++    public void onlySupervisorsAndAdminsMayActAndNobodyBeforeTheAppSaysWho() throws Exception {
++        supervisor = false;
++        assertFalse(holder.modelBundleActionsAllowed());
++        File zip = zip("newer.zip", bundle(NEWER));
++        assertEquals(ModelBundleOutcome.NOT_ALLOWED, holder.installOfflineBundle(zip).outcome);
++        assertEquals(ModelBundleOutcome.NOT_ALLOWED, holder.rollbackOfflineBundle().outcome);
++        verifyAudit("outcome=REFUSED", "reason=NOT_ALLOWED", "trigger=offline", "userId=sup-17");
++        verifyAudit("outcome=REFUSED", "reason=NOT_ALLOWED", "trigger=rollback", "userId=sup-17");
++        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
++
++        holder.setModelBundleUser(null); // the app has not said who is logged in: fail closed
++        assertFalse(holder.modelBundleActionsAllowed());
++        assertEquals(ModelBundleOutcome.NOT_ALLOWED, holder.installOfflineBundle(zip).outcome);
++    }
++
++    @Test
++    public void theConfigSwitchHidesAndRefusesIt() throws Exception {
++        assertTrue(holder.offlineInstallEnabled()); // on by default
++        synced.put(LivenessServiceHolder.OFFLINE_INSTALL_KEY, "false");
++        assertFalse(holder.offlineInstallEnabled());
++        assertFalse(holder.modelBundleActionsAllowed());
++        assertEquals(ModelBundleOutcome.NOT_ALLOWED,
++                holder.installOfflineBundle(zip("newer.zip", bundle(NEWER))).outcome);
++        assertEquals("installed [], current none (bundled)", holder.modelStoreStatus());
++    }
++}
+diff --git a/assets/l10n/app_ar.arb b/assets/l10n/app_ar.arb
+index 614fc30..a0f28a8 100644
+--- a/assets/l10n/app_ar.arb
++++ b/assets/l10n/app_ar.arb
+@@ -413,6 +413,21 @@
+   "liveness_button_retry": "إعادة المحاولة",
+   "liveness_button_cancel": "إلغاء",
+   "liveness_button_close": "إغلاق",
+-  "liveness_button_open_settings": "فتح الإعدادات"
++  "liveness_button_open_settings": "فتح الإعدادات",
++  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "liveness_model_title": "نماذج حيوية الوجه",
++  "liveness_model_current": "النماذج المستخدمة: {version}",
++  "liveness_model_install": "تثبيت حزمة النماذج",
++  "liveness_model_rollback": "استعادة حزمة النماذج السابقة",
++  "liveness_model_select_file": "اختر حزمة نماذج (.zip)",
++  "liveness_model_working": "جارٍ معالجة حزمة النماذج… يرجى الانتظار.",
++  "liveness_model_installed": "تم تثبيت حزمة النماذج {version}. تستخدمها عمليات التحقق الجديدة من الحيوية.",
++  "liveness_model_rolled_back": "تمت استعادة النماذج إلى الإصدار {version}. تستخدمها عمليات التحقق الجديدة من الحيوية.",
++  "liveness_model_not_newer": "حزمة النماذج هذه ليست أحدث من النماذج المستخدمة. لم يتم تغيير أي شيء.",
++  "liveness_model_invalid": "هذا الملف ليس حزمة نماذج موقّعة صالحة. لم يتم تغيير أي شيء.",
++  "liveness_model_nothing_to_roll_back": "لا توجد حزمة نماذج سابقة للاستعادة.",
++  "liveness_model_failed": "تعذّر تثبيت حزمة النماذج. لم يتم تغيير أي شيء. يرجى المحاولة مرة أخرى.",
++  "liveness_model_rollback_failed": "تعذّرت استعادة النماذج. لم يتم تغيير أي شيء.",
++  "liveness_model_not_allowed": "يمكن للمشرف أو المسؤول فقط تغيير نماذج حيوية الوجه.",
++  "liveness_model_confirm_rollback": "هل تريد استعادة نماذج حيوية الوجه السابقة؟ ستستخدمها عمليات التحقق الجديدة من الحيوية."
+ }
+-
+diff --git a/assets/l10n/app_en.arb b/assets/l10n/app_en.arb
+index 90add56..6986e43 100644
+--- a/assets/l10n/app_en.arb
++++ b/assets/l10n/app_en.arb
+@@ -415,5 +415,23 @@
+   "liveness_button_retry": "Retry",
+   "liveness_button_cancel": "Cancel",
+   "liveness_button_close": "Close",
+-  "liveness_button_open_settings": "Open settings"
++  "liveness_button_open_settings": "Open settings",
++  "liveness_model_title": "Face liveness models",
++  "liveness_model_current": "Models in use: {version}",
++  "@liveness_model_current": {"placeholders": {"version": {"type": "String"}}},
++  "liveness_model_install": "Install model bundle",
++  "liveness_model_rollback": "Roll back model bundle",
++  "liveness_model_select_file": "Select a model bundle (.zip)",
++  "liveness_model_working": "Working on the model bundle… please wait.",
++  "liveness_model_installed": "Model bundle {version} installed. New liveness checks use it.",
++  "@liveness_model_installed": {"placeholders": {"version": {"type": "String"}}},
++  "liveness_model_rolled_back": "Models rolled back to {version}. New liveness checks use them.",
++  "@liveness_model_rolled_back": {"placeholders": {"version": {"type": "String"}}},
++  "liveness_model_not_newer": "This model bundle is not newer than the models in use. Nothing was changed.",
++  "liveness_model_invalid": "This file is not a valid signed model bundle. Nothing was changed.",
++  "liveness_model_nothing_to_roll_back": "There is no earlier model bundle to roll back to.",
++  "liveness_model_failed": "The model bundle could not be installed. Nothing was changed. Please try again.",
++  "liveness_model_rollback_failed": "The models could not be rolled back. Nothing was changed.",
++  "liveness_model_not_allowed": "Only a supervisor or an administrator can change the face liveness models.",
++  "liveness_model_confirm_rollback": "Roll back to the previous face liveness models? New liveness checks will use them."
+ }
+diff --git a/assets/l10n/app_fr.arb b/assets/l10n/app_fr.arb
+index 0f2398e..3bcb5b0 100644
+--- a/assets/l10n/app_fr.arb
++++ b/assets/l10n/app_fr.arb
+@@ -413,6 +413,21 @@
+   "liveness_button_retry": "Réessayer",
+   "liveness_button_cancel": "Annuler",
+   "liveness_button_close": "Fermer",
+-  "liveness_button_open_settings": "Ouvrir les paramètres"
++  "liveness_button_open_settings": "Ouvrir les paramètres",
++  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "liveness_model_title": "Modèles de vivacité du visage",
++  "liveness_model_current": "Modèles en service : {version}",
++  "liveness_model_install": "Installer un lot de modèles",
++  "liveness_model_rollback": "Restaurer le lot de modèles précédent",
++  "liveness_model_select_file": "Sélectionner un lot de modèles (.zip)",
++  "liveness_model_working": "Traitement du lot de modèles… veuillez patienter.",
++  "liveness_model_installed": "Lot de modèles {version} installé. Les nouvelles vérifications de vivacité l'utilisent.",
++  "liveness_model_rolled_back": "Modèles restaurés à la version {version}. Les nouvelles vérifications de vivacité les utilisent.",
++  "liveness_model_not_newer": "Ce lot de modèles n'est pas plus récent que les modèles en service. Rien n'a été modifié.",
++  "liveness_model_invalid": "Ce fichier n'est pas un lot de modèles signé valide. Rien n'a été modifié.",
++  "liveness_model_nothing_to_roll_back": "Aucun lot de modèles antérieur n'est disponible pour la restauration.",
++  "liveness_model_failed": "Le lot de modèles n'a pas pu être installé. Rien n'a été modifié. Veuillez réessayer.",
++  "liveness_model_rollback_failed": "Les modèles n'ont pas pu être restaurés. Rien n'a été modifié.",
++  "liveness_model_not_allowed": "Seul un superviseur ou un administrateur peut modifier les modèles de vivacité du visage.",
++  "liveness_model_confirm_rollback": "Restaurer les modèles de vivacité du visage précédents ? Les nouvelles vérifications de vivacité les utiliseront."
+ }
+-
+diff --git a/assets/l10n/app_hi.arb b/assets/l10n/app_hi.arb
+index 8702af9..8db06d4 100644
+--- a/assets/l10n/app_hi.arb
++++ b/assets/l10n/app_hi.arb
+@@ -413,5 +413,21 @@
+   "liveness_button_retry": "पुनः प्रयास करें",
+   "liveness_button_cancel": "रद्द करें",
+   "liveness_button_close": "बंद करें",
+-  "liveness_button_open_settings": "सेटिंग्स खोलें"
++  "liveness_button_open_settings": "सेटिंग्स खोलें",
++  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "liveness_model_title": "चेहरे की जीवंतता के मॉडल",
++  "liveness_model_current": "उपयोग में मॉडल: {version}",
++  "liveness_model_install": "मॉडल बंडल इंस्टॉल करें",
++  "liveness_model_rollback": "पिछले मॉडल बंडल पर वापस जाएँ",
++  "liveness_model_select_file": "मॉडल बंडल (.zip) चुनें",
++  "liveness_model_working": "मॉडल बंडल पर काम हो रहा है… कृपया प्रतीक्षा करें।",
++  "liveness_model_installed": "मॉडल बंडल {version} इंस्टॉल हो गया। नई जीवंतता जाँचें इसका उपयोग करती हैं।",
++  "liveness_model_rolled_back": "मॉडल {version} पर वापस कर दिए गए। नई जीवंतता जाँचें इनका उपयोग करती हैं।",
++  "liveness_model_not_newer": "यह मॉडल बंडल उपयोग में मौजूद मॉडलों से नया नहीं है। कुछ भी नहीं बदला गया।",
++  "liveness_model_invalid": "यह फ़ाइल एक मान्य हस्ताक्षरित मॉडल बंडल नहीं है। कुछ भी नहीं बदला गया।",
++  "liveness_model_nothing_to_roll_back": "वापस जाने के लिए कोई पिछला मॉडल बंडल नहीं है।",
++  "liveness_model_failed": "मॉडल बंडल इंस्टॉल नहीं हो सका। कुछ भी नहीं बदला गया। कृपया पुनः प्रयास करें।",
++  "liveness_model_rollback_failed": "मॉडलों को वापस नहीं किया जा सका। कुछ भी नहीं बदला गया।",
++  "liveness_model_not_allowed": "केवल पर्यवेक्षक या व्यवस्थापक ही चेहरे की जीवंतता के मॉडल बदल सकते हैं।",
++  "liveness_model_confirm_rollback": "चेहरे की जीवंतता के पिछले मॉडलों पर वापस जाएँ? नई जीवंतता जाँचें इनका उपयोग करेंगी।"
+ }
+diff --git a/assets/l10n/app_kn.arb b/assets/l10n/app_kn.arb
+index ce8a2c1..fa41314 100644
+--- a/assets/l10n/app_kn.arb
++++ b/assets/l10n/app_kn.arb
+@@ -413,5 +413,21 @@
+   "liveness_button_retry": "ಮರುಪ್ರಯತ್ನಿಸಿ",
+   "liveness_button_cancel": "ರದ್ದುಮಾಡಿ",
+   "liveness_button_close": "ಮುಚ್ಚಿ",
+-  "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ"
++  "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ",
++  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "liveness_model_title": "ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳು",
++  "liveness_model_current": "ಬಳಕೆಯಲ್ಲಿರುವ ಮಾದರಿಗಳು: {version}",
++  "liveness_model_install": "ಮಾದರಿ ಬಂಡಲ್ ಅನ್ನು ಸ್ಥಾಪಿಸಿ",
++  "liveness_model_rollback": "ಹಿಂದಿನ ಮಾದರಿ ಬಂಡಲ್‌ಗೆ ಹಿಂತಿರುಗಿ",
++  "liveness_model_select_file": "ಮಾದರಿ ಬಂಡಲ್ (.zip) ಆಯ್ಕೆಮಾಡಿ",
++  "liveness_model_working": "ಮಾದರಿ ಬಂಡಲ್ ಪ್ರಕ್ರಿಯೆಗೊಳ್ಳುತ್ತಿದೆ… ದಯವಿಟ್ಟು ನಿರೀಕ್ಷಿಸಿ.",
++  "liveness_model_installed": "ಮಾದರಿ ಬಂಡಲ್ {version} ಸ್ಥಾಪಿಸಲಾಗಿದೆ. ಹೊಸ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಳು ಇದನ್ನು ಬಳಸುತ್ತವೆ.",
++  "liveness_model_rolled_back": "ಮಾದರಿಗಳನ್ನು {version} ಗೆ ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ. ಹೊಸ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಳು ಇವುಗಳನ್ನು ಬಳಸುತ್ತವೆ.",
++  "liveness_model_not_newer": "ಈ ಮಾದರಿ ಬಂಡಲ್ ಬಳಕೆಯಲ್ಲಿರುವ ಮಾದರಿಗಳಿಗಿಂತ ಹೊಸದಲ್ಲ. ಏನನ್ನೂ ಬದಲಾಯಿಸಲಾಗಿಲ್ಲ.",
++  "liveness_model_invalid": "ಈ ಫೈಲ್ ಮಾನ್ಯವಾದ ಸಹಿ ಮಾಡಿದ ಮಾದರಿ ಬಂಡಲ್ ಅಲ್ಲ. ಏನನ್ನೂ ಬದಲಾಯಿಸಲಾಗಿಲ್ಲ.",
++  "liveness_model_nothing_to_roll_back": "ಹಿಂತಿರುಗಲು ಯಾವುದೇ ಹಿಂದಿನ ಮಾದರಿ ಬಂಡಲ್ ಇಲ್ಲ.",
++  "liveness_model_failed": "ಮಾದರಿ ಬಂಡಲ್ ಅನ್ನು ಸ್ಥಾಪಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಏನನ್ನೂ ಬದಲಾಯಿಸಲಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
++  "liveness_model_rollback_failed": "ಮಾದರಿಗಳನ್ನು ಹಿಂತಿರುಗಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಏನನ್ನೂ ಬದಲಾಯಿಸಲಾಗಿಲ್ಲ.",
++  "liveness_model_not_allowed": "ಮೇಲ್ವಿಚಾರಕರು ಅಥವಾ ನಿರ್ವಾಹಕರು ಮಾತ್ರ ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳನ್ನು ಬದಲಾಯಿಸಬಹುದು.",
++  "liveness_model_confirm_rollback": "ಹಿಂದಿನ ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳಿಗೆ ಹಿಂತಿರುಗಬೇಕೇ? ಹೊಸ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಳು ಅವುಗಳನ್ನು ಬಳಸುತ್ತವೆ."
+ }
+diff --git a/assets/l10n/app_ta.arb b/assets/l10n/app_ta.arb
+index f909d13..7489b3b 100644
+--- a/assets/l10n/app_ta.arb
++++ b/assets/l10n/app_ta.arb
+@@ -422,5 +422,21 @@
+   "liveness_button_retry": "மீண்டும் முயற்சிக்கவும்",
+   "liveness_button_cancel": "ரத்துசெய்",
+   "liveness_button_close": "மூடு",
+-  "liveness_button_open_settings": "அமைப்புகளைத் திற"
++  "liveness_button_open_settings": "அமைப்புகளைத் திற",
++  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "liveness_model_title": "முக உயிர்ப்பு மாதிரிகள்",
++  "liveness_model_current": "பயன்பாட்டில் உள்ள மாதிரிகள்: {version}",
++  "liveness_model_install": "மாதிரித் தொகுப்பை நிறுவு",
++  "liveness_model_rollback": "முந்தைய மாதிரித் தொகுப்புக்குத் திரும்பு",
++  "liveness_model_select_file": "மாதிரித் தொகுப்பைத் (.zip) தேர்ந்தெடுக்கவும்",
++  "liveness_model_working": "மாதிரித் தொகுப்பு செயலாக்கப்படுகிறது… காத்திருக்கவும்.",
++  "liveness_model_installed": "மாதிரித் தொகுப்பு {version} நிறுவப்பட்டது. புதிய உயிர்ப்புச் சரிபார்ப்புகள் இதைப் பயன்படுத்துகின்றன.",
++  "liveness_model_rolled_back": "மாதிரிகள் {version} பதிப்புக்குத் திருப்பப்பட்டன. புதிய உயிர்ப்புச் சரிபார்ப்புகள் இவற்றைப் பயன்படுத்துகின்றன.",
++  "liveness_model_not_newer": "இந்த மாதிரித் தொகுப்பு பயன்பாட்டில் உள்ள மாதிரிகளை விடப் புதியதல்ல. எதுவும் மாற்றப்படவில்லை.",
++  "liveness_model_invalid": "இந்தக் கோப்பு செல்லுபடியான கையொப்பமிடப்பட்ட மாதிரித் தொகுப்பு அல்ல. எதுவும் மாற்றப்படவில்லை.",
++  "liveness_model_nothing_to_roll_back": "திரும்புவதற்கு முந்தைய மாதிரித் தொகுப்பு எதுவும் இல்லை.",
++  "liveness_model_failed": "மாதிரித் தொகுப்பை நிறுவ முடியவில்லை. எதுவும் மாற்றப்படவில்லை. மீண்டும் முயற்சிக்கவும்.",
++  "liveness_model_rollback_failed": "மாதிரிகளைத் திருப்ப முடியவில்லை. எதுவும் மாற்றப்படவில்லை.",
++  "liveness_model_not_allowed": "மேற்பார்வையாளர் அல்லது நிர்வாகி மட்டுமே முக உயிர்ப்பு மாதிரிகளை மாற்ற முடியும்.",
++  "liveness_model_confirm_rollback": "முந்தைய முக உயிர்ப்பு மாதிரிகளுக்குத் திரும்பவா? புதிய உயிர்ப்புச் சரிபார்ப்புகள் அவற்றைப் பயன்படுத்தும்."
+ }
+diff --git a/lib/platform_android/model_bundle_service_impl.dart b/lib/platform_android/model_bundle_service_impl.dart
+new file mode 100644
+index 0000000..52d8f14
+--- /dev/null
++++ b/lib/platform_android/model_bundle_service_impl.dart
+@@ -0,0 +1,57 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'package:flutter/services.dart';
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/platform_spi/model_bundle_service.dart';
++
++class ModelBundleServiceImpl implements ModelBundleService {
++  ModelBundleServiceImpl._();
++
++  static final ModelBundleServiceImpl instance = ModelBundleServiceImpl._();
++
++  final LivenessApi _api = LivenessApi();
++
++  @override
++  Future<bool> actionsAllowed() async {
++    try {
++      return await _api.modelBundleActionsAllowed();
++    } on PlatformException {
++      return false; // fail closed: no entry
++    }
++  }
++
++  @override
++  Future<String> activeVersion() async {
++    try {
++      return await _api.activeModelVersion();
++    } on PlatformException {
++      return '';
++    }
++  }
++
++  @override
++  Future<ModelBundleResult> installFromFile() =>
++      _run(_api.installModelBundleFromFile);
++
++  @override
++  Future<ModelBundleResult> rollback() =>
++      _run(_api.rollbackModelBundleFromSettings);
++
++  Future<ModelBundleResult> _run(
++      Future<ModelBundleActionResult> Function() call) async {
++    try {
++      final r = await call();
++      return ModelBundleResult(r.outcome,
++          fromVersion: r.fromVersion, toVersion: r.toVersion);
++    } on PlatformException {
++      return const ModelBundleResult('FAILED');
++    }
++  }
++}
++
++ModelBundleService getModelBundleServiceImpl() => ModelBundleServiceImpl.instance;
+diff --git a/lib/platform_spi/model_bundle_service.dart b/lib/platform_spi/model_bundle_service.dart
+new file mode 100644
+index 0000000..f41772b
+--- /dev/null
++++ b/lib/platform_spi/model_bundle_service.dart
+@@ -0,0 +1,42 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'package:registration_client/platform_android/model_bundle_service_impl.dart';
++
++/// F17: the result of an offline model install or rollback. [outcome] is one
++/// of INSTALLED, ROLLED_BACK, NOT_NEWER, INVALID, NOTHING_TO_ROLL_BACK,
++/// NOT_ALLOWED, FAILED or CANCELLED (the picker was closed). The UI shows a
++/// generic text for it, never a path or an exception message.
++class ModelBundleResult {
++  const ModelBundleResult(this.outcome, {this.fromVersion, this.toVersion});
++
++  final String outcome;
++  final String? fromVersion;
++  final String? toVersion;
++
++  bool get succeeded => outcome == 'INSTALLED' || outcome == 'ROLLED_BACK';
++}
++
++/// F17: offline face liveness model install and rollback, for supervisors and
++/// admins. The native side checks the role and the config key again before it
++/// acts.
++abstract class ModelBundleService {
++  /// True for a logged-in supervisor or admin while
++  /// mosip.registration.liveness.model.offlineInstall.enabled is not false.
++  Future<bool> actionsAllowed();
++
++  /// The model bundle version new sessions use, or '' when unknown.
++  Future<String> activeVersion();
++
++  /// Opens the system file picker for a signed bundle zip, then installs it.
++  Future<ModelBundleResult> installFromFile();
++
++  /// The previous model bundle becomes current again.
++  Future<ModelBundleResult> rollback();
++
++  factory ModelBundleService() => getModelBundleServiceImpl();
++}
+diff --git a/lib/ui/liveness/model_bundle_page.dart b/lib/ui/liveness/model_bundle_page.dart
+new file mode 100644
+index 0000000..4085fad
+--- /dev/null
++++ b/lib/ui/liveness/model_bundle_page.dart
+@@ -0,0 +1,171 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:registration_client/platform_spi/model_bundle_service.dart';
++
++/// F17: the operational-task entry for the face liveness models, or null when
++/// the user may not change them (not a supervisor or admin, or the feature is
++/// off). The home page asks [ModelBundleService.actionsAllowed] once.
++Map<String, dynamic>? modelBundleTask(AppLocalizations l, bool allowed,
++    {ModelBundleService? service}) {
++  if (!allowed) return null;
++  return {
++    "icon": const Icon(Icons.system_update_alt, size: 36),
++    "title": l.liveness_model_title,
++    "onTap": (BuildContext context) {
++      Navigator.push(
++          context,
++          MaterialPageRoute(
++              builder: (context) => ModelBundlePage(service: service)));
++    },
++    "subtitle": l.liveness_model_install,
++  };
++}
++
++/// The generic text for a result, or null for a closed picker. A failed
++/// rollback has its own text: no file was involved.
++String? modelBundleText(AppLocalizations l, ModelBundleResult r,
++    {required bool rollback}) {
++  switch (r.outcome) {
++    case 'INSTALLED':
++      return l.liveness_model_installed(r.toVersion ?? '');
++    case 'ROLLED_BACK':
++      return l.liveness_model_rolled_back(r.toVersion ?? '');
++    case 'NOT_NEWER':
++      return l.liveness_model_not_newer;
++    case 'NOTHING_TO_ROLL_BACK':
++      return l.liveness_model_nothing_to_roll_back;
++    case 'NOT_ALLOWED':
++      return l.liveness_model_not_allowed;
++    case 'CANCELLED':
++      return null;
++    case 'INVALID':
++      return rollback ? l.liveness_model_rollback_failed : l.liveness_model_invalid;
++    default:
++      return rollback ? l.liveness_model_rollback_failed : l.liveness_model_failed;
++  }
++}
++
++/// F17: the version in use, install a signed bundle zip from removable media
++/// (the system file picker), and roll back after a confirmation.
++class ModelBundlePage extends StatefulWidget {
++  const ModelBundlePage({super.key, this.service});
++
++  final ModelBundleService? service;
++
++  @override
++  State<ModelBundlePage> createState() => _ModelBundlePageState();
++}
++
++class _ModelBundlePageState extends State<ModelBundlePage> {
++  late final ModelBundleService _service =
++      widget.service ?? ModelBundleService();
++  String _version = '';
++  bool _busy = false;
++  String? _message;
++  bool _succeeded = false;
++
++  @override
++  void initState() {
++    super.initState();
++    _refresh();
++  }
++
++  Future<void> _refresh() async {
++    final v = await _service.activeVersion();
++    if (mounted) setState(() => _version = v);
++  }
++
++  Future<void> _rollback() async {
++    final l = AppLocalizations.of(context)!;
++    final confirmed = await showDialog<bool>(
++      context: context,
++      builder: (context) => AlertDialog(
++        content: Text(l.liveness_model_confirm_rollback),
++        actions: [
++          TextButton(
++              key: const Key('modelBundleRollbackCancel'),
++              onPressed: () => Navigator.pop(context, false),
++              child: Text(l.liveness_button_cancel)),
++          TextButton(
++              key: const Key('modelBundleRollbackConfirm'),
++              onPressed: () => Navigator.pop(context, true),
++              child: Text(l.liveness_model_rollback)),
++        ],
++      ),
++    );
++    if (confirmed == true) await _act(_service.rollback, rollback: true);
++  }
++
++  Future<void> _act(Future<ModelBundleResult> Function() action,
++      {required bool rollback}) async {
++    setState(() {
++      _busy = true;
++      _message = null;
++    });
++    final r = await action();
++    if (!mounted) return;
++    final l = AppLocalizations.of(context)!;
++    setState(() {
++      _busy = false;
++      _message = modelBundleText(l, r, rollback: rollback);
++      _succeeded = r.succeeded;
++    });
++    await _refresh();
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final l = AppLocalizations.of(context)!;
++    return Scaffold(
++      appBar: AppBar(title: Text(l.liveness_model_title)),
++      body: Padding(
++        padding: const EdgeInsets.all(16),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.stretch,
++          children: [
++            Text(l.liveness_model_current(_version),
++                key: const Key('modelBundleVersion')),
++            const SizedBox(height: 16),
++            ElevatedButton(
++              key: const Key('installModelBundle'),
++              onPressed: _busy
++                  ? null
++                  : () => _act(_service.installFromFile, rollback: false),
++              child: Text(l.liveness_model_install),
++            ),
++            const SizedBox(height: 8),
++            OutlinedButton(
++              key: const Key('rollbackModelBundle'),
++              onPressed: _busy ? null : _rollback,
++              child: Text(l.liveness_model_rollback),
++            ),
++            const SizedBox(height: 16),
++            if (_busy)
++              Row(children: [
++                const SizedBox(
++                    width: 20,
++                    height: 20,
++                    child: CircularProgressIndicator(strokeWidth: 2)),
++                const SizedBox(width: 12),
++                Expanded(child: Text(l.liveness_model_working)),
++              ]),
++            if (_message != null)
++              Text(_message!,
++                  key: const Key('modelBundleMessage'),
++                  style: TextStyle(
++                      color: _succeeded
++                          ? Colors.green.shade800
++                          : Theme.of(context).colorScheme.error)),
++          ],
++        ),
++      ),
++    );
++  }
++}
+diff --git a/lib/ui/onboard/home_page.dart b/lib/ui/onboard/home_page.dart
+index ec27eb7..fce0518 100644
+--- a/lib/ui/onboard/home_page.dart
++++ b/lib/ui/onboard/home_page.dart
+@@ -24,6 +24,8 @@ import 'package:registration_client/provider/global_provider.dart';
+ import 'package:registration_client/provider/sync_provider.dart';
+ import 'package:registration_client/ui/approve_packet/approve_packet_ui.dart';
+ import 'package:registration_client/ui/export_packet/export_packet_ui.dart';
++import 'package:registration_client/platform_spi/model_bundle_service.dart';
++import 'package:registration_client/ui/liveness/model_bundle_page.dart';
+ import 'package:registration_client/ui/onboard/portrait/mobile_home_page.dart';
+ import 'package:registration_client/ui/onboard/widgets/operator_onboarding_biometrics_capture_control.dart';
+ // import 'package:registration_client/ui/onboard/widgets/home_page_card.dart';
+@@ -53,6 +55,8 @@ class _HomePageState extends State<HomePage> {
+   late ConnectivityProvider connectivityProvider;
+   late AppLocalizations appLocalizations = AppLocalizations.of(context)!;
+   String lastOperatorUpdateBiometricTime = "";
++  // F17: the face liveness models entry, for supervisors and admins (asked once).
++  bool modelBundleAllowed = false;
+ 
+   @override
+   void initState() {
+@@ -63,6 +67,9 @@ class _HomePageState extends State<HomePage> {
+     connectivityProvider =
+         Provider.of<ConnectivityProvider>(context, listen: false);
+     _fetchProcessSpec();
++    ModelBundleService().actionsAllowed().then((allowed) {
++      if (mounted && allowed) setState(() => modelBundleAllowed = true);
++    });
+     WidgetsBinding.instance.addPostFrameCallback((_) async {
+       // Check GPS status to update the indicator in profile
+       await connectivityProvider.checkGPSStatus();
+@@ -306,6 +313,8 @@ class _HomePageState extends State<HomePage> {
+               "${context.watch<ApprovePacketsProvider>().totalCreatedPackets} application(s)"
+         },
+     ];
++    final modelBundle = modelBundleTask(appLocalizations, modelBundleAllowed);
++    if (modelBundle != null) operationalTasks.add(modelBundle);
+ 
+     return MobileHomePage(
+       operationalTasks: operationalTasks,
+diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
+index d8f6ea6..afa819b 100644
+--- a/pigeon/liveness.dart
++++ b/pigeon/liveness.dart
+@@ -32,6 +32,22 @@ class BindingInfo {
+   });
+ }
+ 
++/// F17: what an offline model install or a rollback did. outcome: INSTALLED,
++/// ROLLED_BACK, NOT_NEWER, INVALID (MODEL_INTEGRITY_FAILED),
++/// NOTHING_TO_ROLL_BACK, NOT_ALLOWED, FAILED, or CANCELLED (the file picker was
++/// closed). The versions in use before and after, when known.
++class ModelBundleActionResult {
++  final String outcome;
++  final String? fromVersion;
++  final String? toVersion;
++
++  ModelBundleActionResult({
++    required this.outcome,
++    this.fromVersion,
++    this.toVersion,
++  });
++}
++
+ /// Face liveness. Workflows: RESIDENT, OPERATOR, SUPERVISOR. Cameras: front, back.
+ /// Session events and the result arrive on the event channel
+ /// io.mosip.registration_client/liveness/events.
+@@ -94,6 +110,27 @@ abstract class LivenessApi {
+   /// The model store's installed versions and its current one.
+   String modelStoreStatus();
+ 
++  /// F17: true when the offline model install is enabled
++  /// (mosip.registration.liveness.model.offlineInstall.enabled, default true)
++  /// and the logged-in user is a supervisor or an admin. The page and its entry
++  /// are shown only then; the actions check it again.
++  bool modelBundleActionsAllowed();
++
++  /// F17: the model bundle version new sessions use, or "" when unknown.
++  String activeModelVersion();
++
++  /// F17, production builds too: the system file picker for a signed bundle
++  /// zip (Storage Access Framework); the zip is copied to the cache, installed
++  /// like an online update (signature, anti-rollback) and the copy deleted.
++  /// Audited as REG-EVT-019 with trigger=offline.
++  @async
++  ModelBundleActionResult installModelBundleFromFile();
++
++  /// F17, production builds too: the previous model bundle becomes current
++  /// again (supervisors and admins). Audited with trigger=rollback.
++  @async
++  ModelBundleActionResult rollbackModelBundleFromSettings();
++
+   /// Diagnostics builds only: checks for an online model update now. A
+   /// non-empty [indexUrl] first sets the update URL and enabled overrides (in
+   /// these builds plain HTTP to 127.0.0.1 is allowed). Returns the outcome:
+diff --git a/test/liveness/liveness_controller_test.dart b/test/liveness/liveness_controller_test.dart
+index b54be96..95613bc 100644
+--- a/test/liveness/liveness_controller_test.dart
++++ b/test/liveness/liveness_controller_test.dart
+@@ -492,7 +492,7 @@ void main() {
+   test('every liveness key in app_en.arb resolves through livenessText', () async {
+     final l = await AppLocalizations.delegate.load(const Locale('en'));
+     final arb = jsonDecode(File('assets/l10n/app_en.arb').readAsStringSync()) as Map<String, dynamic>;
+-    final keys = arb.keys.where((k) => k.startsWith('liveness_')).toList();
++    final keys = arb.keys.where((k) => k.startsWith('liveness_') && !k.startsWith('liveness_model_')).toList(); // F17 model keys: model_bundle_test
+     expect(keys.length, 44);
+     for (final k in keys) {
+       final parts = k.split('_');
+diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
+index 3dc21e8..7875325 100644
+--- a/test/liveness/liveness_l10n_test.dart
++++ b/test/liveness/liveness_l10n_test.dart
+@@ -16,7 +16,7 @@ void main() {
+       jsonDecode(File('assets/l10n/app_$lang.arb').readAsStringSync()) as Map<String, dynamic>;
+ 
+   final en = arb('en');
+-  final keys = en.keys.where((k) => k.startsWith('liveness_')).toList();
++  final keys = en.keys.where((k) => k.startsWith('liveness_') && !k.startsWith('liveness_model_')).toList(); // F17 model keys: model_bundle_test
+ 
+   List<String> placeholders(String text) =>
+       placeholder.allMatches(text).map((m) => m.group(1)!).toList()..sort();
+@@ -35,7 +35,7 @@ void main() {
+         expect(value.trim(), isNotEmpty, reason: '$lang $k');
+         expect(placeholders(value), placeholders(en[k] as String), reason: '$lang $k');
+       }
+-      expect(a.keys.where((k) => k.startsWith('liveness_')), hasLength(44), reason: 'no extra keys');
++      expect(a.keys.where((k) => k.startsWith('liveness_') && !k.startsWith('liveness_model_')), hasLength(44), reason: 'no extra keys');
+     });
+ 
+     test('$lang: marked as machine-translated', () {
+diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
+new file mode 100644
+index 0000000..c7fcc59
+--- /dev/null
++++ b/test/liveness/model_bundle_test.dart
+@@ -0,0 +1,178 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/platform_spi/model_bundle_service.dart';
++import 'package:registration_client/ui/liveness/model_bundle_page.dart';
++
++/// F17: a scripted model bundle service.
++class FakeModelBundleService implements ModelBundleService {
++  bool allowed = true;
++  String version = 'pad-2026.10.5';
++  ModelBundleResult installResult =
++      const ModelBundleResult('INSTALLED', fromVersion: 'pad-2026.10.5', toVersion: 'pad-2026.10.6');
++  ModelBundleResult rollbackResult =
++      const ModelBundleResult('ROLLED_BACK', fromVersion: 'pad-2026.10.6', toVersion: 'pad-2026.10.5');
++  int installs = 0, rollbacks = 0;
++
++  @override
++  Future<bool> actionsAllowed() async => allowed;
++
++  @override
++  Future<String> activeVersion() async => version;
++
++  @override
++  Future<ModelBundleResult> installFromFile() async {
++    installs++;
++    if (installResult.succeeded) version = installResult.toVersion!;
++    return installResult;
++  }
++
++  @override
++  Future<ModelBundleResult> rollback() async {
++    rollbacks++;
++    if (rollbackResult.succeeded) version = rollbackResult.toVersion!;
++    return rollbackResult;
++  }
++}
++
++Widget app(Widget home, {Locale locale = const Locale('en')}) => MaterialApp(
++      locale: locale,
++      localizationsDelegates: AppLocalizations.localizationsDelegates,
++      supportedLocales: AppLocalizations.supportedLocales,
++      home: home,
++    );
++
++/// Renders the home page's operational-task entry the way the task list does:
++/// its title when there is one.
++class TaskProbe extends StatelessWidget {
++  const TaskProbe({super.key, required this.allowed});
++
++  final bool allowed;
++
++  @override
++  Widget build(BuildContext context) {
++    final task = modelBundleTask(AppLocalizations.of(context)!, allowed);
++    return Scaffold(
++        body: task == null
++            ? const SizedBox.shrink()
++            : InkWell(
++                onTap: () => task['onTap'](context),
++                child: Column(children: [
++                  task['icon'] as Widget,
++                  Text(task['title'] as String),
++                ])));
++  }
++}
++
++void main() {
++  testWidgets('the entry is shown to supervisors and admins and hidden otherwise', (tester) async {
++    await tester.pumpWidget(app(const TaskProbe(allowed: true)));
++    expect(find.text('Face liveness models'), findsOneWidget);
++
++    await tester.pumpWidget(app(const TaskProbe(allowed: false)));
++    await tester.pumpAndSettle();
++    expect(find.text('Face liveness models'), findsNothing);
++  });
++
++  testWidgets('installing shows the new version and a generic text', (tester) async {
++    final service = FakeModelBundleService();
++    await tester.pumpWidget(app(ModelBundlePage(service: service)));
++    await tester.pumpAndSettle();
++    expect(find.text('Models in use: pad-2026.10.5'), findsOneWidget);
++
++    await tester.tap(find.byKey(const Key('installModelBundle')));
++    await tester.pumpAndSettle();
++
++    expect(service.installs, 1);
++    expect(find.text('Model bundle pad-2026.10.6 installed. New liveness checks use it.'), findsOneWidget);
++    expect(find.text('Models in use: pad-2026.10.6'), findsOneWidget);
++  });
++
++  testWidgets('every refusal is a generic text and a closed picker shows nothing', (tester) async {
++    final service = FakeModelBundleService();
++    await tester.pumpWidget(app(ModelBundlePage(service: service)));
++    final expected = {
++      'INVALID': 'This file is not a valid signed model bundle. Nothing was changed.',
++      'NOT_NEWER': 'This model bundle is not newer than the models in use. Nothing was changed.',
++      'NOT_ALLOWED': 'Only a supervisor or an administrator can change the face liveness models.',
++      'FAILED': 'The model bundle could not be installed. Nothing was changed. Please try again.',
++    };
++    for (final e in expected.entries) {
++      service.installResult = ModelBundleResult(e.key);
++      await tester.tap(find.byKey(const Key('installModelBundle')));
++      await tester.pumpAndSettle();
++      expect(find.text(e.value), findsOneWidget, reason: e.key);
++    }
++    service.installResult = const ModelBundleResult('CANCELLED');
++    await tester.tap(find.byKey(const Key('installModelBundle')));
++    await tester.pumpAndSettle();
++    expect(find.byKey(const Key('modelBundleMessage')), findsNothing);
++    expect(find.text('Models in use: pad-2026.10.5'), findsOneWidget);
++  });
++
++  testWidgets('a rollback needs a confirmation', (tester) async {
++    final service = FakeModelBundleService()..version = 'pad-2026.10.6';
++    await tester.pumpWidget(app(ModelBundlePage(service: service)));
++    await tester.pumpAndSettle();
++
++    await tester.tap(find.byKey(const Key('rollbackModelBundle')));
++    await tester.pumpAndSettle();
++    await tester.tap(find.byKey(const Key('modelBundleRollbackCancel')));
++    await tester.pumpAndSettle();
++    expect(service.rollbacks, 0);
++
++    await tester.tap(find.byKey(const Key('rollbackModelBundle')));
++    await tester.pumpAndSettle();
++    await tester.tap(find.byKey(const Key('modelBundleRollbackConfirm')));
++    await tester.pumpAndSettle();
++    expect(service.rollbacks, 1);
++    expect(find.text('Models rolled back to pad-2026.10.5. New liveness checks use them.'), findsOneWidget);
++
++    service.rollbackResult = const ModelBundleResult('INVALID');
++    await tester.tap(find.byKey(const Key('rollbackModelBundle')));
++    await tester.pumpAndSettle();
++    await tester.tap(find.byKey(const Key('modelBundleRollbackConfirm')));
++    await tester.pumpAndSettle();
++    expect(find.text('The models could not be rolled back. Nothing was changed.'), findsOneWidget);
++  });
++
++  testWidgets('the texts are translated, with the version filled in', (tester) async {
++    final service = FakeModelBundleService();
++    await tester.pumpWidget(app(ModelBundlePage(service: service), locale: const Locale('fr')));
++    await tester.pumpAndSettle();
++    await tester.tap(find.byKey(const Key('installModelBundle')));
++    await tester.pumpAndSettle();
++    expect(find.text("Lot de modèles pad-2026.10.6 installé. Les nouvelles vérifications de vivacité l'utilisent."),
++        findsOneWidget);
++  });
++
++  test('every language has the 15 model bundle keys, with the English placeholders', () {
++    Map<String, dynamic> arb(String lang) =>
++        jsonDecode(File('assets/l10n/app_$lang.arb').readAsStringSync()) as Map<String, dynamic>;
++    final en = arb('en');
++    final keys = en.keys.where((k) => k.startsWith('liveness_model_')).toList();
++    expect(keys, hasLength(15));
++    final placeholder = RegExp(r'\{(\w+)\}');
++    for (final lang in ['ar', 'fr', 'hi', 'kn', 'ta']) {
++      final a = arb(lang);
++      for (final k in keys) {
++        expect(a[k], isA<String>(), reason: '$lang $k');
++        expect(placeholder.allMatches(a[k] as String).map((m) => m.group(1)).toList(),
++            placeholder.allMatches(en[k] as String).map((m) => m.group(1)).toList(),
++            reason: '$lang $k');
++        expect(a[k], isNot(en[k]), reason: '$lang $k is translated');
++      }
++      expect(a['@@x-liveness-model-translation'], 'machine-translated; needs native-speaker review');
++    }
++  });
++}
