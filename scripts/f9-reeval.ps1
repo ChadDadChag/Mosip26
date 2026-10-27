@@ -11,10 +11,10 @@
 #   e. BindingEvaluation --identity with the labelled photos and the subject map (R4);
 #   c, d, f. the guard replays at 0.85 and 0.80 (R2), the moire cap per subject (R3), and summary.md
 #      (models/tools/f9_reeval.py analyze).
-# -Out must be under eval-data (gitignored); the default is eval-data\reports\f9-<yyyyMMdd-HHmm>. Reports hold
-# aggregates and codes only. -Python is an interpreter with models/tools/requirements.txt (default: LIVENESS_PYTHON,
-# else python); -PythonPath adds a site-packages folder (default: LIVENESS_PYTHONPATH), for a venv whose own launcher
-# is blocked.
+# -Out must be under eval-data (gitignored) and empty; the default is eval-data\reports\f9-<yyyyMMdd-HHmmss>.
+# Reports hold aggregates and codes only. -Python is an interpreter with models/tools/requirements.txt (default:
+# LIVENESS_PYTHON, else python); -PythonPath adds a site-packages folder (default: LIVENESS_PYTHONPATH), for a venv
+# whose own launcher is blocked.
 #
 # RULES BEGIN
 # Pre-registered decision rules, fixed on 2026-10-28 before the F9 teammate data (models/tools/f9_reeval.py).
@@ -55,11 +55,22 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 $subjectList = ($Subjects | ForEach-Object { $_ -split "," } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -join ","
-if (-not $Out) { $Out = Join-Path $Data ("reports\f9-" + (Get-Date -Format "yyyyMMdd-HHmm")) }
+# A command that does not run (java not on PATH) leaves $LASTEXITCODE as it was, so a step would look passed: the
+# tools are checked first, and each native call starts from -1.
+foreach ($exe in "mvn", "java", $Python) {
+    if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) {
+        throw "REFUSED: '$exe' not found: dot-source liveness-env.ps1 first (JDK, Maven), or pass -Python"
+    }
+}
+if (-not $Out) { $Out = Join-Path $Data ("reports\f9-" + (Get-Date -Format "yyyyMMdd-HHmmss")) }
 $outFull = [IO.Path]::GetFullPath((Join-Path $repo $Out))
 $evalFull = [IO.Path]::GetFullPath((Join-Path $repo "eval-data")) + [IO.Path]::DirectorySeparatorChar
 if (-not $outFull.StartsWith($evalFull, [StringComparison]::OrdinalIgnoreCase)) {
     throw "REFUSED: -Out must be under eval-data (gitignored): $outFull"
+}
+# Never over an earlier run: its pad and binding reports would stand in for a step that did not write new ones.
+if ((Test-Path -LiteralPath $outFull) -and (Get-ChildItem -LiteralPath $outFull -Force | Select-Object -First 1)) {
+    throw "REFUSED: -Out is not empty: $outFull"
 }
 New-Item -ItemType Directory -Force $outFull | Out-Null
 if (-not $NoLabelled -and -not (Test-Path -LiteralPath $Labelled)) {
@@ -85,6 +96,7 @@ function Fail([string]$name, [string]$log) {
 $eval = Join-Path $repo "liveness-eval"
 $cpFile = Join-Path $eval "target\classpath.txt"
 Step "build liveness-eval" {
+    $global:LASTEXITCODE = -1
     & mvn -q -B -f (Join-Path $eval "pom.xml") compile dependency:build-classpath "-Dmdep.outputFile=$cpFile"
     if ($LASTEXITCODE -ne 0) { throw "STOPPED at 'build liveness-eval' (mvn exit $LASTEXITCODE)" }
 }
@@ -92,6 +104,7 @@ $cp = (Join-Path $eval "target\classes") + ";" + (Get-Content -Raw $cpFile).Trim
 $tool = Join-Path $repo "models\tools\f9_reeval.py"
 
 Step "a. inventory (R0)" {
+    $global:LASTEXITCODE = -1
     & $Python $tool inventory --data $Data --subjects $subjectList --out $outFull
     if ($LASTEXITCODE -ne 0) { throw "STOPPED at 'a. inventory': see the REFUSED line above" }
 }
@@ -99,6 +112,7 @@ Step "a. inventory (R0)" {
 Step "b. PadEvaluation (R1)" {
     $log = Join-Path $outFull "pad.log"
     $ErrorActionPreference = "Continue" # Java logs warnings on stderr
+    $global:LASTEXITCODE = -1
     & java -cp $cp io.mosip.registration.liveness.eval.PadEvaluation --data $Data --out (Join-Path $outFull "pad") *> $log
     if ($LASTEXITCODE -ne 0) { Fail "b. PadEvaluation" $log }
 }
@@ -112,11 +126,13 @@ Step "e. BindingEvaluation --identity (R4)" {
         if ($LabelsConfirmed) { $bargs += "--labels-confirmed" }
     }
     $ErrorActionPreference = "Continue"
+    $global:LASTEXITCODE = -1
     & java -cp $cp io.mosip.registration.liveness.eval.BindingEvaluation @bargs *> $log
     if ($LASTEXITCODE -ne 0) { Fail "e. BindingEvaluation" $log }
 }
 
 Step "c, d, f. guard replays, moire cap, summary (R2, R3)" {
+    $global:LASTEXITCODE = -1
     & $Python $tool analyze --data $Data --subjects $subjectList --pad (Join-Path $outFull "pad") `
         --binding (Join-Path $outFull "binding") --sessions (Join-Path $Data "sessions") --out $outFull
     if ($LASTEXITCODE -ne 0) { throw "STOPPED at 'c, d, f': see the REFUSED line above" }

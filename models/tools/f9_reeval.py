@@ -52,10 +52,11 @@ R3 action and readings 1-7 confirmed by the planner on 2026-10-28, before the F9
 F18_DEFAULT, F18_CANDIDATE, F18_SHARE_LIMIT = 0.85, 0.80, 0.25
 MOIRE_FLAG = 0.10
 MIN_SUBJECTS = 3
-# SessionDemo's cases (its class comment): real faces, and m, a real face beside a printed cut-out. A log's "case" is
-# the case code followed by the run number ("a14", "zf6").
+# SessionDemo's cases (its class comment): real faces, m (a real face beside a printed cut-out), and the attacks,
+# with F5's second-screen replay z and zf. A log's "case" is the case code followed by the run number ("a14", "zf6").
 REAL_FACE_CASES = {"a", "b", "c", "h", "i", "j", "k", "l"}
 MIXED_CASES = {"m"}
+ATTACK_CASES = set("defgnopqrstuvwxy") | {"z", "zf"}
 
 
 def case_code(logged_case):
@@ -65,7 +66,15 @@ def case_code(logged_case):
 
 
 def is_live_attack(run):
-    return case_code(run.get("case")) not in REAL_FACE_CASES | MIXED_CASES
+    """Whether a live run is an attack; a case outside SessionDemo's lists stops the run (R2 names its cases)."""
+    code = case_code(run.get("case"))
+    if code in ATTACK_CASES:
+        return True
+    if code in REAL_FACE_CASES | MIXED_CASES:
+        return False
+    raise Refused("unknown SessionDemo case '%s' in a live log: R2 counts only SessionDemo's cases" % run.get("case"))
+
+
 PROTOCOL = collections.OrderedDict([("normal", 3), ("close", 2), ("far", 2), ("dim", 1), ("moving", 2),
                                     ("close_whole", 2)])  # run sheet section 7
 SUBJECT = re.compile(r"^s\d\d$")
@@ -84,6 +93,9 @@ def inventory(data, subjects):
     for s in subjects:
         if not SUBJECT.match(s):
             raise Refused("subject '%s' is not a code like s02 (codes only, never names)" % s)
+    twice = sorted(s for s, n in collections.Counter(subjects).items() if n > 1)
+    if twice:
+        raise Refused("subject(s) listed more than once: %s (R5 counts people)" % ", ".join(twice))
     root = Path(data) / "bona_fide"
     if not root.is_dir():
         raise Refused("no bona fide takes: %s does not exist" % root)
@@ -163,12 +175,15 @@ def share(turned, passes):
     return None if passes == 0 else turned / passes
 
 
-def f18_decision(pooled_share85, attack_changes, n_subjects):
-    """(code, text) of rule R2 with R5."""
+def f18_decision(pooled_share85, attack_changes, n_subjects, attacks_replayed):
+    """(code, text) of rule R2 with R5. attacks_replayed: attack attempts with a passive window at 0.85 or 0.80."""
     if pooled_share85 is None:
         return "NOT_DECIDABLE", "not decidable: no real-face take passes without the guards"
     if pooled_share85 <= F18_SHARE_LIMIT:
         code, text = "KEEP", "keep %.2f (share %s at or below 25%%)" % (F18_DEFAULT, pct(pooled_share85))
+    elif attacks_replayed == 0:
+        return "NOT_DECIDABLE", ("not decidable: share %s above 25%%, but no attack attempt with a passive window to "
+                                 "replay at %.2f; keep %.2f" % (pct(pooled_share85), F18_CANDIDATE, F18_DEFAULT))
     elif attack_changes:
         code, text = "KEEP_WITH_COST", ("keep %.2f: at %.2f %d attack verdict(s) change; cost recorded: %s of "
                                         "real-face passes become challenges" % (F18_DEFAULT, F18_CANDIDATE,
@@ -264,7 +279,8 @@ def summary(subjects, inv, zones, counts, attack85, attack80, moire, pad_md, bin
     # The same attempts in the same order at both values.
     changes = [(i, v85, v80) for (i, v85), (_, v80) in zip(attack85, attack80) if v85 != v80]
     newly_passing = [c for c in changes if c[2] == "PASS" and c[1] != "PASS"]
-    code, f18_text = f18_decision(share85, changes, n)
+    replayed = sum(1 for (_, v85), (_, v80) in zip(attack85, attack80) if v85 is not None or v80 is not None)
+    code, f18_text = f18_decision(share85, changes, n, replayed)
     flagged = [s for s, (cap, sc) in moire.items() if moire_flagged(cap, sc)]
     zones_pooled = collections.Counter()
     for z in zones.values():
@@ -381,7 +397,11 @@ def analyze(args, subjects):
     logs = sorted(Path(args.sessions).rglob("sessions-*.jsonl")) if args.sessions else []
     for log in logs:
         for r in sgr.logged_runs(str(log)):
-            if is_live_attack(r):
+            try:
+                attack = is_live_attack(r)
+            except Refused as e:
+                raise Refused("%s: %s" % (log.name, e))
+            if attack:
                 r["_log"] = log.stem
                 attacks.append(r)
     md, result = summary(
@@ -445,18 +465,18 @@ def main(argv=None):
 class SelfTest(unittest.TestCase):
 
     def test_r2_share_at_25_percent_keeps_and_above_evaluates(self):
-        self.assertEqual("KEEP", f18_decision(0.25, [], 3)[0])
-        self.assertEqual("ADOPT_080", f18_decision(0.26, [], 3)[0])
+        self.assertEqual("KEEP", f18_decision(0.25, [], 3, 10)[0])
+        self.assertEqual("ADOPT_080", f18_decision(0.26, [], 3, 10)[0])
         self.assertEqual("KEEP_WITH_COST", f18_decision(0.26, [("print_flat s01/1 attempt 1", "ATTACK", "CHALLENGE")],
-                                                        3)[0])
-        self.assertIn("cost recorded: 26.0%", f18_decision(0.26, [("x", "ATTACK", "CHALLENGE")], 3)[1])
-        self.assertEqual("NOT_DECIDABLE", f18_decision(None, [], 3)[0])
+                                                        3, 10)[0])
+        self.assertIn("cost recorded: 26.0%", f18_decision(0.26, [("x", "ATTACK", "CHALLENGE")], 3, 10)[1])
+        self.assertEqual("NOT_DECIDABLE", f18_decision(None, [], 3, 10)[0])
 
     def test_r5_fewer_than_three_subjects_is_provisional(self):
-        code, text = f18_decision(0.40, [], 1)
+        code, text = f18_decision(0.40, [], 1, 10)
         self.assertEqual("PROVISIONAL_ADOPT_080", code)
         self.assertIn("provisional (N = 1 < 3): nothing changes", text)
-        self.assertEqual("KEEP", f18_decision(0.10, [], 2)[0])
+        self.assertEqual("KEEP", f18_decision(0.10, [], 2, 10)[0])
 
     def test_r2_counts_per_subject(self):
         run = lambda s: {"subject": s}  # noqa: E731
@@ -499,8 +519,32 @@ class SelfTest(unittest.TestCase):
         for real in ("a1", "b2", "c3", "h4", "i5", "j6", "k7", "l9", "m3"):
             self.assertFalse(is_live_attack({"case": real}), real)
         for attack in ("d1", "e2", "f3", "g4", "n5", "o6", "p7", "q8", "r9", "s1", "t2", "u13", "v14", "w10", "x12",
-                       "y1", "z5", "zf6"):
+                       "y1", "z5", "zf6", "z"):
             self.assertTrue(is_live_attack({"case": attack}), attack)
+
+    def test_r2_a_case_outside_sessiondemo_stops_the_run(self):
+        # A run of a case the rules do not list is neither real face nor attack: counting it as an attack would put
+        # it on the attack side of R2 (task 19 review).
+        for case in ("zz3", "A1", "", None):
+            with self.assertRaisesRegex(Refused, "unknown SessionDemo case"):
+                is_live_attack({"case": case})
+
+    def test_r2_without_an_attack_attempt_0_80_is_not_adopted(self):
+        # "No attack verdict changes" needs attack attempts to replay (task 19 review).
+        code, text = f18_decision(0.40, [], 3, 0)
+        self.assertEqual("NOT_DECIDABLE", code)
+        self.assertIn("no attack attempt with a passive window to replay", text)
+        self.assertEqual("KEEP", f18_decision(0.20, [], 3, 0)[0])
+        md, result = summary(["s01", "s02", "s03"], {}, {}, {"s01": collections.Counter(passes=5, turned85=2)},
+                             [("y s01 1 attempt 1", None)], [("y s01 1 attempt 1", None)], {}, "", "", [])
+        self.assertEqual("NOT_DECIDABLE", result["f18"])
+
+    def test_r5_a_subject_listed_twice_is_refused(self):
+        # N counts distinct people: s01 listed three times is one subject, not the three that R5 needs.
+        with tempfile.TemporaryDirectory() as d:
+            self._take(d, "s01", 1)
+            with self.assertRaisesRegex(Refused, "listed more than once: s01"):
+                inventory(d, ["s01", "s01", "s01"])
 
     def test_r3_flag_is_strictly_above_10_percent_and_report_only(self):
         self.assertFalse(moire_flagged(10, 100))
