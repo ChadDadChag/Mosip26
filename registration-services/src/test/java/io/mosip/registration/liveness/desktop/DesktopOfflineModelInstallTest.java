@@ -120,10 +120,8 @@ public class DesktopOfflineModelInstallTest {
 		assertTrue("the operator's file is left alone", zip.exists());
 	}
 
-	@Test(timeout = 120_000)
-	public void aTamperedOrUnsignedZipIsRefusedAndTheStoreIsUnchanged() throws Exception {
-		DesktopLivenessService s = service();
-		Map<String, byte[]> f = SignedTestBundles.bundle(NEWER, kp, SignedTestBundles.realModels());
+	/** A signed bundle of this version, packed as a zip, with one byte of the detector model flipped. */
+	private File tamperedZip(String version, Map<String, byte[]> f) throws Exception {
 		Object[] layout = new Object[(2 + ModelRole.values().length) * 2];
 		int i = 0;
 		layout[i++] = VerifiedBundle.MANIFEST;
@@ -139,8 +137,15 @@ public class DesktopOfflineModelInstallTest {
 			layout[i++] = role.fileName();
 			layout[i++] = b;
 		}
+		return rawZip(version + "-tampered.zip", layout);
+	}
 
-		ModelBundleResult tampered = s.installOfflineBundle(rawZip("tampered.zip", layout));
+	@Test(timeout = 120_000)
+	public void aTamperedOrUnsignedZipIsRefusedAndTheStoreIsUnchanged() throws Exception {
+		DesktopLivenessService s = service();
+		Map<String, byte[]> f = SignedTestBundles.bundle(NEWER, kp, SignedTestBundles.realModels());
+
+		ModelBundleResult tampered = s.installOfflineBundle(tamperedZip(NEWER, f));
 		assertEquals(ModelBundleOutcome.INVALID, tampered.outcome());
 		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "trigger=offline");
 		assertTrue(a, a.contains("outcome=FAILED") && a.contains("errorCode=MODEL_INTEGRITY_FAILED")
@@ -158,6 +163,19 @@ public class DesktopOfflineModelInstallTest {
 		assertEquals(ModelBundleOutcome.NOT_NEWER, s.installOfflineBundle(zip("pad-2026.09.1")).outcome());
 		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "reason=NOT_NEWER");
 		assertTrue(a, a.contains("outcome=UP_TO_DATE") && a.contains("trigger=offline"));
+		assertStoreUntouched();
+	}
+
+	@Test(timeout = 120_000)
+	public void aTamperedZipIsInvalidEvenWhenItsVersionIsNotNewer() throws Exception {
+		DesktopLivenessService s = service();
+		String older = "pad-2026.09.1";
+		ModelBundleResult r = s.installOfflineBundle(
+				tamperedZip(older, SignedTestBundles.bundle(older, kp, SignedTestBundles.realModels())));
+		assertEquals("verified before the version check", ModelBundleOutcome.INVALID, r.outcome());
+		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "trigger=offline");
+		assertTrue(a, a.contains("outcome=FAILED") && a.contains("errorCode=MODEL_INTEGRITY_FAILED")
+				&& a.contains("reason=BUNDLE_INVALID") && !a.contains("NOT_NEWER"));
 		assertStoreUntouched();
 	}
 

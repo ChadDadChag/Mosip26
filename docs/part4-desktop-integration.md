@@ -473,8 +473,10 @@ How it works:
   - unpacked into a fresh `update.tmp-*` directory in the store, which is deleted afterwards;
   - `ModelStore.install`: signature, sizes, hashes, anti-rollback, atomic switch.
 - **Results.**
-  - A tampered, unsigned or malformed zip is refused as `MODEL_INTEGRITY_FAILED`.
-  - The same or an older version is refused.
+  - A tampered, unsigned or malformed zip is refused as `MODEL_INTEGRITY_FAILED`, whatever version it claims: the
+    signature, sizes and hashes are checked before the version, so a tamper attempt is never reported or audited as
+    "not newer".
+  - The same or an older version is refused once it has verified.
   - In both cases the store is unchanged.
   - On success, new sessions use the new models; a running session keeps its own.
 - **Rollback.** `rollbackModelBundle()` makes the previous bundle current again, after a confirmation. It is an
@@ -614,6 +616,13 @@ arguments):
 - The full Registration Client was compiled and its liveness, audit and login tests run, but it was **not launched end
   to end** (that needs a registered machine, the local database and a server for the first sync). The hooks were
   checked by compilation and code review, the screen by rendering it, the services by the tests above.
+- **The F17 offline install was not tried in the client** for the same reason: its tiles appear only to a logged-in
+  supervisor or admin, and logging in needs a registered machine and a server. `DesktopOfflineModelInstallTest`
+  proves it on the real `DesktopLivenessService` with signed bundles: install and reload, tampered or unsigned zips
+  refused (also when they claim an older version), same or older refused, zip-slip, rollback, the role gate and the
+  config switch. `ModelBundleTextsTest` proves the texts. The tiles, the file chooser and the alerts were checked by
+  compilation and code review only. Android has the same limit; its debug build opens the same production page
+  from the Login page instead (part 5).
 - **No SBI hardware and no MockMDS run** in Part 4. The SBI path is Part 1's, tested there (unplug/replug, recorded
   clips, MockMDS 45/45 frames).
 - **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was
