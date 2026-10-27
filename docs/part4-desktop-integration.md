@@ -490,10 +490,11 @@ bundled defaults (audited in `LIVENESS_CONFIG_LOADED` as `configError`).
 `analyzer.*` keys ([part2-pad-architecture.md](part2-pad-architecture.md)).
 
 **Identity binding (F15, section 2.5)**:
-- `binding.identity.enabled` (true; only an explicit `false` switches it off);
+- `binding.identity.enabled` (true; `false`, `no`, `0` or `off` switches it off, `true`, `yes`, `1` or `on` keeps it
+  on, any other value keeps the default with a warning in the log);
 - `binding.identity.threshold` (0.40, provisional; valid from 0.30 to 1.0);
 - `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence alone,
-  audited).
+  audited; read like `enabled`, so only `true`, `yes`, `1` or `on` turns it on).
 
 **Desktop** (`mosip.registration.liveness.face.desktop.*`):
 

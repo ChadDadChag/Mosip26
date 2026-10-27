@@ -2,6 +2,7 @@ package io.mosip.registration.liveness.desktop;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.TreeMap;
@@ -101,6 +102,30 @@ public class DesktopLivenessConfig implements ConfigProvider {
 	public boolean getBoolean(String key, boolean fallback) {
 		String v = get(key);
 		return v == null ? fallback : Boolean.parseBoolean(v);
+	}
+
+	/**
+	 * A switch where a typo must not flip it: true, yes, 1 or on is on; false, no, 0 or off is off (any case);
+	 * unset is {@code fallback}, and any other value is {@code fallback} with a warning.
+	 */
+	public boolean getSwitch(String key, boolean fallback) {
+		Boolean v = parseSwitch(get(key));
+		if (v == null && get(key) != null) {
+			LOGGER.warn("Ignoring invalid value for {} (true/false, yes/no, 1/0 or on/off): {}", key, get(key));
+		}
+		return v == null ? fallback : v;
+	}
+
+	/** true/yes/1/on, false/no/0/off (any case, trimmed), else null. */
+	static Boolean parseSwitch(String value) {
+		switch (value == null ? "" : value.trim().toLowerCase(Locale.ROOT)) {
+			case "true": case "yes": case "1": case "on":
+				return Boolean.TRUE;
+			case "false": case "no": case "0": case "off":
+				return Boolean.FALSE;
+			default:
+				return null;
+		}
 	}
 
 	public long getLong(String key, long fallback) {
