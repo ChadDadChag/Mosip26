@@ -54,8 +54,8 @@ flowchart LR
 
 ## 3. Dataset (protocol: [part2-dataset-protocol.md](part2-dataset-protocol.md))
 
-Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 4:4:4 chroma. 130 takes, 6,218 frames
-(round 1: 35 takes, 2,100 frames; F3 added the last four rows).
+Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 4:4:4 chroma. 134 takes, 6,458 frames
+(round 1: 35 takes, 2,100 frames; F3 added the last four rows; F5 the four tablet replays).
 
 | Class | Takes | How |
 |---|---|---|
@@ -63,7 +63,7 @@ Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 
 | `screen_photo` | 6 | phone photo at normal distance with its edges visible: the subject's selfie ×3, a public-domain NASA portrait ×3 |
 | `screen_photo_close` | 12 | phone held close as the subject judged it ×6 (face only about 4% of the picture), then about 10 cm away with a live face-size readout ×6 (face 20–31% of the picture) |
 | `screen_replay` | 6 | the subject's selfie video playing on the phone |
-| `screen_replay_monitor` | 0 | **not yet evaluated** (no second screen) |
+| `screen_replay_monitor` | 4 | F5: the subject's own 2-minute selfie video (blinks, smiles, head turns and nods) on a **tablet (Galaxy Tab, about 11 in)** at maximum brightness, 40–60 cm from the webcam, the subject's own face out of view. There is no desktop monitor yet (section 4.6) |
 | `print_flat` | 6 | colour A4 prints held flat: the subject's selfie ×2 and close ×1, the NASA portrait ×2 and close ×1 |
 | `print_curved` | 6 | the same prints, bent |
 | `screen_photo_multi` | 38 | a phone slideshow of 42 labelled photos of 15 consented people, at normal distance; one take per photo found, 14 of the 15 people (s01 among them), 14–56 frames each |
@@ -267,6 +267,52 @@ Replayed offline, the passing attempt goes to a challenge at 0.600, with both gu
 - Re-check per subject on the multi-subject data (F9) with `models/tools/session_guard_replay.py`. If more than 25%
   of real-face passive passes become challenges across subjects, evaluate 0.80.
 
+### 4.6 Second-screen replay on a tablet (F5)
+
+One subject (s01), one tablet (Galaxy Tab, about 11 in, maximum brightness), the subject's own 2-minute selfie video
+with blinks, smiles, head turns and nods, 40–60 cm from the webcam. Recorded on 2026-10-27: 4 dataset takes (60
+frames each) and 6 live sessions with the real engine (`SessionDemo`, RESIDENT; 3 with the default policy, 3 with
+forced challenges). Production settings, with the F18 guards.
+
+**Recorded takes** (`PadEvaluation`, 134 takes):
+
+| Species | Takes | Responding | Passive pass | Challenge | PAD reject | Non-response | PadMonitor below 0.30 |
+|---|---|---|---|---|---|---|---|
+| `screen_replay_monitor` (tablet) | 4 | 0 | 0/4 [≤ 52.7%] | 0 | 0 | 4 | 4/4 |
+
+- **Every take was a non-response: the face was too small.** At 40–60 cm the face covered 3.4% of the picture
+  (median; at most 4.2%). 221 of the 223 single-face frames were FACE_TOO_SMALL, so no take filled a passive window.
+  In production that is a timeout with a "move closer" hint, never an acceptance.
+- **The models scored the replay low anyway.** Of the 181 scored single-face frames, the median score was 0.044 and
+  the highest 0.505. None reached 0.85, and 2 reached 0.30. The PAD monitor stayed below 0.30 in all 4 takes.
+- Adding the four takes changes no other row of sections 4.1 to 4.5.
+
+**Live sessions** (the session log: `eval-data/sessions/f5-tablet-20261027/`):
+
+| Sessions | Policy | Result | Challenges shown | Highest first-window median |
+|---|---|---|---|---|
+| 3 | default (passive first) | 3 FAILED, MAX_RETRIES_EXCEEDED | 1 session: BLINK, TURN_LEFT, SMILE | 0.48 |
+| 3 | forced challenges | 3 FAILED, MAX_RETRIES_EXCEEDED | 1 session: SMILE | 0.54 |
+
+- **0 of 6 passed.** All 18 attempts that reported a code ended in PAD_FAILURE, and each session's fourth attempt
+  ended it with MAX_RETRIES_EXCEEDED. The replay never completed a challenge.
+- **What decided it.** Replayed offline through the guards' spec (`models/tools/session_guard_replay.py`), the first
+  passive window of the 24 attempts was ATTACK (below 0.30) in 17 and CHALLENGE in 7, with medians 0.009–0.544. No
+  attempt would have passed, with or without the guards: the scores before and after the guards are the same. The
+  PAD latch fired in all 6 sessions, 1.7–4.6 s in.
+- **Two sessions reached challenges.** No challenge was completed: PAD ended those attempts (PAD_FAILURE) while the
+  challenge ran.
+
+**What this does not show.**
+- One subject, one tablet, one 2-minute video, one webcam and one room: 4 takes and 6 sessions. 0/4 is "at most
+  about 53%".
+- No desktop monitor, so the species' name promises more than was tested: larger screens, other pixel pitches and
+  other panel types are not covered.
+- The recorded takes are all non-responses, so the PAD decision on recordings at a responding size is untested. The
+  live sessions, which the engine did judge, are the stronger evidence.
+- The tablet was not brought close enough to fill the frame, the case that fooled the models with a phone
+  (section 4.3).
+
 ## 5. Thresholds: recommendation, and why the defaults stay
 
 The rule (provisional, on the grid 0.05 … 0.95, 0.99, 0.999):
@@ -288,8 +334,9 @@ The rule (provisional, on the grid 0.05 … 0.95, 0.99, 0.999):
 
 - One subject, one camera, one phone, one session of lighting. No children, older subjects, glasses or different skin
   tones yet.
-- Second-screen replays are not yet evaluated. The prints come from one printer and one paper; the cut-outs were
-  held by the subject, who knew the system.
+- Second-screen replays: one tablet only (section 4.6), at a distance where the recorded face was too small to
+  judge. There is no desktop monitor yet. The prints come from one printer and one paper; the cut-outs were held by
+  the subject, who knew the system.
 - The many-identity species are recorded at distances where most faces are small, so many takes are non-responses
   (section 4.4). Their APCER covers only the responding takes.
 - The F18 guards were tuned on the cut-out that passed and checked on one bona fide subject. Their bona fide cost,
@@ -343,7 +390,7 @@ Then:
 | Decision measured at the system's real decision point (production window and thresholds), not the raw model | covered |
 | Bona fide and attack conditions documented; protocol, consent and data handling written down | covered (`part2-dataset-protocol.md`) |
 | Confidence for small samples | covered (Clopper-Pearson upper bounds) |
-| Subjects and PAIs per species in the numbers the standard expects for a conformance claim | **not covered** (1 bona fide subject; 6–45 takes per species, at most 14 attack identities) |
+| Subjects and PAIs per species in the numbers the standard expects for a conformance claim | **not covered** (1 bona fide subject; 4–45 takes per species, at most 14 attack identities) |
 | PAI species catalogue completeness (prints, masks, 3D, partial attacks, deepfake replays) | **partly covered** (screens and prints; no masks, 3D, partial attacks or deepfake replays) |
 | Attack potential rating (expertise, equipment, time) | **not covered** (low-effort, self-made attacks only) |
 | Digital injection attacks (virtual cameras, stream tampering) | **out of scope** for PAD; the frame source and audit chain are Part 1 and Part 3 |

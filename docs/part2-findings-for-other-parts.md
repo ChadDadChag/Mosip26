@@ -142,3 +142,12 @@ LivenessService liveness = DefaultLivenessService.builder()
 | Webcam backend crash | During a long trace-recording session (sarxos webcam-capture 0.3.12 with BridJ, JDK 11, Windows 11), the JVM exited once with code 116 after 16 of 18 takes. There was no `hs_err` file. It was not reproduced in about 100 later takes. If it recurs, try the openpnp-capture backend, or keep the camera open between sessions to reduce open/close cycles. |
 | Note N1 (preview tee) | The engine owns the single `FrameSource.Listener`, so the UI needs another way to get preview frames. Part 2's dev source `WebcamFrameSource` solves it with a separate `setPreviewListener` that gets every grabbed frame, independent of the engine's listener (dev code in `liveness-eval`). A production `FrameSource` could use the same tee. |
 | Cold camera open | Opening the webcam took 0.8–2.5 s. `KeptOpenSource` (keep the device open; `start` and `stop` only attach and detach the listener) removed it for back-to-back takes. A similar keep-warm option would shorten retries. |
+
+## All parts: second-screen replay on a tablet (F5, 2026-10-27)
+
+| Topic | Finding |
+|---|---|
+| Live result | The subject's own selfie video on a tablet (Galaxy Tab, about 11 in), 40–60 cm from the webcam: 0 of 6 live sessions passed (3 with the default policy, 3 with forced challenges). Every attempt that reported a code ended in PAD_FAILURE, and no challenge was completed. The PAD latch fired in every session within 1.7–4.6 s. |
+| Recorded takes | The 4 recorded takes were non-responses: the face covered about 3.4% of the picture, below the 4% minimum, so the passive window never filled. In production that is a "move closer" timeout, never an acceptance. |
+| Nothing to change | Parts 3, 4 and 5 need no change for this case: the engine's existing PAD path and the F18 guards decided it. |
+| Not covered | One subject, one tablet, one video. No desktop monitor, and no tablet held close enough to fill the frame (the case that fooled the models with a phone). Details: `docs/part2-iso30107-evaluation.md` section 4.6. |
