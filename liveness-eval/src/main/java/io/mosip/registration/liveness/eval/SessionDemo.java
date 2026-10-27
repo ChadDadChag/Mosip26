@@ -69,7 +69,11 @@ import java.util.concurrent.atomic.AtomicReference;
  *   j  real face, far (about 1 m),                            RESIDENT
  *   k  real face, approaching the camera slowly during the check, RESIDENT
  *   l  real face, moving the head gently,                     RESIDENT
+ *   z  second screen (tablet) playing the subject's video, its face AS BIG AS A REAL FACE, RESIDENT (F5 retake)
+ *   zf as z, RESIDENT, forced challenges
  * </pre>
+ * Cases z and zf show DatasetSession's live face-size readout while the screen is positioned, until SPACE starts the
+ * run (the engine then owns the analysis; nothing is written but the session log).
  * The multi-face cases expect GUIDANCE(MULTIPLE_FACES), then each attempt failing with MULTIPLE_FACES and the session
  * with MAX_RETRIES_EXCEEDED, never PASSED. A second face counts only from 20% of the largest face's area
  * ({@code detectorSecondFaceMinAreaRatio}), hence the cut-out held closer than the live face in case m.
@@ -102,6 +106,8 @@ final class SessionDemo {
         final int item;
         /** The forced runs' challenge pool for this case, null = {@code --challenge-types} or the default pool. */
         final String types;
+        /** Show the live face-size readout while the presentation is positioned (cases z and zf). */
+        final boolean sizeReadout;
 
         Case(String id, WorkflowType workflow, boolean forceActive, String instruction) {
             this(id, workflow, forceActive, instruction, 0);
@@ -112,12 +118,18 @@ final class SessionDemo {
         }
 
         Case(String id, WorkflowType workflow, boolean forceActive, String instruction, int item, String types) {
+            this(id, workflow, forceActive, instruction, item, types, false);
+        }
+
+        Case(String id, WorkflowType workflow, boolean forceActive, String instruction, int item, String types,
+             boolean sizeReadout) {
             this.id = id;
             this.workflow = workflow;
             this.forceActive = forceActive;
             this.instruction = instruction;
             this.item = item;
             this.types = types;
+            this.sizeReadout = sizeReadout;
         }
     }
 
@@ -125,6 +137,7 @@ final class SessionDemo {
     static Case scripted(String token) {
         String t = token.trim().toLowerCase(Locale.ROOT);
         if (t.isEmpty()) throw new IllegalArgumentException("empty plan entry");
+        if (t.equals("z") || t.equals("zf")) return secondScreen(t.equals("zf"));
         char c = t.charAt(0);
         boolean numbered = c == 's' || c == 't' || c == 'v' || c == 'w' || c == 'x' || c == 'y';
         if (numbered != t.length() > 1) {
@@ -154,6 +167,15 @@ final class SessionDemo {
                     + " BLINK or SMILE, TILT the cut-out (top edge toward you and back); until FINISHED", k, "BLINK,SMILE");
             default: return scripted(c);
         }
+    }
+
+    /** The prompt of the F5 retake: a second screen whose face is the size of a real face. */
+    static final String SECOND_SCREEN_REALSIZE = "SECOND SCREEN / TABLET playing your VIDEO: hold it so the face on the"
+            + " screen is AS BIG AS A REAL FACE (face size 20-35%), your face out of view, until FINISHED";
+
+    /** Cases z (default policy) and zf (forced challenges): the F5 retake at real-face size, with the readout. */
+    static Case secondScreen(boolean forced) {
+        return new Case(forced ? "zf" : "z", WorkflowType.RESIDENT, forced, SECOND_SCREEN_REALSIZE, 0, null, true);
     }
 
     static Case scripted(char c) {
@@ -191,7 +213,7 @@ final class SessionDemo {
             case 'l': return new Case("l", WorkflowType.RESIDENT, false, "REAL FACE, MOVING: look at the camera and move"
                     + " your head gently (small turns and nods) until FINISHED");
             default: throw new IllegalArgumentException("unknown case '" + c
-                    + "' (a..h, i, j, k, l, m, n, o, p, q, r, s1, t1, u, v1, w1, x1, y1)");
+                    + "' (a..h, i, j, k, l, m, n, o, p, q, r, s1, t1, u, v1, w1, x1, y1, z, zf)");
         }
     }
 
@@ -374,9 +396,14 @@ final class SessionDemo {
         final DemoWindow w = new DemoWindow("Part 3 session with the Part 2 analyzer (" + real.modelVersion() + ")");
         w.mirrored(true); // selfie view, so "turn left" matches what the person sees
         final WebcamFrameSource source = new WebcamFrameSource(camera, 640, 480, 15);
+        // Cases z and zf: the face-size readout while the screen is positioned (stopped when the run starts).
+        final DatasetSession.Readout readout = new DatasetSession.Readout(w);
+        final AtomicReference<Boolean> sizing = new AtomicReference<Boolean>(false);
         source.setPreviewListener(new WebcamFrameSource.PreviewListener() {
             @Override public void onPreview(Frame f) {
-                w.video(DemoWindow.image(f), null);
+                boolean on = sizing.get();
+                if (on) readout.latest.set(f);
+                w.video(DemoWindow.image(f), on ? readout.overlay() : null);
             }
         });
         final AtomicReference<String> key = new AtomicReference<String>();
@@ -407,7 +434,17 @@ final class SessionDemo {
                 key.set(null);
                 w.message("NEXT " + c.id + n + ": " + c.instruction + "  (SPACE = start, S = skip)", new Color(200, 100, 0));
                 w.info("Run " + n + " of " + plan.size() + "\nworkflow " + c.workflow + (c.forceActive ? ", forced challenges" : ""));
+                if (c.sizeReadout) {
+                    readout.header = "Run " + n + " of " + plan.size() + ", workflow " + c.workflow
+                            + (c.forceActive ? ", forced challenges" : "") + "\nface size target: 20-35%";
+                    readout.start();
+                    sizing.set(true);
+                }
                 String k = LiveAnalyzerDemo.awaitKey(key, alive);
+                if (c.sizeReadout) {
+                    sizing.set(false);
+                    readout.stop();
+                }
                 if (k == null) break;
                 if (k.equals("S")) continue;
                 RecordingFactory rf = new RecordingFactory(real);

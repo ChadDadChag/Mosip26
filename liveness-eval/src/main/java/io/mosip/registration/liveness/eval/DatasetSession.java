@@ -94,6 +94,10 @@ final class DatasetSession {
         add(p, "screen_replay", 1, 6, "selfie_video", "PHONE: PLAY your SELFIE VIDEO, normal distance, hand-held" + OUT_OF_VIEW);
         add(p, "screen_replay_monitor", 1, 4, "selfie_video",
                 "OPTIONAL (S = skip): SECOND SCREEN playing your SELFIE VIDEO" + OUT_OF_VIEW);
+        // F5 retake: takes 1-4 (a tablet at 40-60 cm) were all non-responses, the face too small (3.4% of the picture).
+        // These hold the screen's face at real-face size, with the live readout.
+        add(p, "screen_replay_monitor", 5, 4, "video_realsize", "OPTIONAL (S = skip): SECOND SCREEN / TABLET playing"
+                + " your VIDEO: hold it so the face on the screen is AS BIG AS A REAL FACE (face size 20-35%)" + OUT_OF_VIEW);
         // Round 1 follow-up: the first close takes were too close (bona fide, face cut off) or not close enough
         // (phone, face about 4% of the picture); these use the live face-size readout.
         add(p, "bona_fide", 11, 2, "close_whole", "YOUR FACE: lean in until face size reads 25-40%, WHOLE face in the picture");

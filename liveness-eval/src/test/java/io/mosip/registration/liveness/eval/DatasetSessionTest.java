@@ -18,7 +18,7 @@ class DatasetSessionTest {
     @Test
     void theProtocolStepsAreUnchangedAndTheExtraStepsRunOnlyWhenNamed() {
         List<DatasetSession.Step> all = select();
-        assertThat(all).hasSize(12 + 6 + 12 + 6 + 4 + 12);
+        assertThat(all).hasSize(12 + 6 + 12 + 6 + 8 + 12);
         assertThat(all).allSatisfy(s -> {
             assertThat(s.group).isNull();
             assertThat(s.seconds).isEqualTo(6);
@@ -29,6 +29,19 @@ class DatasetSessionTest {
         assertThat(select("bona_fide")).hasSize(12).allSatisfy(s -> assertThat(s.group).isNull());
         assertThat(select("print_flat", "print_curved")).hasSize(12);
         assertThat(DatasetSession.cameraFps(all)).isEqualTo(15.0);
+    }
+
+    @Test
+    void theF5RetakeHoldsTheSecondScreenAtRealFaceSizeUnderTheSameBlockName() {
+        List<DatasetSession.Step> replay = select("screen_replay_monitor");
+        assertThat(replay).extracting(st -> st.take).containsExactly(1, 2, 3, 4, 5, 6, 7, 8);
+        assertThat(replay.subList(0, 4)).allSatisfy(st -> assertThat(st.condition).isEqualTo("selfie_video"));
+        assertThat(replay.subList(4, 8)).allSatisfy(st -> {
+            assertThat(st.condition).isEqualTo("video_realsize");
+            assertThat(st.prompt).contains("AS BIG AS A REAL FACE", "face size 20-35%", "OUT of view", "S = skip");
+            assertThat(st.take("s01", new File("eval-data")).dir())
+                    .isEqualTo(new File("eval-data", "attack/screen_replay_monitor/s01/" + st.take));
+        });
     }
 
     @Test
