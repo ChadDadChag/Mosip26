@@ -82,6 +82,13 @@ class AnalyzerConfigTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(AnalyzerConfig.IDENTITY_THRESHOLD_KEY);
         assertThatThrownBy(() -> AnalyzerConfig.builder().identityCosineThreshold(-1.5).build())
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("identity.threshold");
+        // A low, zero or negative value (a typo like 0.04) would switch the second factor off: refused.
+        for (double weak : new double[] {0.29, 0.04, 0, -0.4, Double.NaN, Double.POSITIVE_INFINITY}) {
+            assertThatThrownBy(() -> AnalyzerConfig.builder().identityCosineThreshold(weak).build())
+                    .as("threshold %s", weak).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("identity.threshold");
+        }
+        assertThat(AnalyzerConfig.builder().identityCosineThreshold(0.30).build().identityCosineThreshold).isEqualTo(0.30);
     }
 
     @Test

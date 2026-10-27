@@ -126,16 +126,26 @@ public final class FaceMatcher implements AutoCloseable {
                 }
                 double sim = SFaceEmbedder.cosine(liveFeature,
                         embedder.embed(t.rgb(), t.width(), t.height(), YuNetDetector.primary(tf)));
-                if (Double.isNaN(best) || sim > best) best = sim;
+                if (!Double.isNaN(sim) && (Double.isNaN(best) || sim > best)) best = sim;
             }
-            IdentityResult.Outcome outcome = Double.isNaN(best) ? IdentityResult.Outcome.NOT_BOUND_UNREADABLE
-                    : best >= identityThreshold ? IdentityResult.Outcome.MATCH : IdentityResult.Outcome.NO_MATCH;
-            return new IdentityResult(outcome, best, identityThreshold, given, unreadable);
+            return new IdentityResult(identityOutcome(given, unreadable, best, identityThreshold), best,
+                    identityThreshold, given, unreadable);
         } catch (OrtException e) {
             throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "ONNX Runtime failed while identifying a face", e);
         } catch (RuntimeException e) {
             throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "Unexpected failure identifying a face", e);
         }
+    }
+
+    /**
+     * The F15 outcome over {@code given} templates of which {@code unreadable} were unreadable, with {@code best} the
+     * highest finite similarity (NaN if none). Unreadable only when no template was readable: a readable template
+     * without a finite similarity (a degenerate feature) is NO_MATCH, never "not bound", which the host may accept.
+     */
+    static IdentityResult.Outcome identityOutcome(int given, int unreadable, double best, double threshold) {
+        if (given == 0) return IdentityResult.Outcome.NOT_BOUND_NO_TEMPLATE;
+        if (unreadable >= given) return IdentityResult.Outcome.NOT_BOUND_UNREADABLE;
+        return !Double.isNaN(best) && best >= threshold ? IdentityResult.Outcome.MATCH : IdentityResult.Outcome.NO_MATCH;
     }
 
     /**

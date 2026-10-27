@@ -43,6 +43,8 @@ public final class AnalyzerConfig {
     public static final String KEY_PREFIX = "mosip.registration.liveness.face.analyzer.";
     public static final String BINDING_THRESHOLD_KEY = "mosip.registration.liveness.face.binding.cosineThreshold";
     public static final String IDENTITY_THRESHOLD_KEY = "mosip.registration.liveness.face.binding.identity.threshold";
+    /** The lowest valid F15 threshold: below it the second factor would accept almost any face. */
+    public static final double MIN_IDENTITY_THRESHOLD = 0.30;
 
     /** ONNX Runtime execution provider. Unavailable providers fall back to CPU. */
     public enum Accelerator { CPU, XNNPACK, NNAPI }
@@ -296,8 +298,11 @@ public final class AnalyzerConfig {
         if (!(bindingCosineThreshold >= -1 && bindingCosineThreshold <= 1)) {
             throw new IllegalArgumentException(BINDING_THRESHOLD_KEY + " must be in [-1.0, 1.0], got " + bindingCosineThreshold);
         }
-        if (!(identityCosineThreshold >= -1 && identityCosineThreshold <= 1)) {
-            throw new IllegalArgumentException(IDENTITY_THRESHOLD_KEY + " must be in [-1.0, 1.0], got " + identityCosineThreshold);
+        // F15 is a second factor: a low or negative value would let almost any face match (SFace impostor cosines sit
+        // well below 0.30), so the floor is part of the check, not only NaN and the range of a cosine.
+        if (!(identityCosineThreshold >= MIN_IDENTITY_THRESHOLD && identityCosineThreshold <= 1)) {
+            throw new IllegalArgumentException(IDENTITY_THRESHOLD_KEY + " must be in [" + MIN_IDENTITY_THRESHOLD
+                    + ", 1.0], got " + identityCosineThreshold);
         }
     }
 

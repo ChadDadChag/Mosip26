@@ -140,6 +140,20 @@ class FaceMatcherTest {
     }
 
     @Test
+    void aReadableTemplateWithoutAFiniteSimilarityIsNoMatchNotUnbound() {
+        // A degenerate live feature (zero norm) gives NaN against every readable template: that must block, not
+        // count as "not bound", which the host may accept on presence alone.
+        assertThat(FaceMatcher.identityOutcome(2, 0, Double.NaN, 0.40)).isEqualTo(IdentityResult.Outcome.NO_MATCH);
+        assertThat(FaceMatcher.identityOutcome(3, 2, Double.NaN, 0.40)).isEqualTo(IdentityResult.Outcome.NO_MATCH);
+        assertThat(FaceMatcher.identityOutcome(3, 3, Double.NaN, 0.40))
+                .isEqualTo(IdentityResult.Outcome.NOT_BOUND_UNREADABLE);
+        assertThat(FaceMatcher.identityOutcome(0, 0, Double.NaN, 0.40))
+                .isEqualTo(IdentityResult.Outcome.NOT_BOUND_NO_TEMPLATE);
+        assertThat(FaceMatcher.identityOutcome(1, 0, 0.40, 0.40)).isEqualTo(IdentityResult.Outcome.MATCH);
+        assertThat(FaceMatcher.identityOutcome(1, 0, 0.39, 0.40)).isEqualTo(IdentityResult.Outcome.NO_MATCH);
+    }
+
+    @Test
     void theIdentityThresholdIsSeparateFromTheBindingThreshold() throws Exception {
         Map<String, String> cfg = new HashMap<String, String>();
         cfg.put(AnalyzerConfig.IDENTITY_THRESHOLD_KEY, "0.99");
