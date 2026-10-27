@@ -183,14 +183,15 @@ sequenceDiagram
   Login->>Auth: authenticateUser
   Auth-->>Login: OK
   Login->>Login: centre and machine checks
-  Login->>Gate: run(context, OPERATOR)
-  alt proceed (passed, or liveness disabled for OPERATOR)
+  Login->>Gate: IdentityBinding.run(OPERATOR, user name, password_login)
+  Gate->>Gate: LivenessGate.run, then verifyIdentity (F15: the user's onboarded face)
+  alt proceed (match, no onboarded face, or liveness disabled for OPERATOR)
     Gate-->>Login: proceed
     Login->>Login: first sync or home page
-  else cancelled or blocked
-    Gate-->>Login: cancelled / blocked
+  else cancelled, blocked, or not verified after the one retry
+    Gate-->>Login: cancelled / blocked / notVerified
     Login->>Auth: logoutUser
-    Login-->>Op: stay on login (snackbar with the failure text if blocked)
+    Login-->>Op: stay on login (snackbar with the failure or identity text)
   end
   Note over Login: If the login page is gone when the gate returns, the operator is logged out (fail closed).
 ```
@@ -222,11 +223,11 @@ sequenceDiagram
   participant Pkt as Packet service
   Op->>Proc: user name + password
   Proc->>Proc: _authenticatePacket (password check)
-  Proc->>Gate: run(context, OPERATOR)
-  alt proceed
+  Proc->>Gate: IdentityBinding.run(OPERATOR, user name, packet_auth)
+  alt proceed (F15: the face onboarded for that user name, or none)
     Proc->>Pkt: submitRegistrationDto (packet created and signed)
-  else cancelled or blocked
-    Proc-->>Op: stay on the authentication step, nothing submitted (snackbar if blocked)
+  else cancelled, blocked or not verified
+    Proc-->>Op: stay on the authentication step, nothing submitted (snackbar with the text)
   end
 ```
 
@@ -240,13 +241,14 @@ sequenceDiagram
   participant Page as LivenessPage (over the dialog, root navigator)
   Sup->>Dlg: user name + password
   Dlg->>Dlg: authenticatePacket (password check)
-  Dlg->>Gate: run(context, SUPERVISOR)
+  Dlg->>Gate: IdentityBinding.run(SUPERVISOR, user name, supervisor_approval)
   Gate->>Page: open
   Page-->>Gate: outcome
+  Gate->>Gate: verifyIdentity (F15: the supervisor's onboarded face)
   alt proceed
     Dlg->>Dlg: submitSelected (approve the selected packets)
-  else cancelled or blocked
-    Dlg-->>Sup: dialog stays open, nothing approved (error text if blocked)
+  else cancelled, blocked or not verified
+    Dlg-->>Sup: dialog stays open, nothing approved (error text if blocked or not verified)
   end
 ```
 
@@ -458,6 +460,42 @@ sequenceDiagram
   - those builds' network security config permits cleartext to these two hosts only. It replaces clientmanager's
     `network_security_config.xml` there and keeps that file's rules.
 
+### (k) Identity binding (F15): the password-only gates
+
+Three gates have no SBI face capture after them: the operator login (b), packet authentication (d) and supervisor
+approval (e). F1 has nothing to bind there, so each of them now calls `IdentityBinding.run` (Dart) instead of
+`LivenessGate.run`:
+1. The liveness gate, as before. Cancelled or blocked: as before.
+2. Pigeon `verifyIdentity(sessionId, userId, gate, attempt)`. On the binding thread:
+   - `LivenessServiceHolder.verifyIdentity` takes the PASSED session's held best frame (`FaceBinding.take`; it is
+     used once);
+   - it reads the user's Face rows of Room `user_biometric`. Onboarding stores each as a bare ISO 19794-5 record
+     (`IdentityTemplates.fromRoom`). Each is decoded as F1 decodes an SBI face: `FaceBDIR`, then
+     `BindingImages.decode`;
+   - Part 2's `FaceMatcher.identify` compares them: the best of several templates, threshold 0.40;
+   - the result is audited (REG-EVT-020).
+3. MATCH, or no readable onboarded face (presence only, unless `requireTemplate=true`): the step goes on.
+4. Otherwise a dialog shows `liveness.error.identity_not_verified` with Retry and Cancel. Retry runs one new liveness
+   session. A second rejection, Cancel, or a rejection a retry cannot fix refuses the step with the same text:
+   - login: logged out, back to the login page;
+   - packet authentication: nothing submitted;
+   - approval: nothing approved.
+
+The similarity reaches Dart only in debug and profile builds; production screens never show a score. Android has no
+failed-login counter for this, and the Room rows have no creation time, so there is no template age in the audit.
+
+**Without a backend (debug and profile builds).** Nobody can log in or onboard on the development phone, so the
+debug page's "Identity binding test (F15)" card exercises the production path:
+- **F15: enroll this face as the test user.** A real Operator gate; its held best frame becomes an ISO 19794-5:2011
+  record holding JPEG 2000, written with MOSIP's own encoder (`FaceEncoder.convertFaceImageToISO19794_5_2011`, with
+  the values its registration path uses) to app-private `files/f15-test-template`. It never leaves the device, and
+  it is never written to the Room database.
+- **F15: identity check as the test user.** A new Operator gate, then the production Pigeon `verifyIdentity`. While
+  it runs, a diagnostics-only override makes the holder read the test template instead of the user's rows. Release
+  builds ignore the override (unit test), and the audit carries `templateSource=diagnostics-test`. The card shows the
+  outcome and the similarity.
+- **F15: delete test template.**
+
 ## 4. Online and offline
 
 | function | needs the network? |
@@ -553,6 +591,9 @@ An invalid analyzer config is logged, and the Android defaults are used instead.
 | `mosip.registration.liveness.face.android.exposureAssist` | true | `false` turns the dim-face exposure assist off |
 | `mosip.registration.liveness.face.binding.enabled` | true | `false`: face captures are stored without face binding, each one audited SKIPPED |
 | `mosip.registration.liveness.face.binding.cosineThreshold` | 0.45 | face binding MATCH at or above this cosine (read by the analyzer config) |
+| `mosip.registration.liveness.face.binding.identity.enabled` | true | F15: `false` skips identity binding after the password-only gates (audited SKIPPED) |
+| `mosip.registration.liveness.face.binding.identity.threshold` | 0.40 | F15: the live face is the onboarded user at or above this cosine (provisional; Part 2 section 12.1) |
+| `mosip.registration.liveness.face.binding.identity.requireTemplate` | false | F15: `true` refuses a user without a readable onboarded face; `false` lets them in on presence alone, audited |
 | `mosip.registration.liveness.model.update.enabled` | false | `true` schedules the online model update (needs the URL) |
 | `mosip.registration.liveness.model.update.url` | none | the index, `latest.json`, over HTTPS |
 | `mosip.registration.liveness.model.update.intervalHours` | 24 | hours between checks (at least 1) |
@@ -592,6 +633,7 @@ engine.
 | REG-EVT-017 | LIVENESS_CONFIG_LOADED | system | a workflow's policy is resolved after start or reload | engine, policy (one-line summary of all policy fields), configError |
 | REG-EVT-018 | LIVENESS_FACE_BINDING | system | an armed SBI face capture was compared with the liveness face (or binding is off: SKIPPED) | outcome (MATCH, NO_MATCH, NO_FACE_A/B, MULTIPLE_FACES_A/B, ERROR, SKIPPED), similarity (2 decimals), threshold |
 | REG-EVT-019 | LIVENESS_MODEL_UPDATE | system | an online model update check finished, or an offline install or rollback from the production page (F17) (module HOME) | online: outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (scheduled, manual, scheduled-offline). F17 (trigger offline or rollback): outcome (INSTALLED, UP_TO_DATE, FAILED, ROLLED_BACK, REFUSED), errorCode (MODEL_INTEGRITY_FAILED for a bad bundle), reason (a `Reason` code, NOT_NEWER, NOTHING_TO_ROLL_BACK or NOT_ALLOWED), fromVersion, toVersion, durationMs, userId, and roleCheck=diagnostics-override when a debug build's override stood in for the role; never a path |
+| REG-EVT-020 | LIVENESS_IDENTITY_BINDING | system | F15: after a password-only gate (login, packet authentication, supervisor approval), the live face was compared with the user's onboarded face (or identity binding is off: SKIPPED) | outcome (MATCH, NO_MATCH, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE, ERROR, SKIPPED), similarity (2 decimals), threshold, gate, attempt (1, or 2 for the retry), userId, templates, unreadable, requireTemplate (when not bound), accepted, and templateSource=diagnostics-test when the debug page's test template stood in; no template age (the Room rows have no creation time); never an image or a template |
 
 **No images.**
 - No audit record contains an image, pixels, landmarks or a face template.
@@ -732,10 +774,10 @@ It shows scores and model versions, but never camera images other than the live 
 
 | suite | tests | covers |
 |---|---|---|
-| `android/liveness` module (JVM) | **105**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10) |
-| Flutter `test/liveness` | **90**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 44 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale (12); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6) |
+| `android/liveness` module (JVM) | **112**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped (6); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
+| Flutter `test/liveness` | **98**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale (12); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8) |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
-| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 238, eval 38 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
+| engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 257, eval 65 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
 
 **Upstream test failures (not ours).** `:clientmanager:testDebugUnitTest` has **14 failing tests
 in upstream v1.1.1**:
@@ -791,12 +833,20 @@ provisional.
   capture handler: it is covered by unit tests (the real matcher, every outcome, exactly-once
   completion) and by the debug page's binding test, which uses the same native binding code and
   the JPEG 2000 decoder. No SBI capture was made.
+- **F15 without onboarded users.** Nobody can onboard without a backend, so the Room templates
+  were never read on the phone.
+  - `IdentityBindingTest` covers the native check on the real matcher, and the Flutter tests cover
+    the retry flow.
+  - The debug page's F15 card runs the production `verifyIdentity` against a test template that it
+    writes with MOSIP's ISO 19794-5 encoder. That record is decoded by the same `FaceBDIR` parser the
+    Room path uses.
+  - The three hooks were checked by code review and the gate's tests only.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
   yet. It was tested against a laptop server (section 10).
 - **Translations.**
-  - The 44 liveness strings are in all six of the client's languages.
+  - The 45 liveness strings are in all six of the client's languages.
   - Arabic, French, Hindi, Kannada and Tamil are machine-translated and need a native speaker's review. Each file
     carries `"@@x-liveness-translation"`.
   - Arabic is laid out right to left. The turn arrows keep pointing to the user's physical left and right.
