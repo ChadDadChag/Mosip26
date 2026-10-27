@@ -46,7 +46,7 @@ import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.DefaultLivenessService;
 import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
 import io.mosip.registration.liveness.device.mock.MockFrameSource;
-import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
+import io.mosip.registration.liveness.device.mock.WebcamGrabbers;
 import io.mosip.registration.liveness.device.sbi.SbiStreamFrameSourceFactory;
 import io.mosip.registration.liveness.fake.FakeLivenessService;
 import io.mosip.registration.liveness.fake.FakeScenario;
@@ -508,7 +508,7 @@ public class DesktopLivenessService {
 
 	private static FrameSource mockSource(String spec) throws Exception {
 		if ("webcam".equalsIgnoreCase(spec)) {
-			return MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), 15.0);
+			return MockFrameSource.ofWebcam(WebcamGrabbers.create(), 15.0); // opencv unless -Dliveness.capture=sarxos
 		}
 		if (spec.toLowerCase(Locale.ROOT).startsWith("video:")) {
 			return MockFrameSource.ofVideoFile(Paths.get(spec.substring(6)), 15.0, true);

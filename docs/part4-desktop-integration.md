@@ -699,6 +699,16 @@ onboarded face:
 **In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 (real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).
 
+**The development webcam (F13b).** The demo and the client's `source=webcam` option use Part 1's `WebcamGrabbers`:
+OpenCV by default, sarxos with `-Dliveness.capture=sarxos`. On 2026-10-27 the demo hung after a `--identity verify`
+when its window closed: sarxos' JVM shutdown hook waited for its own processor threads. Now:
+- with OpenCV, sarxos is never loaded, so it registers no hook;
+- closing the window cancels the session, stops the frame source (which releases the camera), closes the window,
+  then exits through `WebcamGrabbers.exit`. That stops sarxos' discovery if sarxos was used, and a watchdog halts the
+  JVM if a shutdown hook still hangs after 5 s.
+
+`LivenessScreenDemoTest` checks that order without a camera. The live re-check with the webcam is on 2026-10-28.
+
 ## 11. Limitations and open points
 
 **Not verified here:**
