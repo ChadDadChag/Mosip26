@@ -179,11 +179,23 @@ passed.
 
 - `SlideshowSegmenter` cuts the slideshow and cut-out recordings into takes: `screen_photo_multi` and `print_multi`,
   one subject per photographed person.
-- `PadEvaluation`: prints and the many-identity attacks are now evaluated.
-- `BindingEvaluation`, with the new subjects and `--labelled "test images\labels.csv" --labels-confirmed`, plus
-  `--identity --subject-map s02=pXX,...` (the codes from step 27) for the F15 threshold rule
-  (`docs/part2-pad-architecture.md` section 12.1). Take normal#1 is each teammate's enrollment. The rule decides only
-  with at least 3 people and 50 onboarding-like pairs; otherwise it reports "not decidable" and 0.40 stays.
+- **The F9 re-evaluation, one command:**
+
+      scripts\f9-reeval.ps1 -Subjects s01,s02,s03 -SubjectMap s02=pXX,s03=pYY -LabelsConfirmed
+
+  - The codes are the ones from step 27. Pass `-LabelsConfirmed` only if the labels were confirmed before the day.
+  - It runs, in order, and stops at the first step that fails:
+    - the inventory and the consent check (a subject without consent is refused);
+    - `PadEvaluation` (the prints and the many-identity attacks are evaluated too);
+    - `BindingEvaluation --identity` with the labelled photos (take normal#1 is each teammate's enrollment);
+    - the session-guard replays at volatility 0.85 and 0.80.
+  - It applies the decision rules R0–R5, which are fixed in the script before the data, and writes
+    `eval-data\reports\f9-<time>\summary.md`: aggregates and codes only.
+  - The F15 rule decides only with at least 3 people and 50 onboarding-like pairs; otherwise 0.40 stays. An F18
+    change needs at least 3 subjects.
+- **With the summary**, Claude reports its decision lines to the planner. The updates to
+  `docs/part2-iso30107-evaluation.md` and `docs/part2-pad-architecture.md` are then a separate commit, after the
+  planner's review. No rule is changed after the data is seen.
 - The multi-face result per case, from the session log: outcome, time to the first failure and codes. Aggregates only.
 - The F16 commit.
 - The banding result.
