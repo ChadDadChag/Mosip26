@@ -57,16 +57,19 @@ diff --git a/desktop-integration/README.md b/desktop-integration/README.md
 new file mode 100644
 --- /dev/null
 +++ b/desktop-integration/README.md
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,21 @@
 +# Part 4: Desktop integration patch
 +
 +`person4-desktop.diff` is every Part 4 change as one diff, relative to `registration-client/registration` at
-+v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 66 text files:
++v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 67 text files:
 +- new liveness classes, tests and docs;
 +- the liveness block appended to the Arabic and French message bundles, and two tile titles appended to the label
 +  bundles;
 +- small additive hooks in existing client classes: the home page's operational tasks (offline model install and
 +  rollback, F17), and the password login's identity check (F15).
++
++The `registration-services` pom section and the root README section hold Part 4's changes only; Part 1's own
++additions there (the OpenCV dependency of F13b, its README rows) come with the repository copy.
 +
 +The 14 screen images in `docs/images/part4/` are binary and are shipped as files, not in the diff.
 +
@@ -80,7 +83,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,755 @@
+@@ -0,0 +1,765 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -781,6 +784,16 @@ new file mode 100644
 +
 +**In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 +(real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).
++
++**The development webcam (F13b).** The demo and the client's `source=webcam` option use Part 1's `WebcamGrabbers`:
++OpenCV by default, sarxos with `-Dliveness.capture=sarxos`. On 2026-10-27 the demo hung after a `--identity verify`
++when its window closed: sarxos' JVM shutdown hook waited for its own processor threads. Now:
++- with OpenCV, sarxos is never loaded, so it registers no hook;
++- closing the window cancels the session, stops the frame source (which releases the camera), closes the window,
++  then exits through `WebcamGrabbers.exit`. That stops sarxos' discovery if sarxos was used, and a watchdog halts the
++  JVM if a shutdown hook still hangs after 5 s.
++
++`LivenessScreenDemoTest` checks that order without a camera. The live re-check with the webcam is on 2026-10-28.
 +
 +## 11. Limitations and open points
 +
@@ -3942,7 +3955,7 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
-@@ -0,0 +1,381 @@
+@@ -0,0 +1,392 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.awt.image.BufferedImage;
@@ -3960,6 +3973,7 @@ new file mode 100644
 +import java.util.concurrent.CountDownLatch;
 +import java.util.concurrent.atomic.AtomicReference;
 +import java.util.function.Consumer;
++import java.util.function.IntConsumer;
 +
 +import javax.imageio.ImageIO;
 +
@@ -3989,7 +4003,7 @@ new file mode 100644
 +import io.mosip.registration.liveness.desktop.DesktopLivenessConfig;
 +import io.mosip.registration.liveness.desktop.IdentityBinding;
 +import io.mosip.registration.liveness.device.mock.MockFrameSource;
-+import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
++import io.mosip.registration.liveness.device.mock.WebcamGrabbers;
 +import io.mosip.registration.liveness.device.util.PreviewFrameSource;
 +import io.mosip.registration.liveness.fake.FakeLivenessService;
 +import io.mosip.registration.liveness.fake.FakeScenario;
@@ -4067,6 +4081,18 @@ new file mode 100644
 +		});
 +	}
 +
++	/**
++	 * Ends the demo in an order that leaves nothing for a webcam shutdown hook (F13b; sarxos' hook hung the JVM after a
++	 * verify): the session, then the frame source (which releases the camera), then the window and JavaFX, then the
++	 * JVM through {@link WebcamGrabbers#exit}, whose watchdog halts it if a shutdown hook still hangs.
++	 */
++	static void shutdown(LivenessSession session, FrameSource source, Runnable closeWindow, IntConsumer exit,
++			IntConsumer halt) {
++		session.cancel();
++		WebcamGrabbers.exit(0, WebcamGrabbers.EXIT_GRACE_MS, Arrays.<AutoCloseable>asList(source::stop,
++				closeWindow::run), exit, halt);
++	}
++
 +	/** The test template's file; refused outside an eval-data folder, so a face can never land in a tracked path. */
 +	static File templateFile(String path) throws IOException {
 +		File f = new File(path == null ? DEFAULT_TEMPLATE : path);
@@ -4091,7 +4117,7 @@ new file mode 100644
 +			service = DefaultLivenessService.builder().config(config).analyzerFactory(analyzers)
 +					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
 +			device = live.startsWith("video:") ? MockFrameSource.ofVideoFile(Paths.get(live.substring(6)), 15.0, true)
-+					: MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), 15.0);
++					: MockFrameSource.ofWebcam(WebcamGrabbers.create(), 15.0); // opencv unless -Dliveness.capture=sarxos
 +		} else {
 +			service = FakeLivenessService.builder(config)
 +					.scenario(scenario == null ? FakeScenario.RANDOM : FakeScenario.valueOf(scenario.toUpperCase()))
@@ -4119,12 +4145,10 @@ new file mode 100644
 +		view.setOnRetry(session::retry);
 +		view.setOnCancel(session::cancel);
 +		view.setOnClose(stage::close);
-+		stage.setOnHidden(e -> {
-+			session.cancel();
++		stage.setOnHidden(e -> shutdown(session, source, () -> {
 +			view.dispose();
 +			Platform.exit();
-+			System.exit(0);
-+		});
++		}, System::exit, status -> Runtime.getRuntime().halt(status)));
 +		stage.show();
 +		final OnnxFaceAnalyzerFactory matchers = analyzers;
 +		session.start(source, new LivenessListener() {
@@ -4322,6 +4346,81 @@ new file mode 100644
 +			}
 +		}
 +		return new Frame(rgb, w, h, 0, 0, "demo");
++	}
++}
+diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemoTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemoTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemoTest.java
+@@ -0,0 +1,70 @@
++package io.mosip.registration.controller.liveness;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
++
++import java.io.File;
++import java.lang.reflect.Proxy;
++import java.util.Arrays;
++import java.util.List;
++import java.util.concurrent.CopyOnWriteArrayList;
++
++import org.junit.Test;
++
++import io.mosip.registration.liveness.api.FrameSource;
++import io.mosip.registration.liveness.api.LivenessSession;
++
++/** The screen demo's exit order (F13b) and its F15 test-template path guard; no camera, no JavaFX window. */
++public class LivenessScreenDemoTest {
++
++	private final List<String> steps = new CopyOnWriteArrayList<>();
++
++	@Test
++	public void theCameraIsReleasedBeforeTheJvmExits() {
++		LivenessSession session = (LivenessSession) Proxy.newProxyInstance(getClass().getClassLoader(),
++				new Class<?>[] { LivenessSession.class }, (proxy, method, args) -> {
++					steps.add(method.getName() + " session");
++					return null;
++				});
++		FrameSource camera = new FrameSource() {
++			@Override
++			public DeviceInfo info() {
++				return null;
++			}
++
++			@Override
++			public void start(Listener listener) {
++			}
++
++			@Override
++			public void stop() {
++				steps.add("stop camera");
++			}
++
++			@Override
++			public boolean isRunning() {
++				return true;
++			}
++		};
++		LivenessScreenDemo.shutdown(session, camera, () -> steps.add("close window"), s -> steps.add("exit " + s),
++				s -> steps.add("halt " + s));
++		assertEquals(Arrays.asList("cancel session", "stop camera", "close window", "exit 0"), steps);
++	}
++
++	@Test
++	public void theTestTemplateStaysUnderEvalData() throws Exception {
++		File inside = LivenessScreenDemo.templateFile(null);
++		assertTrue(inside.getPath(), inside.getPath().replace('\\', '/').endsWith("eval-data/f15/test-template.iso"));
++		assertTrue(LivenessScreenDemo.templateFile("eval-data/f15/other.iso").getPath().contains("eval-data"));
++		for (String outside : new String[] { "test-template.iso", "docs/f15/test-template.iso",
++				new File(System.getProperty("java.io.tmpdir"), "t.iso").getPath() }) {
++			try {
++				LivenessScreenDemo.templateFile(outside);
++				fail("accepted " + outside);
++			} catch (IllegalArgumentException e) {
++				assertTrue(e.getMessage(), e.getMessage().contains("eval-data"));
++			}
++		}
 +	}
 +}
 diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenModelTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenModelTest.java
@@ -5496,7 +5595,7 @@ new file mode 100644
 +import io.mosip.registration.liveness.core.DefaultLivenessService;
 +import io.mosip.registration.liveness.core.metrics.LivenessMetrics;
 +import io.mosip.registration.liveness.device.mock.MockFrameSource;
-+import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
++import io.mosip.registration.liveness.device.mock.WebcamGrabbers;
 +import io.mosip.registration.liveness.device.sbi.SbiStreamFrameSourceFactory;
 +import io.mosip.registration.liveness.fake.FakeLivenessService;
 +import io.mosip.registration.liveness.fake.FakeScenario;
@@ -5958,7 +6057,7 @@ new file mode 100644
 +
 +	private static FrameSource mockSource(String spec) throws Exception {
 +		if ("webcam".equalsIgnoreCase(spec)) {
-+			return MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), 15.0);
++			return MockFrameSource.ofWebcam(WebcamGrabbers.create(), 15.0); // opencv unless -Dliveness.capture=sarxos
 +		}
 +		if (spec.toLowerCase(Locale.ROOT).startsWith("video:")) {
 +			return MockFrameSource.ofVideoFile(Paths.get(spec.substring(6)), 15.0, true);
