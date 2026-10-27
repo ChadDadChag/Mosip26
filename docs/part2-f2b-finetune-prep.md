@@ -21,7 +21,10 @@ ship only as a newly signed bundle (`pad-2026.10.9` or later).
 - **Labels.** Silent-Face's three-class head: bona fide 1 (the engine reads `softmax[1]`), prints 0, screens 2.
 - **Folds: leave one subject out.** A subject is the person whose face the take shows:
   - the participant's bona fide takes and their own photos are `sNN`;
-  - a photographed person is their `pXX`, `qXX` or `uXX`.
+  - a photographed person is their `pXX`, `qXX` or `uXX`;
+  - a teammate who is also a photographed person has both codes. `--subject-map s02=p05,...` (the same entries as
+    BindingEvaluation's) makes them one fold, `s02+p05`, so that face is never on both sides. Without a map, the
+    report warns when teammates and photographed people both appear.
 - **Each fold.**
   - Training starts from the released weights. It uses cross-entropy, class-balanced sampling, and a flip and
     brightness/contrast augmentation.
@@ -39,6 +42,7 @@ Run it from the Mosip26 root, in the `mosip-liveness` venv:
     python -I models/tools/finetune_minifasnet.py --self-test
     python -I models/tools/finetune_minifasnet.py --data eval-data --out eval-data/f2b/dryrun --dry-run
     python -I models/tools/finetune_minifasnet.py --data eval-data --out eval-data/f2b/run-<date> --model both --epochs 3
+        [--subject-map s02=p05,...]
 
 ## Privacy
 

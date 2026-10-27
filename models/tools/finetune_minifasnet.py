@@ -6,7 +6,7 @@ after the F9 teammate data (docs/part2-f2b-finetune-prep.md).
     python -I models/tools/finetune_minifasnet.py --data eval-data --out eval-data/f2b/<run>
         [--weights-dir models/tools/.cache] [--model v2|v1se|both] [--epochs 3] [--batch 32] [--lr 1e-4]
         [--frame-step 3] [--max-frames 40] [--threads 2] [--head-only] [--folds s01,p05] [--max-folds N]
-        [--save-weights] [--dry-run]
+        [--subject-map s02=p05,...] [--save-weights] [--dry-run]
     python -I models/tools/finetune_minifasnet.py --self-test
 
 Data: the eval-data takes as DatasetRecorder writes them (bona_fide/<subject>/<take>/ and
@@ -20,6 +20,8 @@ Folds: leave one subject out. A subject is the person whose face the take shows:
 - bona fide sNN;
 - for an attack, its subject code: the participant's own photos are theirs, and a photographed person is their
   pXX, qXX or uXX.
+A teammate sNN who is also a photographed person pNN is one person: --subject-map s02=p05 (as BindingEvaluation takes
+it) holds out both codes in one fold, "s02+p05". Without it, that face would be on both sides of a fold.
 Each fold fine-tunes the released weights on every other subject and evaluates on the held-out one. The released
 weights are evaluated on the same frames for comparison. A fold is skipped, and reported, when its training set lacks
 bona fide or attack frames, or when nothing is held out.
@@ -36,6 +38,7 @@ written only with --save-weights, also under --out.
 import argparse
 import math
 import random
+import re
 import statistics
 import sys
 import time
@@ -129,15 +132,39 @@ def crops(takes, scale, step, limit, yunet):
     return out, skipped
 
 
-def folds(takes, only=None):
-    """Leave one subject out: [(held-out subject, train takes, test takes, reason to skip or None)]."""
-    subjects = sorted({t.subject for t in takes})
+def subject_map(spec):
+    """--subject-map s02=p05,s03=p11, as BindingEvaluation takes it: the recorded subject sNN is the photographed
+    person pNN. {code: the person's fold, named by the sNN}. Codes only: anything but sNN=pNN is refused."""
+    person = {}
+    for part in (p.strip() for p in (spec or "").split(",")):
+        if not part:
+            continue
+        if not re.fullmatch(r"s\d\d=p\d\d", part):
+            raise SystemExit(f"--subject-map: expected sNN=pNN entries, got '{part}'")
+        s, p = part.split("=")
+        if s in person or p in person:
+            raise SystemExit(f"--subject-map: {part} repeats a subject or a person")
+        person[s] = person[p] = s
+    return person
+
+
+def folds(takes, only=None, person=None):
+    """Leave one person out: [(held-out codes, train takes, test takes, reason to skip or None)]. person (from
+    subject_map) joins a subject's codes, so one person's bona fide takes and photographed attacks are held out
+    together; without it, each code is a person."""
+    person = person or {}
+
+    def of(code):
+        return person.get(code, code)
+
+    people = sorted({of(t.subject) for t in takes})
     if only:
-        subjects = [s for s in subjects if s in only]
+        people = [p for p in people if p in only or any(of(c) == p for c in only)]
     result = []
-    for held in subjects:
-        train = [t for t in takes if t.subject != held]
-        test = [t for t in takes if t.subject == held]
+    for held in people:
+        train = [t for t in takes if of(t.subject) != held]
+        test = [t for t in takes if of(t.subject) == held]
+        name = "+".join(sorted({t.subject for t in test} | {held}, key=lambda c: (c != held, c)))
         reason = None
         if not any(t.label == REAL for t in train):
             reason = "no bona fide takes left to train on"
@@ -145,7 +172,7 @@ def folds(takes, only=None):
             reason = "no attack takes left to train on"
         elif not test:
             reason = "nothing held out"
-        result.append((held, train, test, reason))
+        result.append((name, train, test, reason))
     return result
 
 
@@ -265,6 +292,17 @@ COLUMNS = ("bona fide: no passive pass (< 0.85)", "bona fide: rejected (< 0.30)"
            "attacks: passive pass (>= 0.85)", "attacks: not rejected (>= 0.30)", "attacks: mean score")
 
 
+def map_line(person, codes):
+    """The report's subject map line; without a map, a warning when teammates and photographed people both appear."""
+    if person:
+        return "- Subject map: " + ", ".join(f"{s}={p}" for p, s in sorted(person.items()) if p != s) + \
+            " (each pair is one fold)."
+    if any(c.startswith("p") for c in codes) and sum(c.startswith("s") for c in codes) > 1:
+        return ("- Subject map: none. If a teammate sNN is also a photographed person pNN, that face is on both sides "
+                "of a fold: pass --subject-map.")
+    return "- Subject map: none."
+
+
 def inside_eval_data(path):
     return "eval-data" in Path(path).resolve().parts
 
@@ -279,9 +317,10 @@ def run(args):
     takes = scan(data)
     if not takes:
         raise SystemExit(f"no takes under {data}")
+    person = subject_map(args.subject_map)
     yunet = rp.YuNet(rp.MODELS / rp.YUNET_FILE, args.threads)
     only = set(args.folds.split(",")) if args.folds else None
-    plan = folds(takes, only)
+    plan = folds(takes, only, person)
     if args.max_folds:
         runnable = [f for f in plan if f[3] is None][:args.max_folds]
         plan = [f for f in plan if f[3] is not None] + runnable
@@ -293,7 +332,8 @@ def run(args):
              f"{'head only' if args.head_only else 'all layers'}, every {args.frame_step}th frame, at most "
              f"{args.max_frames} frames per take, {args.threads} threads, seed {args.seed}.",
              f"- Takes: {sum(t.label == REAL for t in takes)} bona fide, {sum(t.label == PRINT for t in takes)} print, "
-             f"{sum(t.label == SCREEN for t in takes)} screen; {len({t.subject for t in takes})} subjects."]
+             f"{sum(t.label == SCREEN for t in takes)} screen; {len({t.subject for t in takes})} subjects.",
+             map_line(person, {t.subject for t in takes})]
     for name in (["v2", "v1se"] if args.model == "both" else [args.model]):
         spec = MODELS[name]
         t0 = time.time()
@@ -358,6 +398,24 @@ def self_test():
     assert lone[1][3] == "no bona fide takes left to train on", lone
     assert [f[0] for f in folds(takes, {"p05"})] == ["p05"]
 
+    # A teammate (s02) who is also a photographed person (p05): without the map, holding out s02 trains on p05's
+    # attack, the same face (task 19 review). With it, the person is one fold.
+    person = subject_map("s02=p05")
+    mapped = {h: (sorted(t.subject for t in tr), sorted(t.subject for t in te), r) for h, tr, te, r in
+              folds(takes, None, person)}
+    assert set(mapped) == {"s01", "s02+p05"}, mapped
+    assert mapped["s02+p05"] == (["s01", "s01"], ["p05", "s02"], None), mapped
+    assert [f[0] for f in folds(takes, {"p05"}, person)] == ["s02+p05"]
+    assert map_line(person, {"s01", "s02", "p05"}) == "- Subject map: s02=p05 (each pair is one fold)."
+    assert "pass --subject-map" in map_line({}, {"s01", "s02", "p05"})
+    assert map_line({}, {"s01", "p05"}) == "- Subject map: none."
+    for bad in ("s02=Alice", "s2=p05", "p05=s02", "s02=p05,s03=p05", "s02=p05,s02=p06"):
+        try:
+            subject_map(bad)
+            raise AssertionError(f"--subject-map {bad} accepted")
+        except SystemExit:
+            pass
+
     tally = Tally()
     for v in (0.95, 0.50, 0.10):
         tally.add(REAL, v)
@@ -396,6 +454,7 @@ def main():
     ap.add_argument("--seed", type=int, default=20261027)
     ap.add_argument("--head-only", action="store_true", help="train only the classifier head")
     ap.add_argument("--folds", help="held-out subjects to run, comma-separated (default: all)")
+    ap.add_argument("--subject-map", help="sNN=pNN,...: a teammate who is also a photographed person, held out as one")
     ap.add_argument("--max-folds", type=int, default=0, help="run at most this many trainable folds")
     ap.add_argument("--save-weights", action="store_true", help="write each fold's weights under --out")
     ap.add_argument("--dry-run", action="store_true",
