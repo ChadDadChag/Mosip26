@@ -1,0 +1,42 @@
+From 7bf00d0ce53ce3f168e853e382965e7a38ba5dad Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 03:33:48 +0530
+Subject: [PATCH 48/48] Sync the liveness engine: F15 NaN similarity and
+ identity threshold floor (task 19 review)
+
+Engine jars from Mosip26 9a72eb6 (f15-identity-binding: "F15 engine: a NaN
+similarity blocks, and the identity threshold has a floor of 0.30"):
+- FaceMatcher.identify: a readable template whose similarity is not a
+  finite number is NO_MATCH, no longer NOT_BOUND_UNREADABLE (which the
+  gate accepted on presence);
+- AnalyzerConfig: the identity threshold must be in [0.30, 1.0]. On
+  Android an out-of-range value makes analyzerConfig fall back to the
+  Android defaults (0.40), as for any invalid analyzer key.
+The models and CameraXFrameSource.java are unchanged (same SHA-256).
+
+:liveness:testDebugUnitTest: 113 tests, all passing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index df6856b..650de2d 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,9 +1,9 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit f44506d
+-libs/liveness-api-1.2.0.2.jar 7183e8177edc697bb3a1c2fcc60957ce3ee3d823b5a9ddd8c06bf74532dca708
+-libs/liveness-core-1.2.0.2.jar 8d5417f3fdb6d9e49194a572809b54a5427d7c7a568a4af6db6f6c4af360b317
+-libs/liveness-fake-1.2.0.2.jar 2e9305f49b1f278a1cc16896813ea37b4d3476c5d3f9aea2b73ae016771fb245
+-libs/liveness-analyzer-1.2.0.2.jar 359d14d3026d84af08999ef5865a5a1c0fe4f6d892e335746293a73903abdb87
++engine commit 9a72eb6
++libs/liveness-api-1.2.0.2.jar 8afcd23e6b2835629216d5d7ee02e627f4e94b04e9714bf1e8c643a6ee67af8b
++libs/liveness-core-1.2.0.2.jar 542ac4ab9cfad3f990fcbba83ed42672f6d7ded8aa23dd2739bb20738c3a1672
++libs/liveness-fake-1.2.0.2.jar 7a60dba0fb88d1c2afc8cb903083140cb64eef50a89936c56bcc081551068ca8
++libs/liveness-analyzer-1.2.0.2.jar c9937eab042bee8adf020a27c98ca515b6f4c50ae93a881ced4b8069d086fa14
+ assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
+ assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
+ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0

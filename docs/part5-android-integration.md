@@ -855,6 +855,8 @@ provisional.
     writes with MOSIP's ISO 19794-5 encoder. That record is decoded by the same `FaceBDIR` parser the
     Room path uses.
   - The three hooks were checked by code review and the gate's tests only.
+- **F15, faces onboarded before the user id fix (task 19).** Faces onboarded before this fix are stored under an
+  empty user id; the operator must onboard again.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles

@@ -127,7 +127,7 @@ index 7004ae5..906e1d9 100644
          android:label="Registration Client"
          android:name="${applicationName}"
 diff --git a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
-index 2b9c15b..76fef4d 100644
+index 2b9c15b..fe8e63b 100644
 --- a/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
 +++ b/android/app/src/main/java/io/mosip/registration_client/HostApiModule.java
 @@ -20,6 +20,7 @@ import dagger.Module;
@@ -165,7 +165,7 @@ index 2b9c15b..76fef4d 100644
  
      }
  
-@@ -286,5 +289,19 @@ public class HostApiModule {
+@@ -286,5 +289,20 @@ public class HostApiModule {
      SecureScreenApi getSecureScreenApi() {
          return new SecureScreenApi();
      }
@@ -180,8 +180,9 @@ index 2b9c15b..76fef4d 100644
 +
 +    @Provides
 +    @Singleton
-+    LivenessApi getLivenessApi(LivenessServiceHolder livenessServiceHolder, UserBiometricDao userBiometricDao) {
-+        return new LivenessApi(livenessServiceHolder, userBiometricDao);
++    LivenessApi getLivenessApi(LivenessServiceHolder livenessServiceHolder, UserBiometricDao userBiometricDao,
++                               LoginService loginService) {
++        return new LivenessApi(livenessServiceHolder, userBiometricDao, loginService);
 +    }
  }
  
@@ -491,10 +492,10 @@ index 0000000..fd8a9e5
 +}
 diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
 new file mode 100644
-index 0000000..d30302f
+index 0000000..4ccab07
 --- /dev/null
 +++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
-@@ -0,0 +1,874 @@
+@@ -0,0 +1,895 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -541,6 +542,7 @@ index 0000000..d30302f
 +import io.flutter.plugin.common.EventChannel;
 +import io.mosip.registration.clientmanager.config.SessionManager;
 +import io.mosip.registration.clientmanager.dao.UserBiometricDao;
++import io.mosip.registration.clientmanager.service.LoginService;
 +import io.mosip.registration.liveness.android.AnalyzerBenchmark;
 +import io.mosip.registration.liveness.android.BestFrameEncoder;
 +import io.mosip.registration.liveness.android.BindingImages;
@@ -613,11 +615,14 @@ index 0000000..d30302f
 +
 +    // F15: the onboarded faces (Room user_biometric).
 +    private final UserBiometricDao userBiometrics;
++    // F15: a rejected identity check at the password login is a failed login (the login lockout counts it).
++    private final LoginService loginService;
 +
 +    @Inject
-+    public LivenessApi(LivenessServiceHolder holder, UserBiometricDao userBiometrics) {
++    public LivenessApi(LivenessServiceHolder holder, UserBiometricDao userBiometrics, LoginService loginService) {
 +        this.holder = holder;
 +        this.userBiometrics = userBiometrics;
++        this.loginService = loginService;
 +    }
 +
 +    public void setCallbackActivity(MainActivity activity) {
@@ -1113,13 +1118,30 @@ index 0000000..d30302f
 +                               @NonNull Long attempt,
 +                               @NonNull LivenessPigeon.Result<LivenessPigeon.IdentityCheckInfo> result) {
 +        holder.bindingWorker().execute(() -> {
-+            IdentityBinding.Result r = holder.verifyIdentity(sessionId, userId, gate, attempt.intValue());
-+            Log.i(TAG, "identity binding " + r + " for session " + sessionId + " (" + gate + ", attempt " + attempt + ")");
-+            LivenessPigeon.IdentityCheckInfo info = new LivenessPigeon.IdentityCheckInfo.Builder()
-+                    .setOutcome(r.outcome).setAccepted(r.accepted).setRetryable(r.retryable)
-+                    .setSimilarity(BuildConfig.LIVENESS_DIAGNOSTICS ? r.similarity : Double.NaN)
-+                    .setThreshold(r.threshold).build();
-+            main.post(() -> result.success(info));
++            LivenessPigeon.IdentityCheckInfo info;
++            try {
++                IdentityBinding.Result r = holder.verifyIdentity(sessionId, userId, gate, attempt.intValue());
++                Log.i(TAG, "identity binding " + r + " for session " + sessionId + " (" + gate + ", attempt " + attempt + ")");
++                info = new LivenessPigeon.IdentityCheckInfo.Builder()
++                        .setOutcome(r.outcome).setAccepted(r.accepted).setRetryable(r.retryable)
++                        .setSimilarity(BuildConfig.LIVENESS_DIAGNOSTICS ? r.similarity : Double.NaN)
++                        .setThreshold(r.threshold).build();
++            } catch (Throwable t) {
++                // An Error (out of memory on a bad template) must refuse the gate, not leave it waiting.
++                Log.e(TAG, "identity binding failed: " + t.getClass().getSimpleName());
++                info = new LivenessPigeon.IdentityCheckInfo.Builder()
++                        .setOutcome("ERROR").setAccepted(false).setRetryable(false)
++                        .setSimilarity(Double.NaN).setThreshold(Double.NaN).build();
++            }
++            if (IdentityBinding.countsAsFailedLogin(gate, attempt.intValue(), info.getAccepted())) {
++                try {
++                    loginService.recordFailedLoginAttempt(userId);
++                } catch (RuntimeException e) {
++                    Log.e(TAG, "failed login not recorded: " + e.getClass().getSimpleName());
++                }
++            }
++            final LivenessPigeon.IdentityCheckInfo answer = info;
++            main.post(() -> result.success(answer));
 +        });
 +    }
 +
@@ -1474,7 +1496,7 @@ index 0000000..2ba2b5e
 +    </domain-config>
 +</network-security-config>
 diff --git a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
-index da20765..c264740 100644
+index da20765..e0f1d81 100644
 --- a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
 +++ b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
 @@ -20,6 +20,8 @@ public class SessionManager {
@@ -1486,7 +1508,15 @@ index da20765..c264740 100644
      public static final String USER_NAME = "user_name";
      public static final String USER_ID = "user_id";
      public static final String USER_TOKEN = "user_token";
-@@ -75,10 +77,22 @@ public class SessionManager {
+@@ -70,15 +72,30 @@ public class SessionManager {
+         editor.putString(USER_TOKEN, token);
+         editor.putString(USER_NAME, jwt.getClaim(USERNAME).asString());
+         editor.putString(PREFERRED_USERNAME, jwt.getClaim(PREFERRED_USERNAME).asString());
++        // The user id that operator onboarding stores the biometrics under (and IDA and the user details use): the
++        // preferred user name. Nothing set it before, so every onboarded face was stored under "" and F15 found none.
++        editor.putString(USER_ID, jwt.getClaim(PREFERRED_USERNAME).asString());
+         editor.putString(USER_EMAIL, jwt.getClaim(EMAIL).asString());
+         editor.putBoolean(IS_SUPERVISOR, roles.contains("REGISTRATION_SUPERVISOR"));
          editor.putBoolean(IS_DEFAULT, roles.contains("Default"));
          editor.putBoolean(IS_OFFICER, roles.contains("REGISTRATION_OFFICER"));
          editor.putBoolean(IS_OPERATOR, roles.contains("REGISTRATION_OPERATOR"));
@@ -1509,7 +1539,13 @@ index da20765..c264740 100644
      public String fetchAuthToken() {
          return this.context.getSharedPreferences(this.context.getString(R.string.app_name),
                  Context.MODE_PRIVATE).getString(USER_TOKEN, null);
-@@ -106,6 +120,7 @@ public class SessionManager {
+@@ -101,11 +118,13 @@ public class SessionManager {
+         editor.remove(USER_TOKEN);
+         editor.remove(USER_NAME);
+         editor.remove(PREFERRED_USERNAME);
++        editor.remove(USER_ID);
+         editor.remove(USER_EMAIL);
+         editor.remove(IS_SUPERVISOR);
          editor.remove(IS_DEFAULT);
          editor.remove(IS_OFFICER);
          editor.remove(IS_OPERATOR);
@@ -1594,6 +1630,39 @@ index af69284..6227e00 100644
      }
  
      public Map<String, Map<String, Map<String, String>>> getBiometricProviderConfig() {
+diff --git a/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java b/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java
+index 872d449..4e316eb 100644
+--- a/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java
++++ b/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java
+@@ -87,6 +87,28 @@ public class SessionManagerTest {
+         }
+     }
+ 
++    @Test
++    public void saveAuthToken_storesTheUserIdThatOnboardingUses_andClearRemovesIt() throws Exception {
++        // F15: operator onboarding stores the face under the USER_ID preference; it must be the logged-in user.
++        Map<String, Object> realmAccess = new HashMap<>();
++        realmAccess.put("roles", Arrays.asList("REGISTRATION_OFFICER", "REGISTRATION_OPERATOR"));
++        Claim other = mockClaim("other"), roles = mockClaim(realmAccess), user = mockClaim("operator1");
++        try (MockedConstruction<JWT> jwtMock = Mockito.mockConstruction(JWT.class, (mock, context) -> {
++            lenient().when(mock.isExpired(15)).thenReturn(false);
++            lenient().when(mock.getClaim(anyString())).thenReturn(other);
++            lenient().when(mock.getClaim(eq("realm_access"))).thenReturn(roles);
++            lenient().when(mock.getClaim(eq("preferred_username"))).thenReturn(user);
++        })) {
++            SessionManager manager = SessionManager.getSessionManager(mockContext);
++            manager.saveAuthToken("valid.token");
++            verify(mockEditor).putString(SessionManager.USER_ID, "operator1");
++            verify(mockEditor).putString(SessionManager.PREFERRED_USERNAME, "operator1");
++
++            manager.clearAuthToken();
++            verify(mockEditor).remove(SessionManager.USER_ID);
++        }
++    }
++
+     private Claim mockClaim(Object value) {
+         Claim claim = mock(Claim.class);
+         if (value instanceof String) {
 diff --git a/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/repository/GlobalParamRepositoryRefreshListenerTest.java b/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/repository/GlobalParamRepositoryRefreshListenerTest.java
 new file mode 100644
 index 0000000..df1b2f0
@@ -1762,16 +1831,16 @@ index 0000000..686d49a
 +-keep class ai.onnxruntime.** { *; }
 diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
 new file mode 100644
-index 0000000..df6856b
+index 0000000..650de2d
 --- /dev/null
 +++ b/android/liveness/engine-sync.txt
 @@ -0,0 +1,14 @@
 +# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
-+engine commit f44506d
-+libs/liveness-api-1.2.0.2.jar 7183e8177edc697bb3a1c2fcc60957ce3ee3d823b5a9ddd8c06bf74532dca708
-+libs/liveness-core-1.2.0.2.jar 8d5417f3fdb6d9e49194a572809b54a5427d7c7a568a4af6db6f6c4af360b317
-+libs/liveness-fake-1.2.0.2.jar 2e9305f49b1f278a1cc16896813ea37b4d3476c5d3f9aea2b73ae016771fb245
-+libs/liveness-analyzer-1.2.0.2.jar 359d14d3026d84af08999ef5865a5a1c0fe4f6d892e335746293a73903abdb87
++engine commit 9a72eb6
++libs/liveness-api-1.2.0.2.jar 8afcd23e6b2835629216d5d7ee02e627f4e94b04e9714bf1e8c643a6ee67af8b
++libs/liveness-core-1.2.0.2.jar 542ac4ab9cfad3f990fcbba83ed42672f6d7ded8aa23dd2739bb20738c3a1672
++libs/liveness-fake-1.2.0.2.jar 7a60dba0fb88d1c2afc8cb903083140cb64eef50a89936c56bcc081551068ca8
++libs/liveness-analyzer-1.2.0.2.jar c9937eab042bee8adf020a27c98ca515b6f4c50ae93a881ced4b8069d086fa14
 +assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
 +assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
 +assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
@@ -2894,10 +2963,10 @@ index 0000000..eab4a06
 +}
 diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
 new file mode 100644
-index 0000000..d6ca0ea
+index 0000000..88a1538
 --- /dev/null
 +++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,198 @@
 +package io.mosip.registration.liveness.android;
 +
 +import java.util.ArrayList;
@@ -2972,6 +3041,18 @@ index 0000000..d6ca0ea
 +        public String toString() {
 +            return outcome + (accepted ? " (accepted)" : retryable ? " (rejected, retryable)" : " (rejected)");
 +        }
++    }
++
++    /** The operator's password login: the gate whose rejections count as failed logins. */
++    public static final String PASSWORD_LOGIN = "password_login";
++
++    /**
++     * Whether a check counts as a failed login: a rejection on the first attempt of the password login. It counts
++     * once per login, also when the retry is then cancelled or rejected again, so a person who has the password
++     * cannot probe faces without the login lockout seeing it (as on Desktop, where a rejection is a failed login).
++     */
++    public static boolean countsAsFailedLogin(String gate, int attempt, boolean accepted) {
++        return PASSWORD_LOGIN.equals(gate) && attempt == 1 && !accepted;
 +    }
 +
 +    private final FaceBinding binding;
@@ -5546,10 +5627,10 @@ index 0000000..e9bff1b
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
 new file mode 100644
-index 0000000..3004080
+index 0000000..9496d03
 --- /dev/null
 +++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
-@@ -0,0 +1,183 @@
+@@ -0,0 +1,194 @@
 +package io.mosip.registration.liveness.android;
 +
 +import org.junit.AfterClass;
@@ -5646,6 +5727,17 @@ index 0000000..3004080
 +        assertEquals("NO_LIVE_FRAME", again.outcome);
 +        assertFalse(again.accepted);
 +        assertTrue(again.retryable);
++    }
++
++    @Test
++    public void aRejectionOnTheFirstPasswordLoginAttemptCountsAsOneFailedLogin() {
++        // Counted at the first rejection, so cancelling the retry cannot avoid the login lockout.
++        assertTrue(IdentityBinding.countsAsFailedLogin(IdentityBinding.PASSWORD_LOGIN, 1, false));
++        assertFalse("counted once per login", IdentityBinding.countsAsFailedLogin(IdentityBinding.PASSWORD_LOGIN, 2, false));
++        assertFalse(IdentityBinding.countsAsFailedLogin(IdentityBinding.PASSWORD_LOGIN, 1, true));
++        assertFalse("only the login", IdentityBinding.countsAsFailedLogin("packet_auth", 1, false));
++        assertFalse(IdentityBinding.countsAsFailedLogin("supervisor_approval", 1, false));
++        assertFalse(IdentityBinding.countsAsFailedLogin(null, 1, false));
 +    }
 +
 +    @Test
@@ -29598,10 +29690,10 @@ index 0000000..790e511
 +}
 diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
 new file mode 100644
-index 0000000..ff607bf
+index 0000000..7413816
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_page.dart
-@@ -0,0 +1,759 @@
+@@ -0,0 +1,784 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -29901,6 +29993,26 @@ index 0000000..ff607bf
 +
 +  Widget _content(AppLocalizations l, LivenessViewState s, Color tone) {
 +    return LayoutBuilder(builder: (context, c) {
++      // A landscape phone or a text scale above 1.3: the page scrolls, with a camera card of a fixed size, so nothing
++      // overflows and the preview never collapses. The fixed layout below is for portrait up to 1.3 (spec §9).
++      if (c.maxHeight < LivenessStyle.compactHeight ||
++          MediaQuery.textScaleFactorOf(context) > LivenessStyle.maxFixedTextScale) {
++        return SingleChildScrollView(
++          child: Column(
++            children: [
++              SizedBox(
++                height: LivenessStyle.compactCameraHeight,
++                child: Center(child: AspectRatio(aspectRatio: 3 / 4, child: _preview(s, tone))),
++              ),
++              const SizedBox(height: 12),
++              _statusCard(l, s, tone),
++              _secondaryLine(l, s),
++              _progressRow(l, s),
++              if (s.tips) ...[const SizedBox(height: 12), _tips(l)],
++            ],
++          ),
++        );
++      }
 +      return Column(
 +        children: [
 +          // The camera card takes what is left, up to its share of the screen: less with the tips.
@@ -29965,10 +30077,14 @@ index 0000000..ff607bf
 +
 +  Widget _statusCard(AppLocalizations l, LivenessViewState s, Color tone) {
 +    final key = s.statusKey;
++    // The live region carries the current status only: during the cross-fade the outgoing text is still painted,
++    // and it must not be announced again together with the new one.
 +    return Semantics(
 +      liveRegion: true,
 +      container: true,
-+      child: Container(
++      label: key == null ? '' : livenessText(l, key),
++      child: ExcludeSemantics(
++        child: Container(
 +        key: const Key('liveness.status'),
 +        width: double.infinity,
 +        constraints: const BoxConstraints(minHeight: LivenessStyle.statusMinHeight),
@@ -30007,6 +30123,7 @@ index 0000000..ff607bf
 +            },
 +          ),
 +        ),
++      ),
 +      ),
 +    );
 +  }
@@ -30488,10 +30605,10 @@ index 0000000..cea20f2
 +}
 diff --git a/lib/ui/liveness/liveness_style.dart b/lib/ui/liveness/liveness_style.dart
 new file mode 100644
-index 0000000..3badbe2
+index 0000000..9020e8a
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_style.dart
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,74 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -30535,6 +30652,11 @@ index 0000000..3badbe2
 +  static const double cameraShare = 0.45;
 +  /// The tips card's most, as a share of the content area; beyond it the tips scroll.
 +  static const double tipsMaxShare = 0.40;
++  /// Below this content height (a landscape phone) or above this text scale, the page scrolls instead, with a
++  /// camera card of [compactCameraHeight].
++  static const double compactHeight = 420;
++  static const double maxFixedTextScale = 1.3;
++  static const double compactCameraHeight = 160;
 +  static const double ovalStroke = 4;
 +  static const double badge = 28;
 +  static const double badgeIcon = 18;
@@ -32647,10 +32769,10 @@ index 0000000..d4b04ef
 +}
 diff --git a/test/liveness/liveness_page_layout_test.dart b/test/liveness/liveness_page_layout_test.dart
 new file mode 100644
-index 0000000..0f6b018
+index 0000000..9636da2
 --- /dev/null
 +++ b/test/liveness/liveness_page_layout_test.dart
-@@ -0,0 +1,190 @@
+@@ -0,0 +1,220 @@
 +import 'dart:math' as math;
 +
 +import 'package:flutter/material.dart';
@@ -32822,6 +32944,36 @@ index 0000000..0f6b018
 +    await tester.pump(); // the finished fade removes the old status
 +    expect(find.text('Checking face liveness…'), findsNothing);
 +    expect(tester.hasRunningAnimations, isFalse);
++  });
++
++  // A landscape phone and a text scale of 2.0: the page scrolls, nothing overflows, the buttons stay on screen
++  // and the camera card keeps its compact size (the fixed layout is for portrait up to 1.3).
++  for (final screen in [...livenessScreens, ...livenessExtraScreens]) {
++    for (final compact in const [_Variant('landscape 640x360', 1.0), _Variant('360x640 at', 2.0)]) {
++      testWidgets('${screen.name}, compact: $compact', (tester) async {
++        final size = compact.textScale == 1.0 ? const Size(640, 360) : const Size(360, 640);
++        await showLivenessScreen(tester, screen, size, textScale: compact.textScale);
++        expect(tester.takeException(), isNull, reason: 'no overflow');
++        for (var i = 0; i < buttons.evaluate().length; i++) {
++          final r = tester.getRect(buttons.at(i));
++          expect(r.bottom, lessThanOrEqualTo(size.height));
++          expect(r.height, greaterThanOrEqualTo(LivenessStyle.buttonHeight));
++        }
++        expect(tester.getSize(find.byKey(const Key('liveness.camera'))).height,
++            moreOrLessEquals(LivenessStyle.compactCameraHeight, epsilon: 0.5));
++      });
++    }
++  }
++
++  testWidgets('during the status fade the live region holds only the new status', (tester) async {
++    final semantics = tester.ensureSemantics();
++    final service = await showLivenessScreen(tester, livenessScreens.first, const Size(360, 640));
++    service.emit(ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
++    await tester.pump();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 50)); // mid-fade: the old status is still painted
++    expect(tester.getSemantics(find.byKey(const Key('liveness.status'))).label, 'Please blink');
++    semantics.dispose();
 +  });
 +
 +  testWidgets('the step bar: done steps full, the current one at least half', (tester) async {
