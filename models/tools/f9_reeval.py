@@ -38,11 +38,15 @@ R2 F18 volatility cap. Share = the listed subjects' recorded real-face takes who
    verdict changes; otherwise keep 0.85 and record the cost (the share). At 25% or below: keep 0.85. Bona fide
    PAD rejections (ATTACK) are reported per subject.
 R3 F2 moire cap on new faces. Per subject, the share of scored bona fide frames (one face, model outputs) that the
-   moire cap capped. Above 10%: the subject is flagged.
+   moire cap capped. Above 10%: the subject is flagged. A flag is report only: the subject's code goes into the
+   limitations in docs/part2-iso30107-evaluation.md, and the moire cap does not change this week.
 R4 F15 identity threshold. BindingEvaluation's rule (at least 3 people and 50 onboarding-like pairs), printed
-   verbatim, decidable or not.
+   verbatim, decidable or not. Labels count as confirmed only with -LabelsConfirmed. At about 11 onboarding-like
+   pairs per person, s01 and 3 teammates give about 44 pairs, under 50: "not decidable, 0.40 stays" is the
+   expected outcome, and the 50-pair bar is not lowered after the fact.
 R5 Size. A result that changes production (R2: adopt 0.80) needs at least 3 subjects. With fewer, it is
    provisional and nothing changes.
+R3 action and readings 1-7 confirmed by the planner on 2026-10-28, before the F9 teammate data.
 """
 
 F18_DEFAULT, F18_CANDIDATE, F18_SHARE_LIMIT = 0.85, 0.80, 0.25
@@ -197,6 +201,14 @@ def moire_flagged(capped, scored):
     return scored > 0 and capped / scored > MOIRE_FLAG
 
 
+def r3_result(flagged):
+    """Rule R3's result: report only."""
+    if not flagged:
+        return "no subject flagged"
+    return ("flagged: %s; report only: into the limitations of docs/part2-iso30107-evaluation.md, the moire cap does "
+            "not change this week" % ", ".join(flagged))
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # R1 PAD, R4 F15: the tools' own report sections
 # ---------------------------------------------------------------------------------------------------------------
@@ -284,7 +296,7 @@ def summary(subjects, inv, zones, counts, attack85, attack80, moire, pad_md, bin
                  frac(pooled["turned85"], pooled["passes"]), frac(pooled["turned80"], pooled["passes"]),
                  len(changes), len(newly_passing), pooled["reject85"], f18_text))
     b.append("| R3 moire cap | %s | %s |" % (", ".join("%s %s" % (s, frac(c, sc)) for s, (c, sc) in moire.items()),
-                                              "flagged: " + ", ".join(flagged) if flagged else "no subject flagged"))
+                                              r3_result(flagged)))
     b.append("| R4 F15 identity | see below, verbatim | %s |" % f15_result)
     b.append("")
 
@@ -490,10 +502,13 @@ class SelfTest(unittest.TestCase):
                        "y1", "z5", "zf6"):
             self.assertTrue(is_live_attack({"case": attack}), attack)
 
-    def test_r3_flag_is_strictly_above_10_percent(self):
+    def test_r3_flag_is_strictly_above_10_percent_and_report_only(self):
         self.assertFalse(moire_flagged(10, 100))
         self.assertTrue(moire_flagged(11, 100))
         self.assertFalse(moire_flagged(0, 0))
+        self.assertEqual("no subject flagged", r3_result([]))
+        self.assertEqual("flagged: s02, s03; report only: into the limitations of docs/part2-iso30107-evaluation.md, "
+                         "the moire cap does not change this week", r3_result(["s02", "s03"]))
 
     def test_r3_shares_from_frames_csv(self):
         with tempfile.TemporaryDirectory() as d:

@@ -30,11 +30,15 @@
 #    verdict changes; otherwise keep 0.85 and record the cost (the share). At 25% or below: keep 0.85. Bona fide
 #    PAD rejections (ATTACK) are reported per subject.
 # R3 F2 moire cap on new faces. Per subject, the share of scored bona fide frames (one face, model outputs) that the
-#    moire cap capped. Above 10%: the subject is flagged.
+#    moire cap capped. Above 10%: the subject is flagged. A flag is report only: the subject's code goes into the
+#    limitations in docs/part2-iso30107-evaluation.md, and the moire cap does not change this week.
 # R4 F15 identity threshold. BindingEvaluation's rule (at least 3 people and 50 onboarding-like pairs), printed
-#    verbatim, decidable or not.
+#    verbatim, decidable or not. Labels count as confirmed only with -LabelsConfirmed. At about 11 onboarding-like
+#    pairs per person, s01 and 3 teammates give about 44 pairs, under 50: "not decidable, 0.40 stays" is the
+#    expected outcome, and the 50-pair bar is not lowered after the fact.
 # R5 Size. A result that changes production (R2: adopt 0.80) needs at least 3 subjects. With fewer, it is
 #    provisional and nothing changes.
+# R3 action and readings 1-7 confirmed by the planner on 2026-10-28, before the F9 teammate data.
 # RULES END
 param(
     [Parameter(Mandatory = $true)][string[]]$Subjects,
