@@ -730,6 +730,8 @@ It shows scores and model versions, but never camera images other than the live 
 
 ### Automated
 
+Counts as of 2026-10-26.
+
 | suite | tests | covers |
 |---|---|---|
 | `android/liveness` module (JVM) | **105**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10) |

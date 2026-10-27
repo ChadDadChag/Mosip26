@@ -1,6 +1,6 @@
 # liveness-core design (Person 3)
 
-Status: **complete for Part 3 (Phases 0–9).** Decisions are in section 9, and sections for Parts 1, 2, 4 and 5 are to be stitched into section 15. Covers the session engine, the passive-to-active decision, the active challenges, retries, errors and audit. Diagrams and sections marked *(Phase 9)* are finished later.
+Status: **complete for Part 3 (Phases 0–9).** Decisions are in section 9. Parts 1, 2, 4 and 5 are delivered, and section 15 links their documents. Covers the session engine, the passive-to-active decision, the active challenges, retries, errors and audit. Diagrams and sections marked *(Phase 9)* are finished later.
 
 Source of truth: `liveness-api` (package `io.mosip.registration.liveness.api`) and `liveness-default.properties`. Where this doc and the contract disagree, the contract wins. Section 8 lists every place where the Person 3 brief and the contract differ.
 
@@ -83,15 +83,6 @@ Any invalid or unparsable value makes the whole host config for that workflow fa
 
 | Field | default | operator | supervisor |
 |---|---|---|---|
-| passiveThreshold / padRejectThreshold | 0.85 / 0.30 | same | same |
-| passiveWindowFrames / passiveTimeoutMs | 10 / 8000 | same | same |
-| challengeTypes | BLINK, SMILE, TURN_LEFT, TURN_RIGHT | same | same |
-| minChallenges | 2 | **1** | **1** |
-| challengeTimeoutMs / maxRetries | 6000 / 3 (so 4 attempts) | same | same |
-| onRepeatedFailure / cooldownSec | BLOCK / 60 | **COOLDOWN** / 60 | BLOCK / 60 |
-| analyzeFps | 8 | same | same |
-
----|---|---|---|
 | passiveThreshold / padRejectThreshold | 0.85 / 0.30 | same | same |
 | passiveWindowFrames / passiveTimeoutMs | 10 / 8000 | same | same |
 | challengeTypes | BLINK, SMILE, TURN_LEFT, TURN_RIGHT | same | same |
@@ -598,7 +589,7 @@ LivenessService liveness = DefaultLivenessService.builder()
 ```
 
 **Verification** (`mvn verify`):
-- **Tests:** 273 (core 214, fake 44, tools 10, api 5). They cover units, the state machine, detectors, the runner, scenarios, threading, fuzzing, the tools and the requirement-by-requirement audit (`core/statusaudit/Part3RequirementsAuditTest`, see PART3_STATUS.md). In the full Registration Client build, Part 1's 96 tests also run the real engine (device path, unplug and replug, recorded clips).
+- **Tests:** 273 at round 4 (2026-10-23: core 214, fake 44, tools 10, api 5); 288 as of 2026-10-26 (core 227, fake 44, tools 12, api 5). They cover units, the state machine, detectors, the runner, scenarios, threading, fuzzing, the tools and the requirement-by-requirement audit (`core/statusaudit/Part3RequirementsAuditTest`, see PART3_STATUS.md). In the full Registration Client build, Part 1's tests also run the real engine (device path, unplug and replug, recorded clips): 96 at Part 1's delivery, of which 72 remain in `registration-services` as of 2026-10-26 (the other 24 moved to `liveness-analyzer` with the heuristic analyzer).
 - **Coverage:** JaCoCo line coverage on `liveness-core` is 96.8%, gated at 85%.
 - **Toolchain:** the team build (`registration-client-parent`) needs JDK 11 and Maven 3.6+. Build from `registration-client/registration` with `mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip`.
 - **API gates:** animal-sniffer checks the shipped modules (`liveness-core`, `liveness-fake`) against the **Java 8 and Android API 21** signatures. Bytecode is Java 11, following the parent (D18).
@@ -609,6 +600,6 @@ LivenessService liveness = DefaultLivenessService.builder()
 ## 15. Other parts' sections (to be stitched in by Part 3)
 
 - **Part 1: Device and frame pipeline.** Delivered: see [part1-frame-streaming-architecture.md](part1-frame-streaming-architecture.md). It covers the existing integration, the device interface, the SBI and mock paths, Android, the error and capability tables, what the engine does with device errors, the preview tee, MockMDS and the interoperability tests. Also [part1-qa-checklist.md](part1-qa-checklist.md) and [part1-test-data-protocol.md](part1-test-data-protocol.md).
-- **Part 2: Passive liveness and PAD engine.** Model comparison and choice, `FaceAnalyzer` implementation, PAD architecture, ISO/IEC 30107-3 evaluation (APCER/BPCER/ACER per threshold), model packaging and signature verification. *(pending)*
-- **Part 4: Desktop Registration Client integration.** JavaFX screens, resident/operator/supervisor Desktop sequence diagrams, config wiring, audit module adapter, diagnostic mode. *(pending)*
-- **Part 5: Android Registration Client integration.** Flutter screens, platform/event channel bridge, Android sequence diagrams, performance benchmark report. *(pending)*
+- **Part 2: Passive liveness and PAD engine.** Delivered: model comparison and choice in [part2-model-selection.md](part2-model-selection.md); the `FaceAnalyzer` implementation, PAD architecture, model packaging, signature verification, model updates and face binding in [part2-pad-architecture.md](part2-pad-architecture.md); the ISO/IEC 30107-3 evaluation (APCER/BPCER/ACER per threshold; single subject, provisional) in [part2-iso30107-evaluation.md](part2-iso30107-evaluation.md), with its protocol in [part2-dataset-protocol.md](part2-dataset-protocol.md). Also [part2-findings-for-other-parts.md](part2-findings-for-other-parts.md) and [models/README.md](../models/README.md).
+- **Part 4: Desktop Registration Client integration.** Delivered: see [part4-desktop-integration.md](part4-desktop-integration.md). It covers the JavaFX screens, the resident, operator and supervisor Desktop sequence diagrams, config wiring, the audit module adapter and diagnostic mode. The patch is in [desktop-integration/](../desktop-integration/README.md).
+- **Part 5: Android Registration Client integration.** Delivered: see [part5-android-integration.md](part5-android-integration.md) (Flutter screens, platform and event channel bridge, Android sequence diagrams) and [part5-android-benchmark.md](part5-android-benchmark.md) (performance benchmark report). The patches are in [android-integration/](../android-integration/README.md). Both clients share the screen spec [ui-liveness-spec.md](ui-liveness-spec.md).

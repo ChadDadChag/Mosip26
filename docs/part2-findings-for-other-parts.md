@@ -17,8 +17,8 @@ tuning flag. Everything else is a recommendation; no other part's code was chang
 | P3-4 | **`DetectorTuningReport` no longer recommends on FPR alone.** With fewer than 2 positives, or TPR 0 at every value, it prints "insufficient positive evidence: keep current". It now also sweeps `blinkReopenRatio`, `blinkMaxClosedMs` and `actionMaxPoseDriftDeg`. | On real traces it had "recommended" blinkClosedRatio 0.45 although no value detected anything. | revert the commit |
 
 The Part 3 tests that changed, and why, are listed in [PART3_STATUS.md](../PART3_STATUS.md) under "Changes from the
-Part 2 review". All Part 3 gates stay green: 197 core tests, the 85% coverage gate, animal-sniffer (Java 8 and
-API 21), and 12 tool tests.
+Part 2 review". All Part 3 gates stay green, as of 2026-10-26: 227 core tests, the 85% coverage gate, animal-sniffer
+(Java 8 and API 21), and 12 tool tests.
 
 ### Live verification after the changes
 
