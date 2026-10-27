@@ -471,17 +471,22 @@ public final class BindingEvaluation {
         return m;
     }
 
-    /** The F15 sets ({@link #identitySets}); photoPairs is context only, not part of the rule. */
+    /**
+     * The F15 sets ({@link #identitySets}); photoPairs is context only, not part of the rule. onboardingPeople: the
+     * distinct people in the onboarding-like set.
+     */
     static final class IdentitySets {
         final Scores onboarding, sameDay, labelledImpostors, enrollmentImpostors, photoPairs;
+        final int onboardingPeople;
 
         IdentitySets(Scores onboarding, Scores sameDay, Scores labelledImpostors, Scores enrollmentImpostors,
-                     Scores photoPairs) {
+                     Scores photoPairs, int onboardingPeople) {
             this.onboarding = onboarding;
             this.sameDay = sameDay;
             this.labelledImpostors = labelledImpostors;
             this.enrollmentImpostors = enrollmentImpostors;
             this.photoPairs = photoPairs;
+            this.onboardingPeople = onboardingPeople;
         }
     }
 
@@ -507,11 +512,14 @@ public final class BindingEvaluation {
             pairs(labelled.get(ids.get(i)), photoPairs);
             for (int j = i + 1; j < ids.size(); j++) cross(labelled.get(ids.get(i)), labelled.get(ids.get(j)), labelledImpostors);
         }
+        java.util.Set<String> onboarded = new java.util.TreeSet<String>();
         for (Map.Entry<String, TreeMap<Integer, float[]>> s : r.takes.entrySet()) {
             List<float[]> live = new ArrayList<float[]>(s.getValue().values());
             String person = personOf(s.getKey(), subjectMap);
             for (Map.Entry<String, List<float[]>> p : labelled.entrySet()) {
-                cross(p.getValue(), live, p.getKey().equals(person) ? onboarding : labelledImpostors);
+                boolean same = p.getKey().equals(person);
+                cross(p.getValue(), live, same ? onboarding : labelledImpostors);
+                if (same && !p.getValue().isEmpty() && !live.isEmpty()) onboarded.add(person);
             }
             Integer e = r.enrollment.get(s.getKey());
             if (e == null) continue;
@@ -524,18 +532,23 @@ public final class BindingEvaluation {
                 for (float[] t : other.getValue().values()) enrollmentImpostors.values.add(SFaceEmbedder.cosine(enrolled, t));
             }
         }
-        return new IdentitySets(onboarding, sameDay, labelledImpostors, enrollmentImpostors, photoPairs);
+        return new IdentitySets(onboarding, sameDay, labelledImpostors, enrollmentImpostors, photoPairs,
+                onboarded.size());
     }
 
     /**
      * The F15 threshold rule, fixed before the F9 teammate data: among 0.36 to 0.50 in steps of 0.02, the value with
      * the lowest labelled-impostor FMR whose FNMR on the onboarding-like pairs is at most 5% (ties go to the lower
-     * value, which rejects fewer genuine users). If no value qualifies, or a set is empty, the provisional 0.40 stays.
+     * value, which rejects fewer genuine users). If no value qualifies, the provisional 0.40 stays. The rule decides
+     * only with at least {@value #MIN_PEOPLE} distinct people and {@value #MIN_PAIRS} pairs in the onboarding-like set,
+     * and some labelled impostors (guard added 2026-10-27); otherwise 0.40 stays too.
      */
     static final class IdentityRule {
         static final double[] CANDIDATES = {0.36, 0.38, 0.40, 0.42, 0.44, 0.46, 0.48, 0.50};
         static final double MAX_FNMR = 0.05;
         static final double FALLBACK = 0.40;
+        static final int MIN_PEOPLE = 3;
+        static final int MIN_PAIRS = 50;
 
         final IdentitySets sets;
         final double chosen;
@@ -547,8 +560,14 @@ public final class BindingEvaluation {
             this.met = met;
         }
 
+        /** Enough onboarding-like data for the rule to decide anything. */
+        static boolean decidable(IdentitySets s) {
+            return s.onboardingPeople >= MIN_PEOPLE && s.onboarding.values.size() >= MIN_PAIRS
+                    && !s.labelledImpostors.values.isEmpty();
+        }
+
         static IdentityRule apply(IdentitySets s) {
-            if (s.onboarding.values.isEmpty() || s.labelledImpostors.values.isEmpty()) {
+            if (!decidable(s)) {
                 return new IdentityRule(s, FALLBACK, false);
             }
             double best = Double.NaN, bestFmr = Double.NaN;
@@ -568,6 +587,8 @@ public final class BindingEvaluation {
             sb.append("Fixed before the F9 teammate data: from 0.36 to 0.50 in steps of 0.02, the value with the lowest ")
                     .append("labelled-impostor FMR whose FNMR on the onboarding-like pairs is at most 5% (ties go to the ")
                     .append("lower value). If no value qualifies, 0.40 stays and older templates should be re-onboarded. ")
+                    .append("The rule decides only with at least 3 people and 50 pairs in the onboarding-like set; ")
+                    .append("otherwise 0.40 stays. ")
                     .append("F15 is a second factor after the password: its FMR is the rate at which someone who has ")
                     .append("the password AND a similar face gets in.\n\n")
                     .append("| threshold | FNMR onboarding-like | FNMR same day | FMR labelled impostors | ")
@@ -583,8 +604,13 @@ public final class BindingEvaluation {
             sb.append('\n');
             if (met) {
                 sb.append(String.format(Locale.ROOT, "**Result: %.2f** meets the rule.%n", chosen));
-            } else if (sets.onboarding.values.isEmpty() || sets.labelledImpostors.values.isEmpty()) {
-                sb.append("**Result: not decidable** (no onboarding-like pairs or no labelled impostors): 0.40 stays.\n");
+            } else if (!decidable(sets)) {
+                int people = sets.onboardingPeople;
+                sb.append(String.format(Locale.ROOT, "**Result: not decidable: %d %s / %d pairs** in the onboarding-like "
+                        + "set%s (the rule needs at least %d people and %d pairs). 0.40 stays.%n", people,
+                        people == 1 ? "person" : "people", sets.onboarding.values.size(),
+                        sets.labelledImpostors.values.isEmpty() ? ", and no labelled impostors" : "", MIN_PEOPLE,
+                        MIN_PAIRS));
             } else {
                 sb.append(String.format(Locale.ROOT, "**Result: no value meets the rule.** 0.40 stays, with FNMR %s on the "
                         + "onboarding-like pairs; older templates should be re-onboarded.%n", cell(sets.onboarding, FALLBACK)));

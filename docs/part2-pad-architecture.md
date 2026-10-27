@@ -567,6 +567,8 @@ F1's `cosineThreshold` (0.45) is unchanged.
 - From 0.36 to 0.50 in steps of 0.02, take the value with the lowest labelled-impostor FMR whose FNMR on the
   onboarding-like pairs is at most 5%. Ties go to the lower value.
 - If no value qualifies, 0.40 stays, the FNMR is documented, and older templates should be re-onboarded.
+- The rule decides only with at least 3 distinct people and 50 pairs in the onboarding-like set (guard added on
+  2026-10-27). With less, the report says "not decidable: n people / m pairs", and 0.40 stays.
 - One command builds the sets, the rule and the full table (aggregates only, into `eval-data/`):
 
       BindingEvaluation --labelled "test images/labels.csv" --labels-confirmed --identity [--subject-map s02=p05,...]
@@ -597,8 +599,8 @@ The pairs:
 There are no enrollment impostors yet: s01 is the only recorded subject.
 
 How to read it:
-- Applied mechanically, the rule picks 0.50. Its onboarding-like set, though, is one person and 11 pairs: one more
-  false non-match moves that FNMR by 9.1 points.
+- Tonight the rule is **not decidable: 1 person / 11 pairs**. Without the guard it would have picked 0.50 from one
+  person, and one more false non-match moves that FNMR by 9.1 points.
 - The photo-against-photo pairs lose 38.7% at 0.50. An onboarding photo taken months earlier on another camera is
   closer to that case than to a same-session take.
 - **The default stays 0.40** until the rule runs on the F9 pairs (the teammates' takes, mapped to their labelled

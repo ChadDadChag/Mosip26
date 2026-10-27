@@ -182,7 +182,8 @@ passed.
 - `PadEvaluation`: prints and the many-identity attacks are now evaluated.
 - `BindingEvaluation`, with the new subjects and `--labelled "test images\labels.csv" --labels-confirmed`, plus
   `--identity --subject-map s02=pXX,...` (the codes from step 27) for the F15 threshold rule
-  (`docs/part2-pad-architecture.md` section 12.1). Take normal#1 is each teammate's enrollment.
+  (`docs/part2-pad-architecture.md` section 12.1). Take normal#1 is each teammate's enrollment. The rule decides only
+  with at least 3 people and 50 onboarding-like pairs; otherwise it reports "not decidable" and 0.40 stays.
 - The multi-face result per case, from the session log: outcome, time to the first failure and codes. Aggregates only.
 - The F16 commit.
 - The banding result.
