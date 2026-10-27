@@ -40,7 +40,7 @@ How the engine treats these codes:
 | Item | Where | Automated |
 |---|---|---|
 | Mock L0/L1 device | `MockFrameSource` (images, video, webcam; `asCertificationLevel("L1")`), plus the MockMDS patch (`mock-mds-patch/`) for the real SBI path | `mock/*Test`, `FaceStreamProviderTest` (7, inside MockMDS) |
-| Automated liveness and PAD scenarios from recordings | `mock/RecordedVideoE2ETest` plus `docs/part1-test-data-protocol.md` | 1 bundled clip, plus team clips via `-Dliveness.videos.dir` |
+| Automated liveness and PAD scenarios from recordings | `mock/RecordedVideoE2ETest` plus `docs/part1-test-data-protocol.md` | 5 bundled clips (1 synthetic no-face clip, 4 NASA-portrait attack clips from F16), plus team clips via `-Dliveness.videos.dir` |
 | Interoperability testing framework | `sbi/DevicePathInteropTest`, `demo/SbiStreamProbe` (checks any MDS) | yes |
 | Diagnostic mode for device troubleshooting | `LivenessHarness --diagnostic` (per-frame score, face box, device errors, audit with `diag.*` stats), `FramePipelineDemo`, `SbiStreamProbe` | `demo/HarnessModelTest` |
 | Multiple device vendors | Any SBI-compliant MDS goes through `SbiStreamFrameSource`. Other cameras plug in as a `FrameSource` | `DevicePathInteropTest` |

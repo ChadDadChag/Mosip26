@@ -73,6 +73,15 @@ MOIRE_WINDOW = 10             # single-face frames in the rolling median
 MOIRE_MIN_FRAMES = 3          # values needed before the cap or veto can apply
 MOIRE_VETO_THRESHOLD = None   # rolling median at or above -> score 0 (off until multi-device data exists)
 
+# Session print guards (F3 retest: a printed cut-out passed passively on a retry; see session_guards).
+PAD_LATCH_THRESHOLD = 0.30    # 3-frame rolling median below -> latched for the session (= padRejectThreshold)
+PAD_LATCH_CAP_SCORE = 0.60    # while latched: score = min(score, this)
+PAD_LATCH_FRAMES = 3          # the rolling median's length (= Part 3's padMonitorFrames)
+VOLATILITY_MIN_SCORE = 0.85   # 2nd-lowest model score of the window below -> score = min(score, VOLATILITY_CAP_SCORE)
+VOLATILITY_CAP_SCORE = 0.60
+VOLATILITY_WINDOW = 10        # scored single-face frames in the window
+VOLATILITY_MIN_FRAMES = 5     # values needed before the rule applies
+
 # Mesh indices, subject's point of view. Eye order is the contract's p1..p6:
 # [outer corner, upper-outer, upper-inner, inner corner, lower-inner, lower-outer].
 LEFT_EYE = (263, 387, 385, 362, 380, 373)
@@ -950,6 +959,109 @@ def session_self_test():
 
 
 # ---------------------------------------------------------------------------------------------
+# Session print guards (stateful, one per session like the moire cap; after it)
+# ---------------------------------------------------------------------------------------------
+
+def guards_cfg(latch=PAD_LATCH_THRESHOLD, latch_cap=PAD_LATCH_CAP_SCORE, vol=VOLATILITY_MIN_SCORE,
+               vol_cap=VOLATILITY_CAP_SCORE):
+    return {"latch": latch, "latchCap": latch_cap, "vol": vol, "volCap": vol_cap}
+
+
+def session_guards(frames, cfg=None):
+    """The two print guards, per frame of a session in order (the Java PadLatch and VolatilityCap). Each frame is a
+    dict {"faceCount", "modelScore", "score"}: modelScore = (v2 live + v1se live) / 2 before any cap, score = the
+    score after the moire cap (None when the frame has no score). Returns one dict per frame:
+    {"livenessScore", "padLatch", "volatilityCap"}.
+
+    PAD latch (A). A printed photo can score live on some frames and as an attack on others; each retry restarts
+    Part 3's passive window, so a session got several draws. hist = the last PAD_LATCH_FRAMES scores of scored
+    single-face frames (the scores Part 3's PadMonitor sees; frames without one face or without a score are skipped
+    and do NOT clear it, as in PadMonitor). Once median(hist) < cfg["latch"] with a full hist, the session is
+    latched until the analyzer is closed: every later score is min(score, cfg["latchCap"]), so a retry must pass a
+    challenge. The frame that latches is capped too.
+
+    Volatility cap (C). buf = the modelScore of the last VOLATILITY_WINDOW scored single-face frames, cleared by any
+    other face count (as the moire buffer). The model score is used, never a capped one, so a cap cannot feed
+    itself: once the low frames leave the window the cap lifts. On a scored frame, when len(buf) >= VOLATILITY_MIN_FRAMES
+    and the 2nd-lowest value of buf (this frame included) < cfg["vol"]: score = min(score, cfg["volCap"]).
+
+    None switches a guard off. Java compares in float32, so values and thresholds are rounded to float32.
+    """
+    cfg = cfg or guards_cfg()
+    f32 = lambda v: float(np.float32(v))  # noqa: E731
+    hist, buf, latched, out = [], [], False, []
+    for r in frames:
+        score = r.get("score")
+        if r.get("faceCount") != 1:
+            buf = []
+            out.append({"livenessScore": score, "padLatch": latched, "volatilityCap": False})
+            continue
+        model = r.get("modelScore")
+        vol = False
+        if model is not None:
+            buf = (buf + [f32(model)])[-VOLATILITY_WINDOW:]
+            vol = (cfg["vol"] is not None and len(buf) >= VOLATILITY_MIN_FRAMES
+                   and sorted(buf)[1] < f32(cfg["vol"]))
+        if score is not None:
+            hist = (hist + [f32(score)])[-PAD_LATCH_FRAMES:]
+            if cfg["latch"] is not None and len(hist) == PAD_LATCH_FRAMES and sorted(hist)[1] < f32(cfg["latch"]):
+                latched = True
+            if vol:
+                score = min(score, f32(cfg["volCap"]))
+            if latched:
+                score = min(score, f32(cfg["latchCap"]))
+        out.append({"livenessScore": score, "padLatch": latched, "volatilityCap": vol})
+    return out
+
+
+# The synthetic sequence the Java PadGuardsTest replays: (faceCount, modelScore, score after the moire cap).
+#   0-9    a steady live face
+#   10-11  two dips: one dip is not volatile (frame 10); the second turns the volatility cap on (frame 11)
+#   12-21  steady again: capped while both dips are in the window (12-19); frame 20 drops the first dip, so the cap
+#          lifts by itself
+#   22-24  three frames below 0.30: the 3-frame median is 0.20 at frame 23, which latches the session
+#   25-26  an unscored frame, then no face (clears the volatility window, never the latch)
+#   27-32  a steady live face: still capped by the latch (a retry in the same session), the volatility cap is off
+GUARDS_SELF_TEST = (
+    [(1, 0.95, 0.95)] * 10
+    + [(1, 0.50, 0.50), (1, 0.60, 0.60)]
+    + [(1, 0.95, 0.95)] * 10
+    + [(1, 0.20, 0.20), (1, 0.10, 0.10), (1, 0.25, 0.25)]
+    + [(1, None, None), (0, None, None)]
+    + [(1, 0.95, 0.95)] * 6
+)
+_HEAD = [0.95] * 10 + [0.50, 0.60]
+_DIPS = [0.20, 0.10, 0.25, None, None]
+GUARDS_EXPECTED = {
+    "default": _HEAD + [0.60] * 8 + [0.95] * 2 + _DIPS + [0.60] * 6,
+    "latch_off": _HEAD + [0.60] * 8 + [0.95] * 2 + _DIPS + [0.95] * 6,
+    "both_off": _HEAD + [0.95] * 10 + _DIPS + [0.95] * 6,
+}
+GUARDS_LATCHED_FROM = 23  # default config: padLatch is True from this frame on
+
+
+def guards_self_test():
+    """Runs GUARDS_SELF_TEST under three configs and checks GUARDS_EXPECTED; prints the trace."""
+    frames = [{"faceCount": n, "modelScore": m, "score": s} for n, m, s in GUARDS_SELF_TEST]
+    configs = {"default": guards_cfg(), "latch_off": guards_cfg(latch=None),
+               "both_off": guards_cfg(latch=None, vol=None)}
+    ok = True
+    for name, cfg in configs.items():
+        got = session_guards(frames, cfg)
+        for i, (g, want) in enumerate(zip(got, GUARDS_EXPECTED[name])):
+            s = g["livenessScore"]
+            match = (s is None and want is None) or (s is not None and want is not None and abs(s - want) < 1e-6)
+            if name == "default":
+                match &= g["padLatch"] == (i >= GUARDS_LATCHED_FROM)
+            ok &= match
+            print(f"{name:9s} frame {i:2d} {GUARDS_SELF_TEST[i]} -> score {s} latch {g['padLatch']} "
+                  f"vol {g['volatilityCap']} {'ok' if match else 'MISMATCH, want ' + str(want)}")
+        ok &= len(got) == len(GUARDS_EXPECTED[name])
+    print("guards self-test", "PASSED" if ok else "FAILED")
+    return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------------------------
 # Session relative blur (F6; stateful, one per session like the moire cap)
 # ---------------------------------------------------------------------------------------------
 
@@ -1030,11 +1142,14 @@ def main():
     ap.add_argument("--json", help="write the full result to this file")
     ap.add_argument("--session", action="store_true", help="run the session moire cap self-test and exit")
     ap.add_argument("--blur", action="store_true", help="run the session relative blur self-test and exit")
+    ap.add_argument("--guards", action="store_true", help="run the session print guards self-test and exit")
     args = ap.parse_args()
     if args.session:
         return session_self_test()
     if args.blur:
         return blur_self_test()
+    if args.guards:
+        return guards_self_test()
     if not args.image:
         ap.error("an image is required (or --session)")
     bgr = imread_bgr(args.image)

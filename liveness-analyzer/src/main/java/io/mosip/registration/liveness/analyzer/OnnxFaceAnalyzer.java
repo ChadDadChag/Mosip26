@@ -8,9 +8,11 @@ import io.mosip.registration.liveness.analyzer.mesh.HeadPoseEstimator;
 import io.mosip.registration.liveness.analyzer.mesh.MeshIndices;
 import io.mosip.registration.liveness.analyzer.mesh.MeshResult;
 import io.mosip.registration.liveness.analyzer.pad.MoireCap;
+import io.mosip.registration.liveness.analyzer.pad.PadLatch;
 import io.mosip.registration.liveness.analyzer.pad.PadResult;
 import io.mosip.registration.liveness.analyzer.pad.ReplayCues;
 import io.mosip.registration.liveness.analyzer.pad.SilentFacePad;
+import io.mosip.registration.liveness.analyzer.pad.VolatilityCap;
 import io.mosip.registration.liveness.analyzer.quality.QualityAssessor;
 import io.mosip.registration.liveness.analyzer.quality.QualityReport;
 import io.mosip.registration.liveness.analyzer.quality.RelativeBlur;
@@ -28,7 +30,9 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
  * Part 2's {@link FaceAnalyzer}: YuNet face detection, FaceMesh V2 landmarks and head pose, quality checks and
@@ -53,13 +57,25 @@ import java.util.Map;
  * adds its moire to the session's rolling median, scored or not; any other face count clears it. When the median of
  * at least moireMinFrames values reaches moireCapThreshold (1.40) the score becomes min(score, moireCapScore = 0.60),
  * so the session goes to a challenge instead of passing passively (a phone held close fools the models, not the
- * moire). livenessScore is the score after the cap.
+ * moire). Then the session print guards (F3 retest, both off with NaN):
+ * <ul>
+ *   <li>the PAD latch ({@link PadLatch}): once the 3-frame median of the scores so far is below padLatchThreshold
+ *       (0.30), every later score of the session, retries included, is at most padLatchCapScore (0.60), so a
+ *       retry cannot pass passively. It never resets; a new session has a new analyzer;</li>
+ *   <li>the volatility cap ({@link VolatilityCap}): when the second-lowest model score of the last 10 scored
+ *       single-face frames (at least 5) is below volatilityMinScore (0.85), the score is at most volatilityCapScore
+ *       (0.60). Any other face count clears that window, and capped scores never enter it, so it lifts once the
+ *       low frames have left.</li>
+ * </ul>
+ * livenessScore is the score after the cap and the guards.
  *
  * <p>padDetails (audit only, at most 8 keys, never shown in the UI):
  * <ul>
- *   <li>scored frames, in order: minifas_v2_live, minifas_v1se_live, minifas_v2_c0, minifas_v2_c2,
- *       minifas_v1se_spoof (= v1se c0 + c2), moire, moire_med (the session's rolling median), moire_cap (1 when the
- *       cap or veto applied, else 0);</li>
+ *   <li>scored frames, in order: minifas_v2_live, minifas_v1se_live, minifas_v2_c0, moire, moire_med (the
+ *       session's rolling median), moire_cap (1 when the cap or veto applied, else 0), volatility_cap (1 when the
+ *       volatility cap applied, else 0), pad_latch (1 while the session is latched, else 0). The guards' two keys
+ *       replaced minifas_v2_c2 and minifas_v1se_spoof, which the softmax makes redundant:
+ *       v2 c2 = 1 - minifas_v2_live - minifas_v2_c0, v1se spoof = 1 - minifas_v1se_live;</li>
  *   <li>pose-gated frames: pose_gated (1), moire, moire_med;</li>
  *   <li>frames without a mesh: moire, moire_med;</li>
  *   <li>no face or several faces: empty.</li>
@@ -73,6 +89,9 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
 
     static final String POSE_GATED = "pose_gated";
     static final String MOIRE_CAP = "moire_cap";
+    static final String VOLATILITY_CAP = "volatility_cap";
+    static final String PAD_LATCH = "pad_latch";
+    private static final Logger LOG = Logger.getLogger(OnnxFaceAnalyzer.class.getName());
     /** Minimum IoU between this frame's face box and the previous one for landmark tracking (F7). */
     static final double TRACK_IOU = 0.3;
 
@@ -85,6 +104,8 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     private final QualityAssessor quality;
     private final ReplayCues cues;
     private final MoireCap moireCap;
+    private final PadLatch padLatch;
+    private final VolatilityCap volatilityCap;
     private final RelativeBlur relativeBlur;
     // Landmark tracking (F7): the last mesh and its face box; trackBox == null means no tracking source.
     private final float[][] trackPoints = new float[MeshResult.POINTS][2];
@@ -96,6 +117,8 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
     private volatile boolean closed;
     /** Test seam: when not NaN, replaces every computed moire value (tests drive the cap without screen images). */
     float moireOverride = Float.NaN;
+    /** Test seam: when not NaN, replaces every scored frame's model score (tests drive the print guards). */
+    float modelScoreOverride = Float.NaN;
 
     OnnxFaceAnalyzer(OnnxModels sharedModels, AnalyzerConfig config, String modelVersion) {
         if (sharedModels == null || config == null) throw new IllegalArgumentException("null argument");
@@ -110,6 +133,8 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         this.cues = new ReplayCues();
         this.moireCap = new MoireCap(config.moireCapThreshold, config.moireCapScore, config.moireWindow,
                 config.moireMinFrames, config.moireVetoThreshold);
+        this.padLatch = new PadLatch(config.padLatchThreshold, config.padLatchCapScore);
+        this.volatilityCap = new VolatilityCap(config.volatilityMinScore, config.volatilityCapScore);
         this.relativeBlur = new RelativeBlur(config.qualityRelativeBlurRatio);
     }
 
@@ -140,6 +165,7 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         int faceCount = YuNetDetector.countFaces(faces, config.detector.secondFaceMinAreaRatio);
         if (faceCount != 1) {
             moireCap.reset(); // no face, or a different face may have been presented
+            volatilityCap.reset(); // the PAD latch is never reset within a session
             lastCues = null;
             lastQuality = null;
             trackBox = null;
@@ -198,11 +224,28 @@ public final class OnnxFaceAnalyzer implements FaceAnalyzer {
         details.put("minifas_v2_live", p.v2[1]);
         details.put("minifas_v1se_live", p.v1se[1]);
         details.put("minifas_v2_c0", p.v2[0]);
-        details.put("minifas_v2_c2", p.v2[2]);
-        details.put("minifas_v1se_spoof", p.v1se[0] + p.v1se[2]);
-        float score = capped(p.score, details);
+        float model = Float.isNaN(modelScoreOverride) ? p.score : modelScoreOverride;
+        float score = capped(model, details);
         details.put(MOIRE_CAP, moireCap.active() ? 1f : 0f);
+        score = guarded(score, model, details);
         return finish(frame, 1, primary.toBox(), landmarks, ypr, issues, score, details, start);
+    }
+
+    /**
+     * Applies the session print guards to a scored frame's score (after the moire cap) and records volatility_cap and
+     * pad_latch. The latch is logged once, with numbers only.
+     */
+    private float guarded(float score, float modelScore, Map<String, Float> details) {
+        boolean wasLatched = padLatch.latched();
+        float out = volatilityCap.apply(padLatch.apply(score), modelScore);
+        details.put(VOLATILITY_CAP, volatilityCap.active() ? 1f : 0f);
+        details.put(PAD_LATCH, padLatch.latched() ? 1f : 0f);
+        if (!wasLatched && padLatch.latched()) {
+            LOG.info(String.format(Locale.ROOT, "PAD latch: 3-frame score median %.3f below %.2f at scored frame %d;"
+                    + " later scores of this session are capped at %.2f", padLatch.latchMedian(),
+                    config.padLatchThreshold, padLatch.latchedAt(), config.padLatchCapScore));
+        }
+        return out;
     }
 
     /**

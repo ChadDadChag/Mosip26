@@ -1,9 +1,10 @@
 # Part 2: ISO/IEC 30107-3 evaluation of the passive PAD
 
-> **Every result here is SINGLE SUBJECT s01, PROVISIONAL.** It comes from one person, one laptop webcam, one room
-> and one phone as the attack instrument. It shows tendencies and failure modes; it does not estimate field error
+> **Every result here is PROVISIONAL; the bona fide side is a single subject (s01).** The attacks show s01, a NASA
+> portrait and, since F3, photos of 14 and 13 other consented people (section 4.4), all through one laptop webcam,
+> one room, one phone and one printer. It shows tendencies and failure modes; it does not estimate field error
 > rates. The raw recordings and per-take results stay on the recording laptop under the gitignored `eval-data/`,
-> as the participant asked. Only aggregates appear here.
+> as the participants asked. Only aggregates appear here.
 
 ## 1. Scope and terms
 
@@ -13,7 +14,7 @@ ISO/IEC 30107-3:2023.
 
 | Term | Meaning here |
 |---|---|
-| Presentation | one 6-second take (60 frames at 10 fps) shown to the camera |
+| Presentation | one 6-second take (60 frames at 10 fps) shown to the camera; for the many-identity species, one photo's run in a continuous recording (12–163 frames at 10 fps, section 4.4) |
 | Bona fide presentation | the live subject's own face |
 | PAI species | one kind of attack instrument, such as a phone showing a photo held close (`screen_photo_close`) |
 | APCER (per species) | attack presentations of that species classified as bona fide ÷ responding attack presentations of that species |
@@ -53,7 +54,8 @@ flowchart LR
 
 ## 3. Dataset (protocol: [part2-dataset-protocol.md](part2-dataset-protocol.md))
 
-Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 4:4:4 chroma. 35 takes, 2,100 frames.
+Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 4:4:4 chroma. 130 takes, 6,218 frames
+(round 1: 35 takes, 2,100 frames; F3 added the last four rows).
 
 | Class | Takes | How |
 |---|---|---|
@@ -62,14 +64,27 @@ Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 
 | `screen_photo_close` | 12 | phone held close as the subject judged it ×6 (face only about 4% of the picture), then about 10 cm away with a live face-size readout ×6 (face 20–31% of the picture) |
 | `screen_replay` | 6 | the subject's selfie video playing on the phone |
 | `screen_replay_monitor` | 0 | **not yet evaluated** (no second screen) |
-| `print_flat`, `print_curved` | 0 | **NOT YET EVALUATED** (the prints will be added later; see section 7) |
+| `print_flat` | 6 | colour A4 prints held flat: the subject's selfie ×2 and close ×1, the NASA portrait ×2 and close ×1 |
+| `print_curved` | 6 | the same prints, bent |
+| `screen_photo_multi` | 38 | a phone slideshow of 42 labelled photos of 15 consented people, at normal distance; one take per photo found, 14 of the 15 people (s01 among them), 14–56 frames each |
+| `print_multi` | 45 | printed cut-outs of 13 people (12 from source photos, 1 unknown), 6 to an A4 page, held about 20 cm away: flat ×21, curved ×24, 12–163 frames each |
 
 ## 4. Results
 
-### 4.1 Candidate scorers (single subject s01, provisional)
+### 4.1 Candidate scorers (round 1: 35 takes, single subject s01, provisional)
 
 The thresholds are today's defaults: passive 0.85, reject 0.30. Production as shipped is candidate 1. Candidates 1a
 to 7 recompute the score from the stored model outputs and go through the same window logic.
+
+**With all 130 takes and the analyzer before F18** (bundle `pad-2026.10.5`, after F6 and F7), the order of the
+candidates does not change.
+- Candidate 1 keeps max APCER 0 at 0.85. The widest bound is still `screen_photo_close`, 0/10 [≤ 25.9%], and
+  `print_multi` is 0/28 [≤ 10.1%].
+- BPCER is 1/8, EER 0.0%, APNRR 55/119 and BPNRR 3/11.
+- **With the F18 print guards** (section 4.5), max APCER stays 0 at 0.85 and BPCER becomes 2/8. The EER moves to
+  12.5% at τ 0.60, because capped frames sit at exactly 0.60.
+
+The table below is round 1.
 
 | # | Candidate | max APCER @ 0.85 | BPCER @ 0.85 | ACER (non-norm.) | EER | BPCER @ APCER ≤ 5% | APNRR | BPNRR |
 |---|---|---|---|---|---|---|---|---|
@@ -101,14 +116,30 @@ What the table says:
 
 | Class | N | Passive pass (before → after) | Challenge | PAD reject | Non-response | PadMonitor < 0.30 at some point |
 |---|---|---|---|---|---|---|
-| bona fide | 11 | 8 → 8 | 1 → 1 | **0 → 0** [≤ 23.8%] | 2 → 2 | 0 → 0 |
+| bona fide | 11 | 7 → 7 | 1 → 1 | **0 → 0** [≤ 23.8%] | 3 → 3 | 0 → 0 |
 | `screen_photo` | 6 | 0 → 0 [≤ 39.3%] | 0 → 0 | 0 → 0 | 6 → 6 | 6 → 6 |
 | `screen_photo_close` | 12 | **4 → 0** [≤ 22.1%] | 2 → 6 | 4 → 4 | 2 → 2 | 6 → 6 |
 | `screen_replay` | 6 | 0 → 0 [≤ 39.3%] | 0 → 0 | 6 → 6 | 0 → 0 | 6 → 6 |
+| `print_flat` | 6 | 0 → 0 [≤ 39.3%] | 1 → 1 | 5 → 5 | 0 → 0 | 6 → 6 |
+| `print_curved` | 6 | 0 → 0 [≤ 39.3%] | 0 → 0 | 6 → 6 | 0 → 0 | 6 → 6 |
+| `screen_photo_multi` | 38 | 0 → 0 [≤ 7.6%] | 0 → 0 | 8 → 8 | 30 → 30 | 29 → 29 |
+| `print_multi` | 45 | 0 → 0 [≤ 6.4%] | 9 → 9 | 19 → 19 | 17 → 17 | 34 → 34 |
 
-- **Effect of the cap.** 0 of the 9 responding bona fide takes left the passive zone, and none was newly rejected.
-  All 4 passing close-up attacks moved to a challenge.
-- **How often it fired.** 12 of 656 bona fide frames were ever capped (11 with a moving head, 1 far away). The
+All 130 takes, the analyzer before F18 (`pad-2026.10.5`). The bounds are over all N presentations. Section 4.4 has
+the APCER over the responding ones. The F18 print guards change one bona fide take, from a passive pass to a
+challenge, and no attack take (section 4.5).
+
+- **Bona fide: 7 passive passes, not 8 as in round 1.** The cause is F6's relative blur check. It marks 34 of the
+  60 frames of one moving-head take BLURRY. That take now has 2 eligible frames instead of 20, so no full window: it
+  went from a passive pass to a non-response.
+  - The PAD scores did not change.
+  - F7's tracked landmarks moved the pose estimates by up to about 5°. That changed the eligible counts of two more
+    takes (far: 40 → 45; moving: 28 → 26), but not their zones.
+  - The 3 bona fide non-responses: the two `close` takes, where the face is cut off (FACE_CUT_OFF in 56 and 58 of
+    60 frames), and that moving-head take (BLURRY in 34 frames; 20 of its 22 clean frames past the 25° pose limit).
+- **Effect of the cap.** 0 of the 8 responding bona fide takes left the passive zone, and none was newly rejected.
+  All 4 passing close-up attacks moved to a challenge. The cap changed no print or many-identity take.
+- **How often it fired** (round 1). 12 of 656 bona fide frames were ever capped (11 with a moving head, 1 far away). The
   6 readout close-up attacks were capped in 339 of their 360 frames.
 - **Live check** (same subject, the shipped analyzer, real sessions): the real face passed passively (0.9987 and
   0.9994). In two separate runs, the phone photo held about 10 cm away was held at exactly 0.600, sent to a
@@ -130,6 +161,112 @@ Medians over single-face frames, with the 10th–90th percentile in brackets.
   margin is real but thin (0.065).
 - Face size cannot separate the two groups: the bona fide close-ups are the larger faces.
 
+### 4.4 Prints and many identities (F3)
+
+APCER at 0.85 over the responding presentations, the analyzer before F18. The F18 guards change none of these.
+
+| Species | Takes | Identities | Responding | APCER @ 0.85 | Challenge | PAD reject | Non-response | Highest window median |
+|---|---|---|---|---|---|---|---|---|
+| `print_flat` | 6 | s01's selfie, NASA portrait | 6 | 0/6 [≤ 39.3%] | 1 | 5 | 0 | 0.36 |
+| `print_curved` | 6 | the same | 6 | 0/6 [≤ 39.3%] | 0 | 6 | 0 | 0.09 |
+| `screen_photo_multi` | 38 | 14 | 8 | 0/8 [≤ 31.2%] | 0 | 8 | 30 | 0.00 |
+| `print_multi` | 45 | 13 | 28 | 0/28 [≤ 10.1%] | 9 | 19 | 17 | 0.82 |
+
+- **`print_multi` by condition.**
+  - Flat (21): 5 challenges, 12 rejects, 4 non-responses.
+  - Curved (24): 4 challenges, 7 rejects, 13 non-responses.
+- **The margin is thin for the cut-outs.** Before F18, `print_multi` APCER was 1/28 at τ 0.80 and 2/28 at τ 0.65–0.70.
+  - The highest window median, 0.82, is 0.03 below the passive threshold.
+  - Two more takes were held at exactly 0.60 by the moiré cap: the print's halftone gave window moiré medians of 1.43
+    and 1.49.
+  - With the F18 guards, `print_multi` APCER is 0/28 at τ 0.80 too.
+- **Why so many non-responses: the faces were too small.** In production a non-response is a timeout with a "move
+  closer" hint, never an acceptance.
+  - `screen_photo_multi`: in 29 of its 30 non-responses most single-face frames were FACE_TOO_SMALL. The slideshow
+    faces had a median face area of 2.2% of the picture. The 30th had other quality or pose issues.
+  - `print_multi`: 14 of 17 non-responses were FACE_TOO_SMALL (median face area 9.7% flat, 3.6% curved). Two had
+    other quality or pose issues, and one take was too short (fewer than 20 frames).
+  - An attacker who brings the print closer turns a non-response into a responding presentation. Section 4.5 tested
+    exactly that, live.
+
+### 4.5 Live retests and the F18 print guards
+
+Real-engine sessions on the webcam (`SessionDemo`, RESIDENT). All use the default policy except four, which forced
+challenges for the rotate and tilt tricks. The presenter's face was out of view in every attack session. The logs
+keep numbers only and stay in `eval-data/`.
+
+**A single printed cut-out passed twice.**
+- **The first pass** was a discarded multi-face run, where only one cut-out was probably in view. It passed at
+  0.9998.
+- **The targeted retest** reproduced it. Run 1, cut-out 1 held at about 20 cm, passed on attempt 4 (PASSIVE_ONLY,
+  0.944), after these attempts:
+  1. PAD_FAILURE, while the moiré cap held the scores at 0.60;
+  2. PAD_FAILURE;
+  3. a SMILE challenge that was not detected.
+- **What the cut-out looked like to the analyzer.** The face was 162–179 px wide (area 12–15% of the picture), the
+  size of a real face. In that attempt V2 scored it 0.86–0.99 and V1SE 0.72–1.00. Over the 20 s its per-frame score
+  ranged from 0.06 to 0.99.
+- **Compared with the 45 recorded `print_multi` takes:**
+  - its score median was above 42 of them;
+  - its face area was above 36 of them;
+  - its moiré was in the middle (rank 25).
+- **Diagnosis.** At real-face size the models often score a print live. Every retry restarts Part 3's passive
+  window, so one session gave the print four tries. During the fourth attempt the session's moiré median was
+  1.36–1.40, just under the cap's 1.40.
+
+**The fix: two session guards in the analyzer** (`docs/part2-pad-architecture.md`, section 3.2). Both cap the score
+at 0.60, which forces a challenge and never causes a rejection.
+- **The PAD latch:** once a 3-frame median falls below 0.30, the cap holds for the rest of the session.
+- **The volatility cap:** the cap applies while the second-lowest of the last 10 model scores is below 0.85.
+
+Replayed offline, the passing attempt goes to a challenge at 0.600, with both guards or with either one alone.
+
+**Recorded takes, before and after the guards** (130 takes, production defaults):
+
+| Class | Passive pass | Challenge | PAD reject | Non-response |
+|---|---|---|---|---|
+| bona fide (11) | 7 → **6** | 1 → 2 | **0 → 0** [≤ 23.8%] | 3 → 3 |
+| every attack class (119) | 0 → 0 | unchanged | unchanged | unchanged |
+
+- The bona fide take that moved is a `far` take (face area 4.2%). Two of its first frames scored 0.796 and 0.805.
+- The latch fired in 0 of 11 bona fide takes and in 99 of 119 attack takes.
+
+**Combined live retest with the guards** (29 attack sessions, 10 real-face sessions):
+
+| Presentation | Sessions | Result |
+|---|---|---|
+| cut-outs 1–6 still, NASA A4, cut-outs with hand motion | 25 | all FAILED; none passed |
+| cut-outs with forced challenges, rotated to fake a turn or tilted to fake a blink or smile | 4 | all FAILED. Every attempt ended in PAD_FAILURE, except one POOR_QUALITY, before any challenge appeared, so the trick was never needed |
+| real face: normal ×3, close ×2, far ×2, approaching ×2, moving ×1 | 10 | 6 passive passes, 3 passed a challenge, 1 timed out (FACE_TOO_SMALL at about 1 m); **0 PAD rejections**; the latch never fired |
+
+- **Face size decided which attacks were judged.** Held at about 20 or 30 cm, most cut-out faces were 25–60 px,
+  below the 80 px minimum, and timed out. 17 of the 29 attack sessions were judged (face 80 px or more).
+- **The guards blocked one pass.** Of 63 attempts that reached a passive window, 1 would have passed without the
+  guards: the same cut-out, again on attempt 4, at 0.923.
+- **The cost on real faces.** The guards moved 1 of 7 real-face passive passes to a challenge (the moving head).
+
+**Guard settings replayed through the spec** (the live logs and the recorded takes):
+
+| Setting | Live real-face passive passes | Live attack sessions with a passive pass | Recorded bona fide passive | Recorded attacks passing |
+|---|---|---|---|---|
+| no guards | 7/10 | 2 | 7/8 | 0/64 |
+| latch only | 7/10 | 0 | 7/8 | 0/64 |
+| **latch + volatility 0.85 (default)** | 6/10 | 0 | 6/8 | 0/64 |
+| latch + volatility 0.80 | 6/10 | 0 | 7/8 | 0/64 |
+| latch + volatility 0.75 | 7/10 | 0 | 7/8 | 0/64 |
+| volatility 0.85 alone | 6/10 | 0 | 6/8 | 0/64 |
+| volatility 0.80 alone | 6/10 | 1 | 7/8 | 0/64 |
+
+- The live attack column counts 30 sessions: the 29 above and the run that passed.
+- The recorded columns count the takes that reached a passive window.
+
+**Decision: volatility 0.85.**
+- The window that passed live had a second-lowest score of 0.822. At 0.85, the same pattern is capped even on a
+  first attempt, before any latch. At 0.75 only the latch would stop it.
+- The cost is a challenge, never a rejection.
+- Re-check per subject on the multi-subject data (F9) with `models/tools/session_guard_replay.py`. If more than 25%
+  of real-face passive passes become challenges across subjects, evaluate 0.80.
+
 ## 5. Thresholds: recommendation, and why the defaults stay
 
 The rule (provisional, on the grid 0.05 … 0.95, 0.99, 0.999):
@@ -139,17 +276,28 @@ The rule (provisional, on the grid 0.05 … 0.95, 0.99, 0.999):
 | Scorer | Rule output: passive / reject | Note |
 |---|---|---|
 | MEAN without the cap | 0.97 / 0.75 | Fixes the close-up miss by brute force, but only 5 of 9 responding bona fide takes would then pass without a challenge |
-| MEAN + cap (shipped) | 0.67 / 0.62 | Degenerate: the cap pins the close-up attacks at exactly 0.60, so the rule hugs it |
+| MEAN + cap (shipped) | 0.67 / 0.62 | Round 1. Degenerate: the cap pins the close-up attacks at exactly 0.60, so the rule hugs it |
+| MEAN + cap, all 130 takes, before F18 | 0.87 / 0.75 | One `print_multi` take reached a window median of 0.816, the highest attack score below 0.85; the rule adds its margin above that. The reject value still comes from one bona fide subject |
+| MEAN + cap + F18 guards (shipped), all 130 takes | 0.67 / 0.55 | Degenerate again: the guards pin the attacks that used to score high at exactly 0.60 |
 
-**Decision: keep 0.85 / 0.30.** With one subject, moving a security threshold would be fitting noise. The cap already
-removes the observed passive failure without touching bona fide outcomes. Revisit when there are at least 10 subjects
-and the print species are in.
+**Decision: keep 0.85 / 0.30.** With one bona fide subject, moving a security threshold would be fitting noise.
+- The moiré cap and the F18 guards remove the observed passive failures without any bona fide rejection.
+- The prints are now in. Revisit when there are at least 10 bona fide subjects.
 
 ## 6. Limitations
 
 - One subject, one camera, one phone, one session of lighting. No children, older subjects, glasses or different skin
   tones yet.
-- Prints and second-screen replays are not yet evaluated.
+- Second-screen replays are not yet evaluated. The prints come from one printer and one paper; the cut-outs were
+  held by the subject, who knew the system.
+- The many-identity species are recorded at distances where most faces are small, so many takes are non-responses
+  (section 4.4). Their APCER covers only the responding takes.
+- The F18 guards were tuned on the cut-out that passed and checked on one bona fide subject. Their bona fide cost,
+  about 1 in 7 passive passes becoming a challenge, needs the multi-subject data (F9).
+- The rotate and tilt tricks against challenges were not exercised. PAD stopped those cut-outs before any challenge
+  appeared.
+- The PAD latch lasts one session. A new session after a final failure starts clean; the operator workflow's
+  cooldown limits that.
 - The moiré cap's threshold comes from one phone's pixel pitch and one webcam's optics. Other screens may sit below
   1.40, and other cameras may push bona fide frames above it.
 - Attack takes were made by the subject, who knew the system, holding the phone by hand. That is a low-effort attack
@@ -165,7 +313,8 @@ PowerShell, from the repository root, after the standalone install (README, Part
 mvn -f liveness-eval/pom.xml dependency:build-classpath "-Dmdep.outputFile=liveness-eval/target/eval-cp.txt"
 $cp = "liveness-eval\target\classes;" + (Get-Content liveness-eval\target\eval-cp.txt -Raw).Trim()
 
-# 1. Prints: print the selfie and the NASA portrait in colour, then record 6 + 6 guided takes (consent first)
+# 1. Prints (done for s01; the same for a new subject): print the selfie and the NASA portrait in colour, then
+#    record 6 + 6 guided takes (consent first)
 java -cp $cp io.mosip.registration.liveness.eval.LiveAnalyzerDemo --mode dataset --consent --subject s01 --only print_flat,print_curved
 #    or one take at a time:
 java -cp $cp io.mosip.registration.liveness.eval.DatasetRecorder --consent --label print_flat --subject s01 --take 1 --condition selfie
@@ -181,6 +330,9 @@ Then:
 - Add more phones, tablets and monitors as `screen_*` takes, and a second camera.
 - Re-validate the moiré cap on that data (the per-condition moiré table in `report.md`) before enabling the hard veto.
 - Re-check the thresholds with the section 5 rule once there are at least 10 subjects.
+- Re-check the F18 volatility cap per subject (section 4.5). Record each subject's real-face sessions with
+  `scripts\session-series.ps1 -LogDir eval-data\sessions`, then run `models/tools/session_guard_replay.py` on the
+  logs. If more than 25% of real-face passive passes become challenges across subjects, evaluate 0.80.
 
 ## 8. ISO/IEC 30107-3 alignment checklist
 
@@ -191,8 +343,8 @@ Then:
 | Decision measured at the system's real decision point (production window and thresholds), not the raw model | covered |
 | Bona fide and attack conditions documented; protocol, consent and data handling written down | covered (`part2-dataset-protocol.md`) |
 | Confidence for small samples | covered (Clopper-Pearson upper bounds) |
-| Subjects and PAIs per species in the numbers the standard expects for a conformance claim | **not covered** (1 subject, 6–12 takes per species) |
-| PAI species catalogue completeness (prints, masks, 3D, partial attacks, deepfake replays) | **not covered** (screens only so far) |
+| Subjects and PAIs per species in the numbers the standard expects for a conformance claim | **not covered** (1 bona fide subject; 6–45 takes per species, at most 14 attack identities) |
+| PAI species catalogue completeness (prints, masks, 3D, partial attacks, deepfake replays) | **partly covered** (screens and prints; no masks, 3D, partial attacks or deepfake replays) |
 | Attack potential rating (expertise, equipment, time) | **not covered** (low-effort, self-made attacks only) |
 | Digital injection attacks (virtual cameras, stream tampering) | **out of scope** for PAD; the frame source and audit chain are Part 1 and Part 3 |
 | IAPAR (needs a biometric comparison subsystem) | not applicable here |

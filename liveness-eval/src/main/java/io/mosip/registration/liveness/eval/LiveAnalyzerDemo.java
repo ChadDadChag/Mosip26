@@ -51,6 +51,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *   LiveAnalyzerDemo --mode traces     --consent [--labels ...] [--takes 2]   guided Part 3 TraceRecorder takes
  *   LiveAnalyzerDemo --mode dataset    --consent [--subject s01] [--only species,...]   guided PAD dataset takes
  * </pre>
+ * Every mode takes {@code --capture opencv|sarxos} (default opencv, see {@link WebcamFrameSource}).
  */
 public final class LiveAnalyzerDemo {
 
@@ -61,6 +62,7 @@ public final class LiveAnalyzerDemo {
                 Arrays.asList("--force-active", "--auto-retry", "--consent"));
         String mode = a.has("--mode") ? a.single("--mode") : "analyze";
         int camera = Integer.parseInt(a.has("--camera") ? a.single("--camera") : "0");
+        if (a.has("--capture")) System.setProperty(WebcamFrameSource.CAPTURE_PROPERTY, a.single("--capture"));
         switch (mode) {
             case "analyze": analyze(camera, PadEvaluation.analyzerConfig(a.all("--set"))); break;
             case "calibrate": calibrate(camera); break;
@@ -247,6 +249,8 @@ public final class LiveAnalyzerDemo {
                 fmt(r.padDetails.get("moire_med")), Float.valueOf(1f).equals(r.padDetails.get("moire_cap")) ? " CAPPED" : "",
                 cues == null ? "--" : String.format("%.3f", cues.glare)));
         if (r.padDetails.containsKey("pose_gated")) sb.append("PAD pose-gated (outside the model's pose range)\n");
+        if (Float.valueOf(1f).equals(r.padDetails.get("volatility_cap"))) sb.append("VOLATILITY CAP (unsteady scores)\n");
+        if (Float.valueOf(1f).equals(r.padDetails.get("pad_latch"))) sb.append("PAD LATCHED for this session\n");
         sb.append("issues      ").append(r.qualityIssues).append('\n');
         sb.append("usable()    ").append(r.usable()).append('\n');
         sb.append(String.format("ms detect %.1f mesh %.1f pose %.2f quality %.1f pad %.1f cues %.1f total %.1f%n",

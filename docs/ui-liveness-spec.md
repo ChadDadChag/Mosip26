@@ -94,6 +94,19 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
   hint, including during HOLD_STILL.
 - **Use the event's data, not cached state.** Use `challengeIndex` / `challengeCount` (1-based) from the event. Do
   not show `timeoutMs` as a countdown in seconds; an optional subtle shrinking ring is fine.
+- **When "Only one person should be in view" appears.** The analyzer counts a second face only if its area is at
+  least 20% of the largest face's (`detectorSecondFaceMinAreaRatio`). People far behind the registrant, or a small
+  photo beside the face, are ignored, and the largest face is the one checked. This is deliberate: bystanders must
+  not fail a registrant's session. Two faces of similar size (two printed faces, a group photo) show
+  `liveness.guidance.multiple_faces` at about 1.3 s; each attempt then fails with MULTIPLE_FACES at about 2.5 s, and
+  after the last retry the session ends with FAILED_FINAL (measured live, 3 of 3 sessions). Do not count faces in
+  the UI; show the engine's events.
+- **Retries after a PAD failure always get a challenge (F18).** Once a session has shown attack evidence, the
+  analyzer holds its scores at 0.60 for the rest of that session, so a retry cannot pass passively. This is the PAD
+  latch (`docs/part2-pad-architecture.md`, section 3.2). It only works if Retry calls `retry()` on the same session;
+  never start a new session for a retry. Unsteady scores can also lead to a challenge on a first attempt. Expect
+  about 1 in 7 real faces to see a challenge where they used to pass at once. No new texts are needed: the existing
+  challenge states cover it.
 
 ## 4. Texts (English)
 

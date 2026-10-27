@@ -7,6 +7,7 @@ import io.mosip.registration.liveness.api.ConfigProvider;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
 import io.mosip.registration.liveness.api.Frame;
 import io.mosip.registration.liveness.api.FrameAnalysis;
+import io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue;
 import io.mosip.registration.liveness.api.LivenessEngineException;
 import io.mosip.registration.liveness.api.LivenessEvent;
 import io.mosip.registration.liveness.api.LivenessListener;
@@ -54,16 +55,36 @@ import java.util.concurrent.atomic.AtomicReference;
  *   p  phone photo ~10 cm away,   RESIDENT (the close-up the session moire cap must send to a challenge)
  *   q  as p, tilting the phone to fake BLINK / SMILE (the pose-drift guard must hold)
  *   r  phone photo, normal distance, forced challenges, tilting to fake BLINK / SMILE
+ *   m  real face plus one printed cut-out beside it, RESIDENT (problem statement section 9: multiple faces)
+ *   n  two printed cut-outs side by side,       RESIDENT
+ *   o  a printed group photo (run it once per group photo), RESIDENT
+ *   s  printed cut-out No. k ("s3" = cut-out 3), still, about 20 cm, RESIDENT (single-print retest)
+ *   t  printed cut-out No. k, still, about 30 cm,                     RESIDENT
+ *   u  the NASA A4 print, still, about 30 cm,                          RESIDENT
+ *   y  printed cut-out No. k, still, CLOSE (its face as big on screen as a real face), RESIDENT
+ *   v  printed cut-out No. k, CLOSE, slight natural hand motion, RESIDENT
+ *   w  printed cut-out No. k, CLOSE, ROTATED to fake a turn, RESIDENT, forced, pool TURN_LEFT,TURN_RIGHT
+ *   x  printed cut-out No. k, CLOSE, TILTED to fake a blink or smile, RESIDENT, forced, pool BLINK,SMILE
+ *   i  real face, close (face about a third of the picture), RESIDENT
+ *   j  real face, far (about 1 m),                            RESIDENT
+ *   k  real face, approaching the camera slowly during the check, RESIDENT
+ *   l  real face, moving the head gently,                     RESIDENT
  * </pre>
+ * The multi-face cases expect GUIDANCE(MULTIPLE_FACES), then each attempt failing with MULTIPLE_FACES and the session
+ * with MAX_RETRIES_EXCEEDED, never PASSED. A second face counts only from 20% of the largest face's area
+ * ({@code detectorSecondFaceMinAreaRatio}), hence the cut-out held closer than the live face in case m.
  * Forced challenges = a ConfigProvider override of {@code mosip.registration.liveness.face.default.passiveThreshold}
  * (default 0.9999, {@code --force-threshold}) so a real face cannot pass passively; padRejectThreshold stays 0.30.
- * {@code --challenge-types TURN_LEFT,TURN_RIGHT,BLINK} narrows the forced runs' challenge pool (for a turn retest).
+ * {@code --challenge-types TURN_LEFT,TURN_RIGHT,BLINK} narrows the forced runs' challenge pool (for a turn retest);
+ * cases w and x bring their own pool.
  * {@code --config <full key>=<value>} (repeatable) overrides an engine setting for every case, for example
  * {@code mosip.registration.liveness.face.default.padRejectThreshold=0.0}; {@code --set <analyzer setting>=<value>}
  * (repeatable) changes an analyzer setting, as in PadEvaluation, for example {@code moireCapThreshold=off}. Each
  * challenge line gives the pose drift the tilt guard sees ({@link #drift}).
- * Each run is logged (events, result, per-challenge timing and the analyzer features seen during each challenge) to
- * {@code liveness-eval/target/sessions-<time>.jsonl}; no images are stored.
+ * Each run is logged (events, result, per-challenge timing and every analysed frame's features: pose, face size, the
+ * score, both PAD models' live probabilities, moire, its session median and cap state, the volatility cap and PAD
+ * latch flags, quality issues) to
+ * {@code <--log-dir, default liveness-eval/target>/sessions-<time>.jsonl}; no images are stored.
  */
 final class SessionDemo {
 
@@ -77,12 +98,61 @@ final class SessionDemo {
         final String id, instruction;
         final WorkflowType workflow;
         final boolean forceActive;
+        /** The numbered item presented (a cut-out's number), 0 if none. */
+        final int item;
+        /** The forced runs' challenge pool for this case, null = {@code --challenge-types} or the default pool. */
+        final String types;
 
         Case(String id, WorkflowType workflow, boolean forceActive, String instruction) {
+            this(id, workflow, forceActive, instruction, 0);
+        }
+
+        Case(String id, WorkflowType workflow, boolean forceActive, String instruction, int item) {
+            this(id, workflow, forceActive, instruction, item, null);
+        }
+
+        Case(String id, WorkflowType workflow, boolean forceActive, String instruction, int item, String types) {
             this.id = id;
             this.workflow = workflow;
             this.forceActive = forceActive;
             this.instruction = instruction;
+            this.item = item;
+            this.types = types;
+        }
+    }
+
+    /** A plan entry: the case letter, then the item number for the cut-out cases ("s3"). */
+    static Case scripted(String token) {
+        String t = token.trim().toLowerCase(Locale.ROOT);
+        if (t.isEmpty()) throw new IllegalArgumentException("empty plan entry");
+        char c = t.charAt(0);
+        boolean numbered = c == 's' || c == 't' || c == 'v' || c == 'w' || c == 'x' || c == 'y';
+        if (numbered != t.length() > 1) {
+            throw new IllegalArgumentException(numbered ? "case '" + c + "' needs the cut-out number, for example " + c + "3"
+                    : "case '" + c + "' takes no number, got '" + token + "'");
+        }
+        int k = numbered ? Integer.parseInt(t.substring(1)) : 0;
+        String still = ", your face out of view: hold it STILL and steady until FINISHED";
+        // Cut-out faces are a few cm tall: at 20-30 cm most were too small to judge (FACE_TOO_SMALL), so the
+        // later cases ask for the size of the face on screen, as large as a real face, instead of a distance.
+        String close = "CUT-OUT " + k + " CLOSE: the face in it as big on screen as a real face (about a quarter of the"
+                + " window's width),";
+        switch (c) {
+            case 's': return new Case("s", WorkflowType.RESIDENT, false,
+                    "CUT-OUT " + k + " about 20 cm from the camera, face to the lens" + still, k);
+            case 't': return new Case("t", WorkflowType.RESIDENT, false,
+                    "CUT-OUT " + k + " about 30 cm from the camera, face to the lens" + still, k);
+            case 'u': return new Case("u", WorkflowType.RESIDENT, false,
+                    "NASA A4 PRINT about 30 cm from the camera, face to the lens" + still);
+            case 'y': return new Case("y", WorkflowType.RESIDENT, false, close + " face to the lens" + still, k);
+            case 'v': return new Case("v", WorkflowType.RESIDENT, false, close + " face to the lens, your face out of"
+                    + " view: hold it in your hand with SLIGHT NATURAL MOTION (do not shake it) until FINISHED", k);
+            case 'w': return new Case("w", WorkflowType.RESIDENT, true, close + " your face out of view: when asked to"
+                    + " TURN, ROTATE the cut-out to that side (as the person would turn their head) and back; until"
+                    + " FINISHED", k, "TURN_LEFT,TURN_RIGHT");
+            case 'x': return new Case("x", WorkflowType.RESIDENT, true, close + " your face out of view: when asked to"
+                    + " BLINK or SMILE, TILT the cut-out (top edge toward you and back); until FINISHED", k, "BLINK,SMILE");
+            default: return scripted(c);
         }
     }
 
@@ -104,7 +174,24 @@ final class SessionDemo {
                     "PHONE PHOTO about 10 cm away, your face out of view: when asked to BLINK or SMILE, TILT the phone to fake it");
             case 'r': return new Case("r", WorkflowType.RESIDENT, true,
                     "PHONE PHOTO at normal distance, forced challenges: when asked to BLINK or SMILE, TILT the phone to fake it");
-            default: throw new IllegalArgumentException("unknown case '" + c + "' (a..h, p, q, r)");
+            case 'm': return new Case("m", WorkflowType.RESIDENT, false,
+                    "MULTI-FACE: YOUR FACE plus ONE CUT-OUT beside it, the cut-out about 30 cm from the camera (at least half"
+                            + " as tall as your face): hold until FINISHED");
+            case 'n': return new Case("n", WorkflowType.RESIDENT, false,
+                    "MULTI-FACE: TWO CUT-OUTS side by side about 30 cm from the camera, your face out of view: hold until FINISHED");
+            case 'o': return new Case("o", WorkflowType.RESIDENT, false,
+                    "MULTI-FACE: a GROUP PHOTO print (several faces) about 30 cm from the camera, your face out of view: hold until"
+                            + " FINISHED");
+            case 'i': return new Case("i", WorkflowType.RESIDENT, false, "REAL FACE, CLOSE: lean in until your face fills"
+                    + " about a third of the picture (whole face visible, chin to hair), look at the camera until FINISHED");
+            case 'j': return new Case("j", WorkflowType.RESIDENT, false,
+                    "REAL FACE, FAR: sit back about 1 m from the camera, look at it until FINISHED");
+            case 'k': return new Case("k", WorkflowType.RESIDENT, false, "REAL FACE, APPROACHING: start about 1 m back;"
+                    + " after SPACE move SLOWLY toward the camera, looking at it, until FINISHED");
+            case 'l': return new Case("l", WorkflowType.RESIDENT, false, "REAL FACE, MOVING: look at the camera and move"
+                    + " your head gently (small turns and nods) until FINISHED");
+            default: throw new IllegalArgumentException("unknown case '" + c
+                    + "' (a..h, i, j, k, l, m, n, o, p, q, r, s1, t1, u, v1, w1, x1, y1)");
         }
     }
 
@@ -113,6 +200,13 @@ final class SessionDemo {
         final long t;
         final int faces;
         final float score, yaw, pitch, ear, mouthWidth, mouthOpen, cornerLift, boxWidth;
+        /**
+         * Roll, face box area / frame area, the two PAD models' live probabilities, the moire cap state and the print
+         * guards' flags.
+         */
+        final float roll, areaFrac, v2Live, v1seLive, moire, moireMed, moireCap, volCap, padLatch;
+        /** Quality issues, space separated. */
+        final String issues;
 
         Sample(long t, FrameAnalysis a) {
             this.t = t;
@@ -125,6 +219,24 @@ final class SessionDemo {
             this.mouthWidth = FaceGeometry.mouthWidthRatio(a.landmarks);
             this.mouthOpen = FaceGeometry.mouthOpenRatio(a.landmarks);
             this.cornerLift = FaceGeometry.cornerLift(a.landmarks);
+            this.roll = a.rollDeg;
+            this.areaFrac = a.faceBox == null || a.frame == null ? Float.NaN
+                    : a.faceBox[2] * a.faceBox[3] / ((float) a.frame.width() * a.frame.height());
+            this.v2Live = detail(a, "minifas_v2_live");
+            this.v1seLive = detail(a, "minifas_v1se_live");
+            this.moire = detail(a, "moire");
+            this.moireMed = detail(a, "moire_med");
+            this.moireCap = detail(a, "moire_cap");
+            this.volCap = detail(a, "volatility_cap");
+            this.padLatch = detail(a, "pad_latch");
+            StringBuilder b = new StringBuilder();
+            for (QualityIssue q : a.qualityIssues) b.append(b.length() > 0 ? " " : "").append(q);
+            this.issues = b.toString();
+        }
+
+        private static float detail(FrameAnalysis a, String key) {
+            Float v = a.padDetails.get(key);
+            return v == null ? Float.NaN : v;
         }
     }
 
@@ -246,7 +358,7 @@ final class SessionDemo {
         final String types = a.has("--challenge-types") ? a.single("--challenge-types") : null;
         List<Case> plan = new ArrayList<Case>();
         if (series) {
-            for (String p : a.required("--plan").split(",")) plan.add(scripted(p.trim().toLowerCase(Locale.ROOT).charAt(0)));
+            for (String p : a.required("--plan").split(",")) plan.add(scripted(p));
         } else {
             WorkflowType wf = WorkflowType.valueOf(a.has("--workflow") ? a.single("--workflow") : "RESIDENT");
             plan.add(new Case("session", wf, a.has("--force-active"), "Look at the camera and follow the instructions"));
@@ -284,7 +396,7 @@ final class SessionDemo {
         w.onClose(new Runnable() { @Override public void run() { alive.running = false; } });
         w.show();
 
-        File logFile = new File("liveness-eval/target/sessions-"
+        File logFile = new File(a.has("--log-dir") ? a.single("--log-dir") : "liveness-eval/target", "sessions-"
                 + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".jsonl");
         logFile.getParentFile().mkdirs();
         try (Writer log = new OutputStreamWriter(new FileOutputStream(logFile), StandardCharsets.UTF_8)) {
@@ -299,7 +411,8 @@ final class SessionDemo {
                 if (k == null) break;
                 if (k.equals("S")) continue;
                 RecordingFactory rf = new RecordingFactory(real);
-                final ConfigProvider base = c.forceActive ? forcedConfig(threshold, types) : new ConfigProvider() {
+                String pool = c.types != null ? c.types : types;
+                final ConfigProvider base = c.forceActive ? forcedConfig(threshold, pool) : new ConfigProvider() {
                     @Override public String get(String keyName) { return null; }
                 };
                 ConfigProvider cfg = new ConfigProvider() {
@@ -476,7 +589,7 @@ final class SessionDemo {
         LivenessResult res = r.result;
         StringBuilder sb = new StringBuilder("{");
         sb.append("\"case\":\"").append(c.id).append(n).append("\",\"workflow\":\"").append(c.workflow)
-                .append("\",\"forced\":").append(c.forceActive);
+                .append("\",\"forced\":").append(c.forceActive).append(",\"item\":").append(c.item);
         if (res != null) {
             sb.append(",\"decision\":\"").append(res.decision).append("\",\"passPath\":\"").append(res.passPath)
                     .append("\",\"failureCode\":").append(res.failureCode == null ? "null" : "\"" + res.failureCode + "\"")
@@ -487,14 +600,19 @@ final class SessionDemo {
         sb.append(",\"events\":[");
         List<String> ev = new ArrayList<String>(r.events);
         for (int i = 0; i < ev.size(); i++) sb.append(i > 0 ? "," : "").append('"').append(ev.get(i)).append('"');
-        // Every frame the engine analysed: [t ms, faces, yaw, pitch, mean EAR, score, box width px] (numbers only).
-        sb.append("],\"frames\":[");
+        // Every frame the engine analysed (numbers and codes only), fields as named in "frameFields".
+        sb.append("],\"frameFields\":[\"t\",\"faces\",\"yaw\",\"pitch\",\"ear\",\"score\",\"boxWidth\",\"roll\",\"areaFrac\","
+                + "\"v2Live\",\"v1seLive\",\"moire\",\"moireMed\",\"moireCap\",\"volCap\",\"padLatch\",\"issues\"],\"frames\":[");
         synchronized (rf.samples) {
             for (int i = 0; i < rf.samples.size(); i++) {
                 Sample s = rf.samples.get(i);
                 sb.append(i > 0 ? "," : "").append('[').append(s.t).append(',').append(s.faces).append(',')
                         .append(num(s.yaw)).append(',').append(num(s.pitch)).append(',').append(num(s.ear)).append(',')
-                        .append(num(s.score)).append(',').append(num(s.boxWidth)).append(']');
+                        .append(num(s.score)).append(',').append(num(s.boxWidth)).append(',').append(num(s.roll))
+                        .append(',').append(num(s.areaFrac)).append(',').append(num(s.v2Live)).append(',')
+                        .append(num(s.v1seLive)).append(',').append(num(s.moire)).append(',').append(num(s.moireMed))
+                        .append(',').append(num(s.moireCap)).append(',').append(num(s.volCap)).append(',')
+                        .append(num(s.padLatch)).append(",\"").append(s.issues).append("\"]");
             }
         }
         sb.append("]}");

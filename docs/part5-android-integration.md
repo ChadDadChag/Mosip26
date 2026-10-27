@@ -504,6 +504,8 @@ at start-up, and after a sync that changes them.
 | `padMaxYawDeg`, `padMaxPitchDeg` | 30, 25 | `AnalyzerConfig` |
 | `tooDarkLuma`, `tooBrightLuma`, `blurLapVar`, `minAreaFrac`, `minFaceWidthPx`, `maxAreaFrac`, `maxCentreOffset`, `qualityMaxClippedFraction` | 40, 220, 15, 0.04, 80, 0.60, 0.25, 0.30 | `AnalyzerConfig` |
 | `moireCapThreshold`, `moireCapScore`, `moireWindow`, `moireMinFrames`, `moireVetoThreshold` | 1.40, 0.60, 10, 3, off | `AnalyzerConfig` |
+| `qualityRelativeBlurRatio`, `meshTracking` | 0.45, true | `AnalyzerConfig` (F6 relative blur, `off` disables it; F7 landmark tracking) |
+| `padLatchThreshold`, `padLatchCapScore`, `volatilityMinScore`, `volatilityCapScore` | 0.30, 0.60, 0.85, 0.60 | `AnalyzerConfig` (F18 print guards; `off` disables a threshold) |
 
 An invalid analyzer config is logged, and the Android defaults are used instead.
 

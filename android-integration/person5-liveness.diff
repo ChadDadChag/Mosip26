@@ -1375,16 +1375,16 @@ index 0000000..686d49a
 +-keep class ai.onnxruntime.** { *; }
 diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
 new file mode 100644
-index 0000000..6bbc892
+index 0000000..d80661a
 --- /dev/null
 +++ b/android/liveness/engine-sync.txt
 @@ -0,0 +1,14 @@
 +# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
-+engine commit a080258
-+libs/liveness-api-1.2.0.2.jar de4092be8feb1a46ddee8ad245f700877d99662d7a3fcd80bbd434d67502c464
-+libs/liveness-core-1.2.0.2.jar 94abe7cf86426d0e0d356e8edcdd8785e69a8e29c6e7aa2a1c71ba4bfb21c721
-+libs/liveness-fake-1.2.0.2.jar 442494922a2b411093532ea3d5ec05684f2374bc6d663fa8443d626ef1a50dab
-+libs/liveness-analyzer-1.2.0.2.jar b957c8e743254030d897d53671bca54f7d28643327198913b142f169fdffa237
++engine commit 13e3eae
++libs/liveness-api-1.2.0.2.jar cf98d4c3dc42d4d8eb7930fab71a88b4be7a5b90e0d4badbd290b09f810de1b3
++libs/liveness-core-1.2.0.2.jar b80b22ec9ddf48b87eb8a5066d01d87fccbe9e44029b4262023715f8ed337383
++libs/liveness-fake-1.2.0.2.jar c5f03b6509a156d301ae9686d84e34b4ad28c3cbecf321864c7bdef5b1f97792
++libs/liveness-analyzer-1.2.0.2.jar 3ff6c84f3e9f8d5a4faab648541678b4ce05fd0ed68e1502275be55ab6b6dfc3
 +assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
 +assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
 +assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0

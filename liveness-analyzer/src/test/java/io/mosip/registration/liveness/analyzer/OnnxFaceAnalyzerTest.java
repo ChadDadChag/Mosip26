@@ -61,7 +61,10 @@ class OnnxFaceAnalyzerTest {
             double want = MiniJson.getDouble(GoldenFixtures.json("portrait_frontal"), "livenessScore");
             assertThat((double) r.livenessScore).isCloseTo(want, within(1e-4));
             assertThat(r.padDetails.keySet()).containsExactly("minifas_v2_live", "minifas_v1se_live", "minifas_v2_c0",
-                    "minifas_v2_c2", "minifas_v1se_spoof", "moire", "moire_med", "moire_cap");
+                    "moire", "moire_med", "moire_cap", "volatility_cap", "pad_latch");
+            // One frame: neither print guard has enough history, so the golden score is unchanged.
+            assertThat(r.padDetails.get("volatility_cap")).isZero();
+            assertThat(r.padDetails.get("pad_latch")).isZero();
             // One golden frame: moire 1.25 is below the 1.40 cap, the window has one value, so the score is unchanged.
             assertThat(r.padDetails.get("moire")).isLessThan(1.40f);
             assertThat(r.padDetails.get("moire_med")).isEqualTo(r.padDetails.get("moire"));
@@ -184,6 +187,84 @@ class OnnxFaceAnalyzerTest {
 
             a.moireOverride = 1.39f; // just below the threshold: never capped
             for (int i = 0; i < 12; i++) assertThat(a.analyze(portrait).padDetails.get("moire_cap")).isZero();
+        }
+    }
+
+    @Test
+    void thePadLatchHoldsAcrossRetriesAndOnlyANewAnalyzerResetsIt() throws Exception {
+        Frame portrait = frame("portrait_frontal");
+        byte[] grey = new byte[320 * 240 * 3];
+        Arrays.fill(grey, (byte) 128);
+        Frame empty = new Frame(grey, 320, 240, 0L, 0L, "test");
+        try (OnnxFaceAnalyzer a = analyzer(AnalyzerConfig.defaults())) {
+            float raw = a.analyze(portrait).livenessScore;
+            assertThat(raw).isGreaterThan(0.85f);
+            a.modelScoreOverride = 0.10f; // an attack-like score, injected: no print image needed
+            FrameAnalysis first = a.analyze(portrait);
+            assertThat(first.padDetails.get("pad_latch")).isZero(); // two scores only
+            FrameAnalysis second = a.analyze(portrait);
+            assertThat(second.padDetails.get("pad_latch")).isEqualTo(1f); // median of raw, 0.10, 0.10 < 0.30
+            assertThat(second.livenessScore).isEqualTo(0.10f); // the cap only lowers
+            assertThat(second.padDetails.get("minifas_v2_live")).isGreaterThan(0.60f); // the model outputs stay raw
+            a.modelScoreOverride = Float.NaN;
+            // A retry in the same session: the face leaves, comes back and scores high, and stays capped.
+            assertThat(a.analyze(empty).faceCount).isZero();
+            assertThat(a.analyze(frame("crew_multi")).faceCount).isEqualTo(4);
+            for (int i = 0; i < 12; i++) {
+                FrameAnalysis r = a.analyze(portrait);
+                assertThat(r.livenessScore).isEqualTo(0.60f);
+                assertThat(r.padDetails.get("pad_latch")).isEqualTo(1f);
+                assertThat(r.padDetails.get("volatility_cap")).isZero(); // the window restarted with the face
+            }
+        }
+        try (OnnxFaceAnalyzer next = analyzer(AnalyzerConfig.defaults())) { // a new session
+            FrameAnalysis r = next.analyze(portrait);
+            assertThat(r.livenessScore).isGreaterThan(0.85f);
+            assertThat(r.padDetails.get("pad_latch")).isZero();
+        }
+    }
+
+    @Test
+    void theVolatilityCapLiftsOnceTheLowFramesLeaveTheWindow() throws Exception {
+        Frame portrait = frame("portrait_frontal");
+        try (OnnxFaceAnalyzer a = analyzer(AnalyzerConfig.defaults())) {
+            float raw = 0f;
+            for (int i = 0; i < 5; i++) raw = a.analyze(portrait).livenessScore;
+            assertThat(raw).isGreaterThan(0.85f);
+            a.modelScoreOverride = 0.50f; // two early dips, above the latch threshold
+            a.analyze(portrait);
+            FrameAnalysis dip = a.analyze(portrait);
+            assertThat(dip.padDetails.get("volatility_cap")).isEqualTo(1f);
+            a.modelScoreOverride = Float.NaN;
+            int capped = 0;
+            for (int i = 0; i < 12; i++) {
+                FrameAnalysis r = a.analyze(portrait);
+                if (r.padDetails.get("volatility_cap") == 1f) {
+                    capped++;
+                    assertThat(r.livenessScore).isEqualTo(0.60f);
+                } else {
+                    assertThat(r.livenessScore).isEqualTo(raw);
+                }
+            }
+            // Window of 10: the first dip leaves after 8 more frames, so 8 steady frames are capped, then none.
+            assertThat(capped).isEqualTo(8);
+            assertThat(a.analyze(portrait).padDetails.get("pad_latch")).isZero();
+        }
+    }
+
+    @Test
+    void bothPrintGuardsCanBeSwitchedOff() throws Exception {
+        Frame portrait = frame("portrait_frontal");
+        AnalyzerConfig off = AnalyzerConfig.builder().padLatchThreshold(Double.NaN).volatilityMinScore(Double.NaN).build();
+        try (OnnxFaceAnalyzer a = analyzer(off)) {
+            float raw = a.analyze(portrait).livenessScore;
+            a.modelScoreOverride = 0.10f;
+            for (int i = 0; i < 4; i++) a.analyze(portrait);
+            a.modelScoreOverride = Float.NaN;
+            FrameAnalysis r = a.analyze(portrait);
+            assertThat(r.livenessScore).isEqualTo(raw);
+            assertThat(r.padDetails.get("pad_latch")).isZero();
+            assertThat(r.padDetails.get("volatility_cap")).isZero();
         }
     }
 

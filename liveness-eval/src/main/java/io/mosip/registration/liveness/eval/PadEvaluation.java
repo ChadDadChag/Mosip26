@@ -478,8 +478,11 @@ public final class PadEvaluation {
                     + "edition** and shown only for continuity.\n");
             b.append("- Candidate 1 is production as shipped: the analyzer's livenessScore, which is MEAN with the session "
                     + "moire cap (rolling median of the last 10 single-face moire values >= 1.40 over at least 3 values caps "
-                    + "the score at 0.60, forcing a challenge). Candidate 1a recomputes MEAN without the cap (Phase 6 "
-                    + "production). Candidates 2 to 7 start from the uncapped model outputs.\n");
+                    + "the score at 0.60, forcing a challenge) and the F18 print guards with the analyzer settings of this "
+                    + "run (PAD latch: after a 3-frame median below 0.30, every later score of the take is at most 0.60; "
+                    + "volatility cap: the score is at most 0.60 while the second-lowest of the last 10 model scores is "
+                    + "below 0.85). Candidate 1a recomputes MEAN without the cap or guards (Phase 6 production). "
+                    + "Candidates 2 to 7 start from the uncapped model outputs.\n");
             b.append("- Candidates are recomputed per frame from the stored model outputs and go through the same window logic. "
                     + "Moire veto: frame score 0 when moire >= M. Area gate: frames with face area fraction > A are "
                     + "ineligible, as FACE_TOO_LARGE makes them (0.60 is today's quality limit). Candidate 7 combines the "
