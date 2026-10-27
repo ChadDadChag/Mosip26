@@ -599,8 +599,9 @@ It is off when the system's reduce-motion setting is on (Android) or with `deskt
   - the English status takes at most 2 lines;
   - a failed attempt shows one attempts line;
   - the right-to-left order.
-- Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window) and 1280×800, and in
-  Arabic, with the same checks where they apply.
+- Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window), 720×688 (the window
+  on a 1366×768 screen, as high as the screen allows) and 1280×800, and in Arabic, with the same checks where they
+  apply.
 
 **Screenshots.**
 - `docs/images/android`: from `test/liveness/liveness_screenshots_test.dart`, with the fake engine's events and the
