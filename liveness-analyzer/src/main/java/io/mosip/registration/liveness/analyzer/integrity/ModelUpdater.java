@@ -230,12 +230,13 @@ public final class ModelUpdater {
      * Installs a bundle zip from local or removable media (F17), the zip {@link #check} downloads. The zip is not
      * trusted: it must be at most 64 MiB, it is unpacked with the same rules into a fresh {@code update.tmp-}
      * directory (deleted afterwards), and it is installed only when its signature verifies and its version, read from
-     * its own manifest, is newer than both the store's current bundle and the app's own. Never throws for a bad zip
-     * or bundle.
+     * its own manifest, is newer than both the store's current bundle and the app's own. The signature, sizes and
+     * hashes are checked before the version ({@link ModelStore#install}), so a tampered zip is BUNDLE_INVALID even
+     * when the version it claims is not newer. Never throws for a bad zip or bundle.
      *
-     * @return INSTALLED with the new version; UP_TO_DATE with the local version when the zip is not newer (refused,
-     *         the store unchanged); FAILED with a {@link Reason} (BUNDLE_INVALID = MODEL_INTEGRITY_FAILED), the store
-     *         unchanged
+     * @return INSTALLED with the new version; UP_TO_DATE with the local version when a verified zip is not newer
+     *         (refused, the store unchanged); FAILED with a {@link Reason} (BUNDLE_INVALID = MODEL_INTEGRITY_FAILED),
+     *         the store unchanged
      */
     public UpdateResult installZip(File zip, ModelStore store, BundleSource bundled, TrustedKeys keys) {
         if (zip == null || store == null || bundled == null || keys == null) {
@@ -251,10 +252,9 @@ public final class ModelUpdater {
                 File staged = new File(work, "bundle");
                 if (!staged.mkdir()) throw new Failure(Reason.STORAGE, "cannot create the staging directory");
                 offered = unpack(zip, staged, null);
-                String local = newestLocal(store, bundled);
-                if (VerifiedBundle.compareVersions(offered, local) <= 0) {
-                    return new UpdateResult(Status.UP_TO_DATE, local, null, "");
-                }
+                // No version pre-check: the manifest is not verified yet. ModelStore.install verifies the signature,
+                // sizes and hashes first and only then refuses a version that is not newer, so a tampered zip is
+                // always BUNDLE_INVALID, whatever version it claims (verify, then trust).
                 try {
                     String v = store.install(new DirectoryBundleSource(staged), bundled, keys);
                     return new UpdateResult(Status.INSTALLED, v, null, "");

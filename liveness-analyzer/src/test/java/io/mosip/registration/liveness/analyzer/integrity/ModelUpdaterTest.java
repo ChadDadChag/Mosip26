@@ -526,6 +526,28 @@ class ModelUpdaterTest {
         assertUntouched(store);
     }
 
+    @Test
+    void aTamperedOfflineZipIsInvalidEvenWhenItsVersionIsNotNewer(@TempDir File tmp) throws Exception {
+        ModelStore store = new ModelStore(new File(tmp, "store"));
+        String model = ModelRole.DETECTOR.fileName();
+        byte[] garbage = (TestBundles.KEY_ID + ":00").getBytes(StandardCharsets.US_ASCII);
+        for (String version : new String[] {"pad-2026.09.3", OLD}) { // older than, and the same as, the app's own
+            Map<String, byte[]> f = files(version, TestBundles.fakeModels(14));
+            byte[] flipped = f.get(model).clone();
+            flipped[flipped.length / 2] ^= 1;
+            UpdateResult tampered = offline().installZip(write(tmp, version + "-tampered.zip",
+                    rawZip(packLayout(f, f.get("manifest.sig"), model, flipped))), store, bundled(), trust);
+            assertFailed(tampered, Reason.BUNDLE_INVALID); // verify first: never reported as "not newer"
+            assertFailed(offline().installZip(write(tmp, version + "-badsig.zip",
+                    rawZip(packLayout(f, garbage, model, f.get(model)))), store, bundled(), trust), Reason.BUNDLE_INVALID);
+            // The same files untouched: verified, then refused as not newer.
+            UpdateResult valid = offline().installZip(write(tmp, version + ".zip", zip(f)), store, bundled(), trust);
+            assertThat(valid.status()).as(valid.toString()).isEqualTo(Status.UP_TO_DATE);
+            assertThat(valid.version()).isEqualTo(OLD);
+        }
+        assertUntouched(store);
+    }
+
     /** The pack layout of a bundle's files, with this signature and one model's bytes replaced. */
     private static Object[] packLayout(Map<String, byte[]> f, byte[] sig, String model, byte[] modelBytes) {
         Object[] layout = new Object[(2 + ModelRole.values().length) * 2];
