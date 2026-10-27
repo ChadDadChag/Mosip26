@@ -26858,7 +26858,7 @@ index c3b216a..e5abd91 100644
  }
 -
 diff --git a/assets/l10n/app_en.arb b/assets/l10n/app_en.arb
-index 0012c53..39a6bad 100644
+index 0012c53..0828ee9 100644
 --- a/assets/l10n/app_en.arb
 +++ b/assets/l10n/app_en.arb
 @@ -368,5 +368,71 @@
@@ -26902,7 +26902,7 @@ index 0012c53..39a6bad 100644
 +  "liveness_tips_lighting": "Improve lighting.",
 +  "liveness_tips_capture_area": "Keep your face within the capture area.",
 +  "liveness_tips_follow_prompt": "Follow the prompted action.",
-+  "liveness_retry_attempts_left": "{n} attempt(s) left",
++  "liveness_retry_attempts_left": "{n, plural, one{{n} attempt left} other{{n} attempts left}}",
 +  "@liveness_retry_attempts_left": {"placeholders": {"n": {"type": "int"}}},
 +  "liveness_progress_step": "Step {i} of {n}",
 +  "@liveness_progress_step": {"placeholders": {"i": {"type": "int"}, "n": {"type": "int"}}},
@@ -26935,7 +26935,7 @@ index 0012c53..39a6bad 100644
 +  "liveness_model_confirm_rollback": "Roll back to the previous face liveness models? New liveness checks will use them."
  }
 diff --git a/assets/l10n/app_fr.arb b/assets/l10n/app_fr.arb
-index 4935d25..70d84e8 100644
+index 4935d25..1fc424e 100644
 --- a/assets/l10n/app_fr.arb
 +++ b/assets/l10n/app_fr.arb
 @@ -368,6 +368,67 @@
@@ -26980,7 +26980,7 @@ index 4935d25..70d84e8 100644
 +  "liveness_tips_lighting": "Améliorez l'éclairage.",
 +  "liveness_tips_capture_area": "Gardez votre visage dans la zone de capture.",
 +  "liveness_tips_follow_prompt": "Effectuez l'action demandée.",
-+  "liveness_retry_attempts_left": "{n} tentative(s) restante(s)",
++  "liveness_retry_attempts_left": "{n, plural, one{{n} tentative restante} other{{n} tentatives restantes}}",
 +  "liveness_progress_step": "Étape {i} sur {n}",
 +  "liveness_progress_attempt": "Tentative {a} sur {m}",
 +  "liveness_recovery_resident": "Veuillez contacter le superviseur. Le résident peut être enregistré à l'aide de la procédure d'exception biométrique.",
@@ -29598,10 +29598,10 @@ index 0000000..790e511
 +}
 diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
 new file mode 100644
-index 0000000..537f64b
+index 0000000..ff607bf
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_page.dart
-@@ -0,0 +1,749 @@
+@@ -0,0 +1,759 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -29997,6 +29997,8 @@ index 0000000..537f64b
 +                    child: Text(
 +                      text,
 +                      textAlign: TextAlign.center,
++                      // As wide as the longest line, so the badge stays next to a wrapped status.
++                      textWidthBasis: TextWidthBasis.longestLine,
 +                      style: _fitStatus(context, text, c.maxWidth - icon),
 +                    ),
 +                  ),
@@ -30127,10 +30129,18 @@ index 0000000..537f64b
 +          children: [
 +            Text(livenessText(l, 'liveness.tips.title'),
 +                style: LivenessStyle.tips.copyWith(fontWeight: FontWeight.w600)),
++            // The bullet apart from the text, so a wrapped tip continues under its text.
 +            for (final key in livenessTipKeys)
 +              Padding(
 +                padding: const EdgeInsets.only(top: 4),
-+                child: Text('•  ${livenessText(l, key)}', style: LivenessStyle.tips),
++                child: Row(
++                  crossAxisAlignment: CrossAxisAlignment.start,
++                  children: [
++                    const ExcludeSemantics(child: Text('•', style: LivenessStyle.tips)),
++                    const SizedBox(width: LivenessStyle.bulletGap),
++                    Expanded(child: Text(livenessText(l, key), style: LivenessStyle.tips)),
++                  ],
++                ),
 +              ),
 +          ],
 +        ),
@@ -30478,10 +30488,10 @@ index 0000000..cea20f2
 +}
 diff --git a/lib/ui/liveness/liveness_style.dart b/lib/ui/liveness/liveness_style.dart
 new file mode 100644
-index 0000000..9fa1360
+index 0000000..3badbe2
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_style.dart
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,69 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -30535,6 +30545,8 @@ index 0000000..9fa1360
 +  static const double buttonHeight = 48;
 +  static const double buttonRadius = 12;
 +  static const double buttonGap = 12;
++  /// Between a tip's bullet and its text; a wrapped tip continues under the text.
++  static const double bulletGap = 8;
 +
 +  // Type (the platform family, Roboto on Android).
 +  /// 20 sp, stepping down to [statusMinSize] where 20 would need a third line.
@@ -31839,7 +31851,7 @@ index 0000000..6eb3b53
 +}
 diff --git a/test/liveness/liveness_controller_test.dart b/test/liveness/liveness_controller_test.dart
 new file mode 100644
-index 0000000..cbeae97
+index 0000000..a9d47bd
 --- /dev/null
 +++ b/test/liveness/liveness_controller_test.dart
 @@ -0,0 +1,508 @@
@@ -32347,7 +32359,7 @@ index 0000000..cbeae97
 +      expect(text, isNotEmpty);
 +    }
 +    expect(livenessText(l, 'liveness.progress.step', i: 1, n: 2), 'Step 1 of 2');
-+    expect(livenessText(l, 'liveness.retry.attempts_left', n: 3), '3 attempt(s) left');
++    expect(livenessText(l, 'liveness.retry.attempts_left', n: 3), '3 attempts left');
 +    expect(livenessText(l, 'liveness.progress.attempt', a: 2, m: 4), 'Attempt 2 of 4');
 +  });
 +}
@@ -32552,10 +32564,10 @@ index 0000000..c8cc535
 +}
 diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
 new file mode 100644
-index 0000000..bacad04
+index 0000000..d4b04ef
 --- /dev/null
 +++ b/test/liveness/liveness_l10n_test.dart
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,77 @@
 +import 'dart:convert';
 +import 'dart:io';
 +
@@ -32568,7 +32580,8 @@ index 0000000..bacad04
 +/// machine-translation note in each translated file.
 +void main() {
 +  const languages = ['ar', 'fr', 'hi', 'kn', 'ta'];
-+  final placeholder = RegExp(r'\{(\w+)\}');
++  // A placeholder {n}, or the argument of an ICU plural {n, plural, ...}.
++  final placeholder = RegExp(r'\{(\w+)(?:\}|,\s*plural)');
 +
 +  Map<String, dynamic> arb(String lang) =>
 +      jsonDecode(File('assets/l10n/app_$lang.arb').readAsStringSync()) as Map<String, dynamic>;
@@ -32576,8 +32589,9 @@ index 0000000..bacad04
 +  final en = arb('en');
 +  final keys = en.keys.where((k) => k.startsWith('liveness_') && !k.startsWith('liveness_model_')).toList(); // F17 model keys: model_bundle_test
 +
++  // The names used, once each: a plural repeats {n} in its branches.
 +  List<String> placeholders(String text) =>
-+      placeholder.allMatches(text).map((m) => m.group(1)!).toList()..sort();
++      placeholder.allMatches(text).map((m) => m.group(1)!).toSet().toList()..sort();
 +
 +  test('English has the 45 liveness keys', () {
 +    expect(keys, hasLength(45));
@@ -32618,14 +32632,29 @@ index 0000000..bacad04
 +      expect(livenessText(l, 'liveness.retry.attempts_left', n: 2), contains('2'));
 +    }
 +  });
++
++  test('the attempts left are real plurals in English and French', () async {
++    final en = await AppLocalizations.delegate.load(const Locale('en'));
++    final fr = await AppLocalizations.delegate.load(const Locale('fr'));
++    String left(AppLocalizations l, int n) => livenessText(l, 'liveness.retry.attempts_left', n: n);
++    expect(left(en, 1), '1 attempt left');
++    expect(left(en, 3), '3 attempts left');
++    expect(left(en, 0), '0 attempts left');
++    expect(left(fr, 1), '1 tentative restante');
++    expect(left(fr, 3), '3 tentatives restantes');
++    expect(left(fr, 0), '0 tentative restante', reason: 'French "one" covers 0 and 1');
++  });
 +}
 diff --git a/test/liveness/liveness_page_layout_test.dart b/test/liveness/liveness_page_layout_test.dart
 new file mode 100644
-index 0000000..d8e92ed
+index 0000000..0f6b018
 --- /dev/null
 +++ b/test/liveness/liveness_page_layout_test.dart
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,190 @@
++import 'dart:math' as math;
++
 +import 'package:flutter/material.dart';
++import 'package:flutter/rendering.dart';
 +import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 +import 'package:flutter_test/flutter_test.dart';
 +import 'package:registration_client/ui/liveness/liveness_page.dart';
@@ -32646,6 +32675,27 @@ index 0000000..d8e92ed
 +  String toString() => textScale == 1.0 ? lang : '$lang ${textScale}x';
 +}
 +
++/// The laid-out lines of a paragraph, top to bottom, in global coordinates: the
++/// extent of their visible characters (a line's trailing space at a wrap is left out).
++List<Rect> textLines(WidgetTester tester, Finder richText) {
++  final p = tester.renderObject<RenderParagraph>(richText);
++  final boxes = [
++    for (final word in RegExp(r'\S+').allMatches(p.text.toPlainText()))
++      ...p.getBoxesForSelection(TextSelection(baseOffset: word.start, extentOffset: word.end)),
++  ]..sort((a, b) => a.top.compareTo(b.top));
++  final lines = <Rect>[];
++  for (final box in boxes) {
++    final r = box.toRect();
++    if (lines.isNotEmpty && r.center.dy < lines.last.bottom) {
++      lines.last = lines.last.expandToInclude(r);
++    } else {
++      lines.add(r);
++    }
++  }
++  final origin = p.localToGlobal(Offset.zero);
++  return lines.map((r) => r.shift(origin)).toList();
++}
++
 +/// docs/ui-liveness-spec.md §9 on phones: every state fits 360x640 and 412x915
 +/// (logical) without scrolling, the buttons are always on screen, a failed attempt
 +/// shows one attempts line, and the state badge sits on the oval's top centre;
@@ -32658,6 +32708,8 @@ index 0000000..d8e92ed
 +  final status = find.byKey(const Key('liveness.status'));
 +  final tips = find.byKey(const Key('liveness.tips'));
 +  final buttons = find.byWidgetPredicate((w) => w is ElevatedButton || w is OutlinedButton);
++  var wrappedTips = 0;
++  final wrappedStatus = {'ltr': 0, 'rtl': 0};
 +
 +  for (final screen in [...livenessScreens, ...livenessExtraScreens]) {
 +    for (final size in sizes) {
@@ -32695,6 +32747,37 @@ index 0000000..d8e92ed
 +            expect(tester.getSize(statusText).height, lessThanOrEqualTo(2 * 20 * 1.25 + 0.5));
 +          }
 +
++          // A wrapped status: the badge stays next to the longest line, and the two are centred in the card.
++          final rtl = v.lang == 'ar';
++          final statusLines = textLines(tester, find.descendant(of: statusText, matching: find.byType(RichText)));
++          if (statusLines.length > 1) {
++            wrappedStatus[rtl ? 'rtl' : 'ltr'] = wrappedStatus[rtl ? 'rtl' : 'ltr']! + 1;
++            final left = statusLines.map((r) => r.left).reduce(math.min);
++            final right = statusLines.map((r) => r.right).reduce(math.max);
++            final icon = tester.getCenter(find.descendant(of: status, matching: find.byType(Icon))).dx;
++            const half = LivenessStyle.badge / 2;
++            final gap = rtl ? (icon - half) - right : left - (icon + half);
++            expect(gap, inInclusiveRange(0, 14), reason: 'badge to the longest line');
++            final group = rtl ? (left + icon + half) / 2 : (icon - half + right) / 2;
++            expect(group, moreOrLessEquals(tester.getCenter(status).dx, epsilon: 2), reason: 'group centred');
++          }
++
++          // The tips hang: the bullet apart, and a wrapped tip's lines all start where its text starts.
++          if (hasTips) {
++            final texts = find.descendant(of: tips, matching: find.byType(RichText));
++            for (var i = 0; i < texts.evaluate().length; i++) {
++              final lines = textLines(tester, texts.at(i));
++              if (lines.length < 2) continue;
++              wrappedTips++;
++              final text = tester.renderObject<RenderParagraph>(texts.at(i)).text.toPlainText();
++              expect(text, isNot(startsWith('•')));
++              for (final line in lines.skip(1)) {
++                expect(rtl ? line.right : line.left,
++                    moreOrLessEquals(rtl ? lines.first.right : lines.first.left, epsilon: 1), reason: text);
++              }
++            }
++          }
++
 +          // After a failed attempt: the attempts left, never "Attempt a of m" as well.
 +          if (screen.events.any((e) => e['type'] == 'ATTEMPT_FAILED')) {
 +            expect(find.text(livenessText(l, 'liveness.retry.attempts_left', n: 3)), findsOneWidget);
@@ -32720,6 +32803,12 @@ index 0000000..d8e92ed
 +      }
 +    }
 +  }
++
++  test('the checks above met wrapped statuses (both directions) and wrapped tips', () {
++    expect(wrappedStatus['ltr'], greaterThan(0));
++    expect(wrappedStatus['rtl'], greaterThan(0));
++    expect(wrappedTips, greaterThan(0), reason: 'at 360 dp and 1.3x a tip wraps');
++  });
 +
 +  testWidgets('the status cross-fades in 200 ms; the progress row does not animate', (tester) async {
 +    final service = await showLivenessScreen(tester, livenessScreens.first, const Size(360, 640));
@@ -32754,10 +32843,10 @@ index 0000000..d8e92ed
 +}
 diff --git a/test/liveness/liveness_page_locale_test.dart b/test/liveness/liveness_page_locale_test.dart
 new file mode 100644
-index 0000000..47d92ee
+index 0000000..928e120
 --- /dev/null
 +++ b/test/liveness/liveness_page_locale_test.dart
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,124 @@
 +import 'package:flutter/material.dart';
 +import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 +import 'package:flutter_test/flutter_test.dart';
@@ -32832,11 +32921,15 @@ index 0000000..47d92ee
 +    expect(find.text('تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.'), findsOneWidget);
 +    expect(find.text('المحاولات المتبقية: 2'), findsOneWidget);
 +    expect(find.text('نصائح:'), findsOneWidget);
-+    // The tips start at the right edge of their card; Retry (first) is right of Cancel.
++    // The tips start at the right edge of their card with the bullet, the text left of it;
++    // Retry (first) is right of Cancel.
 +    final tip = find.textContaining('انظر مباشرة إلى الكاميرا.');
 +    await tester.ensureVisible(tip);
 +    await tester.pump();
-+    expect(tester.getTopRight(tip).dx, greaterThan(tester.getTopRight(find.byKey(const Key('liveness.tips'))).dx - 14 - 1));
++    final tips = find.byKey(const Key('liveness.tips'));
++    final bullet = find.descendant(of: tips, matching: find.text('•')).first;
++    expect(tester.getTopRight(bullet).dx, greaterThan(tester.getTopRight(tips).dx - 14 - 1));
++    expect(tester.getTopRight(tip).dx, lessThan(tester.getTopLeft(bullet).dx));
 +    expect(tester.getCenter(find.text('إعادة المحاولة')).dx, greaterThan(tester.getCenter(find.text('إلغاء')).dx));
 +  });
 +
@@ -32880,7 +32973,7 @@ index 0000000..47d92ee
 +}
 diff --git a/test/liveness/liveness_page_test.dart b/test/liveness/liveness_page_test.dart
 new file mode 100644
-index 0000000..1bc0b19
+index 0000000..65af85f
 --- /dev/null
 +++ b/test/liveness/liveness_page_test.dart
 @@ -0,0 +1,258 @@
@@ -33016,7 +33109,7 @@ index 0000000..1bc0b19
 +        error: 'PAD_FAILURE', userMessage: 'VERIFICATION_NOT_COMPLETED', retriesLeft: 3));
 +    expect(find.text('Face verification could not be completed. Please try again.'), findsOneWidget);
 +    expect(find.text('Tips:'), findsNothing);
-+    expect(find.text('3 attempt(s) left'), findsOneWidget);
++    expect(find.text('3 attempts left'), findsOneWidget);
 +    expect(find.text('Retry'), findsOneWidget);
 +
 +    await send(tester, ev('FAILED_FINAL',
