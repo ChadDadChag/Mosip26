@@ -1,0 +1,39 @@
+From 1ba50046d37df64aa0df1834c85e120e5681bb25 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Tue, 27 Oct 2026 19:29:10 +0530
+Subject: [PATCH 39/40] Sync the liveness engine: F17 installZip verifies
+ before it compares versions
+
+Engine jars from Mosip26 2e389a0 (f17-offline-model-install: "F17:
+installZip verifies a bundle before it compares versions"). A tampered
+or badly signed zip is now BUNDLE_INVALID whatever version it claims,
+instead of being reported as not newer. The models and
+CameraXFrameSource.java are unchanged (same SHA-256).
+
+Tested together with the next commit, which adds the Android test for
+it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 343ad2f..1cf54d7 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,9 +1,9 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit b3586d5
+-libs/liveness-api-1.2.0.2.jar 8470dbc8283bd48fe8c2b191e3a8aff60c1229540a71db2d8198ef175a5539eb
+-libs/liveness-core-1.2.0.2.jar 631e96b4f1bb2cf482aea52a54c9d013760122ef627acdc214bbeb947e3888aa
+-libs/liveness-fake-1.2.0.2.jar 5b45f2c37461f233dd3ae1a5cf95e53cb61c1815d0d182b9da451f174b663469
+-libs/liveness-analyzer-1.2.0.2.jar 9ba043e4b82be03a6d74ae9235496fa9d1d9973635403b4f93188ac2a9236e45
++engine commit 2e389a0
++libs/liveness-api-1.2.0.2.jar 18ead7957c62e38cbd6f0be9614f6ffb0df50a2adbd4d5e7802fdff7eefb7f5a
++libs/liveness-core-1.2.0.2.jar ee7c692b631669f79adba2969226283efb1bd1260aab107065527679fd6bb6c7
++libs/liveness-fake-1.2.0.2.jar 6fc90ed9dfcb1bcafed72464bd009881539c1467b2a9f33997100d5b0f7a61fe
++libs/liveness-analyzer-1.2.0.2.jar a3573f96a46b0e4d59bca6f25619fbdef900ec44024934dbf1a73e185968bb04
+ assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
+ assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
+ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0

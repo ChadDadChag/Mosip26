@@ -54,6 +54,9 @@ import java.util.zip.ZipOutputStream;
  *       under the same rule.</li>
  * </ul>
  * One check runs at a time per process.
+ *
+ * <p>{@link #installZip} installs the same zip from local or removable media (F17, offline install), with the same
+ * unpacking rules and the same fail-closed install; the version comes from the zip's own manifest.
  */
 public final class ModelUpdater {
 
@@ -62,6 +65,8 @@ public final class ModelUpdater {
     public static final int MAX_ZIP_BYTES = 64 * 1024 * 1024;
     /** The files a manifest declares may add up to at most this (the zip is compressed). */
     static final long MAX_UNPACKED_BYTES = 2L * MAX_ZIP_BYTES;
+    /** A manifest may name at most this many files (a bundle has one per model role), so a zip has at most 2 more. */
+    static final int MAX_MANIFEST_FILES = 16;
     static final int MAX_REDIRECTS = 3;
     static final String TMP_PREFIX = "update.tmp-";
 
@@ -221,6 +226,65 @@ public final class ModelUpdater {
         }
     }
 
+    /**
+     * Installs a bundle zip from local or removable media (F17), the zip {@link #check} downloads. The zip is not
+     * trusted: it must be at most 64 MiB, it is unpacked with the same rules into a fresh {@code update.tmp-}
+     * directory (deleted afterwards), and it is installed only when its signature verifies and its version, read from
+     * its own manifest, is newer than both the store's current bundle and the app's own. The signature, sizes and
+     * hashes are checked before the version ({@link ModelStore#install}), so a tampered zip is BUNDLE_INVALID even
+     * when the version it claims is not newer. Never throws for a bad zip or bundle.
+     *
+     * @return INSTALLED with the new version; UP_TO_DATE with the local version when a verified zip is not newer
+     *         (refused, the store unchanged); FAILED with a {@link Reason} (BUNDLE_INVALID = MODEL_INTEGRITY_FAILED),
+     *         the store unchanged
+     */
+    public UpdateResult installZip(File zip, ModelStore store, BundleSource bundled, TrustedKeys keys) {
+        if (zip == null || store == null || bundled == null || keys == null) {
+            throw new IllegalArgumentException("zip, store, bundled and keys are required");
+        }
+        synchronized (CHECK_LOCK) {
+            String offered = null;
+            File work = null;
+            try {
+                if (!zip.isFile()) throw new Failure(Reason.STORAGE, "the zip is not a readable file");
+                if (zip.length() > MAX_ZIP_BYTES) throw new Failure(Reason.ZIP_SIZE, "the zip is larger than 64 MiB");
+                work = newWorkDir(store);
+                File staged = new File(work, "bundle");
+                if (!staged.mkdir()) throw new Failure(Reason.STORAGE, "cannot create the staging directory");
+                offered = unpack(zip, staged, null);
+                // No version pre-check: the manifest is not verified yet. ModelStore.install verifies the signature,
+                // sizes and hashes first and only then refuses a version that is not newer, so a tampered zip is
+                // always BUNDLE_INVALID, whatever version it claims (verify, then trust).
+                try {
+                    String v = store.install(new DirectoryBundleSource(staged), bundled, keys);
+                    return new UpdateResult(Status.INSTALLED, v, null, "");
+                } catch (IllegalArgumentException notNewer) {
+                    return new UpdateResult(Status.UP_TO_DATE, newestLocal(store, bundled), null, "");
+                }
+            } catch (Failure f) {
+                return new UpdateResult(Status.FAILED, offered, f.reason, f.getMessage());
+            } catch (LivenessEngineException e) {
+                return new UpdateResult(Status.FAILED, offered, Reason.BUNDLE_INVALID, e.getMessage());
+            } catch (IOException e) {
+                return new UpdateResult(Status.FAILED, offered, Reason.STORAGE, e.getClass().getSimpleName());
+            } finally {
+                if (work != null) ModelStore.deleteRecursively(work);
+            }
+        }
+    }
+
+    /**
+     * The version new sessions load: the newer of the store's current bundle and the app's own (read, not verified:
+     * the factory verifies), or null when either cannot be read. For status displays and audits.
+     */
+    public static String activeVersion(ModelStore store, BundleSource bundled) {
+        try {
+            return newestLocal(store, bundled);
+        } catch (Failure f) {
+            return null;
+        }
+    }
+
     // ---- packing (ModelBundleTool pack and tests) ----
 
     /** The index for a packed bundle, as {@link #check} reads it. */
@@ -363,8 +427,11 @@ public final class ModelUpdater {
     /**
      * Unpacks flat entries into {@code dir}: manifest.json first (it names the other entries and their sizes; it is
      * not trusted yet, the install verifies it), then exactly manifest.sig and the named files, each once.
+     *
+     * @param expectedVersion the version the manifest must declare, or null to accept any valid version
+     * @return the manifest's bundle version
      */
-    static void unpack(File zip, File dir, String expectedVersion) throws Failure {
+    static String unpack(File zip, File dir, String expectedVersion) throws Failure {
         ZipInputStream z;
         try {
             z = new ZipInputStream(new FileInputStream(zip));
@@ -377,7 +444,8 @@ public final class ModelUpdater {
                 throw new Failure(Reason.ZIP_INVALID, "the first entry is not " + VerifiedBundle.MANIFEST);
             }
             byte[] manifest = readEntry(z, VerifiedBundle.MAX_MANIFEST_BYTES, VerifiedBundle.MANIFEST);
-            Map<String, Long> allowed = allowedEntries(manifest, expectedVersion);
+            String[] version = new String[1];
+            Map<String, Long> allowed = allowedEntries(manifest, expectedVersion, version);
             write(new File(dir, VerifiedBundle.MANIFEST), manifest);
             Set<String> seen = new HashSet<String>();
             seen.add(VerifiedBundle.MANIFEST);
@@ -393,6 +461,7 @@ public final class ModelUpdater {
             if (seen.size() != allowed.size()) {
                 throw new Failure(Reason.ZIP_INVALID, "the zip lacks " + (allowed.size() - seen.size()) + " named entries");
             }
+            return version[0];
         } catch (IOException e) {
             throw new Failure(Reason.ZIP_INVALID, "unreadable zip: " + e.getClass().getSimpleName());
         } finally {
@@ -404,18 +473,28 @@ public final class ModelUpdater {
         }
     }
 
-    /** manifest.json, manifest.sig and the files the manifest names, with their maximum sizes. */
-    private static Map<String, Long> allowedEntries(byte[] manifest, String expectedVersion) throws Failure {
+    /**
+     * manifest.json, manifest.sig and the files the manifest names, with their maximum sizes; the manifest's version
+     * goes to {@code versionOut[0]}.
+     */
+    private static Map<String, Long> allowedEntries(byte[] manifest, String expectedVersion, String[] versionOut)
+            throws Failure {
         Map<String, Long> allowed = new LinkedHashMap<String, Long>();
         allowed.put(VerifiedBundle.MANIFEST, (long) VerifiedBundle.MAX_MANIFEST_BYTES);
         allowed.put(VerifiedBundle.SIGNATURE, (long) VerifiedBundle.MAX_SIGNATURE_BYTES);
         long total = 0;
         try {
             Map<String, Object> m = MiniJson.parseObject(new String(manifest, StandardCharsets.UTF_8));
-            if (!expectedVersion.equals(MiniJson.getString(m, "bundleVersion"))) {
-                throw new Failure(Reason.ZIP_INVALID, "the bundle's version differs from the index");
+            String version = MiniJson.getString(m, "bundleVersion");
+            if (expectedVersion != null ? !expectedVersion.equals(version) : !VerifiedBundle.isValidVersion(version)) {
+                throw new Failure(Reason.ZIP_INVALID, expectedVersion != null ? "the bundle's version differs from the index"
+                        : "the bundle's version is invalid");
             }
+            versionOut[0] = version;
             List<Object> files = MiniJson.getArray(m, "files");
+            if (files.size() > MAX_MANIFEST_FILES) {
+                throw new Failure(Reason.ZIP_INVALID, "the manifest names more than " + MAX_MANIFEST_FILES + " files");
+            }
             for (Object o : files) {
                 if (!(o instanceof Map)) throw new Failure(Reason.ZIP_INVALID, "a manifest file entry is not an object");
                 @SuppressWarnings("unchecked")

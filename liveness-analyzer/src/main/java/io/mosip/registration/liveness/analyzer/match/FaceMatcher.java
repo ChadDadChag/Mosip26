@@ -100,6 +100,37 @@ public final class FaceMatcher implements AutoCloseable {
         }
     }
 
+    /** The largest face's feature and the image's face count, for {@link #featureOfPrimaryFace}. */
+    public static final class PrimaryFeature {
+        /** Faces as {@link #compare} counts them (a face under the second-face area ratio is ignored). */
+        public final int faceCount;
+        /** The feature of the largest face (YuNet's primary). */
+        public final float[] feature;
+
+        PrimaryFeature(int faceCount, float[] feature) {
+            this.faceCount = faceCount;
+            this.feature = feature;
+        }
+    }
+
+    /**
+     * For evaluation tools: the feature of the largest face whatever the face count, and the count, so a group photo
+     * can be used and flagged. Null when the image has no face. A feature is a biometric template: memory only.
+     */
+    public synchronized PrimaryFeature featureOfPrimaryFace(byte[] rgb, int w, int h) throws LivenessEngineException {
+        if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");
+        check(rgb, w, h, "A");
+        SFaceEmbedder embedder = embedder();
+        try {
+            List<FaceDetection> faces = detector.detect(rgb, w, h);
+            if (faces.isEmpty()) return null;
+            return new PrimaryFeature(YuNetDetector.countFaces(faces, secondFaceMinAreaRatio),
+                    embedder.embed(rgb, w, h, YuNetDetector.primary(faces)));
+        } catch (OrtException e) {
+            throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "ONNX Runtime failed while embedding a face", e);
+        }
+    }
+
     /** For evaluation tools: the feature of every face YuNet finds, in YuNet's order (group photos). Memory only. */
     public synchronized List<float[]> featuresOfAllFaces(byte[] rgb, int w, int h) throws LivenessEngineException {
         if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");

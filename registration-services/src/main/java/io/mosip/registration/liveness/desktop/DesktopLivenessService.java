@@ -1,15 +1,19 @@
 package io.mosip.registration.liveness.desktop;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
@@ -20,6 +24,7 @@ import io.mosip.registration.audit.AuditManagerService;
 import io.mosip.registration.config.AppConfig;
 import io.mosip.registration.constants.AuditEvent;
 import io.mosip.registration.constants.RegistrationConstants;
+import io.mosip.registration.context.SessionContext;
 import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
@@ -29,6 +34,7 @@ import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
 import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
 import io.mosip.registration.liveness.analyzer.match.MatchResult;
+import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.FrameSource;
 import io.mosip.registration.liveness.api.LivenessEngineException;
 import io.mosip.registration.liveness.api.LivenessPolicy;
@@ -45,6 +51,7 @@ import io.mosip.registration.liveness.fake.FakeLivenessService;
 import io.mosip.registration.liveness.fake.FakeScenario;
 import io.mosip.registration.mdm.service.impl.MosipDeviceSpecificationFactory;
 import io.mosip.registration.service.bio.BioService;
+import io.mosip.registration.util.advice.AuthenticationAdvice;
 
 /**
  * The Desktop client's single entry point to face liveness: Parts 1 to 3 wired into the Registration Client.
@@ -61,6 +68,8 @@ import io.mosip.registration.service.bio.BioService;
  * <li><b>Face binding:</b> {@link #binding()}.</li>
  * <li><b>Online model update:</b> after each successful config sync ({@link ConfigSyncedEvent}), when enabled, a newer
  * signed bundle is downloaded into the model store and new sessions use it ({@link #checkModelUpdateAsync}).</li>
+ * <li><b>Offline model install (F17):</b> supervisors and admins install a signed bundle zip from removable media, or
+ * roll back, from the home page ({@link #installOfflineBundle}, {@link #rollbackModelBundle}).</li>
  * </ul>
  * The JVM property {@code -Dmosip.registration.liveness.face.desktop.engine=fake} selects the scripted engine and
  * {@code ...desktop.source=webcam|video:<file>|images:<dir>} a mock device, for development without an SBI device.
@@ -257,6 +266,188 @@ public class DesktopLivenessService {
 			analyzers.swap(newAnalyzerFactory());
 		}
 		preload();
+	}
+
+	// ---- F17: offline model install and rollback (supervisors and admins) ----
+
+	/** What an offline install or a rollback did; the UI maps it to a generic text, never to paths or exceptions. */
+	public enum ModelBundleOutcome {
+		/** A newer signed bundle is installed; new sessions use it. */
+		INSTALLED,
+		/** The previous bundle is current again; new sessions use it. */
+		ROLLED_BACK,
+		/** The zip's bundle is not newer than the models in use: refused, nothing changed. */
+		NOT_NEWER,
+		/** The zip or bundle is invalid, tampered or unsigned (MODEL_INTEGRITY_FAILED): refused, nothing changed. */
+		INVALID,
+		/** There is no earlier bundle to roll back to. */
+		NOTHING_TO_ROLL_BACK,
+		/** The user may not do this, or the feature is off. */
+		NOT_ALLOWED,
+		/** A local storage problem: nothing changed. */
+		FAILED
+	}
+
+	/** The outcome and the versions in use before and after (null when unknown). */
+	public static final class ModelBundleResult {
+		private final ModelBundleOutcome outcome;
+		private final String fromVersion, toVersion;
+
+		ModelBundleResult(ModelBundleOutcome outcome, String fromVersion, String toVersion) {
+			this.outcome = outcome;
+			this.fromVersion = fromVersion;
+			this.toVersion = toVersion;
+		}
+
+		public ModelBundleOutcome outcome() {
+			return outcome;
+		}
+
+		public String fromVersion() {
+			return fromVersion;
+		}
+
+		public String toVersion() {
+			return toVersion;
+		}
+	}
+
+	private Supplier<Collection<String>> userRoles = () -> SessionContext.isSessionContextAvailable()
+			? SessionContext.userContext().getRoles() : Collections.<String>emptyList();
+	private Supplier<String> userId = SessionContext::userId;
+
+	/** Tests: the logged-in user's roles and id (the client reads them from the session context). */
+	synchronized DesktopLivenessService withUser(Supplier<Collection<String>> roles, Supplier<String> id) {
+		this.userRoles = roles;
+		this.userId = id;
+		return this;
+	}
+
+	/**
+	 * True when {@value DesktopLivenessConfig#MODEL_OFFLINE_INSTALL_ENABLED_KEY} is on (the default) and the logged-in
+	 * user is a supervisor or an admin. The UI shows the install and rollback actions only then; the actions check it
+	 * again.
+	 */
+	public boolean isOfflineModelInstallAllowed() {
+		Collection<String> roles;
+		synchronized (this) {
+			roles = userRoles.get();
+		}
+		return config.getBoolean(DesktopLivenessConfig.MODEL_OFFLINE_INSTALL_ENABLED_KEY, true) && roles != null
+				&& (roles.contains(AuthenticationAdvice.SUPERVISOR_ROLE) || roles.contains(AuthenticationAdvice.ADMIN_ROLE));
+	}
+
+	/** The model bundle version new sessions use (store or bundled), or null when unreadable. */
+	public String activeModelVersion() {
+		BundleSource bundled;
+		synchronized (this) {
+			bundled = bundledModels;
+		}
+		return ModelUpdater.activeVersion(modelStore(), bundled);
+	}
+
+	/**
+	 * Installs a signed bundle zip from removable media ({@link ModelUpdater#installZip}): the same zip and the same
+	 * verification as the online update (signature, sizes, hashes, anti-rollback), unpacked into a temporary directory
+	 * that is deleted afterwards. New sessions use the new models; running sessions keep theirs. Audited as
+	 * LIVENESS_MODEL_UPDATE with trigger=offline (codes and versions only). Blocking: call it off the UI thread.
+	 */
+	public ModelBundleResult installOfflineBundle(File zip) {
+		long start = System.currentTimeMillis();
+		String user = currentUserId();
+		String from = activeModelVersion();
+		if (!isOfflineModelInstallAllowed()) {
+			return auditBundleAction("offline", user, from, null, "REFUSED", "NOT_ALLOWED", null, start,
+					ModelBundleOutcome.NOT_ALLOWED);
+		}
+		BundleSource bundled;
+		TrustedKeys keys;
+		synchronized (this) {
+			bundled = bundledModels;
+			keys = trustedKeys;
+		}
+		ModelUpdater.UpdateResult r = ModelUpdater.builder().build().installZip(zip, modelStore(), bundled, keys);
+		switch (r.status()) {
+		case INSTALLED:
+			reloadModels();
+			return auditBundleAction("offline", user, from, r.version(), r.status().name(), null, null, start,
+					ModelBundleOutcome.INSTALLED);
+		case UP_TO_DATE:
+			return auditBundleAction("offline", user, from, from, r.status().name(), "NOT_NEWER", null, start,
+					ModelBundleOutcome.NOT_NEWER);
+		default:
+			boolean storage = r.reason() == ModelUpdater.Reason.STORAGE;
+			return auditBundleAction("offline", user, from, from, r.status().name(), r.reason().name(),
+					storage ? null : ErrorCode.MODEL_INTEGRITY_FAILED.name(), start,
+					storage ? ModelBundleOutcome.FAILED : ModelBundleOutcome.INVALID);
+		}
+	}
+
+	/**
+	 * Rolls the model store back to the previous bundle ({@link ModelStore#rollback}: an explicit operator action that
+	 * bypasses anti-rollback; the previous bundle is verified again). New sessions use it. Audited as
+	 * LIVENESS_MODEL_UPDATE with trigger=rollback. Blocking: call it off the UI thread.
+	 */
+	public ModelBundleResult rollbackModelBundle() {
+		long start = System.currentTimeMillis();
+		String user = currentUserId();
+		String from = activeModelVersion();
+		if (!isOfflineModelInstallAllowed()) {
+			return auditBundleAction("rollback", user, from, null, "REFUSED", "NOT_ALLOWED", null, start,
+					ModelBundleOutcome.NOT_ALLOWED);
+		}
+		TrustedKeys keys;
+		synchronized (this) {
+			keys = trustedKeys;
+		}
+		try {
+			modelStore().rollback(keys);
+			reloadModels();
+			return auditBundleAction("rollback", user, from, activeModelVersion(), "ROLLED_BACK", null, null, start,
+					ModelBundleOutcome.ROLLED_BACK);
+		} catch (IllegalStateException nothingEarlier) {
+			return auditBundleAction("rollback", user, from, from, "REFUSED", "NOTHING_TO_ROLL_BACK", null, start,
+					ModelBundleOutcome.NOTHING_TO_ROLL_BACK);
+		} catch (LivenessEngineException e) {
+			return auditBundleAction("rollback", user, from, from, "FAILED", "BUNDLE_INVALID", e.code().name(), start,
+					ModelBundleOutcome.INVALID);
+		} catch (IOException | RuntimeException e) {
+			LOGGER.error("Face liveness model rollback failed: {}", e.getClass().getSimpleName());
+			return auditBundleAction("rollback", user, from, from, "FAILED", "STORAGE", null, start,
+					ModelBundleOutcome.FAILED);
+		}
+	}
+
+	private String currentUserId() {
+		Supplier<String> id;
+		synchronized (this) {
+			id = userId;
+		}
+		try {
+			return id.get();
+		} catch (RuntimeException e) {
+			return null;
+		}
+	}
+
+	/** One LIVENESS_MODEL_UPDATE audit (codes, versions and the user id only), and the result for the UI. */
+	private ModelBundleResult auditBundleAction(String trigger, String user, String from, String to, String outcome,
+			String reason, String errorCode, long start, ModelBundleOutcome result) {
+		Map<String, String> d = new LinkedHashMap<>();
+		d.put("outcome", outcome);
+		if (errorCode != null) {
+			d.put("errorCode", errorCode);
+		}
+		if (reason != null) {
+			d.put("reason", reason);
+		}
+		d.put("fromVersion", from == null ? "NA" : from);
+		d.put("toVersion", to == null ? "NA" : to);
+		d.put("durationMs", String.valueOf(System.currentTimeMillis() - start));
+		d.put("trigger", trigger);
+		d.put("userId", user == null ? "NA" : user);
+		auditSink().record(AuditEvent.LIVENESS_MODEL_UPDATE, null, null, d);
+		return new ModelBundleResult(result, from, to);
 	}
 
 	/** A new session, or null when liveness is disabled for the workflow (the caller keeps the legacy flow). */

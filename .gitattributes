@@ -22,3 +22,9 @@ android-integration/*.diff          -text
 # newline), so the overlay changes only the appended liveness block.
 registration-client/src/main/resources/messages_ar.properties -text
 registration-client/src/main/resources/messages_fr.properties -text
+# Part 4 (F17, offline model install): the same for the labels, the home page layout and its controller.
+registration-client/src/main/resources/labels_en.properties -text
+registration-client/src/main/resources/labels_ar.properties -text
+registration-client/src/main/resources/labels_fr.properties -text
+registration-client/src/main/resources/fxml/RegistrationOfficerPacketLayout.fxml -text
+registration-client/src/main/java/io/mosip/registration/controller/reg/PacketHandlerController.java -text

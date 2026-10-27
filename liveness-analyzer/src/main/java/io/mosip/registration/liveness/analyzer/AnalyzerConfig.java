@@ -26,6 +26,11 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  *   <li>relative motion blur ({@link io.mosip.registration.liveness.analyzer.quality.RelativeBlur}):
  *       {@code qualityRelativeBlurRatio} (0.45; {@code off} disables): BLURRY also when lapVar is below this
  *       fraction of the session's rolling median</li>
+ *   <li>session print guards (F3 retest): the PAD latch
+ *       ({@link io.mosip.registration.liveness.analyzer.pad.PadLatch}), {@code padLatchThreshold} (0.30; {@code off}
+ *       disables) and {@code padLatchCapScore} (0.60); the volatility cap
+ *       ({@link io.mosip.registration.liveness.analyzer.pad.VolatilityCap}), {@code volatilityMinScore} (0.85;
+ *       {@code off} disables) and {@code volatilityCapScore} (0.60)</li>
  * </ul>
  * Face binding (F1) has its own key, outside the analyzer prefix: {@value #BINDING_THRESHOLD_KEY} (0.45, decided in
  * fix round 2 from the binding evaluation; OpenCV's SFace default is 0.363;
@@ -77,6 +82,14 @@ public final class AnalyzerConfig {
     public final double qualityRelativeBlurRatio;
     /** Mesh ROI from the previous frame's landmarks when the face box overlaps (IoU >= 0.3); else from YuNet. */
     public final boolean meshTracking;
+    /** PAD latch: a 3-frame median of scores below this latches the session; NaN = off. */
+    public final double padLatchThreshold;
+    /** The cap while latched, in (0, 1), above padLatchThreshold. */
+    public final double padLatchCapScore;
+    /** Volatility cap: a second-lowest model score in the window below this caps the score; NaN = off. */
+    public final double volatilityMinScore;
+    /** The volatility cap, in (0, 1). */
+    public final double volatilityCapScore;
 
     private AnalyzerConfig(Builder b) {
         intraOpThreads = b.intraOpThreads;
@@ -104,6 +117,10 @@ public final class AnalyzerConfig {
         bindingCosineThreshold = b.bindingCosineThreshold;
         qualityRelativeBlurRatio = b.qualityRelativeBlurRatio;
         meshTracking = b.meshTracking;
+        padLatchThreshold = b.padLatchThreshold;
+        padLatchCapScore = b.padLatchCapScore;
+        volatilityMinScore = b.volatilityMinScore;
+        volatilityCapScore = b.volatilityCapScore;
     }
 
     public static Builder builder() {
@@ -142,6 +159,10 @@ public final class AnalyzerConfig {
         b.bindingCosineThreshold = bindingCosineThreshold;
         b.qualityRelativeBlurRatio = qualityRelativeBlurRatio;
         b.meshTracking = meshTracking;
+        b.padLatchThreshold = padLatchThreshold;
+        b.padLatchCapScore = padLatchCapScore;
+        b.volatilityMinScore = volatilityMinScore;
+        b.volatilityCapScore = volatilityCapScore;
         return b;
     }
 
@@ -189,6 +210,10 @@ public final class AnalyzerConfig {
         b.moireMinFrames = intValue(cfg, "moireMinFrames", b.moireMinFrames);
         b.moireVetoThreshold = optionalThreshold(cfg, "moireVetoThreshold", b.moireVetoThreshold);
         b.qualityRelativeBlurRatio = optionalThreshold(cfg, "qualityRelativeBlurRatio", b.qualityRelativeBlurRatio);
+        b.padLatchThreshold = optionalThreshold(cfg, "padLatchThreshold", b.padLatchThreshold);
+        b.padLatchCapScore = doubleValue(cfg, "padLatchCapScore", b.padLatchCapScore);
+        b.volatilityMinScore = optionalThreshold(cfg, "volatilityMinScore", b.volatilityMinScore);
+        b.volatilityCapScore = doubleValue(cfg, "volatilityCapScore", b.volatilityCapScore);
         String tracking = cfg.get(KEY_PREFIX + "meshTracking");
         if (tracking != null && !tracking.trim().isEmpty()) {
             String t = tracking.trim().toLowerCase(java.util.Locale.ROOT);
@@ -245,6 +270,17 @@ public final class AnalyzerConfig {
         range("moireWindow", moireWindow, moireMinFrames, 100);
         if (!Double.isNaN(moireVetoThreshold)) positiveUpTo("moireVetoThreshold", moireVetoThreshold, 10);
         if (!Double.isNaN(qualityRelativeBlurRatio)) positiveUpTo("qualityRelativeBlurRatio", qualityRelativeBlurRatio, 1);
+        openRange("padLatchCapScore", padLatchCapScore, 0, 1);
+        if (!Double.isNaN(padLatchThreshold)) {
+            openRange("padLatchThreshold", padLatchThreshold, 0, 1);
+            // A latched person must go to a challenge, never to PAD_FAILURE because of the cap.
+            if (!(padLatchCapScore > padLatchThreshold)) {
+                throw new IllegalArgumentException(KEY_PREFIX + "padLatchCapScore must be above " + KEY_PREFIX
+                        + "padLatchThreshold");
+            }
+        }
+        openRange("volatilityCapScore", volatilityCapScore, 0, 1);
+        if (!Double.isNaN(volatilityMinScore)) positiveUpTo("volatilityMinScore", volatilityMinScore, 1);
         if (!(bindingCosineThreshold >= -1 && bindingCosineThreshold <= 1)) {
             throw new IllegalArgumentException(BINDING_THRESHOLD_KEY + " must be in [-1.0, 1.0], got " + bindingCosineThreshold);
         }
@@ -321,6 +357,10 @@ public final class AnalyzerConfig {
         private double bindingCosineThreshold = 0.45;
         private double qualityRelativeBlurRatio = 0.45;
         private boolean meshTracking = true;
+        private double padLatchThreshold = 0.30;
+        private double padLatchCapScore = 0.60;
+        private double volatilityMinScore = 0.85;
+        private double volatilityCapScore = 0.60;
 
         private Builder() { }
 
@@ -354,6 +394,12 @@ public final class AnalyzerConfig {
         /** NaN switches the relative blur rule off. */
         public Builder qualityRelativeBlurRatio(double v) { qualityRelativeBlurRatio = v; return this; }
         public Builder meshTracking(boolean v) { meshTracking = v; return this; }
+        /** NaN switches the PAD latch off. */
+        public Builder padLatchThreshold(double v) { padLatchThreshold = v; return this; }
+        public Builder padLatchCapScore(double v) { padLatchCapScore = v; return this; }
+        /** NaN switches the volatility cap off. */
+        public Builder volatilityMinScore(double v) { volatilityMinScore = v; return this; }
+        public Builder volatilityCapScore(double v) { volatilityCapScore = v; return this; }
 
         public AnalyzerConfig build() {
             AnalyzerConfig c = new AnalyzerConfig(this);
