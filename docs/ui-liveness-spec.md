@@ -29,33 +29,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
 
 ```
 +------------------------------------------------------------+
-|  <Title per workflow>                              [Cancel] |
+|  <Title per workflow>                                      |
 +------------------------------------------------------------+
+|              +------------------------------+              |
+|              |          (badge)             |  camera card |
+|              |        ( face oval )         |  oval colour |
+|              |   live preview, mirrored     |  + badge     |
+|              +------------------------------+              |
+|   +----------------------------------------------------+   |
+|   |  (icon)  STATUS (e.g. "Please blink")              |   |  status card
+|   +----------------------------------------------------+   |
+|         hint line (guidance, e.g. "Please move closer")    |
+|   Step 1 of 2   [=====] [==---]          Attempt 1 of 4    |
+|   (failure only) tips card                                 |
 |                                                            |
-|                 +------------------------+                 |
-|                 |   live camera preview  |                 |
-|                 |      ( face oval )     |  <- oval colour |
-|                 |   mirrored, oval guide |     + icon      |
-|                 +------------------------+                 |
-|                                                            |
-|   [icon]  STATUS LINE (large, e.g. "Please blink")         |
-|           hint line (guidance, e.g. "Please move closer")  |
-|                                                            |
-|   Step 1 of 2   [=========-----------]   Attempt 1 of 4    |
-|                                                            |
-|   (failure only) tips list                                 |
-|                                                            |
-|            [ Retry ]    [ Cancel ]    [ Close ]            |
+|   [         Retry          ]   [         Cancel         ]  |
 +------------------------------------------------------------+
 ```
 
+The sizes, colours and type are in §9.
+
 - **Title:** `liveness.title.<workflow>`.
 - **Preview:** the full camera preview with a face-oval guide. The oval outline takes the state colour, always
-  together with an icon. Colour is never the only signal.
-- **Status line:** the main message, large (at least 24 sp/pt). The challenge prompt goes here.
-- **Hint line:** positioning guidance, smaller. It is empty when there is nothing to say.
-- **Step "i of n"** and the **progress bar:** only during challenges.
-- **"Attempt a of m":** `a` = `event.attemptNumber`, `m` = `policy(workflow).maxRetries + 1`.
+  together with the state badge (an icon). Colour is never the only signal.
+- **Status card:** the main message, 20 sp/px semibold, at most 2 lines. The challenge prompt goes here.
+- **Hint line:** positioning guidance or feedback, 15 sp/px. It is empty when there is nothing to say. After a final
+  failure it holds the recovery text.
+- **Step "i of n"** and the **step bar** (one segment per challenge): only during challenges.
+- **"Attempt a of m":** `a` = `event.attemptNumber`, `m` = `policy(workflow).maxRetries + 1`, while the session runs.
+  After a failed attempt the progress row shows only `liveness.retry.attempts_left`, never both.
 - **Buttons:**
   - **Retry** only after ATTEMPT_FAILED, or after a DEVICE_ERROR with `recoverable = true`.
   - **Cancel** always, except after PASSED and FAILED_FINAL.
@@ -82,6 +84,8 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
 | `onComplete(CANCELLED)` | none | none | none | none | close the screen and return to the previous one. No message (`UserMessage.NONE`); log only. |
 
 **Notes on the table:**
+- **Progress** is what the screen model holds; §9 says how it is drawn. "Indeterminate" draws no bar (no animation),
+  only "Attempt a of m". The `liveness.retry.attempts_left` hint is drawn in the progress row.
 - **Tips.** With ATTEMPT_FAILED and `userMessage() == LIVENESS_NOT_VERIFIED`, also show the tips list
   (`liveness.tips.*`, §4.2). With VERIFICATION_NOT_COMPLETED (which covers PAD failures), show no tips. With
   DEVICE_PROBLEM, show no tips.
@@ -504,18 +508,95 @@ The text is generic: it never shows a score, a threshold or a reason. Audit: Des
 - **Screen readers.** Announce every status-line change: the prompt, the result and the failure text. Use
   TalkBack/`SemanticsService.announce` on Android and `accessibleText` with a live-region notification on JavaFX.
   Do not announce progress ticks; announce the hint at most once per change.
-- **Large text.** The status line is at least 24 sp/pt and the hint at least 18. Respect the system font scale,
-  and let the layout grow rather than truncate.
+- **Large text.** The status is 20 sp/px semibold and the hint 15 (§9). Respect the system font scale, and let the
+  layout grow rather than truncate: at a large scale the camera card gives up height first, and only the tips
+  scroll, never the buttons.
 - **Never rely on colour alone.** Every oval colour is paired with an icon, and every state has a text. The
   red/green states are also distinguishable by shape (cross or check).
 - **Touch targets** are at least 48 dp. Cancel stays reachable with one hand on phones.
-- **Motion.** Challenge icons may animate, but keep the animation off when the system "reduce motion" setting is on.
+- **Motion.** A 200 ms cross-fade when the status changes, nothing else (§9). It is off when the system "reduce
+  motion" setting is on (Android) or with `desktop.animations=false` (Desktop).
 
 ## 8. Diagnostics
 
 `policy.diagnosticMode = true` adds detail to logs and the audit trail only (scores, model version, timings). It
 **never** changes what is on screen. Production screens look identical whatever the setting. Developer overlays such
 as frame times or scores are allowed only on separate debug-only screens that are not reachable in release builds.
+
+## 9. Visual design
+
+Both clients draw the screen with the same tokens: Android in `lib/ui/liveness/liveness_style.dart`, Desktop in
+`liveness.css` and `LivenessView`. This section is visual only. The states, texts and message keys are §3–§5, and the
+500 ms guidance debounce (§4.3) is unchanged.
+
+**Layout, top to bottom:**
+1. the client's title bar (unchanged);
+2. the camera card;
+3. the status card;
+4. the hint line;
+5. the progress row;
+6. the tips (failure only);
+7. the button row, pinned to the bottom.
+
+The content is centred and at most 560 dp/px wide. A phone at 360×640 or 412×915 dp never scrolls, in any state. At a
+1.3 text scale only the tips may scroll, never the buttons.
+
+| Element | Tokens |
+|---|---|
+| Camera card | 3:4 on the phone, 4:3 on Desktop; radius 16. At most 45% of the screen height; it takes what is left, so it is smaller when the tips need the room. The face oval has a 4 dp stroke in the state colour, with a 40% black scrim outside the oval |
+| State badge | a 28 dp circle in the state colour, with a 1.5 dp white ring and an 18 dp icon. It sits on the oval's top centre, inside the card; the same badge starts the status card |
+| Status card | the badge and one message, centred. 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
+| Hint line | 15 sp/px regular, grey-700 (#616161), centred, with the warning icon (#B26A00) beside guidance. While guidance can still arrive (the session runs and has not failed), the line keeps 20 dp even when it is empty |
+| Progress row | During challenges: "Step i of n" at the start, a segmented bar, "Attempt a of m" at the end. Captions are 13 sp/px grey-700, each at most 35% of the row. One segment per challenge, 6 dp high, 4 dp apart, grey #E0E0E0: done steps are filled with the primary colour, the current one is half filled and fills further with the challenge's progress. Otherwise "Attempt a of m" alone, centred, while the session runs. After a failed attempt only "n attempt(s) left" (15 sp/px). No bar outside challenges |
+| Tips | failure only (LIVENESS_NOT_VERIFIED). A light-grey card (#F5F5F5), radius 12, 14 sp/px, bullets. On the phone at most 40% of the content height; beyond that it scrolls |
+| Buttons | one row of equal widths (a single button is as wide as one of two), 48 dp/px high, radius 12, 12 apart, 15 sp/px semibold. Retry and Close are filled with the primary colour; Cancel and Open settings are outlined in it. Retry only when a retry exists (§2) |
+
+**Colours.** The same hex on both clients:
+
+| State | Colour | Badge icon on it | Contrast |
+|---|---|---|---|
+| Checking, guidance; also done steps and filled buttons | primary #1C43A1 (the Android app bar's blue) | white | 8.9:1 |
+| Challenge | amber #E8890C | #1F1F1F | 6.3:1 (white would be 2.6:1) |
+| Passed, action detected | green #2E7D32 | white | 5.1:1 |
+| Failure, PAD, device | red #D32F2F | white | 5.0:1 |
+| Starting | grey #616161 | white | 6.2:1 |
+
+Text is #212121 (16.1:1 on white, at least 13.6:1 on every 10% status tint) or #616161 (6.2:1 on white, 5.7:1 on the
+tips card). The outlined buttons' #1C43A1 on white is 8.9:1. The warning icon is 4.2:1, where non-text needs 3:1. A
+colour always comes with an icon and a text (§7).
+
+**Type.** Each client's own family: Roboto on Android; Segoe UI on Windows, with its Semibold face for 600. Status
+20/600, body 15/400, tips 14/400, caption 13/400. No ALL CAPS.
+
+**Motion.** A 200 ms cross-fade when the status changes, and nothing else; the Desktop challenge-icon pulse is gone.
+It is off when the system's reduce-motion setting is on (Android) or with `desktop.animations=false` (Desktop).
+
+**Accessibility.**
+- Touch targets are at least 48 dp.
+- The status card and the hint line are live regions on Android; on Desktop the status label's accessible text is
+  updated (§7). The badges, the preview and the step bar are hidden from screen readers, because the texts say the
+  same.
+- Right-to-left languages are mirrored: on Android by Flutter's text direction, on Desktop by `NodeOrientation` for
+  Arabic, Persian, Hebrew and Urdu. The camera card and the state icons are not mirrored: they show the user's
+  physical left and right.
+
+**Tests.**
+- Android, `test/liveness/liveness_page_layout_test.dart`: every state at 360×640 and 412×915 dp, in English, in
+  Arabic and at a 1.3 text scale, with Roboto loaded. It checks:
+  - no overflow, and nothing scrolls but the tips;
+  - the buttons are on screen and 48 high;
+  - the camera card is 3:4 and at least 30% of the height (15% with the tips);
+  - the badge is on the oval's top centre;
+  - the English status takes at most 2 lines;
+  - a failed attempt shows one attempts line;
+  - the right-to-left order.
+- Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window) and 1280×800, and in
+  Arabic, with the same checks where they apply.
+
+**Screenshots.**
+- `docs/images/android`: from `test/liveness/liveness_screenshots_test.dart`, with the fake engine's events and the
+  grey placeholder instead of a camera; 540×1110 px.
+- `docs/images/part4`: from `LivenessScreenDemo --snapshots`, with the public-domain NASA portrait; 720×820 px.
 
 ## Appendix A. The liveness texts in five more languages (machine-translated)
 
