@@ -703,9 +703,10 @@ onboarded face:
 OpenCV by default, sarxos with `-Dliveness.capture=sarxos`. On 2026-10-27 the demo hung after a `--identity verify`
 when its window closed: sarxos' JVM shutdown hook waited for its own processor threads. Now:
 - with OpenCV, sarxos is never loaded, so it registers no hook;
-- closing the window cancels the session, stops the frame source (which releases the camera), closes the window,
-  then exits through `WebcamGrabbers.exit`. That stops sarxos' discovery if sarxos was used, and a watchdog halts the
-  JVM if a shutdown hook still hangs after 5 s.
+- closing the window cancels the session, stops the frame source, closes the window, then exits through
+  `WebcamGrabbers.exit`. That arms a watchdog first, which halts the JVM if a close or a shutdown hook still hangs
+  after 5 s. It waits up to 2 s until the frame source's worker has released the camera (stopping only signals the
+  worker, which finishes its current grab first), then stops sarxos' discovery if sarxos was used.
 
 `LivenessScreenDemoTest` checks that order without a camera. The live re-check with the webcam is on 2026-10-28.
 
