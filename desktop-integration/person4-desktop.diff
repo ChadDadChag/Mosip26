@@ -1,7 +1,7 @@
 diff --git a/.gitattributes b/.gitattributes
 --- a/.gitattributes
 +++ b/.gitattributes
-@@ -18,3 +18,7 @@
+@@ -18,3 +18,13 @@ android-integration/*.diff          -text
  *.jpeg   binary
  *.png    binary
  *.mjpeg  binary
@@ -9,6 +9,12 @@ diff --git a/.gitattributes b/.gitattributes
 +# newline), so the overlay changes only the appended liveness block.
 +registration-client/src/main/resources/messages_ar.properties -text
 +registration-client/src/main/resources/messages_fr.properties -text
++# Part 4 (F17, offline model install): the same for the labels, the home page layout and its controller.
++registration-client/src/main/resources/labels_en.properties -text
++registration-client/src/main/resources/labels_ar.properties -text
++registration-client/src/main/resources/labels_fr.properties -text
++registration-client/src/main/resources/fxml/RegistrationOfficerPacketLayout.fxml -text
++registration-client/src/main/java/io/mosip/registration/controller/reg/PacketHandlerController.java -text
 diff --git a/README.md b/README.md
 --- a/README.md
 +++ b/README.md
@@ -51,13 +57,14 @@ diff --git a/desktop-integration/README.md b/desktop-integration/README.md
 new file mode 100644
 --- /dev/null
 +++ b/desktop-integration/README.md
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,15 @@
 +# Part 4: Desktop integration patch
 +
 +`person4-desktop.diff` is every Part 4 change as one diff, relative to `registration-client/registration` at
-+v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 55 text files: new liveness classes,
-+tests and docs, the liveness block appended to the Arabic and French message bundles, plus small additive hooks in
-+existing client classes. The 14 screen images in `docs/images/part4/` are binary and are shipped as files, not in the
++v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 63 text files: new liveness classes,
++tests and docs, the liveness block appended to the Arabic and French message bundles, two tile titles appended to the
++label bundles, plus small additive hooks in existing client classes and the home page's operational tasks (offline
++model install and rollback, F17). The 14 screen images in `docs/images/part4/` are binary and are shipped as files, not in the
 +diff.
 +
 +Apply, from `registration-client/registration` after copying this repository over it:
@@ -70,7 +77,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,616 @@
+@@ -0,0 +1,646 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -141,7 +148,8 @@ new file mode 100644
 +| `LivenessView` | client | Renders the model (`fxml/LivenessCheck.fxml`, `liveness.css`); live preview mirrored for display only; screen-reader notifications. |
 +| `LivenessMessages` | client | Message lookup: app language, then English, then the built-in English catalogue (identical to the spec, checked by a test). |
 +| `LivenessScreenDemo` | client (test sources) | Development tool: renders every screen state to PNG, or runs the screen with the scripted or real engine outside the client. Not in the client jar (§10). |
-+| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, checks for a newer signed model bundle after a sync (when enabled), metrics. |
++| `DesktopLivenessService` | services | Spring bean: builds the engine (Part 3 + Part 2 signed models, or the scripted engine by JVM property), opens the face device (Part 1 SBI stream), preloads models at start-up, reloads config after a sync, checks for a newer signed model bundle after a sync (when enabled), installs a signed bundle zip from removable media or rolls back (F17, supervisors and admins), metrics. |
++| `ModelBundleTexts` | client | F17: the `liveness.model.*` message key for each install or rollback outcome; the version is filled in literally (the translations contain apostrophes). |
 +| `FaceBinding` | services | F1: the next face capture of the workflow must match the PASSED session's best frame. |
 +| `DesktopLivenessConfig` | services | `ConfigProvider` over `ApplicationContext.map()` (synced global config + local preferences) with bundled Desktop defaults. |
 +| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..012`. |
@@ -160,7 +168,9 @@ new file mode 100644
 +| `ClientApplication` | `preloadAsync()` after device discovery at start-up. |
 +| `AuditEvent`, `Components`, `AuditReferenceIdTypes`, `AuditManagerService(Impl)` | New events `REG-LIV-*`, component `REG-MOD-153`, reference type `LIVENESS_SESSION_ID`, and an `audit(..., description)` overload that stores the details. |
 +| `GlobalParamServiceImpl` (services) | After a successful config sync, publishes a `ConfigSyncedEvent` (the online model update listens). A failing listener never reaches the sync. |
-+| `messages_en.properties` | The shared liveness catalogue (spec §5), English. |
++| `PacketHandlerController`, `fxml/RegistrationOfficerPacketLayout.fxml` | F17: two operational-task tiles, "Install model bundle" (a `FileChooser` for the zip) and "Roll back model bundle" (after a confirmation), shown only to supervisors and admins while `model.offlineInstall.enabled` is true. The work runs off the UI thread; the result is a generic alert (`ModelBundleTexts`). The upstream files are copied byte for byte (CRLF, `-text`), so the overlay changes only the added lines. |
++| `labels_en/ar/fr.properties` | F17: the two tile titles (`installModelBundle`, `rollbackModelBundle`), appended to the upstream bytes. |
++| `messages_en.properties` | The shared liveness catalogue (spec §5), English; F17's `liveness.model.*` texts (spec §4.5). |
 +| poms | `registration-services` → `liveness-fake` (dev engine); `registration-client` → JUnit (tests). |
 +
 +## 2. Integration
@@ -526,6 +536,32 @@ new file mode 100644
 +INSTALLED, new sessions use the new bundle; a running session keeps its models. Any failure is audited and the current
 +models stay. Without a sync (offline) nothing is checked.
 +
++**Offline model install (F17)** (the same key as Android):
++
++| Key | Default | Meaning |
++|---|---|---|
++| `mosip.registration.liveness.model.offlineInstall.enabled` | true | supervisors and admins see "Install model bundle" and "Roll back model bundle" in the home page's operational tasks; `false` hides both |
++
++How it works:
++- **Who.** Logged-in users with `REGISTRATION_SUPERVISOR` or `REGISTRATION_ADMIN`. `PacketHandlerController` shows the
++  two tiles only then, and `DesktopLivenessService` checks the role and the key again before acting (fail closed).
++- **Install.** A `FileChooser` picks the zip that `ModelBundleTool pack` writes, the same zip the online update
++  downloads. `installOfflineBundle(File)` hands it to Part 2's `ModelUpdater.installZip`:
++  - at most 64 MiB;
++  - flat entries only, `manifest.json` first, then exactly `manifest.sig` and the files the manifest names (at most
++    16), each at most its declared size; zip-slip and absolute paths are refused;
++  - unpacked into a fresh `update.tmp-*` directory in the store, which is deleted afterwards;
++  - `ModelStore.install`: signature, sizes, hashes, anti-rollback, atomic switch.
++- **Results.**
++  - A tampered, unsigned or malformed zip is refused as `MODEL_INTEGRITY_FAILED`.
++  - The same or an older version is refused.
++  - In both cases the store is unchanged.
++  - On success, new sessions use the new models; a running session keeps its own.
++- **Rollback.** `rollbackModelBundle()` makes the previous bundle current again, after a confirmation. It is an
++  explicit operator action that bypasses anti-rollback, and the previous bundle is verified again.
++- **The screens.** Every result is a generic, localised alert (`liveness.model.*`, §4.5 of the UI spec). The alerts
++  never show a path, a file name or an exception.
++
 +**Development only, JVM properties** (never read from synced config, so no config push can weaken liveness):
 +`-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine, `...desktop.fake.scenario=PASS_ACTIVE` etc.),
 +`-Dmosip.registration.liveness.face.desktop.source=webcam|video:<file.mjpeg>|images:<dir>` (mock device instead of SBI),
@@ -552,7 +588,7 @@ new file mode 100644
 +| REG-LIV-009 | LIVENESS_CONFIG_LOADED | policy resolved (start, after a sync) | policy summary, configError |
 +| REG-LIV-010 | LIVENESS_FACE_BINDING | Desktop: capture compared with the live face | outcome, similarity, threshold, accepted |
 +| REG-LIV-011 | LIVENESS_METRICS | Desktop: every `metricsAuditEvery` sessions | anonymised counters and rates (§7) |
-+| REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5) | outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point) |
++| REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5); an offline install or a rollback (F17) | online: outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point). Offline (`trigger=offline`) and rollback (`trigger=rollback`): outcome (INSTALLED, UP_TO_DATE, FAILED, ROLLED_BACK, REFUSED), errorCode (MODEL_INTEGRITY_FAILED for a bad bundle), reason (a `Reason` code, NOT_NEWER, NOTHING_TO_ROLL_BACK or NOT_ALLOWED), fromVersion, toVersion, durationMs, userId; never a path |
 +
 +The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019); the ids differ because the Desktop's
 +`REG-EVT-009..018` were already taken.
@@ -582,7 +618,8 @@ new file mode 100644
 +the last synced values offline; a sync while online is picked up by the next session. Model updates are installed only
 +as signed bundles (Part 2 `ModelStore`: verified, never older, atomic switch); without one the bundled models are used.
 +When enabled, a successful sync also checks for a newer bundle online (§5); offline, the installed or bundled models
-+keep working.
++keep working. Without a network at all, a supervisor or admin can install a signed bundle zip from removable media, or
++roll back, from the home page (F17, §5).
 +The screen and texts are identical online and offline.
 +
 +## 9. Security and privacy
@@ -691,7 +728,7 @@ diff --git a/docs/part4-registration-default.properties b/docs/part4-registratio
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-registration-default.properties
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,71 @@
 +# ----------------------------------------------------------------------------------------------------------------
 +# Face liveness / PAD for the Registration Client (Desktop Part 4, Android Part 5).
 +# Append to registration-default.properties in mosip-config. The client syncs it into its local GLOBAL_PARAM table,
@@ -758,10 +795,88 @@ new file mode 100644
 +# the model store above. New sessions use it; running sessions keep their models. Off until MOSIP hosts the bundles.
 +mosip.registration.liveness.model.update.enabled=false
 +mosip.registration.liveness.model.update.url=
++
++# --- Offline model install (F17) -----------------------------------------------------------------------------------
++# true = supervisors and admins see "Install model bundle" and "Roll back model bundle" in the home page's operational
++# tasks: a signed bundle zip from removable media, verified exactly like an online update. false hides both.
++mosip.registration.liveness.model.offlineInstall.enabled=true
 diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 --- a/docs/ui-liveness-spec.md
 +++ b/docs/ui-liveness-spec.md
-@@ -366,6 +366,10 @@
+@@ -94,6 +94,19 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+   hint, including during HOLD_STILL.
+ - **Use the event's data, not cached state.** Use `challengeIndex` / `challengeCount` (1-based) from the event. Do
+   not show `timeoutMs` as a countdown in seconds; an optional subtle shrinking ring is fine.
++- **When "Only one person should be in view" appears.** The analyzer counts a second face only if its area is at
++  least 20% of the largest face's (`detectorSecondFaceMinAreaRatio`). People far behind the registrant, or a small
++  photo beside the face, are ignored, and the largest face is the one checked. This is deliberate: bystanders must
++  not fail a registrant's session. Two faces of similar size (two printed faces, a group photo) show
++  `liveness.guidance.multiple_faces` at about 1.3 s; each attempt then fails with MULTIPLE_FACES at about 2.5 s, and
++  after the last retry the session ends with FAILED_FINAL (measured live, 3 of 3 sessions). Do not count faces in
++  the UI; show the engine's events.
++- **Retries after a PAD failure always get a challenge (F18).** Once a session has shown attack evidence, the
++  analyzer holds its scores at 0.60 for the rest of that session, so a retry cannot pass passively. This is the PAD
++  latch (`docs/part2-pad-architecture.md`, section 3.2). It only works if Retry calls `retry()` on the same session;
++  never start a new session for a retry. Unsteady scores can also lead to a challenge on a first attempt. Expect
++  about 1 in 7 real faces to see a challenge where they used to pass at once. No new texts are needed: the existing
++  challenge states cover it.
+ 
+ ## 4. Texts (English)
+ 
+@@ -171,6 +184,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+ **Error mapping.** Always go through `event.error.userMessage()` and never switch on the raw `ErrorCode` in the UI:
+ `NONE` shows nothing, and the other four values map to `liveness.error.<value in lower case>`.
+ 
++### 4.5 Model bundle texts (F17: offline install and rollback, supervisors and admins)
++
++These texts are outside the liveness screen. They are shown on the Desktop home page's operational tasks and on the
++Android "Face liveness models" page. `{0}` is the bundle version; Android's ARB uses `{version}`. The version is filled
++in literally, not with MessageFormat, because the translations contain apostrophes. A result never shows a path, a
++file name or an exception message.
++
++| Key | Text | Where |
++|---|---|---|
++| `liveness.model.title` | Face liveness models | Android page title, operational task |
++| `liveness.model.current` | Models in use: {0} | Android page |
++| `liveness.model.install` | Install model bundle | button, Desktop tile |
++| `liveness.model.rollback` | Roll back model bundle | button, Desktop tile |
++| `liveness.model.select_file` | Select a model bundle (.zip) | file picker title |
++| `liveness.model.working` | Working on the model bundle… please wait. | while it runs |
++| `liveness.model.installed` | Model bundle {0} installed. New liveness checks use it. | INSTALLED |
++| `liveness.model.rolled_back` | Models rolled back to {0}. New liveness checks use them. | ROLLED_BACK |
++| `liveness.model.not_newer` | This model bundle is not newer than the models in use. Nothing was changed. | the same or an older version |
++| `liveness.model.invalid` | This file is not a valid signed model bundle. Nothing was changed. | tampered, unsigned or malformed (MODEL_INTEGRITY_FAILED) |
++| `liveness.model.nothing_to_roll_back` | There is no earlier model bundle to roll back to. | rollback with nothing earlier |
++| `liveness.model.failed` | The model bundle could not be installed. Nothing was changed. Please try again. | storage problem |
++| `liveness.model.rollback_failed` | The models could not be rolled back. Nothing was changed. | rollback failed |
++| `liveness.model.not_allowed` | Only a supervisor or an administrator can change the face liveness models. | role or feature check failed |
++| `liveness.model.confirm_rollback` | Roll back to the previous face liveness models? New liveness checks will use them. | rollback confirmation |
++
++**Translations.** The Arabic and French texts are in the Desktop `messages_ar` / `messages_fr` bundles, and all five
++languages are in the Android ARB files. They are machine-translated and need native-speaker review (the second batch
++of the translation review sheet).
++
+ ## 5. Message keys and ready-to-paste catalogues
+ 
+ - **Canonical keys** are dotted lower case, as above. `liveness.challenge.<name lower>` is already fixed by the
+@@ -289,9 +331,13 @@ liveness.button.open_settings=Open settings
+ "liveness_button_open_settings": "Open settings"
+ ```
+ 
+-**Other languages.** Add the same keys with translations. Until a language has them, each client falls back to
+-English: Desktop through the ResourceBundle parent, Android through gen-l10n's handling of missing keys (Person 5
+-checks this, see the P5-1 report).
++**Other languages.**
++- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated and
++  need a native speaker's review. Appendix A has the same texts for the Desktop client.
++- A language without them falls back to English: on the Desktop through the ResourceBundle parent, on Android
++  through gen-l10n's handling of missing keys.
++- Arabic is right to left. The turn arrows still point to the user's physical left and right, so they are never
++  mirrored.
+ 
+ **Key lookup from events:**
+ 
+@@ -362,6 +408,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
    also opens the app's settings. No session is started without the permission.
  - **Config after a sync**: the client re-reads the liveness config after every global-param refresh (sync). New
    sessions use it; a running session keeps its policy and analyzer.
@@ -772,22 +887,301 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
    and there is no best frame.
  
-@@ -470,9 +474,12 @@
-   - Registration Client v1.2.0.2 loads `messages_<alpha-2 code>.properties` with
-     `ResourceBundle.getBundle("messages", locale)`. It maps each configured language's alpha-3 code to alpha-2 (`ara`
-     to `ar`).
--  - It ships `messages_ar`, `messages_en` and `messages_fr`.
--  - Hindi, Kannada and Tamil need new `messages_hi`, `messages_kn` and `messages_ta` files. The client also looks up
--    `labels_<code>` for every configured language.
+@@ -440,3 +490,294 @@ whose best frame was dropped meanwhile fails closed.
+ `policy.diagnosticMode = true` adds detail to logs and the audit trail only (scores, model version, timings). It
+ **never** changes what is on screen. Production screens look identical whatever the setting. Developer overlays such
+ as frame times or scores are allowed only on separate debug-only screens that are not reachable in release builds.
++
++## Appendix A. The liveness texts in five more languages (machine-translated)
++
++The Android client has the 44 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
++`app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
++paste. **All five languages are machine-translated and need a review by a native speaker before release.** The ARB
++files carry the same note, as `"@@x-liveness-translation"`.
++
++How the translations were made:
++- **Existing terms.** Each language reuses the client's existing terms where they are correct: face, operator,
++  supervisor, administrator, retry, try again, left, right, exception and biometric.
++  - A few existing entries are wrong and were not reused. For example, Arabic "attempts left" is محاولات اليسار
++    ("attempts of the left side").
++  - The fix round 4 report lists each of these.
++- **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
++- **Liveness** is حيوية الوجه (Arabic), vivacité du visage (French), जीवंतता (Hindi), ಜೀವಂತಿಕೆ (Kannada) and
++  உயிர்ப்பு (Tamil).
++- **No plural forms.**
++  - In Arabic, Hindi, Kannada and Tamil, "{n} attempt(s) left" becomes "attempts left: {n}".
++  - In Hindi, Kannada and Tamil, "Step {i} of {n}" becomes "Step {i} / {n}".
++
++For the Desktop client (Person 4):
++- **File names.**
++  - Registration Client v1.2.0.2 loads `messages_<alpha-2 code>.properties` with
++    `ResourceBundle.getBundle("messages", locale)`. It maps each configured language's alpha-3 code to alpha-2 (`ara`
++    to `ar`).
 +  - It ships `messages_ar`, `messages_en` and `messages_fr`. Part 4's overlay has the Arabic and French blocks below
 +    appended to the upstream files.
 +  - Hindi, Kannada and Tamil are **not** added to the Desktop. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its
 +    other screens, so a file with only the liveness keys would leave all the client's other keys missing in that
 +    language. The blocks stay here for when the client gets full translations; it also looks up `labels_<code>` for
 +    every configured language.
- - **Encoding.** Java 11 reads a `.properties` resource bundle as UTF-8. If the file is not valid UTF-8, it reads the
-   whole file as ISO-8859-1 instead.
-   - `messages_ar.properties` is ASCII (`\u` escapes), so the Arabic block can be pasted as it is.
++- **Encoding.** Java 11 reads a `.properties` resource bundle as UTF-8. If the file is not valid UTF-8, it reads the
++  whole file as ISO-8859-1 instead.
++  - `messages_ar.properties` is ASCII (`\u` escapes), so the Arabic block can be pasted as it is.
++  - `messages_fr.properties` is ISO-8859-1, so the French block below uses `\u` escapes. UTF-8 lines pasted into that
++    file would show garbled characters, because the file would no longer be valid UTF-8.
++  - New files are UTF-8.
++- **`MessageFormat`.** Only the three keys with placeholders go through `MessageFormat`, and none of their
++  translations contains an apostrophe. Do not pass the other texts through `MessageFormat`: it drops a single
++  apostrophe (French "l'ovale").
++
++**Desktop, `messages_ar.properties`** (Arabic):
++
++```properties
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++liveness.title.resident=التحقق من حيوية الوجه
++liveness.title.operator=التحقق من وجه المشغل
++liveness.title.supervisor=التحقق من وجه المشرف
++liveness.status.starting=جارٍ بدء التحقق من حيوية الوجه…
++liveness.status.checking=جارٍ التحقق من حيوية الوجه…
++liveness.status.passed=جيد، تم التقاط الوجه بنجاح
++liveness.status.cancelled=تم إلغاء التحقق من حيوية الوجه.
++liveness.challenge.blink=يرجى رمش عينيك
++liveness.challenge.smile=يرجى الابتسام
++liveness.challenge.turn_left=يرجى إدارة رأسك إلى اليسار
++liveness.challenge.turn_right=يرجى إدارة رأسك إلى اليمين
++liveness.challenge.look_up=يرجى النظر إلى الأعلى
++liveness.challenge.look_down=يرجى النظر إلى الأسفل
++liveness.feedback.continue=يرجى المتابعة
++liveness.feedback.action_detected=تم اكتشاف الحركة
++liveness.feedback.hold_still=لا تتحرك
++liveness.guidance.no_face=لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.
++liveness.guidance.multiple_faces=يجب أن يظهر شخص واحد فقط.
++liveness.guidance.move_closer=يرجى الاقتراب أكثر.
++liveness.guidance.move_back=يرجى الابتعاد قليلًا.
++liveness.guidance.center_face=يرجى وضع وجهك في وسط الشكل البيضاوي.
++liveness.guidance.improve_lighting=يرجى تحسين الإضاءة.
++liveness.guidance.hold_steady=يرجى الثبات.
++liveness.guidance.look_at_camera=يرجى النظر إلى الكاميرا.
++liveness.error.liveness_not_verified=تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.
++liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
++liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
++liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
++liveness.tips.title=نصائح:
++liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
++liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
++liveness.tips.lighting=حسّن الإضاءة.
++liveness.tips.capture_area=أبقِ وجهك داخل منطقة الالتقاط.
++liveness.tips.follow_prompt=نفّذ الحركة المطلوبة.
++liveness.retry.attempts_left=المحاولات المتبقية: {0}
++liveness.progress.step=الخطوة {0} من {1}
++liveness.progress.attempt=المحاولة {0} من {1}
++liveness.recovery.resident=يرجى الاتصال بالمشرف. يمكن تسجيل المقيم باستخدام إجراء الاستثناء البيومتري.
++liveness.recovery.operator=يرجى الاتصال بالمسؤول أو المحاولة مرة أخرى لاحقًا.
++liveness.recovery.supervisor=يرجى الاتصال بالمسؤول.
++liveness.button.retry=إعادة المحاولة
++liveness.button.cancel=إلغاء
++liveness.button.close=إغلاق
++liveness.button.open_settings=فتح الإعدادات
++```
++
++**Desktop, `messages_fr.properties`** (French, non-ASCII as `\u` escapes because the v1.2.0.2 file is ISO-8859-1):
++
++```properties
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++liveness.title.resident=Test de vivacit\u00e9 du visage
++liveness.title.operator=V\u00e9rification faciale de l'op\u00e9rateur
++liveness.title.supervisor=V\u00e9rification faciale du superviseur
++liveness.status.starting=D\u00e9marrage du test de vivacit\u00e9 du visage\u2026
++liveness.status.checking=V\u00e9rification de la vivacit\u00e9 du visage\u2026
++liveness.status.passed=Parfait, visage captur\u00e9 avec succ\u00e8s
++liveness.status.cancelled=Test de vivacit\u00e9 du visage annul\u00e9.
++liveness.challenge.blink=Veuillez cligner des yeux
++liveness.challenge.smile=Veuillez sourire
++liveness.challenge.turn_left=Veuillez tourner la t\u00eate vers la gauche
++liveness.challenge.turn_right=Veuillez tourner la t\u00eate vers la droite
++liveness.challenge.look_up=Veuillez regarder vers le haut
++liveness.challenge.look_down=Veuillez regarder vers le bas
++liveness.feedback.continue=Veuillez continuer
++liveness.feedback.action_detected=Action d\u00e9tect\u00e9e
++liveness.feedback.hold_still=Ne bougez plus
++liveness.guidance.no_face=Aucun visage d\u00e9tect\u00e9. Veuillez regarder la cam\u00e9ra.
++liveness.guidance.multiple_faces=Une seule personne doit \u00eatre visible.
++liveness.guidance.move_closer=Veuillez vous rapprocher.
++liveness.guidance.move_back=Veuillez reculer.
++liveness.guidance.center_face=Veuillez centrer votre visage dans l'ovale.
++liveness.guidance.improve_lighting=Veuillez am\u00e9liorer l'\u00e9clairage.
++liveness.guidance.hold_steady=Veuillez rester immobile.
++liveness.guidance.look_at_camera=Veuillez regarder la cam\u00e9ra.
++liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00e9rifier la vivacit\u00e9 du visage. Veuillez r\u00e9essayer.
++liveness.error.verification_not_completed=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e. Veuillez r\u00e9essayer.
++liveness.error.max_attempts_reached=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e.
++liveness.error.device_problem=Cam\u00e9ra ou appareil indisponible. V\u00e9rifiez la connexion et r\u00e9essayez.
++liveness.tips.title=Conseils\u00a0:
++liveness.tips.look_at_camera=Regardez directement la cam\u00e9ra.
++liveness.tips.face_visible=Assurez-vous que votre visage est bien visible.
++liveness.tips.lighting=Am\u00e9liorez l'\u00e9clairage.
++liveness.tips.capture_area=Gardez votre visage dans la zone de capture.
++liveness.tips.follow_prompt=Effectuez l'action demand\u00e9e.
++liveness.retry.attempts_left={0} tentative(s) restante(s)
++liveness.progress.step=\u00c9tape {0} sur {1}
++liveness.progress.attempt=Tentative {0} sur {1}
++liveness.recovery.resident=Veuillez contacter le superviseur. Le r\u00e9sident peut \u00eatre enregistr\u00e9 \u00e0 l'aide de la proc\u00e9dure d'exception biom\u00e9trique.
++liveness.recovery.operator=Veuillez contacter votre administrateur ou r\u00e9essayer plus tard.
++liveness.recovery.supervisor=Veuillez contacter votre administrateur.
++liveness.button.retry=R\u00e9essayer
++liveness.button.cancel=Annuler
++liveness.button.close=Fermer
++liveness.button.open_settings=Ouvrir les param\u00e8tres
++```
++
++**Desktop, `messages_hi.properties`** (Hindi):
++
++```properties
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++liveness.title.resident=चेहरे की जीवंतता जाँच
++liveness.title.operator=ऑपरेटर का चेहरा सत्यापन
++liveness.title.supervisor=पर्यवेक्षक का चेहरा सत्यापन
++liveness.status.starting=चेहरे की जीवंतता जाँच शुरू हो रही है…
++liveness.status.checking=चेहरे की जीवंतता जाँची जा रही है…
++liveness.status.passed=बढ़िया, चेहरा सफलतापूर्वक कैप्चर हो गया
++liveness.status.cancelled=चेहरे की जीवंतता जाँच रद्द कर दी गई।
++liveness.challenge.blink=कृपया पलकें झपकाएँ
++liveness.challenge.smile=कृपया मुस्कुराएँ
++liveness.challenge.turn_left=कृपया अपना सिर बाईं ओर घुमाएँ
++liveness.challenge.turn_right=कृपया अपना सिर दाईं ओर घुमाएँ
++liveness.challenge.look_up=कृपया ऊपर देखें
++liveness.challenge.look_down=कृपया नीचे देखें
++liveness.feedback.continue=कृपया जारी रखें
++liveness.feedback.action_detected=क्रिया पहचानी गई
++liveness.feedback.hold_still=हिलें नहीं
++liveness.guidance.no_face=कोई चेहरा नहीं पहचाना गया। कृपया कैमरे की ओर देखें।
++liveness.guidance.multiple_faces=केवल एक व्यक्ति दिखाई देना चाहिए।
++liveness.guidance.move_closer=कृपया थोड़ा पास आएँ।
++liveness.guidance.move_back=कृपया थोड़ा पीछे हटें।
++liveness.guidance.center_face=कृपया अपना चेहरा अंडाकार के बीच में रखें।
++liveness.guidance.improve_lighting=कृपया रोशनी बेहतर करें।
++liveness.guidance.hold_steady=कृपया स्थिर रहें।
++liveness.guidance.look_at_camera=कृपया कैमरे की ओर देखें।
++liveness.error.liveness_not_verified=हम चेहरे की जीवंतता सत्यापित नहीं कर सके। कृपया पुनः प्रयास करें।
++liveness.error.verification_not_completed=चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
++liveness.error.max_attempts_reached=चेहरा सत्यापन पूरा नहीं हो सका।
++liveness.error.device_problem=कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।
++liveness.tips.title=सुझाव:
++liveness.tips.look_at_camera=सीधे कैमरे की ओर देखें।
++liveness.tips.face_visible=सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।
++liveness.tips.lighting=रोशनी बेहतर करें।
++liveness.tips.capture_area=अपना चेहरा कैप्चर क्षेत्र के भीतर रखें।
++liveness.tips.follow_prompt=बताई गई क्रिया करें।
++liveness.retry.attempts_left=शेष प्रयास: {0}
++liveness.progress.step=चरण {0} / {1}
++liveness.progress.attempt=प्रयास {0} / {1}
++liveness.recovery.resident=कृपया पर्यवेक्षक से संपर्क करें। निवासी का पंजीकरण बायोमेट्रिक अपवाद प्रक्रिया से किया जा सकता है।
++liveness.recovery.operator=कृपया अपने व्यवस्थापक से संपर्क करें या बाद में पुनः प्रयास करें।
++liveness.recovery.supervisor=कृपया अपने व्यवस्थापक से संपर्क करें।
++liveness.button.retry=पुनः प्रयास करें
++liveness.button.cancel=रद्द करें
++liveness.button.close=बंद करें
++liveness.button.open_settings=सेटिंग्स खोलें
++```
++
++**Desktop, `messages_kn.properties`** (Kannada):
++
++```properties
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++liveness.title.resident=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ
++liveness.title.operator=ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ
++liveness.title.supervisor=ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ
++liveness.status.starting=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…
++liveness.status.checking=ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…
++liveness.status.passed=ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ
++liveness.status.cancelled=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.
++liveness.challenge.blink=ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ
++liveness.challenge.smile=ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ
++liveness.challenge.turn_left=ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಎಡಕ್ಕೆ ತಿರುಗಿಸಿ
++liveness.challenge.turn_right=ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆಯನ್ನು ಬಲಕ್ಕೆ ತಿರುಗಿಸಿ
++liveness.challenge.look_up=ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ
++liveness.challenge.look_down=ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ
++liveness.feedback.continue=ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ
++liveness.feedback.action_detected=ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ
++liveness.feedback.hold_still=ಅಲುಗಾಡಬೇಡಿ
++liveness.guidance.no_face=ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
++liveness.guidance.multiple_faces=ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.
++liveness.guidance.move_closer=ದಯವಿಟ್ಟು ಹತ್ತಿರ ಬನ್ನಿ.
++liveness.guidance.move_back=ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಹಿಂದೆ ಸರಿಯಿರಿ.
++liveness.guidance.center_face=ದಯವಿಟ್ಟು ನಿಮ್ಮ ಮುಖವನ್ನು ಅಂಡಾಕಾರದ ಮಧ್ಯದಲ್ಲಿ ಇರಿಸಿ.
++liveness.guidance.improve_lighting=ದಯವಿಟ್ಟು ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.
++liveness.guidance.hold_steady=ದಯವಿಟ್ಟು ಸ್ಥಿರವಾಗಿರಿ.
++liveness.guidance.look_at_camera=ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
++liveness.error.liveness_not_verified=ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
++liveness.error.verification_not_completed=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
++liveness.error.max_attempts_reached=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.
++liveness.error.device_problem=ಕ್ಯಾಮರಾ/ಸಾಧನ ಲಭ್ಯವಿಲ್ಲ. ಸಂಪರ್ಕವನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
++liveness.tips.title=ಸಲಹೆಗಳು:
++liveness.tips.look_at_camera=ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
++liveness.tips.face_visible=ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.
++liveness.tips.lighting=ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.
++liveness.tips.capture_area=ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.
++liveness.tips.follow_prompt=ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.
++liveness.retry.attempts_left=ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {0}
++liveness.progress.step=ಹಂತ {0} / {1}
++liveness.progress.attempt=ಪ್ರಯತ್ನ {0} / {1}
++liveness.recovery.resident=ದಯವಿಟ್ಟು ಮೇಲ್ವಿಚಾರಕರನ್ನು ಸಂಪರ್ಕಿಸಿ. ಬಯೋಮೆಟ್ರಿಕ್ ವಿನಾಯಿತಿ ಪ್ರಕ್ರಿಯೆಯ ಮೂಲಕ ನಿವಾಸಿಯನ್ನು ನೋಂದಾಯಿಸಬಹುದು.
++liveness.recovery.operator=ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ ಅಥವಾ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
++liveness.recovery.supervisor=ದಯವಿಟ್ಟು ನಿಮ್ಮ ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ.
++liveness.button.retry=ಮರುಪ್ರಯತ್ನಿಸಿ
++liveness.button.cancel=ರದ್ದುಮಾಡಿ
++liveness.button.close=ಮುಚ್ಚಿ
++liveness.button.open_settings=ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ
++```
++
++**Desktop, `messages_ta.properties`** (Tamil):
++
++```properties
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++liveness.title.resident=முக உயிர்ப்புச் சரிபார்ப்பு
++liveness.title.operator=ஆபரேட்டர் முக சரிபார்ப்பு
++liveness.title.supervisor=மேற்பார்வையாளர் முக சரிபார்ப்பு
++liveness.status.starting=முக உயிர்ப்புச் சரிபார்ப்பு தொடங்குகிறது…
++liveness.status.checking=முக உயிர்ப்பு சரிபார்க்கப்படுகிறது…
++liveness.status.passed=நன்று, முகம் வெற்றிகரமாகப் படம்பிடிக்கப்பட்டது
++liveness.status.cancelled=முக உயிர்ப்புச் சரிபார்ப்பு ரத்துசெய்யப்பட்டது.
++liveness.challenge.blink=தயவுசெய்து கண் சிமிட்டவும்
++liveness.challenge.smile=தயவுசெய்து புன்னகைக்கவும்
++liveness.challenge.turn_left=தயவுசெய்து உங்கள் தலையை இடது பக்கம் திருப்பவும்
++liveness.challenge.turn_right=தயவுசெய்து உங்கள் தலையை வலது பக்கம் திருப்பவும்
++liveness.challenge.look_up=தயவுசெய்து மேலே பார்க்கவும்
++liveness.challenge.look_down=தயவுசெய்து கீழே பார்க்கவும்
++liveness.feedback.continue=தயவுசெய்து தொடரவும்
++liveness.feedback.action_detected=செயல் கண்டறியப்பட்டது
++liveness.feedback.hold_still=அசையாதீர்கள்
++liveness.guidance.no_face=முகம் எதுவும் கண்டறியப்படவில்லை. தயவுசெய்து கேமராவைப் பார்க்கவும்.
++liveness.guidance.multiple_faces=ஒருவர் மட்டுமே தெரிய வேண்டும்.
++liveness.guidance.move_closer=தயவுசெய்து அருகில் வரவும்.
++liveness.guidance.move_back=தயவுசெய்து சற்றுப் பின்னால் நகரவும்.
++liveness.guidance.center_face=தயவுசெய்து உங்கள் முகத்தை நீள்வட்டத்தின் நடுவில் வைக்கவும்.
++liveness.guidance.improve_lighting=தயவுசெய்து வெளிச்சத்தை மேம்படுத்தவும்.
++liveness.guidance.hold_steady=தயவுசெய்து நிலையாக இருக்கவும்.
++liveness.guidance.look_at_camera=தயவுசெய்து கேமராவைப் பார்க்கவும்.
++liveness.error.liveness_not_verified=முக உயிர்ப்பைச் சரிபார்க்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
++liveness.error.verification_not_completed=முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
++liveness.error.max_attempts_reached=முக சரிபார்ப்பை முடிக்க முடியவில்லை.
++liveness.error.device_problem=கேமரா/சாதனம் கிடைக்கவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.
++liveness.tips.title=குறிப்புகள்:
++liveness.tips.look_at_camera=நேரடியாக கேமராவைப் பார்க்கவும்.
++liveness.tips.face_visible=உங்கள் முகம் தெளிவாகத் தெரிவதை உறுதிசெய்யவும்.
++liveness.tips.lighting=வெளிச்சத்தை மேம்படுத்தவும்.
++liveness.tips.capture_area=உங்கள் முகத்தைப் படம்பிடிப்புப் பகுதிக்குள் வைத்திருக்கவும்.
++liveness.tips.follow_prompt=கேட்கப்படும் செயலைச் செய்யவும்.
++liveness.retry.attempts_left=மீதமுள்ள முயற்சிகள்: {0}
++liveness.progress.step=படி {0} / {1}
++liveness.progress.attempt=முயற்சி {0} / {1}
++liveness.recovery.resident=தயவுசெய்து மேற்பார்வையாளரைத் தொடர்பு கொள்ளவும். பயோமெட்ரிக் விதிவிலக்கு செயல்முறையைப் பயன்படுத்தி குடியிருப்பாளரைப் பதிவு செய்யலாம்.
++liveness.recovery.operator=உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும் அல்லது பின்னர் மீண்டும் முயற்சிக்கவும்.
++liveness.recovery.supervisor=உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும்.
++liveness.button.retry=மீண்டும் முயற்சிக்கவும்
++liveness.button.cancel=ரத்துசெய்
++liveness.button.close=மூடு
++liveness.button.open_settings=அமைப்புகளைத் திற
++```
 diff --git a/registration-client/pom.xml b/registration-client/pom.xml
 --- a/registration-client/pom.xml
 +++ b/registration-client/pom.xml
@@ -2268,6 +2662,242 @@ new file mode 100644
 +		pendingFrame.set(null);
 +	}
 +}
+diff --git a/registration-client/src/main/java/io/mosip/registration/controller/liveness/ModelBundleTexts.java b/registration-client/src/main/java/io/mosip/registration/controller/liveness/ModelBundleTexts.java
+new file mode 100644
+--- /dev/null
++++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/ModelBundleTexts.java
+@@ -0,0 +1,53 @@
++package io.mosip.registration.controller.liveness;
++
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.List;
++
++import io.mosip.registration.liveness.desktop.DesktopLivenessService.ModelBundleOutcome;
++
++/**
++ * F17: the message keys of the offline face liveness model install and rollback ({@code docs/ui-liveness-spec.md}
++ * section 4.5), in the messages bundles. The texts are generic: never a path, a file name or an exception message.
++ */
++public final class ModelBundleTexts {
++
++	/** Every key, in the spec's order. */
++	public static final List<String> KEYS = Collections.unmodifiableList(Arrays.asList(
++			"liveness.model.title", "liveness.model.current", "liveness.model.install", "liveness.model.rollback",
++			"liveness.model.select_file", "liveness.model.working", "liveness.model.installed",
++			"liveness.model.rolled_back", "liveness.model.not_newer", "liveness.model.invalid",
++			"liveness.model.nothing_to_roll_back", "liveness.model.failed", "liveness.model.rollback_failed",
++			"liveness.model.not_allowed", "liveness.model.confirm_rollback"));
++
++	private ModelBundleTexts() {
++	}
++
++	/** The message key for an outcome; a failed rollback has its own text (no file was involved). */
++	public static String messageKey(ModelBundleOutcome outcome, boolean rollback) {
++		if (rollback && (outcome == ModelBundleOutcome.INVALID || outcome == ModelBundleOutcome.FAILED)) {
++			return "liveness.model.rollback_failed";
++		}
++		switch (outcome) {
++		case INSTALLED:
++			return "liveness.model.installed";
++		case ROLLED_BACK:
++			return "liveness.model.rolled_back";
++		case NOT_NEWER:
++			return "liveness.model.not_newer";
++		case INVALID:
++			return "liveness.model.invalid";
++		case NOTHING_TO_ROLL_BACK:
++			return "liveness.model.nothing_to_roll_back";
++		case NOT_ALLOWED:
++			return "liveness.model.not_allowed";
++		default:
++			return "liveness.model.failed";
++		}
++	}
++
++	/** Puts the version into {0}: a literal replacement, not MessageFormat, because the translations contain apostrophes. */
++	public static String fill(String text, String version) {
++		return text.replace("{0}", version == null ? "" : version);
++	}
++}
+diff --git a/registration-client/src/main/java/io/mosip/registration/controller/reg/PacketHandlerController.java b/registration-client/src/main/java/io/mosip/registration/controller/reg/PacketHandlerController.java
+--- a/registration-client/src/main/java/io/mosip/registration/controller/reg/PacketHandlerController.java
++++ b/registration-client/src/main/java/io/mosip/registration/controller/reg/PacketHandlerController.java
+@@ -5,6 +5,7 @@ import static io.mosip.registration.constants.RegistrationConstants.ACKNOWLEDGEM
+ import static io.mosip.registration.constants.RegistrationConstants.APPLICATION_ID;
+ import static io.mosip.registration.constants.RegistrationConstants.APPLICATION_NAME;
+ 
++import java.io.File;
+ import java.io.IOException;
+ import java.io.Writer;
+ import java.net.URL;
+@@ -16,6 +17,7 @@ import java.util.Objects;
+ import java.util.Optional;
+ import java.util.ResourceBundle;
+ import java.util.concurrent.atomic.AtomicInteger;
++import java.util.function.Supplier;
+ 
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Controller;
+@@ -35,6 +37,7 @@ import io.mosip.registration.context.SessionContext;
+ import io.mosip.registration.controller.BaseController;
+ import io.mosip.registration.controller.ClientApplication;
+ import io.mosip.registration.controller.GenericController;
++import io.mosip.registration.controller.liveness.ModelBundleTexts;
+ import io.mosip.registration.dao.IdentitySchemaDao;
+ import io.mosip.registration.dto.ErrorResponseDTO;
+ import io.mosip.registration.dto.PacketStatusDTO;
+@@ -51,6 +54,9 @@ import io.mosip.registration.enums.Role;
+ import io.mosip.registration.exception.PreConditionCheckException;
+ import io.mosip.registration.exception.RegBaseCheckedException;
+ import io.mosip.registration.exception.RegistrationExceptionConstants;
++import io.mosip.registration.liveness.desktop.DesktopLivenessService;
++import io.mosip.registration.liveness.desktop.DesktopLivenessService.ModelBundleOutcome;
++import io.mosip.registration.liveness.desktop.DesktopLivenessService.ModelBundleResult;
+ import io.mosip.registration.service.config.JobConfigurationService;
+ import io.mosip.registration.service.operator.UserOnboardService;
+ import io.mosip.registration.service.packet.PacketHandlerService;
+@@ -60,10 +66,14 @@ import io.mosip.registration.service.sync.PreRegistrationDataSyncService;
+ import io.mosip.registration.service.template.TemplateService;
+ import io.mosip.registration.update.SoftwareUpdateHandler;
+ import io.mosip.registration.util.acktemplate.TemplateGenerator;
++import javafx.application.Platform;
+ import javafx.fxml.FXML;
+ import javafx.fxml.Initializable;
+ import javafx.geometry.Pos;
+ import javafx.scene.Parent;
++import javafx.scene.control.Alert;
++import javafx.scene.control.Alert.AlertType;
++import javafx.scene.control.ButtonType;
+ import javafx.scene.control.Label;
+ import javafx.scene.control.ProgressBar;
+ import javafx.scene.control.ProgressIndicator;
+@@ -75,6 +85,7 @@ import javafx.scene.layout.GridPane;
+ import javafx.scene.layout.HBox;
+ import javafx.scene.layout.RowConstraints;
+ import javafx.scene.layout.VBox;
++import javafx.stage.FileChooser;
+ import lombok.NonNull;
+ 
+ /**
+@@ -172,6 +183,19 @@ public class PacketHandlerController extends BaseController implements Initializ
+ 	@FXML
+ 	private ImageView checkUpdatesImageView;
+ 
++	/** Part 4 (F17): offline face liveness model install and rollback, for supervisors and admins. */
++	@FXML
++	private GridPane installModelBundlePane;
++	@FXML
++	private ImageView installModelBundleImageView;
++	@FXML
++	private GridPane rollbackModelBundlePane;
++	@FXML
++	private ImageView rollbackModelBundleImageView;
++
++	@Autowired
++	private DesktopLivenessService desktopLivenessService;
++
+ 	@FXML
+ 	private ImageView tickMarkImageView;
+ 
+@@ -299,6 +323,7 @@ public class PacketHandlerController extends BaseController implements Initializ
+ 				eodProcessGridPane.setVisible(false);
+ 				eodLabel.setVisible(false);
+ 			}
++			showModelBundleTasks();
+ 			setLastUpdateTime();
+ 			pendingApprovalCountLbl.setText(RegistrationUIConstants.getMessageLanguageSpecific(RegistrationUIConstants.NO_PENDING_APPLICATIONS));
+ 			reRegistrationCountLbl.setText(RegistrationUIConstants.getMessageLanguageSpecific(RegistrationUIConstants.NO_RE_REGISTER_APPLICATIONS));
+@@ -787,6 +812,89 @@ public class PacketHandlerController extends BaseController implements Initializ
+ 		headerController.hasUpdate(null);
+ 	}
+ 
++	// ---- Part 4 (F17): offline face liveness model install and rollback ----
++
++	/** The two tiles only for supervisors and admins, and only while the feature is on (the actions check it again). */
++	private void showModelBundleTasks() {
++		boolean allowed = false;
++		try {
++			allowed = desktopLivenessService.isOfflineModelInstallAllowed();
++		} catch (RuntimeException e) {
++			LOGGER.error(PACKET_HANDLER, APPLICATION_NAME, APPLICATION_ID, "Liveness model tasks hidden: "
++					+ e.getClass().getSimpleName());
++		}
++		for (GridPane pane : new GridPane[] { installModelBundlePane, rollbackModelBundlePane }) {
++			pane.setVisible(allowed);
++			pane.setManaged(allowed);
++		}
++	}
++
++	/** Picks a signed model bundle zip (removable media) and installs it off the UI thread. */
++	@FXML
++	public void installModelBundle() {
++		if (!desktopLivenessService.isOfflineModelInstallAllowed()) {
++			generateAlert(RegistrationConstants.ERROR, modelBundleText(ModelBundleOutcome.NOT_ALLOWED, null, false));
++			return;
++		}
++		FileChooser chooser = new FileChooser();
++		chooser.setTitle(RegistrationUIConstants.getMessageLanguageSpecific("liveness.model.select_file"));
++		chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("*.zip", "*.zip"));
++		File zip = chooser.showOpenDialog(fXComponents.getStage());
++		if (zip != null) {
++			runModelBundleAction(() -> desktopLivenessService.installOfflineBundle(zip), false);
++		}
++	}
++
++	/** Rolls back to the previous model bundle, after a confirmation (an explicit operator action). */
++	@FXML
++	public void rollbackModelBundle() {
++		if (!desktopLivenessService.isOfflineModelInstallAllowed()) {
++			generateAlert(RegistrationConstants.ERROR, modelBundleText(ModelBundleOutcome.NOT_ALLOWED, null, true));
++			return;
++		}
++		Alert confirm = createAlert(AlertType.CONFIRMATION,
++				RegistrationUIConstants.getMessageLanguageSpecific(RegistrationUIConstants.INFORMATION),
++				RegistrationUIConstants.getMessageLanguageSpecific("liveness.model.rollback"),
++				RegistrationUIConstants.getMessageLanguageSpecific("liveness.model.confirm_rollback"),
++				RegistrationConstants.PAGE_NAVIGATION_CONFIRM, RegistrationConstants.PAGE_NAVIGATION_CANCEL);
++		Optional<ButtonType> answer = confirm.showAndWait();
++		if (answer.isPresent() && answer.get() == ButtonType.OK) {
++			runModelBundleAction(desktopLivenessService::rollbackModelBundle, true);
++		}
++	}
++
++	/** Runs the install or rollback (it verifies and reloads the models, about 1-2 s) and shows the result. */
++	private void runModelBundleAction(Supplier<ModelBundleResult> action, boolean rollback) {
++		installModelBundlePane.setDisable(true);
++		rollbackModelBundlePane.setDisable(true);
++		Thread worker = new Thread(() -> {
++			ModelBundleResult result = null;
++			try {
++				result = action.get();
++			} catch (RuntimeException e) {
++				LOGGER.error(PACKET_HANDLER, APPLICATION_NAME, APPLICATION_ID, "Liveness model action failed: "
++						+ e.getClass().getSimpleName());
++			}
++			final ModelBundleResult r = result;
++			Platform.runLater(() -> {
++				installModelBundlePane.setDisable(false);
++				rollbackModelBundlePane.setDisable(false);
++				ModelBundleOutcome o = r == null ? ModelBundleOutcome.FAILED : r.outcome();
++				boolean done = o == ModelBundleOutcome.INSTALLED || o == ModelBundleOutcome.ROLLED_BACK;
++				generateAlert(done ? RegistrationConstants.ALERT_INFORMATION : RegistrationConstants.ERROR,
++						modelBundleText(o, r == null ? null : r.toVersion(), rollback));
++			});
++		}, "liveness-model-bundle");
++		worker.setDaemon(true);
++		worker.start();
++	}
++
++	/** The generic, localised text for an outcome: never a path or an exception message. */
++	private static String modelBundleText(ModelBundleOutcome outcome, String version, boolean rollback) {
++		return ModelBundleTexts.fill(RegistrationUIConstants.getMessageLanguageSpecific(
++				ModelBundleTexts.messageKey(outcome, rollback)), version);
++	}
++
+ 
+ 	private void loadRegistrationProcesses()  {
+ 		try {
 diff --git a/registration-client/src/main/resources/fxml/LivenessCheck.fxml b/registration-client/src/main/resources/fxml/LivenessCheck.fxml
 new file mode 100644
 --- /dev/null
@@ -2357,6 +2987,111 @@ new file mode 100644
 +        </HBox>
 +    </bottom>
 +</BorderPane>
+diff --git a/registration-client/src/main/resources/fxml/RegistrationOfficerPacketLayout.fxml b/registration-client/src/main/resources/fxml/RegistrationOfficerPacketLayout.fxml
+--- a/registration-client/src/main/resources/fxml/RegistrationOfficerPacketLayout.fxml
++++ b/registration-client/src/main/resources/fxml/RegistrationOfficerPacketLayout.fxml
+@@ -257,6 +257,56 @@
+                               <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
+                            </rowConstraints>
+                         </GridPane>
++                        <GridPane fx:id="installModelBundlePane" layoutX="10.0" layoutY="412.0" onMouseClicked="#installModelBundle" prefHeight="90.0" prefWidth="250.0" styleClass="uinUpdateStyle">
++                           <children>
++                              <VBox alignment="CENTER" prefHeight="200.0" prefWidth="100.0">
++                                 <children>
++                                    <ImageView fx:id="installModelBundleImageView" fitHeight="30.0" fitWidth="30.0" pickOnBounds="true" preserveRatio="true">
++                                       <image>
++                                          <Image url="@../images/DownloadPreRegData.png" />
++                                       </image>
++                                    </ImageView>
++                                 </children>
++                              </VBox>
++                              <VBox alignment="CENTER_LEFT" prefHeight="200.0" prefWidth="100.0" GridPane.columnIndex="1">
++                                 <children>
++                                    <Label fx:id="installModelBundleLabel" styleClass="operationalTitle" text="%installModelBundle" wrapText="true" />
++                                 </children>
++                              </VBox>
++                           </children>
++                           <columnConstraints>
++                              <ColumnConstraints hgrow="SOMETIMES" maxWidth="121.0" minWidth="10.0" prefWidth="90.0" />
++                              <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="156.0" />
++                           </columnConstraints>
++                           <rowConstraints>
++                              <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
++                           </rowConstraints>
++                        </GridPane>
++                        <GridPane fx:id="rollbackModelBundlePane" layoutX="10.0" layoutY="412.0" onMouseClicked="#rollbackModelBundle" prefHeight="90.0" prefWidth="250.0" styleClass="uinUpdateStyle">
++                           <children>
++                              <VBox alignment="CENTER" prefHeight="200.0" prefWidth="100.0">
++                                 <children>
++                                    <ImageView fx:id="rollbackModelBundleImageView" fitHeight="30.0" fitWidth="30.0" pickOnBounds="true" preserveRatio="true">
++                                       <image>
++                                          <Image url="@../images/DownloadPreRegData.png" />
++                                       </image>
++                                    </ImageView>
++                                 </children>
++                              </VBox>
++                              <VBox alignment="CENTER_LEFT" prefHeight="200.0" prefWidth="100.0" GridPane.columnIndex="1">
++                                 <children>
++                                    <Label fx:id="rollbackModelBundleLabel" styleClass="operationalTitle" text="%rollbackModelBundle" wrapText="true" />
++                                 </children>
++                              </VBox>
++                           </children>
++                           <columnConstraints>
++                              <ColumnConstraints hgrow="SOMETIMES" maxWidth="121.0" minWidth="10.0" prefWidth="90.0" />
++                              <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="156.0" />
++                           </columnConstraints>
++                           <rowConstraints>
++                              <RowConstraints minHeight="10.0" prefHeight="30.0" vgrow="SOMETIMES" />
++                           </rowConstraints>
++                        </GridPane>
+                      </children>
+                   </VBox>
+                </children>
+diff --git a/registration-client/src/main/resources/labels_ar.properties b/registration-client/src/main/resources/labels_ar.properties
+--- a/registration-client/src/main/resources/labels_ar.properties
++++ b/registration-client/src/main/resources/labels_ar.properties
+@@ -441,4 +441,8 @@ Users=\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u0648\u0646
+ 
+ accept_word=\u0642\u0628\u0648\u0644
+ slash= / 
+-reject_word=\u0631\u0641\u0636
+\ No newline at end of file
++reject_word=\u0631\u0641\u0636
++
++# Face liveness model bundles (F17, Part 4). Machine-translated; needs native-speaker review.
++installModelBundle=\u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c
++rollbackModelBundle=\u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0633\u0627\u0628\u0642\u0629
+\ No newline at end of file
+diff --git a/registration-client/src/main/resources/labels_en.properties b/registration-client/src/main/resources/labels_en.properties
+--- a/registration-client/src/main/resources/labels_en.properties
++++ b/registration-client/src/main/resources/labels_en.properties
+@@ -605,4 +605,8 @@ Users=Users
+ 
+ accept_word=Accept
+ slash= / 
+-reject_word=Reject
+\ No newline at end of file
++reject_word=Reject
++
++# Face liveness model bundles (F17, Part 4).
++installModelBundle=Install model bundle
++rollbackModelBundle=Roll back model bundle
+\ No newline at end of file
+diff --git a/registration-client/src/main/resources/labels_fr.properties b/registration-client/src/main/resources/labels_fr.properties
+--- a/registration-client/src/main/resources/labels_fr.properties
++++ b/registration-client/src/main/resources/labels_fr.properties
+@@ -606,4 +606,8 @@ Users=Utilisateurs
+ 
+ accept_word=Accepter
+ slash= / 
+-reject_word=Rejeter
+\ No newline at end of file
++reject_word=Rejeter
++
++# Face liveness model bundles (F17, Part 4). Machine-translated; needs native-speaker review.
++installModelBundle=Installer un lot de mod\u00e8les
++rollbackModelBundle=Restaurer le lot de mod\u00e8les pr\u00e9c\u00e9dent
+\ No newline at end of file
 diff --git a/registration-client/src/main/resources/liveness.css b/registration-client/src/main/resources/liveness.css
 new file mode 100644
 --- /dev/null
@@ -2506,7 +3241,7 @@ new file mode 100644
 diff --git a/registration-client/src/main/resources/messages_ar.properties b/registration-client/src/main/resources/messages_ar.properties
 --- a/registration-client/src/main/resources/messages_ar.properties
 +++ b/registration-client/src/main/resources/messages_ar.properties
-@@ -473,4 +473,50 @@
+@@ -473,4 +473,67 @@ INVALID_FLOW_TYPE=\u0646\u0648\u0639 \u062a\u062f\u0641\u0642 \u0627\u0644\u062a
  ADDITIONAL_INFO_REQ_ID_MISSING=\u0645\u0639\u0631\u0641 \u0637\u0644\u0628 \u0645\u0639\u0644\u0648\u0645\u0627\u062a \u0625\u0636\u0627\u0641\u064a\u0629 \u0645\u0637\u0644\u0648\u0628 \u0644\u0644\u0645\u062a\u0627\u0628\u0639\u0629\u002e
  LOGOUT_ALERT = \u062A\u0645 \u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0623\u062F\u0648\u0627\u0631 \u0627\u0644\u062E\u0627\u0635\u0629 \u0628\u0643. \u0633\u064A\u062A\u0645 \u062A\u0633\u062C\u064A\u0644 \u062E\u0631\u0648\u062C \u0627\u0644\u062C\u0644\u0633\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629. \u0627\u0644\u0631\u062C\u0627\u0621 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649 \u0644\u0644\u0645\u062A\u0627\u0628\u0639\u0629.
  
@@ -2559,11 +3294,28 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.button.cancel=\u0625\u0644\u063A\u0627\u0621
 +liveness.button.close=\u0625\u063A\u0644\u0627\u0642
 +liveness.button.open_settings=\u0641\u062A\u062D \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A
++
++# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; needs native-speaker review.
++liveness.model.title=\u0646\u0645\u0627\u0630\u062c \u062d\u064a\u0648\u064a\u0629 \u0627\u0644\u0648\u062c\u0647
++liveness.model.current=\u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u0629: {0}
++liveness.model.install=\u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c
++liveness.model.rollback=\u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0633\u0627\u0628\u0642\u0629
++liveness.model.select_file=\u0627\u062e\u062a\u0631 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c (.zip)
++liveness.model.working=\u062c\u0627\u0631\u064d \u0645\u0639\u0627\u0644\u062c\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c\u2026 \u064a\u0631\u062c\u0649 \u0627\u0644\u0627\u0646\u062a\u0638\u0627\u0631.
++liveness.model.installed=\u062a\u0645 \u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c {0}. \u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
++liveness.model.rolled_back=\u062a\u0645\u062a \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0625\u0644\u0649 \u0627\u0644\u0625\u0635\u062f\u0627\u0631 {0}. \u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
++liveness.model.not_newer=\u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0647\u0630\u0647 \u0644\u064a\u0633\u062a \u0623\u062d\u062f\u062b \u0645\u0646 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u0629. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621.
++liveness.model.invalid=\u0647\u0630\u0627 \u0627\u0644\u0645\u0644\u0641 \u0644\u064a\u0633 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c \u0645\u0648\u0642\u0651\u0639\u0629 \u0635\u0627\u0644\u062d\u0629. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621.
++liveness.model.nothing_to_roll_back=\u0644\u0627 \u062a\u0648\u062c\u062f \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c \u0633\u0627\u0628\u0642\u0629 \u0644\u0644\u0627\u0633\u062a\u0639\u0627\u062f\u0629.
++liveness.model.failed=\u062a\u0639\u0630\u0651\u0631 \u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621. \u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062e\u0631\u0649.
++liveness.model.rollback_failed=\u062a\u0639\u0630\u0651\u0631\u062a \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621.
++liveness.model.not_allowed=\u064a\u0645\u0643\u0646 \u0644\u0644\u0645\u0634\u0631\u0641 \u0623\u0648 \u0627\u0644\u0645\u0633\u0624\u0648\u0644 \u0641\u0642\u0637 \u062a\u063a\u064a\u064a\u0631 \u0646\u0645\u0627\u0630\u062c \u062d\u064a\u0648\u064a\u0629 \u0627\u0644\u0648\u062c\u0647.
++liveness.model.confirm_rollback=\u0647\u0644 \u062a\u0631\u064a\u062f \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0646\u0645\u0627\u0630\u062c \u062d\u064a\u0648\u064a\u0629 \u0627\u0644\u0648\u062c\u0647 \u0627\u0644\u0633\u0627\u0628\u0642\u0629\u061f \u0633\u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
 \ No newline at end of file
 diff --git a/registration-client/src/main/resources/messages_en.properties b/registration-client/src/main/resources/messages_en.properties
 --- a/registration-client/src/main/resources/messages_en.properties
 +++ b/registration-client/src/main/resources/messages_en.properties
-@@ -471,3 +471,50 @@
+@@ -471,3 +471,68 @@ INVALID_FLOW_TYPE=Invalid registration flow type!
  ADDITIONAL_INFO_REQ_ID_MISSING=AdditionalInfo request id is required to proceed.
  
  TOKEN_SAVE_FAILED=Failed to save auth-token, Invalid token / token too large.#TYPE#ERROR
@@ -2614,10 +3366,28 @@ diff --git a/registration-client/src/main/resources/messages_en.properties b/reg
 +liveness.button.cancel=Cancel
 +liveness.button.close=Close
 +liveness.button.open_settings=Open settings
++
++# Face liveness model bundles (F17: offline install and rollback by supervisors and admins;
++# docs/ui-liveness-spec.md section 4.5). {0} = the bundle version.
++liveness.model.title=Face liveness models
++liveness.model.current=Models in use: {0}
++liveness.model.install=Install model bundle
++liveness.model.rollback=Roll back model bundle
++liveness.model.select_file=Select a model bundle (.zip)
++liveness.model.working=Working on the model bundle… please wait.
++liveness.model.installed=Model bundle {0} installed. New liveness checks use it.
++liveness.model.rolled_back=Models rolled back to {0}. New liveness checks use them.
++liveness.model.not_newer=This model bundle is not newer than the models in use. Nothing was changed.
++liveness.model.invalid=This file is not a valid signed model bundle. Nothing was changed.
++liveness.model.nothing_to_roll_back=There is no earlier model bundle to roll back to.
++liveness.model.failed=The model bundle could not be installed. Nothing was changed. Please try again.
++liveness.model.rollback_failed=The models could not be rolled back. Nothing was changed.
++liveness.model.not_allowed=Only a supervisor or an administrator can change the face liveness models.
++liveness.model.confirm_rollback=Roll back to the previous face liveness models? New liveness checks will use them.
 diff --git a/registration-client/src/main/resources/messages_fr.properties b/registration-client/src/main/resources/messages_fr.properties
 --- a/registration-client/src/main/resources/messages_fr.properties
 +++ b/registration-client/src/main/resources/messages_fr.properties
-@@ -468,4 +468,50 @@
+@@ -468,4 +468,67 @@ LOGOUT_ALERT = Vos r
  INVALID_FLOW_TYPE=Type de flux d'enregistrement non valide�!
  ADDITIONAL_INFO_REQ_ID_MISSING=L'identifiant de la demande AdditionalInfo est requis pour continuer.
  
@@ -2670,6 +3440,23 @@ diff --git a/registration-client/src/main/resources/messages_fr.properties b/reg
 +liveness.button.cancel=Annuler
 +liveness.button.close=Fermer
 +liveness.button.open_settings=Ouvrir les param\u00E8tres
++
++# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; needs native-speaker review.
++liveness.model.title=Mod\u00e8les de vivacit\u00e9 du visage
++liveness.model.current=Mod\u00e8les en service : {0}
++liveness.model.install=Installer un lot de mod\u00e8les
++liveness.model.rollback=Restaurer le lot de mod\u00e8les pr\u00e9c\u00e9dent
++liveness.model.select_file=S\u00e9lectionner un lot de mod\u00e8les (.zip)
++liveness.model.working=Traitement du lot de mod\u00e8les\u2026 veuillez patienter.
++liveness.model.installed=Lot de mod\u00e8les {0} install\u00e9. Les nouvelles v\u00e9rifications de vivacit\u00e9 l'utilisent.
++liveness.model.rolled_back=Mod\u00e8les restaur\u00e9s \u00e0 la version {0}. Les nouvelles v\u00e9rifications de vivacit\u00e9 les utilisent.
++liveness.model.not_newer=Ce lot de mod\u00e8les n'est pas plus r\u00e9cent que les mod\u00e8les en service. Rien n'a \u00e9t\u00e9 modifi\u00e9.
++liveness.model.invalid=Ce fichier n'est pas un lot de mod\u00e8les sign\u00e9 valide. Rien n'a \u00e9t\u00e9 modifi\u00e9.
++liveness.model.nothing_to_roll_back=Aucun lot de mod\u00e8les ant\u00e9rieur n'est disponible pour la restauration.
++liveness.model.failed=Le lot de mod\u00e8les n'a pas pu \u00eatre install\u00e9. Rien n'a \u00e9t\u00e9 modifi\u00e9. Veuillez r\u00e9essayer.
++liveness.model.rollback_failed=Les mod\u00e8les n'ont pas pu \u00eatre restaur\u00e9s. Rien n'a \u00e9t\u00e9 modifi\u00e9.
++liveness.model.not_allowed=Seul un superviseur ou un administrateur peut modifier les mod\u00e8les de vivacit\u00e9 du visage.
++liveness.model.confirm_rollback=Restaurer les mod\u00e8les de vivacit\u00e9 du visage pr\u00e9c\u00e9dents ? Les nouvelles v\u00e9rifications de vivacit\u00e9 les utiliseront.
 \ No newline at end of file
 diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java
 new file mode 100644
@@ -3420,6 +4207,89 @@ new file mode 100644
 +		return r;
 +	}
 +}
+diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/ModelBundleTextsTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/ModelBundleTextsTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/ModelBundleTextsTest.java
+@@ -0,0 +1,78 @@
++package io.mosip.registration.controller.liveness;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertNotEquals;
++import static org.junit.Assert.assertNotNull;
++import static org.junit.Assert.assertTrue;
++
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.InputStreamReader;
++import java.nio.charset.StandardCharsets;
++import java.util.HashSet;
++import java.util.Properties;
++import java.util.Set;
++
++import org.junit.Test;
++
++import io.mosip.registration.liveness.desktop.DesktopLivenessService.ModelBundleOutcome;
++
++/** F17: every outcome of the offline model install and rollback has a generic, translated text. */
++public class ModelBundleTextsTest {
++
++	private Properties bundle(String name) throws IOException {
++		Properties p = new Properties();
++		try (InputStream in = getClass().getClassLoader().getResourceAsStream(name)) {
++			assertNotNull(name, in);
++			// en is UTF-8; the upstream ar and fr copies are ASCII with \\u escapes for the F17 lines.
++			p.load(new InputStreamReader(in, name.contains("_en") ? StandardCharsets.UTF_8 : StandardCharsets.ISO_8859_1));
++		}
++		return p;
++	}
++
++	@Test
++	public void everyOutcomeHasItsOwnKeyAndAFailedRollbackSaysSo() {
++		Set<String> used = new HashSet<>();
++		for (ModelBundleOutcome o : ModelBundleOutcome.values()) {
++			String install = ModelBundleTexts.messageKey(o, false), rollback = ModelBundleTexts.messageKey(o, true);
++			assertTrue(install, ModelBundleTexts.KEYS.contains(install));
++			assertTrue(rollback, ModelBundleTexts.KEYS.contains(rollback));
++			used.add(install);
++			used.add(rollback);
++		}
++		assertEquals("liveness.model.invalid", ModelBundleTexts.messageKey(ModelBundleOutcome.INVALID, false));
++		assertEquals("liveness.model.rollback_failed", ModelBundleTexts.messageKey(ModelBundleOutcome.INVALID, true));
++		assertEquals("liveness.model.rollback_failed", ModelBundleTexts.messageKey(ModelBundleOutcome.FAILED, true));
++		assertEquals("liveness.model.failed", ModelBundleTexts.messageKey(ModelBundleOutcome.FAILED, false));
++		assertEquals(8, used.size()); // the 7 outcomes, plus a rollback's own failure text
++	}
++
++	@Test
++	public void theVersionIsFilledInLiterallySoApostrophesSurvive() {
++		assertEquals("Lot de modèles pad-2026.10.6 installé. Les nouvelles vérifications l'utilisent.",
++				ModelBundleTexts.fill("Lot de modèles {0} installé. Les nouvelles vérifications l'utilisent.",
++						"pad-2026.10.6"));
++		assertEquals("Models rolled back to .", ModelBundleTexts.fill("Models rolled back to {0}.", null));
++	}
++
++	@Test
++	public void everyKeyIsInEnglishArabicAndFrenchAndTranslated() throws IOException {
++		Properties en = bundle("messages_en.properties");
++		for (String lang : new String[] { "ar", "fr" }) {
++			Properties p = bundle("messages_" + lang + ".properties");
++			for (String key : ModelBundleTexts.KEYS) {
++				String english = en.getProperty(key), text = p.getProperty(key);
++				assertNotNull(key, english);
++				assertNotNull(lang + " " + key, text);
++				assertNotEquals(lang + " " + key + " is translated", english, text);
++				assertEquals(lang + " " + key + " keeps the placeholder", english.contains("{0}"), text.contains("{0}"));
++			}
++		}
++		for (String lang : new String[] { "en", "ar", "fr" }) {
++			Properties labels = bundle("labels_" + lang + ".properties");
++			assertNotNull(lang, labels.getProperty("installModelBundle"));
++			assertNotNull(lang, labels.getProperty("rollbackModelBundle"));
++		}
++		assertEquals(en.getProperty("liveness.model.install"), bundle("labels_en.properties").getProperty("installModelBundle"));
++	}
++}
 diff --git a/registration-services/pom.xml b/registration-services/pom.xml
 --- a/registration-services/pom.xml
 +++ b/registration-services/pom.xml
@@ -3963,7 +4833,7 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DesktopLivenessConfig.java
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,160 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.io.IOException;
@@ -4025,6 +4895,11 @@ new file mode 100644
 +	/** Plain HTTP to 127.0.0.1 or localhost for the update (development and tests only). JVM property only. */
 +	public static final String MODEL_UPDATE_INSECURE_LOCALHOST_KEY =
 +			"mosip.registration.liveness.model.update.allowInsecureLocalhost";
++	/**
++	 * F17: supervisors and admins may install a signed bundle zip from removable media, and roll back (on by default:
++	 * the signature and anti-rollback checks make it safe). false hides the actions.
++	 */
++	public static final String MODEL_OFFLINE_INSTALL_ENABLED_KEY = "mosip.registration.liveness.model.offlineInstall.enabled";
 +
 +	private final Supplier<Map<String, Object>> appConfig;
 +	private final Properties defaults;
@@ -4123,19 +4998,23 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DesktopLivenessService.java
-@@ -0,0 +1,423 @@
+@@ -0,0 +1,614 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.io.File;
++import java.io.IOException;
 +import java.net.MalformedURLException;
 +import java.net.URL;
 +import java.nio.file.Paths;
++import java.util.Collection;
++import java.util.Collections;
 +import java.util.LinkedHashMap;
 +import java.util.Locale;
 +import java.util.Map;
 +import java.util.concurrent.ExecutorService;
 +import java.util.concurrent.Executors;
 +import java.util.concurrent.atomic.AtomicInteger;
++import java.util.function.Supplier;
 +
 +import org.springframework.beans.factory.annotation.Autowired;
 +import org.springframework.context.event.EventListener;
@@ -4146,6 +5025,7 @@ new file mode 100644
 +import io.mosip.registration.config.AppConfig;
 +import io.mosip.registration.constants.AuditEvent;
 +import io.mosip.registration.constants.RegistrationConstants;
++import io.mosip.registration.context.SessionContext;
 +import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 +import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 +import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
@@ -4155,6 +5035,7 @@ new file mode 100644
 +import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
 +import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
 +import io.mosip.registration.liveness.analyzer.match.MatchResult;
++import io.mosip.registration.liveness.api.ErrorCode;
 +import io.mosip.registration.liveness.api.FrameSource;
 +import io.mosip.registration.liveness.api.LivenessEngineException;
 +import io.mosip.registration.liveness.api.LivenessPolicy;
@@ -4171,6 +5052,7 @@ new file mode 100644
 +import io.mosip.registration.liveness.fake.FakeScenario;
 +import io.mosip.registration.mdm.service.impl.MosipDeviceSpecificationFactory;
 +import io.mosip.registration.service.bio.BioService;
++import io.mosip.registration.util.advice.AuthenticationAdvice;
 +
 +/**
 + * The Desktop client's single entry point to face liveness: Parts 1 to 3 wired into the Registration Client.
@@ -4187,6 +5069,8 @@ new file mode 100644
 + * <li><b>Face binding:</b> {@link #binding()}.</li>
 + * <li><b>Online model update:</b> after each successful config sync ({@link ConfigSyncedEvent}), when enabled, a newer
 + * signed bundle is downloaded into the model store and new sessions use it ({@link #checkModelUpdateAsync}).</li>
++ * <li><b>Offline model install (F17):</b> supervisors and admins install a signed bundle zip from removable media, or
++ * roll back, from the home page ({@link #installOfflineBundle}, {@link #rollbackModelBundle}).</li>
 + * </ul>
 + * The JVM property {@code -Dmosip.registration.liveness.face.desktop.engine=fake} selects the scripted engine and
 + * {@code ...desktop.source=webcam|video:<file>|images:<dir>} a mock device, for development without an SBI device.
@@ -4383,6 +5267,188 @@ new file mode 100644
 +			analyzers.swap(newAnalyzerFactory());
 +		}
 +		preload();
++	}
++
++	// ---- F17: offline model install and rollback (supervisors and admins) ----
++
++	/** What an offline install or a rollback did; the UI maps it to a generic text, never to paths or exceptions. */
++	public enum ModelBundleOutcome {
++		/** A newer signed bundle is installed; new sessions use it. */
++		INSTALLED,
++		/** The previous bundle is current again; new sessions use it. */
++		ROLLED_BACK,
++		/** The zip's bundle is not newer than the models in use: refused, nothing changed. */
++		NOT_NEWER,
++		/** The zip or bundle is invalid, tampered or unsigned (MODEL_INTEGRITY_FAILED): refused, nothing changed. */
++		INVALID,
++		/** There is no earlier bundle to roll back to. */
++		NOTHING_TO_ROLL_BACK,
++		/** The user may not do this, or the feature is off. */
++		NOT_ALLOWED,
++		/** A local storage problem: nothing changed. */
++		FAILED
++	}
++
++	/** The outcome and the versions in use before and after (null when unknown). */
++	public static final class ModelBundleResult {
++		private final ModelBundleOutcome outcome;
++		private final String fromVersion, toVersion;
++
++		ModelBundleResult(ModelBundleOutcome outcome, String fromVersion, String toVersion) {
++			this.outcome = outcome;
++			this.fromVersion = fromVersion;
++			this.toVersion = toVersion;
++		}
++
++		public ModelBundleOutcome outcome() {
++			return outcome;
++		}
++
++		public String fromVersion() {
++			return fromVersion;
++		}
++
++		public String toVersion() {
++			return toVersion;
++		}
++	}
++
++	private Supplier<Collection<String>> userRoles = () -> SessionContext.isSessionContextAvailable()
++			? SessionContext.userContext().getRoles() : Collections.<String>emptyList();
++	private Supplier<String> userId = SessionContext::userId;
++
++	/** Tests: the logged-in user's roles and id (the client reads them from the session context). */
++	synchronized DesktopLivenessService withUser(Supplier<Collection<String>> roles, Supplier<String> id) {
++		this.userRoles = roles;
++		this.userId = id;
++		return this;
++	}
++
++	/**
++	 * True when {@value DesktopLivenessConfig#MODEL_OFFLINE_INSTALL_ENABLED_KEY} is on (the default) and the logged-in
++	 * user is a supervisor or an admin. The UI shows the install and rollback actions only then; the actions check it
++	 * again.
++	 */
++	public boolean isOfflineModelInstallAllowed() {
++		Collection<String> roles;
++		synchronized (this) {
++			roles = userRoles.get();
++		}
++		return config.getBoolean(DesktopLivenessConfig.MODEL_OFFLINE_INSTALL_ENABLED_KEY, true) && roles != null
++				&& (roles.contains(AuthenticationAdvice.SUPERVISOR_ROLE) || roles.contains(AuthenticationAdvice.ADMIN_ROLE));
++	}
++
++	/** The model bundle version new sessions use (store or bundled), or null when unreadable. */
++	public String activeModelVersion() {
++		BundleSource bundled;
++		synchronized (this) {
++			bundled = bundledModels;
++		}
++		return ModelUpdater.activeVersion(modelStore(), bundled);
++	}
++
++	/**
++	 * Installs a signed bundle zip from removable media ({@link ModelUpdater#installZip}): the same zip and the same
++	 * verification as the online update (signature, sizes, hashes, anti-rollback), unpacked into a temporary directory
++	 * that is deleted afterwards. New sessions use the new models; running sessions keep theirs. Audited as
++	 * LIVENESS_MODEL_UPDATE with trigger=offline (codes and versions only). Blocking: call it off the UI thread.
++	 */
++	public ModelBundleResult installOfflineBundle(File zip) {
++		long start = System.currentTimeMillis();
++		String user = currentUserId();
++		String from = activeModelVersion();
++		if (!isOfflineModelInstallAllowed()) {
++			return auditBundleAction("offline", user, from, null, "REFUSED", "NOT_ALLOWED", null, start,
++					ModelBundleOutcome.NOT_ALLOWED);
++		}
++		BundleSource bundled;
++		TrustedKeys keys;
++		synchronized (this) {
++			bundled = bundledModels;
++			keys = trustedKeys;
++		}
++		ModelUpdater.UpdateResult r = ModelUpdater.builder().build().installZip(zip, modelStore(), bundled, keys);
++		switch (r.status()) {
++		case INSTALLED:
++			reloadModels();
++			return auditBundleAction("offline", user, from, r.version(), r.status().name(), null, null, start,
++					ModelBundleOutcome.INSTALLED);
++		case UP_TO_DATE:
++			return auditBundleAction("offline", user, from, from, r.status().name(), "NOT_NEWER", null, start,
++					ModelBundleOutcome.NOT_NEWER);
++		default:
++			boolean storage = r.reason() == ModelUpdater.Reason.STORAGE;
++			return auditBundleAction("offline", user, from, from, r.status().name(), r.reason().name(),
++					storage ? null : ErrorCode.MODEL_INTEGRITY_FAILED.name(), start,
++					storage ? ModelBundleOutcome.FAILED : ModelBundleOutcome.INVALID);
++		}
++	}
++
++	/**
++	 * Rolls the model store back to the previous bundle ({@link ModelStore#rollback}: an explicit operator action that
++	 * bypasses anti-rollback; the previous bundle is verified again). New sessions use it. Audited as
++	 * LIVENESS_MODEL_UPDATE with trigger=rollback. Blocking: call it off the UI thread.
++	 */
++	public ModelBundleResult rollbackModelBundle() {
++		long start = System.currentTimeMillis();
++		String user = currentUserId();
++		String from = activeModelVersion();
++		if (!isOfflineModelInstallAllowed()) {
++			return auditBundleAction("rollback", user, from, null, "REFUSED", "NOT_ALLOWED", null, start,
++					ModelBundleOutcome.NOT_ALLOWED);
++		}
++		TrustedKeys keys;
++		synchronized (this) {
++			keys = trustedKeys;
++		}
++		try {
++			modelStore().rollback(keys);
++			reloadModels();
++			return auditBundleAction("rollback", user, from, activeModelVersion(), "ROLLED_BACK", null, null, start,
++					ModelBundleOutcome.ROLLED_BACK);
++		} catch (IllegalStateException nothingEarlier) {
++			return auditBundleAction("rollback", user, from, from, "REFUSED", "NOTHING_TO_ROLL_BACK", null, start,
++					ModelBundleOutcome.NOTHING_TO_ROLL_BACK);
++		} catch (LivenessEngineException e) {
++			return auditBundleAction("rollback", user, from, from, "FAILED", "BUNDLE_INVALID", e.code().name(), start,
++					ModelBundleOutcome.INVALID);
++		} catch (IOException | RuntimeException e) {
++			LOGGER.error("Face liveness model rollback failed: {}", e.getClass().getSimpleName());
++			return auditBundleAction("rollback", user, from, from, "FAILED", "STORAGE", null, start,
++					ModelBundleOutcome.FAILED);
++		}
++	}
++
++	private String currentUserId() {
++		Supplier<String> id;
++		synchronized (this) {
++			id = userId;
++		}
++		try {
++			return id.get();
++		} catch (RuntimeException e) {
++			return null;
++		}
++	}
++
++	/** One LIVENESS_MODEL_UPDATE audit (codes, versions and the user id only), and the result for the UI. */
++	private ModelBundleResult auditBundleAction(String trigger, String user, String from, String to, String outcome,
++			String reason, String errorCode, long start, ModelBundleOutcome result) {
++		Map<String, String> d = new LinkedHashMap<>();
++		d.put("outcome", outcome);
++		if (errorCode != null) {
++			d.put("errorCode", errorCode);
++		}
++		if (reason != null) {
++			d.put("reason", reason);
++		}
++		d.put("fromVersion", from == null ? "NA" : from);
++		d.put("toVersion", to == null ? "NA" : to);
++		d.put("durationMs", String.valueOf(System.currentTimeMillis() - start));
++		d.put("trigger", trigger);
++		d.put("userId", user == null ? "NA" : user);
++		auditSink().record(AuditEvent.LIVENESS_MODEL_UPDATE, null, null, d);
++		return new ModelBundleResult(result, from, to);
 +	}
 +
 +	/** A new session, or null when liveness is disabled for the workflow (the caller keeps the legacy flow). */
@@ -4967,7 +6033,7 @@ diff --git a/registration-services/src/main/resources/liveness-desktop-default.p
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/resources/liveness-desktop-default.properties
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,39 @@
 +# Face liveness: Desktop defaults, used when the synced global config (the server's registration-default.properties)
 +# does not set a key. The policy keys (mosip.registration.liveness.face.<default|resident|operator|supervisor>.*)
 +# fall back to the engine's own liveness-default.properties; only Desktop-specific keys live here.
@@ -5003,6 +6069,10 @@ new file mode 100644
 +# index (latest.json, HTTPS) into the model store above. Off until MOSIP hosts the bundles.
 +mosip.registration.liveness.model.update.enabled=false
 +mosip.registration.liveness.model.update.url=
++
++# Offline model install (F17): supervisors and admins can install a signed bundle zip from removable media, and roll
++# back, from the home page's operational tasks. The signature and anti-rollback checks make it safe; false hides it.
++mosip.registration.liveness.model.offlineInstall.enabled=true
 diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DeferredFrameSourceTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DeferredFrameSourceTest.java
 new file mode 100644
 --- /dev/null
@@ -5759,6 +6829,229 @@ new file mode 100644
 +		}
 +		factory.create().close();
 +		second.close();
++	}
++}
+diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopOfflineModelInstallTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopOfflineModelInstallTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/DesktopOfflineModelInstallTest.java
+@@ -0,0 +1,218 @@
++package io.mosip.registration.liveness.desktop;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertTrue;
++
++import java.io.ByteArrayOutputStream;
++import java.io.File;
++import java.nio.file.Files;
++import java.security.KeyPair;
++import java.util.Arrays;
++import java.util.Collection;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.zip.ZipEntry;
++import java.util.zip.ZipOutputStream;
++
++import org.junit.Before;
++import org.junit.Rule;
++import org.junit.Test;
++import org.junit.rules.TemporaryFolder;
++
++import io.mosip.registration.constants.AuditEvent;
++import io.mosip.registration.liveness.analyzer.integrity.ModelStore;
++import io.mosip.registration.liveness.analyzer.integrity.ModelUpdater;
++import io.mosip.registration.liveness.analyzer.integrity.TrustedKeys;
++import io.mosip.registration.liveness.analyzer.integrity.VerifiedBundle;
++import io.mosip.registration.liveness.analyzer.runtime.ModelRole;
++import io.mosip.registration.liveness.desktop.DesktopLivenessService.ModelBundleOutcome;
++import io.mosip.registration.liveness.desktop.DesktopLivenessService.ModelBundleResult;
++import io.mosip.registration.util.advice.AuthenticationAdvice;
++
++/**
++ * F17: a supervisor or admin installs a signed bundle zip from removable media, or rolls back; bundles are signed with a
++ * throwaway key. Every action is audited as LIVENESS_MODEL_UPDATE with codes, versions and the user id only.
++ */
++public class DesktopOfflineModelInstallTest {
++
++	private static final String BUNDLED = "pad-2026.10.5";
++	private static final String NEWER = "pad-2099.01.1";
++
++	@Rule
++	public TemporaryFolder tmp = new TemporaryFolder();
++
++	private final Map<String, Object> synced = new HashMap<>();
++	private final RecordingAuditManager audit = new RecordingAuditManager();
++	private File storeDir;
++	private KeyPair kp;
++	private TrustedKeys trust;
++	private Collection<String> roles = Collections.singletonList(AuthenticationAdvice.SUPERVISOR_ROLE);
++
++	@Before
++	public void keys() throws Exception {
++		storeDir = tmp.newFolder("store");
++		synced.put(DesktopLivenessConfig.MODEL_STORE_KEY, storeDir.getAbsolutePath());
++		kp = SignedTestBundles.keyPair();
++		trust = SignedTestBundles.trust(kp);
++	}
++
++	private DesktopLivenessService service() throws Exception {
++		return new DesktopLivenessService(new DesktopLivenessConfig(() -> synced, DesktopLivenessConfig.loadDefaults()),
++				audit, null, null)
++						.withModels(SignedTestBundles.source(SignedTestBundles.bundle(BUNDLED, kp, SignedTestBundles.realModels())),
++								trust)
++						.withUser(() -> roles, () -> "sup-17");
++	}
++
++	/** A zip as ModelBundleTool pack writes it. */
++	private File zip(String version) throws Exception {
++		ByteArrayOutputStream out = new ByteArrayOutputStream();
++		ModelUpdater.writeZip(VerifiedBundle.load(
++				SignedTestBundles.source(SignedTestBundles.bundle(version, kp, SignedTestBundles.realModels())), trust), out);
++		File f = tmp.newFile(version + ".zip");
++		Files.write(f.toPath(), out.toByteArray());
++		return f;
++	}
++
++	/** A zip with exactly these entries, in this order. */
++	private File rawZip(String name, Object... nameThenBytes) throws Exception {
++		File f = tmp.newFile(name);
++		try (ZipOutputStream z = new ZipOutputStream(Files.newOutputStream(f.toPath()))) {
++			for (int i = 0; i < nameThenBytes.length; i += 2) {
++				z.putNextEntry(new ZipEntry((String) nameThenBytes[i]));
++				z.write((byte[]) nameThenBytes[i + 1]);
++				z.closeEntry();
++			}
++		}
++		return f;
++	}
++
++	private void assertStoreUntouched() throws Exception {
++		ModelStore store = new ModelStore(storeDir);
++		assertNull(store.currentVersion());
++		assertTrue(store.installedVersions().isEmpty());
++	}
++
++	@Test(timeout = 180_000)
++	public void aSupervisorInstallsANewerZipAndNewSessionsUseIt() throws Exception {
++		DesktopLivenessService s = service();
++		assertTrue(s.preload());
++		audit.await(AuditEvent.LIVENESS_MODEL_LOADED, "modelVersion=" + BUNDLED);
++		assertTrue(s.isOfflineModelInstallAllowed());
++		assertEquals(BUNDLED, s.activeModelVersion());
++		File zip = zip(NEWER);
++
++		ModelBundleResult r = s.installOfflineBundle(zip);
++
++		assertEquals(ModelBundleOutcome.INSTALLED, r.outcome());
++		assertEquals(BUNDLED, r.fromVersion());
++		assertEquals(NEWER, r.toVersion());
++		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "trigger=offline");
++		assertTrue(a, a.contains("outcome=INSTALLED") && a.contains("fromVersion=" + BUNDLED)
++				&& a.contains("toVersion=" + NEWER) && a.contains("userId=sup-17"));
++		assertFalse("no paths in the audit", a.contains(zip.getName()) || a.contains(tmp.getRoot().getName()));
++		audit.await(AuditEvent.LIVENESS_MODEL_LOADED, "modelVersion=" + NEWER);
++		assertEquals(Arrays.asList(BUNDLED, NEWER), new ModelStore(storeDir).installedVersions());
++		assertEquals(NEWER, s.activeModelVersion());
++		assertTrue("the operator's file is left alone", zip.exists());
++	}
++
++	@Test(timeout = 120_000)
++	public void aTamperedOrUnsignedZipIsRefusedAndTheStoreIsUnchanged() throws Exception {
++		DesktopLivenessService s = service();
++		Map<String, byte[]> f = SignedTestBundles.bundle(NEWER, kp, SignedTestBundles.realModels());
++		Object[] layout = new Object[(2 + ModelRole.values().length) * 2];
++		int i = 0;
++		layout[i++] = VerifiedBundle.MANIFEST;
++		layout[i++] = f.get(VerifiedBundle.MANIFEST);
++		layout[i++] = VerifiedBundle.SIGNATURE;
++		layout[i++] = f.get(VerifiedBundle.SIGNATURE);
++		for (ModelRole role : ModelRole.values()) {
++			byte[] b = f.get(role.fileName());
++			if (role == ModelRole.DETECTOR) {
++				b = b.clone();
++				b[b.length / 2] ^= 1;
++			}
++			layout[i++] = role.fileName();
++			layout[i++] = b;
++		}
++
++		ModelBundleResult tampered = s.installOfflineBundle(rawZip("tampered.zip", layout));
++		assertEquals(ModelBundleOutcome.INVALID, tampered.outcome());
++		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "trigger=offline");
++		assertTrue(a, a.contains("outcome=FAILED") && a.contains("errorCode=MODEL_INTEGRITY_FAILED")
++				&& a.contains("reason=BUNDLE_INVALID"));
++		ModelBundleResult unsigned = s.installOfflineBundle(
++				rawZip("unsigned.zip", VerifiedBundle.MANIFEST, f.get(VerifiedBundle.MANIFEST)));
++		assertEquals(ModelBundleOutcome.INVALID, unsigned.outcome());
++		assertStoreUntouched();
++	}
++
++	@Test(timeout = 120_000)
++	public void aSameOrOlderZipIsRefused() throws Exception {
++		DesktopLivenessService s = service();
++		assertEquals(ModelBundleOutcome.NOT_NEWER, s.installOfflineBundle(zip(BUNDLED)).outcome());
++		assertEquals(ModelBundleOutcome.NOT_NEWER, s.installOfflineBundle(zip("pad-2026.09.1")).outcome());
++		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "reason=NOT_NEWER");
++		assertTrue(a, a.contains("outcome=UP_TO_DATE") && a.contains("trigger=offline"));
++		assertStoreUntouched();
++	}
++
++	@Test(timeout = 60_000)
++	public void aZipSlipEntryIsRefusedAndNothingIsWrittenOutside() throws Exception {
++		DesktopLivenessService s = service();
++		Map<String, byte[]> f = SignedTestBundles.bundle(NEWER, kp, SignedTestBundles.realModels());
++		ModelBundleResult r = s.installOfflineBundle(rawZip("slip.zip", VerifiedBundle.MANIFEST,
++				f.get(VerifiedBundle.MANIFEST), "../evil.onnx", new byte[] {6}));
++		assertEquals(ModelBundleOutcome.INVALID, r.outcome());
++		assertFalse(new File(storeDir.getParentFile(), "evil.onnx").exists());
++		assertFalse(new File(storeDir, "evil.onnx").exists());
++		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "reason=ZIP_ENTRY_REFUSED");
++		assertTrue(a, a.contains("errorCode=MODEL_INTEGRITY_FAILED"));
++		assertStoreUntouched();
++	}
++
++	@Test(timeout = 180_000)
++	public void aRollbackReturnsToTheBundledModelsAndThenHasNothingEarlier() throws Exception {
++		DesktopLivenessService s = service();
++		assertEquals(ModelBundleOutcome.NOTHING_TO_ROLL_BACK, s.rollbackModelBundle().outcome());
++		assertEquals(ModelBundleOutcome.INSTALLED, s.installOfflineBundle(zip(NEWER)).outcome());
++
++		ModelBundleResult r = s.rollbackModelBundle();
++
++		assertEquals(ModelBundleOutcome.ROLLED_BACK, r.outcome());
++		assertEquals(NEWER, r.fromVersion());
++		assertEquals(BUNDLED, r.toVersion());
++		assertEquals(BUNDLED, s.activeModelVersion());
++		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "outcome=ROLLED_BACK");
++		assertTrue(a, a.contains("trigger=rollback") && a.contains("fromVersion=" + NEWER)
++				&& a.contains("toVersion=" + BUNDLED) && a.contains("userId=sup-17"));
++		assertEquals(ModelBundleOutcome.NOTHING_TO_ROLL_BACK, s.rollbackModelBundle().outcome());
++	}
++
++	@Test(timeout = 60_000)
++	public void onlySupervisorsAndAdminsMayActAndTheConfigCanHideIt() throws Exception {
++		DesktopLivenessService s = service();
++		assertTrue(s.isOfflineModelInstallAllowed());
++		roles = Collections.singletonList(AuthenticationAdvice.ADMIN_ROLE);
++		assertTrue(s.isOfflineModelInstallAllowed());
++		roles = Arrays.asList(AuthenticationAdvice.OFFICER_ROLE, AuthenticationAdvice.DEFAULT_ROLE);
++		assertFalse(s.isOfflineModelInstallAllowed());
++
++		File zip = zip(NEWER);
++		assertEquals(ModelBundleOutcome.NOT_ALLOWED, s.installOfflineBundle(zip).outcome());
++		assertEquals(ModelBundleOutcome.NOT_ALLOWED, s.rollbackModelBundle().outcome());
++		String a = audit.await(AuditEvent.LIVENESS_MODEL_UPDATE, "reason=NOT_ALLOWED");
++		assertTrue(a, a.contains("outcome=REFUSED") && a.contains("userId=sup-17"));
++		assertStoreUntouched();
++
++		roles = Collections.singletonList(AuthenticationAdvice.SUPERVISOR_ROLE);
++		synced.put(DesktopLivenessConfig.MODEL_OFFLINE_INSTALL_ENABLED_KEY, "false");
++		assertFalse("off in the synced config: hidden and refused", s.isOfflineModelInstallAllowed());
++		assertEquals(ModelBundleOutcome.NOT_ALLOWED, s.installOfflineBundle(zip).outcome());
++		assertStoreUntouched();
 +	}
 +}
 diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/FaceBindingTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/FaceBindingTest.java
