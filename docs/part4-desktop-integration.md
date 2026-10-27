@@ -742,6 +742,9 @@ onboarded face:
   a face device must therefore be connected for every operator login while operator liveness is enabled; set the key
   to false (or `operator.enabled=false`) where that is not wanted. OTP-only, fingerprint and iris logins are not gated.
 - The operator cooldown is in memory (Part 3, proposal P1).
+- The F15 identity threshold (`binding.identity.threshold`), like the `analyzer.*` settings, is read when the
+  models are built: at start, and after a model install, update or rollback. A config sync reloads only the policies,
+  so a new threshold from a sync applies after a restart.
 - An F15 rejection after the retry is one failed login (section 2.5). On a clean count it locks the account only if
   `mosip.registration.invalid_login_count` is 1. After earlier wrong passwords it can be the failure that reaches the
   limit, because a correct password does not reset the count.
