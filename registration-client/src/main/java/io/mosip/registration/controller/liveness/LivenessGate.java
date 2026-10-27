@@ -153,7 +153,7 @@ public class LivenessGate {
 			Consumer<Outcome> done) {
 		run(workflow, owner, outcome -> {
 			if (!outcome.proceed()) {
-				done.accept(outcome);
+				done.accept(livenessEnded(outcome, attempt));
 				return;
 			}
 			// Loading, decoding and matching take a few hundred ms: off the JavaFX thread.
@@ -161,7 +161,7 @@ public class LivenessGate {
 				IdentityBinding.Verdict v = null;
 				try {
 					v = livenessService.identity().verify(workflow, userId, IdentityBinding.GATE_PASSWORD_LOGIN, attempt);
-				} catch (RuntimeException e) {
+				} catch (Throwable e) { // an Error too: the login must end refused, not wait for ever
 					LOGGER.error("Identity binding could not run for {}: {}", workflow, e.getClass().getSimpleName());
 				}
 				final IdentityStep step = v == null ? (attempt < IDENTITY_ATTEMPTS ? IdentityStep.RETRY
@@ -172,6 +172,15 @@ public class LivenessGate {
 			worker.setDaemon(true);
 			worker.start();
 		});
+	}
+
+	/**
+	 * The outcome when a liveness session of the identity step does not pass. The retry session follows a rejection,
+	 * so however it ends (Cancel, the window's X, a failure), the login is {@link Outcome#IDENTITY_NOT_VERIFIED} and
+	 * counts as a failed login: cancelling the retry must not hide the rejection.
+	 */
+	static Outcome livenessEnded(Outcome liveness, int attempt) {
+		return attempt > 1 ? Outcome.IDENTITY_NOT_VERIFIED : liveness;
 	}
 
 	/** The step after an identity check: one retry, and only when a new liveness session can change the result. */

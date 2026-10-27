@@ -3,6 +3,7 @@ package io.mosip.registration.liveness.desktop;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -192,6 +193,13 @@ public class IdentityBindingTest {
 		assertTrue(off.accepted());
 		assertTrue(audit.last().description.contains("outcome=SKIPPED"));
 		assertTrue("no template read", loadedFor.isEmpty());
+
+		// A malformed value is not "off": F15 still checks the face.
+		synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, "yes");
+		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
+		IdentityBinding.Verdict typo = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
+		assertNotEquals(IdentityBinding.Verdict.Kind.DISABLED, typo.kind);
+		assertEquals("the onboarded faces were read", Arrays.asList("op1"), loadedFor);
 	}
 
 	@Test

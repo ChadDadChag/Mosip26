@@ -240,7 +240,8 @@ public class IdentityBinding {
 			return new Verdict(Verdict.Kind.LIVENESS_DISABLED, "LIVENESS_DISABLED", Double.NaN);
 		}
 		Map<String, String> d = details(userId, gate, attempt);
-		if (!config.getBoolean(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, true)) {
+		// Only an explicit "false" switches F15 off: a typo ("yes", "1", "on") must not.
+		if ("false".equalsIgnoreCase(config.get(DesktopLivenessConfig.IDENTITY_ENABLED_KEY))) {
 			return finish(workflow, sessionId, new Verdict(Verdict.Kind.DISABLED, "SKIPPED", Double.NaN), d);
 		}
 		if (problem != null) {

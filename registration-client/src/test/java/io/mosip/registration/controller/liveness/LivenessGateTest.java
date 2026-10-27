@@ -41,6 +41,13 @@ public class LivenessGateTest {
 		assertEquals("no readable onboarded face while one is required: a retry cannot help",
 				LivenessGate.IdentityStep.NOT_VERIFIED, LivenessGate.identityStep(false, false, 1));
 		assertFalse(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED.proceed());
+		// The retry session follows a rejection: cancelling or failing it still counts as a failed login.
+		assertEquals(LivenessGate.Outcome.CANCELLED, LivenessGate.livenessEnded(LivenessGate.Outcome.CANCELLED, 1));
+		assertEquals(LivenessGate.Outcome.BLOCKED, LivenessGate.livenessEnded(LivenessGate.Outcome.BLOCKED, 1));
+		assertEquals(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED,
+				LivenessGate.livenessEnded(LivenessGate.Outcome.CANCELLED, 2));
+		assertEquals(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED,
+				LivenessGate.livenessEnded(LivenessGate.Outcome.BLOCKED, 2));
 		assertEquals("liveness.error.identity_not_verified", LivenessGate.IDENTITY_NOT_VERIFIED_KEY);
 		assertTrue(LivenessMessages.ENGLISH.containsKey(LivenessGate.IDENTITY_NOT_VERIFIED_KEY));
 	}
