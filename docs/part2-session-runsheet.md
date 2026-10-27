@@ -158,6 +158,7 @@ passed.
 
 27. Read the consent text (`docs/part2-dataset-protocol.md`, section 2) to the teammate. Go on only if they agree.
     Each one gets the next free code: s02, s03, and so on. Never their name.
+    Claude asks: is this teammate in `test images`? If yes, which pXX?
 28. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s02 -Only bona_fide`. The teammate sits in front of the
     laptop and follows the "YOUR FACE:" prompts:
     - normal ×3;
@@ -179,7 +180,9 @@ passed.
 - `SlideshowSegmenter` cuts the slideshow and cut-out recordings into takes: `screen_photo_multi` and `print_multi`,
   one subject per photographed person.
 - `PadEvaluation`: prints and the many-identity attacks are now evaluated.
-- `BindingEvaluation`, with the new subjects and `--labelled "test images\labels.csv" --labels-confirmed`.
+- `BindingEvaluation`, with the new subjects and `--labelled "test images\labels.csv" --labels-confirmed`, plus
+  `--identity --subject-map s02=pXX,...` (the codes from step 27) for the F15 threshold rule
+  (`docs/part2-pad-architecture.md` section 12.1). Take normal#1 is each teammate's enrollment.
 - The multi-face result per case, from the session log: outcome, time to the first failure and codes. Aggregates only.
 - The F16 commit.
 - The banding result.

@@ -476,6 +476,29 @@ The best frame is dropped after the comparison, when a new session starts, when 
 (unless an armed SBI capture is under way: the SBI app itself pauses the client) and after 5 minutes. An armed capture
 whose best frame was dropped meanwhile fails closed.
 
+### Identity binding (F15): the person who passed must be the user
+
+Some gates have no face capture after them: the operator's password login (both clients), and on Android also the
+operator's packet authentication and the supervisor's approval with a password. After such a gate PASSED, the
+session's best frame is compared with the user's face onboarded on the device (`user_biometric`, Face rows).
+Part 2's `FaceMatcher.identify` does the comparison: the best of several templates, threshold
+`mosip.registration.liveness.face.binding.identity.threshold` (0.40, provisional).
+
+| Result | Screen |
+|---|---|
+| MATCH | The flow goes on. |
+| Not the user's face, no live face, or an error | `liveness.error.identity_not_verified` in a dialog with **Retry** and **Cancel**. Retry runs one new liveness session. |
+| The same after the retry, or Cancel | The step is refused with `liveness.error.identity_not_verified`. Login: logged out, back to the login page; on Desktop it counts as a failed login. Packet authentication and approval: nothing is submitted or approved. |
+| No onboarded face, or none decodes to one face | The flow goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the step is refused at once. |
+| Liveness disabled for the workflow | The legacy flow, unchanged. |
+
+The text is generic: it never shows a score, a threshold or a reason. Audit: Desktop `REG-LIV-013`, Android
+`REG-EVT-020` (outcome, similarity rounded to 2 decimals, threshold, gate, attempt, user id, template counts).
+
+- **Desktop:** `LivenessGate.runWithIdentity` from `LoginController.loadNextScreen`.
+- **Android:** `IdentityBinding.run` (`lib/ui/liveness/identity_binding.dart`) from `login_page.dart`,
+  `generic_process.dart` and `authenticate_dialogbox.dart`, through Pigeon `verifyIdentity`.
+
 ## 7. Accessibility
 
 - **Screen readers.** Announce every status-line change: the prompt, the result and the failure text. Use

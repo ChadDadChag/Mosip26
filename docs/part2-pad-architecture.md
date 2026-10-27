@@ -541,6 +541,76 @@ aggregates only).
   `part2-findings-for-other-parts.md`.
 - **Android:** built in fix round 2; see `docs/ui-liveness-spec.md` section 6, "Face binding (F1)".
 
+### 12.1 Identity binding (F15)
+
+**Why.** Three gates have no face capture: the operator's password login, the operator's packet authentication with
+a password (Android), and the supervisor's approval with a password (Android). F1 has nothing to bind there, so
+liveness proves only that some live person is present. F15 compares that person with the user's onboarded face.
+
+It is a **second factor after the password**. A false match lets in someone who has the user's password AND a face
+similar enough. So the FMR below is a "password stolen and face similar" rate, not an open-door rate.
+
+**Engine.** `FaceMatcher.identify(live, templates)`:
+- the same YuNet detection and SFace alignment as `compare`, on both sides;
+- the best similarity over the readable templates decides: MATCH at or above
+  `mosip.registration.liveness.face.binding.identity.threshold` (`AnalyzerConfig.identityCosineThreshold`, default
+  **0.40**, provisional), else NO_MATCH;
+- a null template (undecodable), or one without exactly one face, is unreadable;
+- no template gives NOT_BOUND_NO_TEMPLATE, only unreadable ones NOT_BOUND_UNREADABLE (the host decides what those
+  mean), and a live image without exactly one face gives NO_LIVE_FACE;
+- `IdentityResult` holds the outcome, the similarity, the threshold and the counts. The features exist only during
+  the call.
+
+F1's `cosineThreshold` (0.45) is unchanged.
+
+**The threshold rule**, fixed on 2026-10-27, before the F9 teammate data:
+- From 0.36 to 0.50 in steps of 0.02, take the value with the lowest labelled-impostor FMR whose FNMR on the
+  onboarding-like pairs is at most 5%. Ties go to the lower value.
+- If no value qualifies, 0.40 stays, the FNMR is documented, and older templates should be re-onboarded.
+- One command builds the sets, the rule and the full table (aggregates only, into `eval-data/`):
+
+      BindingEvaluation --labelled "test images/labels.csv" --labels-confirmed --identity [--subject-map s02=p05,...]
+
+The pairs:
+- **Enrollment:** each recorded subject's first "normal" bona fide take (the run sheet's take normal#1).
+- **Same day:** the enrollment against the subject's other takes.
+- **Onboarding-like:** a labelled person's photos (other days, other cameras) against the same person's live takes.
+  The subject map says which pXX an sNN is, as codes only; a person_id equal to the subject code (s01) needs no entry.
+- **Labelled impostors:** labelled photos of different people, and labelled photos against other people's live takes.
+- **Enrollment impostors:** one subject's enrollment against the other subjects' takes.
+- **Context only:** labelled photos of the same person, pairwise. Both sides are photos, which makes it the hardest
+  genuine case.
+
+**Tonight's run** (2026-10-27; s01 only; 15 labelled people, 42 photos; provisional):
+
+| threshold | FNMR onboarding-like (11) | FNMR same day (10) | FMR labelled impostors (1,250) | context: FNMR photo vs photo (62) |
+|---|---|---|---|---|
+| 0.36 | 0 | 0 | 46 (3.7%) | 4 (6.5%) |
+| 0.38 | 0 | 0 | 36 (2.9%) | 6 (9.7%) |
+| 0.40 | 0 | 0 | 23 (1.8%) | 6 (9.7%) |
+| 0.42 | 0 | 0 | 13 (1.0%) | 11 (17.7%) |
+| 0.44 | 0 | 0 | 7 (0.6%) | 15 (24.2%) |
+| 0.46 | 0 | 0 | 5 (0.4%) | 17 (27.4%) |
+| 0.48 | 0 | 0 | 5 (0.4%) | 20 (32.3%) |
+| 0.50 | 0 | 0 | 2 (0.2%) | 24 (38.7%) |
+
+There are no enrollment impostors yet: s01 is the only recorded subject.
+
+How to read it:
+- Applied mechanically, the rule picks 0.50. Its onboarding-like set, though, is one person and 11 pairs: one more
+  false non-match moves that FNMR by 9.1 points.
+- The photo-against-photo pairs lose 38.7% at 0.50. An onboarding photo taken months earlier on another camera is
+  closer to that case than to a same-session take.
+- **The default stays 0.40** until the rule runs on the F9 pairs (the teammates' takes, mapped to their labelled
+  photos).
+
+**Hosts.**
+- Desktop: `IdentityBinding` after the password login's gate; see [part4-desktop-integration.md](part4-desktop-integration.md)
+  section 2.5.
+- Android: the three gates above; see [part5-android-integration.md](part5-android-integration.md).
+- On both, the templates are the onboarded Face rows of `user_biometric`, decoded as F1 decodes a capture. A user
+  without a readable template gets in on presence alone (audited) unless `requireTemplate=true`.
+
 ## 13. Known limitations
 
 | Limitation | Effect | What would fix it |
