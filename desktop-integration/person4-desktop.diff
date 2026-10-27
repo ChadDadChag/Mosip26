@@ -80,7 +80,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,753 @@
+@@ -0,0 +1,755 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -255,7 +255,7 @@ new file mode 100644
 +|---|---|
 +| MATCH | The login goes on. |
 +| NO_MATCH, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_ARMED, EXPIRED, ERROR | The client shows "Face verification could not be completed for this user. Please try again." with Retry and Cancel. Retry runs one new liveness session. No score is shown. |
-+| The same after the retry, or Cancel | `IDENTITY_NOT_VERIFIED`: the user is logged out, the login page is shown, and the client counts one failed login (below). |
++| The same after the retry, Cancel, or a retry session that does not pass (cancelled, closed, failed) | `IDENTITY_NOT_VERIFIED`: the user is logged out, the login page is shown, and the client counts one failed login (below). |
 +| NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE | No onboarded face on this machine, or none decodes to one face. The login goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the login is refused at once, because a retry cannot help. |
 +| Liveness off for OPERATOR, or `binding.identity.enabled=false` | The login goes on as before. The second case is audited `SKIPPED`. |
 +
@@ -572,9 +572,11 @@ new file mode 100644
 +**Face binding and analyzer**: `binding.enabled` (true), `binding.cosineThreshold` (0.45), and Part 2's optional
 +`analyzer.*` keys ([part2-pad-architecture.md](part2-pad-architecture.md)).
 +
-+**Identity binding (F15, section 2.5)**: `binding.identity.enabled` (true), `binding.identity.threshold` (0.40,
-+provisional), `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence
-+alone, audited).
++**Identity binding (F15, section 2.5)**:
++- `binding.identity.enabled` (true; only an explicit `false` switches it off);
++- `binding.identity.threshold` (0.40, provisional; valid from 0.30 to 1.0);
++- `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence alone,
++  audited).
 +
 +**Desktop** (`mosip.registration.liveness.face.desktop.*`):
 +
@@ -1044,7 +1046,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +|---|---|
 +| MATCH | The flow goes on. |
 +| Not the user's face, no live face, or an error | `liveness.error.identity_not_verified` in a dialog with **Retry** and **Cancel**. Retry runs one new liveness session. |
-+| The same after the retry, or Cancel | The step is refused with `liveness.error.identity_not_verified`. Login: logged out, back to the login page; on Desktop it counts as a failed login. Packet authentication and approval: nothing is submitted or approved. |
++| The same after the retry, Cancel, or a retry session that does not pass | The step is refused with `liveness.error.identity_not_verified`. Login: logged out, back to the login page; it counts as one failed login (Desktop at the end, Android at the first rejection), so cancelling the retry cannot hide it. Packet authentication and approval: nothing is submitted or approved. |
 +| No onboarded face, or none decodes to one face | The flow goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the step is refused at once. |
 +| Liveness disabled for the workflow | The legacy flow, unchanged. |
 +
@@ -1827,7 +1829,7 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessGate.java
-@@ -0,0 +1,363 @@
+@@ -0,0 +1,372 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.util.Collection;
@@ -1983,7 +1985,7 @@ new file mode 100644
 +			Consumer<Outcome> done) {
 +		run(workflow, owner, outcome -> {
 +			if (!outcome.proceed()) {
-+				done.accept(outcome);
++				done.accept(livenessEnded(outcome, attempt));
 +				return;
 +			}
 +			// Loading, decoding and matching take a few hundred ms: off the JavaFX thread.
@@ -1991,7 +1993,7 @@ new file mode 100644
 +				IdentityBinding.Verdict v = null;
 +				try {
 +					v = livenessService.identity().verify(workflow, userId, IdentityBinding.GATE_PASSWORD_LOGIN, attempt);
-+				} catch (RuntimeException e) {
++				} catch (Throwable e) { // an Error too: the login must end refused, not wait for ever
 +					LOGGER.error("Identity binding could not run for {}: {}", workflow, e.getClass().getSimpleName());
 +				}
 +				final IdentityStep step = v == null ? (attempt < IDENTITY_ATTEMPTS ? IdentityStep.RETRY
@@ -2002,6 +2004,15 @@ new file mode 100644
 +			worker.setDaemon(true);
 +			worker.start();
 +		});
++	}
++
++	/**
++	 * The outcome when a liveness session of the identity step does not pass. The retry session follows a rejection,
++	 * so however it ends (Cancel, the window's X, a failure), the login is {@link Outcome#IDENTITY_NOT_VERIFIED} and
++	 * counts as a failed login: cancelling the retry must not hide the rejection.
++	 */
++	static Outcome livenessEnded(Outcome liveness, int attempt) {
++		return attempt > 1 ? Outcome.IDENTITY_NOT_VERIFIED : liveness;
 +	}
 +
 +	/** The step after an identity check: one retry, and only when a new liveness session can change the result. */
@@ -3747,7 +3758,7 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,54 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import static org.junit.Assert.assertEquals;
@@ -3791,6 +3802,13 @@ new file mode 100644
 +		assertEquals("no readable onboarded face while one is required: a retry cannot help",
 +				LivenessGate.IdentityStep.NOT_VERIFIED, LivenessGate.identityStep(false, false, 1));
 +		assertFalse(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED.proceed());
++		// The retry session follows a rejection: cancelling or failing it still counts as a failed login.
++		assertEquals(LivenessGate.Outcome.CANCELLED, LivenessGate.livenessEnded(LivenessGate.Outcome.CANCELLED, 1));
++		assertEquals(LivenessGate.Outcome.BLOCKED, LivenessGate.livenessEnded(LivenessGate.Outcome.BLOCKED, 1));
++		assertEquals(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED,
++				LivenessGate.livenessEnded(LivenessGate.Outcome.CANCELLED, 2));
++		assertEquals(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED,
++				LivenessGate.livenessEnded(LivenessGate.Outcome.BLOCKED, 2));
 +		assertEquals("liveness.error.identity_not_verified", LivenessGate.IDENTITY_NOT_VERIFIED_KEY);
 +		assertTrue(LivenessMessages.ENGLISH.containsKey(LivenessGate.IDENTITY_NOT_VERIFIED_KEY));
 +	}
@@ -6320,7 +6338,7 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/IdentityBinding.java
-@@ -0,0 +1,306 @@
+@@ -0,0 +1,307 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.time.ZoneOffset;
@@ -6563,7 +6581,8 @@ new file mode 100644
 +			return new Verdict(Verdict.Kind.LIVENESS_DISABLED, "LIVENESS_DISABLED", Double.NaN);
 +		}
 +		Map<String, String> d = details(userId, gate, attempt);
-+		if (!config.getBoolean(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, true)) {
++		// Only an explicit "false" switches F15 off: a typo ("yes", "1", "on") must not.
++		if ("false".equalsIgnoreCase(config.get(DesktopLivenessConfig.IDENTITY_ENABLED_KEY))) {
 +			return finish(workflow, sessionId, new Verdict(Verdict.Kind.DISABLED, "SKIPPED", Double.NaN), d);
 +		}
 +		if (problem != null) {
@@ -8056,12 +8075,13 @@ diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/IdentityBindingTest.java
-@@ -0,0 +1,261 @@
+@@ -0,0 +1,269 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import static org.junit.Assert.assertArrayEquals;
 +import static org.junit.Assert.assertEquals;
 +import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNotEquals;
 +import static org.junit.Assert.assertNull;
 +import static org.junit.Assert.assertTrue;
 +
@@ -8251,6 +8271,13 @@ new file mode 100644
 +		assertTrue(off.accepted());
 +		assertTrue(audit.last().description.contains("outcome=SKIPPED"));
 +		assertTrue("no template read", loadedFor.isEmpty());
++
++		// A malformed value is not "off": F15 still checks the face.
++		synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, "yes");
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		IdentityBinding.Verdict typo = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertNotEquals(IdentityBinding.Verdict.Kind.DISABLED, typo.kind);
++		assertEquals("the onboarded faces were read", Arrays.asList("op1"), loadedFor);
 +	}
 +
 +	@Test
