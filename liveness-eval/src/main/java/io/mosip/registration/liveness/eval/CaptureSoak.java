@@ -18,11 +18,13 @@ import java.util.concurrent.atomic.AtomicReference;
  * F13 capture soak test (development only): continuous webcam capture plus the real analyzer for a fixed time, to
  * compare the capture backends (sarxos ended long sessions with a native exit, code 116).
  * <pre>
- *   CaptureSoak [--capture opencv|sarxos] [--minutes 30] [--fps 15] [--camera 0]
+ *   CaptureSoak [--capture opencv|sarxos] [--minutes 30] [--fps 15] [--camera 0] [--cycle-seconds N]
  * </pre>
  * The newest frame is analysed whenever the analyzer is free (older ones are dropped, as in the demo). Frames stay in
  * memory and are never written; the camera may see the room. One line per minute and a summary, numbers only:
- * frames captured and analysed, both rates, grab errors, heap used and the process's committed memory.
+ * frames captured and analysed, both rates, grab errors, heap used and the process's committed memory. With
+ * {@code --cycle-seconds N} the camera is stopped and started again every N seconds, as SessionDemo does for every
+ * session.
  */
 final class CaptureSoak {
 
@@ -34,6 +36,7 @@ final class CaptureSoak {
         double minutes = Double.parseDouble(a.has("--minutes") ? a.single("--minutes") : "30");
         double fps = Double.parseDouble(a.has("--fps") ? a.single("--fps") : "15");
         int camera = Integer.parseInt(a.has("--camera") ? a.single("--camera") : "0");
+        long cycleMs = Math.round(1000 * Double.parseDouble(a.has("--cycle-seconds") ? a.single("--cycle-seconds") : "0"));
 
         OnnxFaceAnalyzerFactory factory = new OnnxFaceAnalyzerFactory(new ClasspathBundleSource(), AnalyzerConfig.defaults());
         factory.preload();
@@ -45,10 +48,11 @@ final class CaptureSoak {
         long analysed = 0, faces = 0, analysisNs = 0, lastCaptured = 0, lastAnalysed = 0, lastT = t0;
         long nextReport = t0 + 60_000, maxCommitted = 0, maxHeap = 0;
         String device = "?";
+        long nextCycle = cycleMs > 0 ? t0 + cycleMs : Long.MAX_VALUE, cycles = 0;
         System.out.printf(Locale.ROOT, "soak: capture %s, camera %d, %.0f fps, %.1f min; frames are never written%n",
                 backend, camera, fps, minutes);
         try (FaceAnalyzer analyzer = factory.create()) {
-            source.start(new FrameSource.Listener() {
+            FrameSource.Listener listener = new FrameSource.Listener() {
                 @Override public void onFrame(Frame f) {
                     captured.incrementAndGet();
                     latest.set(f);
@@ -58,7 +62,8 @@ final class CaptureSoak {
                     errors.incrementAndGet();
                     if (!recoverable) fatal.set(code + " " + detail);
                 }
-            });
+            };
+            source.start(listener);
             while (System.currentTimeMillis() < end && fatal.get() == null) {
                 Frame f = latest.getAndSet(null);
                 if (f == null) {
@@ -71,6 +76,12 @@ final class CaptureSoak {
                     if ("?".equals(device)) device = source.info().model;
                 }
                 long now = System.currentTimeMillis();
+                if (now >= nextCycle) {
+                    source.stop();
+                    source.start(listener);
+                    cycles++;
+                    nextCycle = now + cycleMs;
+                }
                 if (now >= nextReport) {
                     long committed = committedBytes(), heap = heapBytes();
                     maxCommitted = Math.max(maxCommitted, committed);
@@ -92,9 +103,9 @@ final class CaptureSoak {
         }
         double secs = (System.currentTimeMillis() - t0) / 1000.0;
         System.out.printf(Locale.ROOT, "soak %s: device %s; %.1f min; captured %d (%.1f fps); analysed %d (%.1f fps, %.1f ms"
-                + " mean); frames with a face %d; grab errors %d; fatal %s; max heap %d MB; max committed %d MB%n",
+                + " mean); frames with a face %d; camera restarts %d; grab errors %d; fatal %s; max heap %d MB; max committed %d MB%n",
                 fatal.get() == null ? "COMPLETED" : "STOPPED", device, secs / 60, captured.get(), captured.get() / secs,
-                analysed, analysed / secs, analysed == 0 ? 0 : analysisNs / 1e6 / analysed, faces, errors.get(),
+                analysed, analysed / secs, analysed == 0 ? 0 : analysisNs / 1e6 / analysed, faces, cycles, errors.get(),
                 fatal.get() == null ? "none" : fatal.get(), maxHeap >> 20, maxCommitted >> 20);
         System.exit(fatal.get() == null ? 0 : 1);
     }

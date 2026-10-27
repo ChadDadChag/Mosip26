@@ -155,7 +155,13 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
 - **Starting a block:** `scripts\dataset-session.ps1 -Consent -Subject s01 -Only <block>` runs the session with this
   repository's build. Without `-Consent` it refuses.
 - **Camera backend:** both launchers take `-Capture opencv|sarxos`. The default is OpenCV; if OpenCV cannot open the
-  camera, the tools fall back to sarxos and say so. F13: sarxos ended long series with a native exit (code 116).
+  camera, the tools fall back to sarxos and say so.
+  - F13: sarxos ended long series with a native exit (code 116).
+  - `CaptureSoak` (capture plus the analyzer, frames never written) traced it to the camera being stopped and
+    started for every session.
+  - With a restart every 10 s, sarxos died with a native heap corruption (0xC0000374) after about 25 restarts.
+    OpenCV ran 89 restarts without an error.
+  - Continuous capture for 30 min ran clean on both backends: sarxos at 14.9 fps, OpenCV at 14.8 fps.
 - **Many identities: a labelled photo folder.** Photos of people the participant knows, used with their consent,
   kept in an untracked folder that is also listed in `.git/info/exclude`. Nothing from it is ever committed: not
   the photos, not the recordings, not the print sheets, not the contact sheets, not `labels.csv`.
