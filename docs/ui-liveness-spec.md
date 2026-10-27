@@ -171,7 +171,7 @@ The sizes, colours and type are in §9.
 | `liveness.status.cancelled` | Face liveness check cancelled. | logs only (not shown) |
 | `liveness.progress.step` | Step {i} of {n} | challenges |
 | `liveness.progress.attempt` | Attempt {a} of {m} | every attempt |
-| `liveness.retry.attempts_left` | {n} attempt(s) left | ATTEMPT_FAILED |
+| `liveness.retry.attempts_left` | 1 attempt left / {n} attempts left (a plural) | ATTEMPT_FAILED |
 | `liveness.error.max_attempts_reached` | Face verification could not be completed. | FAILED_FINAL (§10.7) |
 | `liveness.error.device_problem` | Camera/device not available. Check the connection and try again. | DEVICE_ERROR, final device failure |
 | `liveness.error.identity_not_verified` | Face verification could not be completed for this user. Please try again. | F15: liveness passed, but the live face is not the user's onboarded face (outside the liveness screen; section 6) |
@@ -232,7 +232,16 @@ Placeholder mapping:
 |---|---|---|
 | Step {i} of {n} | `Step {0} of {1}` | `Step {i} of {n}` |
 | Attempt {a} of {m} | `Attempt {0} of {1}` | `Attempt {a} of {m}` |
-| {n} attempt(s) left | `{0} attempt(s) left` | `{n} attempt(s) left` |
+| 1 attempt left / {n} attempts left | `{0,choice,0#{0} attempts left\|1#{0} attempt left\|1<{0} attempts left}` | `{n, plural, one{{n} attempt left} other{{n} attempts left}}` |
+
+**Plurals.** "Attempts left" is the one text with a number that changes the words. Desktop writes it as a
+`MessageFormat` choice (`0#`, `1#`, `1<`), Android as an ICU plural (`one`, `other`); in French "one" covers 0 and 1.
+Languages without plural forms in these texts say "attempts left: {n}" (Appendix A).
+
+**Apostrophes.** Write them as they are (French "l'"). `MessageFormat` reads a single `'` as a quote, so the Desktop
+client doubles them before formatting a text with arguments. The model texts (§4.5) are filled literally. An
+apostrophe inside a choice pattern would need more than that, so choice patterns have none. Android's ARB messages keep
+apostrophes literally: `use-escaping` is off in `l10n.yaml`.
 
 **Desktop, `messages_en.properties`** (Person 4):
 
@@ -273,7 +282,7 @@ liveness.tips.face_visible=Ensure your face is clearly visible.
 liveness.tips.lighting=Improve lighting.
 liveness.tips.capture_area=Keep your face within the capture area.
 liveness.tips.follow_prompt=Follow the prompted action.
-liveness.retry.attempts_left={0} attempt(s) left
+liveness.retry.attempts_left={0,choice,0#{0} attempts left|1#{0} attempt left|1<{0} attempts left}
 liveness.progress.step=Step {0} of {1}
 liveness.progress.attempt=Attempt {0} of {1}
 liveness.recovery.resident=Please contact the supervisor. The resident can be registered using the biometric exception process.
@@ -323,7 +332,7 @@ liveness.button.open_settings=Open settings
 "liveness_tips_lighting": "Improve lighting.",
 "liveness_tips_capture_area": "Keep your face within the capture area.",
 "liveness_tips_follow_prompt": "Follow the prompted action.",
-"liveness_retry_attempts_left": "{n} attempt(s) left",
+"liveness_retry_attempts_left": "{n, plural, one{{n} attempt left} other{{n} attempts left}}",
 "@liveness_retry_attempts_left": {"placeholders": {"n": {"type": "int"}}},
 "liveness_progress_step": "Step {i} of {n}",
 "@liveness_progress_step": {"placeholders": {"i": {"type": "int"}, "n": {"type": "int"}}},
@@ -545,10 +554,10 @@ The content is centred and at most 560 dp/px wide. A phone at 360×640 or 412×9
 |---|---|
 | Camera card | 3:4 on the phone, 4:3 on Desktop; radius 16. At most 45% of the screen height; it takes what is left, so it is smaller when the tips need the room. The face oval has a 4 dp stroke in the state colour, with a 40% black scrim outside the oval |
 | State badge | a 28 dp circle in the state colour, with a 1.5 dp white ring and an 18 dp icon. It sits on the oval's top centre, inside the card; the same badge starts the status card |
-| Status card | the badge and one message, centred. 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
+| Status card | the badge and one message, centred as one group: the text is only as wide as its longest line, so a wrapped status keeps the badge next to it (10 dp apart). 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
 | Hint line | 15 sp/px regular, grey-700 (#616161), centred, with the warning icon (#B26A00) beside guidance. While guidance can still arrive (the session runs and has not failed), the line keeps 20 dp even when it is empty |
-| Progress row | During challenges: "Step i of n" at the start, a segmented bar, "Attempt a of m" at the end. Captions are 13 sp/px grey-700, each at most 35% of the row. One segment per challenge, 6 dp high, 4 dp apart, grey #E0E0E0: done steps are filled with the primary colour, the current one is half filled and fills further with the challenge's progress. Otherwise "Attempt a of m" alone, centred, while the session runs. After a failed attempt only "n attempt(s) left" (15 sp/px). No bar outside challenges |
-| Tips | failure only (LIVENESS_NOT_VERIFIED). A light-grey card (#F5F5F5), radius 12, 14 sp/px, bullets. On the phone at most 40% of the content height; beyond that it scrolls |
+| Progress row | During challenges: "Step i of n" at the start, a segmented bar, "Attempt a of m" at the end. Captions are 13 sp/px grey-700, each at most 35% of the row. One segment per challenge, 6 dp high, 4 dp apart, grey #E0E0E0: done steps are filled with the primary colour, the current one is half filled and fills further with the challenge's progress. Otherwise "Attempt a of m" alone, centred, while the session runs. After a failed attempt only the attempts left, e.g. "3 attempts left" (15 sp/px). No bar outside challenges |
+| Tips | failure only (LIVENESS_NOT_VERIFIED). A light-grey card (#F5F5F5), radius 12, 14 sp/px, bullets with a hanging indent: the bullet, 8 dp, then the text, so a wrapped tip continues under its text. On the phone at most 40% of the content height; beyond that it scrolls |
 | Buttons | one row of equal widths (a single button is as wide as one of two), 48 dp/px high, radius 12, 12 apart, 15 sp/px semibold. Retry and Close are filled with the primary colour; Cancel and Open settings are outlined in it. Retry only when a retry exists (§2) |
 
 **Colours.** The same hex on both clients:
@@ -614,8 +623,9 @@ How the translations were made:
 - **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
 - **Liveness** is حيوية الوجه (Arabic), vivacité du visage (French), जीवंतता (Hindi), ಜೀವಂತಿಕೆ (Kannada) and
   உயிர்ப்பு (Tamil).
-- **No plural forms.**
-  - In Arabic, Hindi, Kannada and Tamil, "{n} attempt(s) left" becomes "attempts left: {n}".
+- **Plural forms.** French has them like English: "1 tentative restante" / "{n} tentatives restantes", where "one"
+  covers 0 and 1 (§5).
+  - In Arabic, Hindi, Kannada and Tamil, "attempts left" becomes "attempts left: {n}", with no plural.
   - In Hindi, Kannada and Tamil, "Step {i} of {n}" becomes "Step {i} / {n}".
 
 For the Desktop client (Person 4):
@@ -729,7 +739,7 @@ liveness.tips.face_visible=Assurez-vous que votre visage est bien visible.
 liveness.tips.lighting=Am\u00e9liorez l'\u00e9clairage.
 liveness.tips.capture_area=Gardez votre visage dans la zone de capture.
 liveness.tips.follow_prompt=Effectuez l'action demand\u00e9e.
-liveness.retry.attempts_left={0} tentative(s) restante(s)
+liveness.retry.attempts_left={0,choice,0#{0} tentative restante|1<{0} tentatives restantes}
 liveness.progress.step=\u00c9tape {0} sur {1}
 liveness.progress.attempt=Tentative {0} sur {1}
 liveness.recovery.resident=Veuillez contacter le superviseur. Le r\u00e9sident peut \u00eatre enregistr\u00e9 \u00e0 l'aide de la proc\u00e9dure d'exception biom\u00e9trique.
