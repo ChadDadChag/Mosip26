@@ -492,10 +492,10 @@ index 0000000..fd8a9e5
 +}
 diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
 new file mode 100644
-index 0000000..4ccab07
+index 0000000..4c4361c
 --- /dev/null
 +++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
-@@ -0,0 +1,895 @@
+@@ -0,0 +1,896 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -1158,7 +1158,8 @@ index 0000000..4ccab07
 +        }
 +        holder.bindingWorker().execute(() -> {
 +            String outcome;
-+            FaceBinding.Held held = holder.binding().take(sessionId);
++            // The debug page enrols from an Operator gate (liveness_debug_page.dart); a frame of another workflow is refused.
++            FaceBinding.Held held = holder.binding().take(sessionId, WorkflowType.OPERATOR);
 +            if (held == null) {
 +                outcome = "NO_LIVE_FRAME";
 +            } else {

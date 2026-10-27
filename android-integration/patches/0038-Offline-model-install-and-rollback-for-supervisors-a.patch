@@ -1,7 +1,7 @@
 From c916323d4ea2c9f3c5b4d4c5176432f413d02835 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Tue, 27 Oct 2026 19:03:26 +0530
-Subject: [PATCH 38/50] Offline model install and rollback for supervisors and
+Subject: [PATCH 38/51] Offline model install and rollback for supervisors and
  admins (F17)
 
 A production page, release builds included, that installs a signed
