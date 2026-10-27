@@ -29598,10 +29598,10 @@ index 0000000..790e511
 +}
 diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
 new file mode 100644
-index 0000000..9508ad6
+index 0000000..537f64b
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_page.dart
-@@ -0,0 +1,579 @@
+@@ -0,0 +1,749 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -29619,6 +29619,7 @@ index 0000000..9508ad6
 +import 'package:registration_client/platform_spi/liveness_service.dart';
 +import 'package:registration_client/ui/liveness/liveness_controller.dart';
 +import 'package:registration_client/ui/liveness/liveness_strings.dart';
++import 'package:registration_client/ui/liveness/liveness_style.dart';
 +
 +/// What [LivenessPage] returns with `Navigator.pop`.
 +@immutable
@@ -29869,47 +29870,60 @@ index 0000000..9508ad6
 +              ),
 +          ],
 +        ),
++        backgroundColor: LivenessStyle.background,
++        // docs/ui-liveness-spec.md §9: camera card, status card, progress row, tips (failure
++        // only), and the buttons pinned to the bottom. Only the tips ever scroll.
 +        body: SafeArea(
-+          child: LayoutBuilder(builder: (context, constraints) {
-+            final previewWidth = math.min(constraints.maxWidth * 0.72, 420.0);
-+            return SingleChildScrollView(
-+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
++          child: Align(
++            alignment: Alignment.topCenter,
++            child: ConstrainedBox(
++              constraints: const BoxConstraints(maxWidth: LivenessStyle.maxContentWidth),
 +              child: Column(
-+                crossAxisAlignment: CrossAxisAlignment.stretch,
 +                children: [
-+                  Center(
-+                    child: SizedBox(
-+                      width: previewWidth,
-+                      child: AspectRatio(aspectRatio: 3 / 4, child: _preview(s, tone)),
++                  Expanded(
++                    child: Padding(
++                      padding: const EdgeInsets.fromLTRB(LivenessStyle.gutter, 12, LivenessStyle.gutter, 0),
++                      child: _content(l, s, tone),
 +                    ),
 +                  ),
-+                  const SizedBox(height: 16),
-+                  _statusBanner(l, s, tone),
-+                  _hintLine(l, s),
-+                  if (s.progressVisible) _progressRow(l, s, tone),
-+                  if (s.attempt > 0 && s.maxAttempts > 0 && s.phase != LivenessPhase.cancelled)
-+                    Padding(
-+                      padding: const EdgeInsets.only(top: 8),
-+                      child: Text(
-+                        livenessText(l, 'liveness.progress.attempt', a: s.attempt, m: s.maxAttempts),
-+                        style: const TextStyle(fontSize: 16),
-+                      ),
-+                    ),
-+                  if (s.tips) _tips(l),
-+                  if (s.recoveryKey != null)
-+                    Padding(
-+                      padding: const EdgeInsets.only(top: 12),
-+                      child: Text(livenessText(l, s.recoveryKey!), style: const TextStyle(fontSize: 18)),
-+                    ),
-+                  const SizedBox(height: 20),
-+                  _buttons(l, s),
++                  Padding(
++                    padding: const EdgeInsets.fromLTRB(LivenessStyle.gutter, 8, LivenessStyle.gutter, 16),
++                    child: _buttons(l, s),
++                  ),
 +                ],
 +              ),
-+            );
-+          }),
++            ),
++          ),
 +        ),
 +      ),
 +    );
++  }
++
++  Widget _content(AppLocalizations l, LivenessViewState s, Color tone) {
++    return LayoutBuilder(builder: (context, c) {
++      return Column(
++        children: [
++          // The camera card takes what is left, up to its share of the screen: less with the tips.
++          Flexible(
++            child: ConstrainedBox(
++              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * LivenessStyle.cameraShare),
++              child: AspectRatio(aspectRatio: 3 / 4, child: _preview(s, tone)),
++            ),
++          ),
++          const SizedBox(height: 12),
++          _statusCard(l, s, tone),
++          _secondaryLine(l, s),
++          _progressRow(l, s),
++          if (s.tips) ...[
++            const SizedBox(height: 12),
++            ConstrainedBox(
++              constraints: BoxConstraints(maxHeight: c.maxHeight * LivenessStyle.tipsMaxShare),
++              child: _tips(l),
++            ),
++          ],
++        ],
++      );
++    });
 +  }
 +
 +  Widget _preview(LivenessViewState s, Color tone) {
@@ -29924,29 +29938,24 @@ index 0000000..9508ad6
 +          },
 +        );
 +    return ClipRRect(
-+      borderRadius: BorderRadius.circular(12),
++      key: const Key('liveness.camera'),
++      borderRadius: BorderRadius.circular(LivenessStyle.cameraRadius),
 +      child: LayoutBuilder(builder: (context, c) {
 +        final oval = _OvalPainter.ovalRect(Size(c.maxWidth, c.maxHeight));
++        const badge = LivenessStyle.badge;
 +        return Stack(
 +          fit: StackFit.expand,
 +          children: [
-+            preview,
++            ExcludeSemantics(child: preview),
 +            IgnorePointer(child: CustomPaint(painter: _OvalPainter(tone))),
++            // The state badge sits on the top centre of the oval.
 +            Positioned(
-+              left: oval.center.dx - 22,
-+              top: math.max(4, oval.top - 22),
-+              child: ExcludeSemantics(
-+                child: Container(
-+                  width: 44,
-+                  height: 44,
-+                  decoration: BoxDecoration(
-+                    color: tone,
-+                    shape: BoxShape.circle,
-+                    border: Border.all(color: Colors.white, width: 2),
-+                  ),
-+                  child: _stateIcon(s.icon, color: Colors.white, size: 26),
-+                ),
-+              ),
++              key: const Key('liveness.badge'),
++              left: oval.center.dx - badge / 2,
++              top: math.max(0, oval.top - badge / 2),
++              width: badge,
++              height: badge,
++              child: ExcludeSemantics(child: _badge(s.icon, tone)),
 +            ),
 +          ],
 +        );
@@ -29954,152 +29963,271 @@ index 0000000..9508ad6
 +    );
 +  }
 +
-+  Widget _statusBanner(AppLocalizations l, LivenessViewState s, Color tone) {
++  Widget _statusCard(AppLocalizations l, LivenessViewState s, Color tone) {
 +    final key = s.statusKey;
 +    return Semantics(
 +      liveRegion: true,
++      container: true,
 +      child: Container(
-+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
++        key: const Key('liveness.status'),
++        width: double.infinity,
++        constraints: const BoxConstraints(minHeight: LivenessStyle.statusMinHeight),
++        alignment: Alignment.center,
++        padding: const EdgeInsets.all(12),
 +        decoration: BoxDecoration(
-+          color: tone.withOpacity(0.12),
-+          borderRadius: BorderRadius.circular(8),
-+          border: Border.all(color: tone, width: 2),
++          color: tone.withOpacity(0.10),
++          borderRadius: BorderRadius.circular(LivenessStyle.statusRadius),
++          border: Border.all(color: tone, width: 1),
 +        ),
-+        child: Row(
++        child: AnimatedSwitcher(
++          duration: MediaQuery.of(context).disableAnimations ? Duration.zero : LivenessStyle.statusFade,
++          // Without the default builder's key, a status that comes back mid-fade gets its own entry.
++          transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
++          child: LayoutBuilder(
++            key: ValueKey<String>('$key ${s.icon} ${s.ovalTone}'),
++            builder: (context, c) {
++              final text = key == null ? '' : livenessText(l, key);
++              const icon = LivenessStyle.badge + 10;
++              return Row(
++                mainAxisAlignment: MainAxisAlignment.center,
++                children: [
++                  ExcludeSemantics(child: _badge(s.icon, tone)),
++                  const SizedBox(width: 10),
++                  Flexible(
++                    child: Text(
++                      text,
++                      textAlign: TextAlign.center,
++                      style: _fitStatus(context, text, c.maxWidth - icon),
++                    ),
++                  ),
++                ],
++              );
++            },
++          ),
++        ),
++      ),
++    );
++  }
++
++  /// The status at 20 sp; a long one steps down towards 16 sp where 20 would need a
++  /// third line. Never truncated: at a large text scale it may take more lines.
++  static TextStyle _fitStatus(BuildContext context, String text, double width) {
++    final base = DefaultTextStyle.of(context).style.merge(LivenessStyle.status);
++    for (var size = LivenessStyle.status.fontSize!; size > LivenessStyle.statusMinSize; size--) {
++      final painter = TextPainter(
++        text: TextSpan(text: text, style: base.copyWith(fontSize: size)),
++        textAlign: TextAlign.center,
++        textDirection: Directionality.of(context),
++        textScaleFactor: MediaQuery.textScaleFactorOf(context),
++        locale: Localizations.maybeLocaleOf(context),
++        maxLines: 2,
++      )..layout(maxWidth: math.max(0, width));
++      if (!painter.didExceedMaxLines) return LivenessStyle.status.copyWith(fontSize: size);
++    }
++    return LivenessStyle.status.copyWith(fontSize: LivenessStyle.statusMinSize);
++  }
++
++  /// The hint (guidance or feedback), or the recovery text of a final failure.
++  /// The attempts left go to the progress row instead.
++  Widget _secondaryLine(AppLocalizations l, LivenessViewState s) {
++    final hint = s.hintKey == _attemptsLeftKey ? null : s.hintKey;
++    final key = hint ?? s.recoveryKey;
++    // While guidance can still arrive, the line keeps its place, so nothing below it jumps.
++    final reserve = !s.isFinal && s.phase != LivenessPhase.attemptFailed && s.phase != LivenessPhase.deviceError;
++    if (key == null && !reserve) return const SizedBox(width: double.infinity);
++    return Padding(
++      padding: const EdgeInsets.only(top: 8),
++      child: ConstrainedBox(
++        constraints: const BoxConstraints(minHeight: 20, minWidth: double.infinity),
++        child: key == null
++            ? null
++            : Semantics(
++                liveRegion: true,
++                child: Row(
++                  mainAxisAlignment: MainAxisAlignment.center,
++                  children: [
++                    if (hint != null && s.hintIsGuidance)
++                      const Padding(
++                        padding: EdgeInsetsDirectional.only(end: 6),
++                        child: Icon(Icons.warning_amber_rounded, color: LivenessStyle.warningIcon, size: 18),
++                      ),
++                    Flexible(
++                      child: Text(livenessText(l, key, n: s.retriesLeft),
++                          textAlign: TextAlign.center, style: LivenessStyle.body),
++                    ),
++                  ],
++                ),
++              ),
++      ),
++    );
++  }
++
++  /// "Step i of n", the step bar and "Attempt a of m"; after a failed attempt only
++  /// the attempts left.
++  Widget _progressRow(AppLocalizations l, LivenessViewState s) {
++    Widget? row;
++    final attempt = s.attempt > 0 && s.maxAttempts > 0 && !s.isFinal
++        ? Text(livenessText(l, 'liveness.progress.attempt', a: s.attempt, m: s.maxAttempts),
++            style: LivenessStyle.caption)
++        : null;
++    if (s.hintKey == _attemptsLeftKey) {
++      row = Semantics(
++        liveRegion: true,
++        child: Text(livenessText(l, _attemptsLeftKey, n: s.retriesLeft),
++            textAlign: TextAlign.center, style: LivenessStyle.body),
++      );
++    } else if (s.progressVisible && s.stepCount > 0) {
++      // Each label takes at most 35 % of the row and wraps beyond that (long translations).
++      row = LayoutBuilder(builder: (context, c) {
++        final label = BoxConstraints(maxWidth: c.maxWidth * 0.35);
++        return Row(
 +          children: [
-+            ExcludeSemantics(child: _stateIcon(s.icon, color: tone, size: 32)),
++            ConstrainedBox(
++              constraints: label,
++              child: Text(livenessText(l, 'liveness.progress.step', i: s.stepIndex, n: s.stepCount),
++                  style: LivenessStyle.caption),
++            ),
 +            const SizedBox(width: 12),
 +            Expanded(
-+              child: Text(
-+                key == null ? '' : livenessText(l, key),
-+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
++              child: ExcludeSemantics(
++                child: LivenessStepBar(count: s.stepCount, current: s.stepIndex, progress: s.progress ?? 0),
 +              ),
 +            ),
++            if (attempt != null) ...[
++              const SizedBox(width: 12),
++              ConstrainedBox(constraints: label, child: attempt),
++            ],
 +          ],
-+        ),
-+      ),
-+    );
-+  }
-+
-+  Widget _hintLine(AppLocalizations l, LivenessViewState s) {
-+    final key = s.hintKey;
-+    if (key == null) return const SizedBox(height: 8);
++        );
++      });
++    } else {
++      row = attempt;
++    }
 +    return Padding(
-+      padding: const EdgeInsets.only(top: 10),
-+      child: Semantics(
-+        liveRegion: true,
-+        child: Row(
-+          children: [
-+            if (s.hintIsGuidance)
-+              Padding(
-+                padding: const EdgeInsetsDirectional.only(end: 8),
-+                child: Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
-+              ),
-+            Expanded(
-+              child: Text(livenessText(l, key, n: s.retriesLeft),
-+                  style: const TextStyle(fontSize: 18)),
-+            ),
-+          ],
-+        ),
-+      ),
-+    );
-+  }
-+
-+  Widget _progressRow(AppLocalizations l, LivenessViewState s, Color tone) {
-+    return Padding(
-+      padding: const EdgeInsets.only(top: 12),
-+      child: Row(
-+        children: [
-+          if (s.stepCount > 0)
-+            Padding(
-+              padding: const EdgeInsetsDirectional.only(end: 12),
-+              child: Text(
-+                livenessText(l, 'liveness.progress.step', i: s.stepIndex, n: s.stepCount),
-+                style: const TextStyle(fontSize: 16),
-+              ),
-+            ),
-+          Expanded(
-+            child: ExcludeSemantics(
-+              child: LinearProgressIndicator(
-+                value: s.progress,
-+                minHeight: 8,
-+                color: tone,
-+                backgroundColor: tone.withOpacity(0.2),
-+              ),
-+            ),
-+          ),
-+        ],
++      padding: const EdgeInsets.only(top: 8),
++      child: ConstrainedBox(
++        constraints: const BoxConstraints(minHeight: 24, minWidth: double.infinity),
++        child: row == null ? null : Center(child: row),
 +      ),
 +    );
 +  }
 +
 +  Widget _tips(AppLocalizations l) {
-+    return Padding(
-+      padding: const EdgeInsets.only(top: 12),
-+      child: Column(
-+        crossAxisAlignment: CrossAxisAlignment.start,
-+        children: [
-+          Text(livenessText(l, 'liveness.tips.title'),
-+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-+          for (final key in livenessTipKeys)
-+            Padding(
-+              padding: const EdgeInsets.only(top: 4),
-+              child: Text('•  ${livenessText(l, key)}', style: const TextStyle(fontSize: 16)),
-+            ),
-+        ],
++    return Container(
++      key: const Key('liveness.tips'),
++      width: double.infinity,
++      decoration: BoxDecoration(
++        color: LivenessStyle.tipsBackground,
++        borderRadius: BorderRadius.circular(LivenessStyle.statusRadius),
++      ),
++      child: SingleChildScrollView(
++        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            Text(livenessText(l, 'liveness.tips.title'),
++                style: LivenessStyle.tips.copyWith(fontWeight: FontWeight.w600)),
++            for (final key in livenessTipKeys)
++              Padding(
++                padding: const EdgeInsets.only(top: 4),
++                child: Text('•  ${livenessText(l, key)}', style: LivenessStyle.tips),
++              ),
++          ],
++        ),
 +      ),
 +    );
 +  }
 +
++  /// One row of equal-width buttons: filled for Retry and Close, outlined for
++  /// Cancel and Open settings. A single button is as wide as one of two.
 +  Widget _buttons(AppLocalizations l, LivenessViewState s) {
-+    const size = Size(120, 48);
-+    return Wrap(
-+      alignment: WrapAlignment.center,
-+      spacing: 12,
-+      runSpacing: 8,
-+      children: [
-+        if (s.showRetry)
-+          ElevatedButton(
-+            style: ElevatedButton.styleFrom(minimumSize: size),
-+            onPressed: _retry,
-+            child: Text(livenessText(l, 'liveness.button.retry')),
-+          ),
-+        if (s.showCancel)
-+          OutlinedButton(
-+            style: OutlinedButton.styleFrom(minimumSize: size),
-+            onPressed: _cancel,
-+            child: Text(livenessText(l, 'liveness.button.cancel')),
-+          ),
-+        if (s.showOpenSettings)
-+          OutlinedButton(
-+            style: OutlinedButton.styleFrom(minimumSize: size),
-+            onPressed: () => _service.openCameraSettings(),
-+            child: Text(livenessText(l, 'liveness.button.open_settings')),
-+          ),
-+        if (s.showClose)
-+          ElevatedButton(
-+            style: ElevatedButton.styleFrom(minimumSize: size),
-+            onPressed: _close,
-+            child: Text(livenessText(l, 'liveness.button.close')),
-+          ),
-+      ],
-+    );
++    final text = Theme.of(context).textTheme.labelLarge!.merge(LivenessStyle.button);
++    final buttons = <Widget>[
++      if (s.showRetry) _button(livenessText(l, 'liveness.button.retry'), text, _retry, primary: true),
++      if (s.showCancel) _button(livenessText(l, 'liveness.button.cancel'), text, _cancel),
++      if (s.showOpenSettings)
++        _button(livenessText(l, 'liveness.button.open_settings'), text, () => _service.openCameraSettings()),
++      if (s.showClose) _button(livenessText(l, 'liveness.button.close'), text, _close, primary: true),
++    ];
++    return LayoutBuilder(builder: (context, c) {
++      final slots = math.max(buttons.length, 2);
++      final width = (c.maxWidth - LivenessStyle.buttonGap * (slots - 1)) / slots;
++      return ConstrainedBox(
++        constraints: const BoxConstraints(minHeight: LivenessStyle.buttonHeight),
++        child: Row(
++          mainAxisAlignment: MainAxisAlignment.center,
++          children: [
++            for (var i = 0; i < buttons.length; i++) ...[
++              if (i > 0) const SizedBox(width: LivenessStyle.buttonGap),
++              SizedBox(width: width, child: buttons[i]),
++            ],
++          ],
++        ),
++      );
++    });
 +  }
++
++  static Widget _button(String text, TextStyle textStyle, VoidCallback onPressed, {bool primary = false}) {
++    const size = Size(0, LivenessStyle.buttonHeight);
++    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(LivenessStyle.buttonRadius));
++    final label = Text(text, textAlign: TextAlign.center);
++    return primary
++        ? ElevatedButton(
++            style: ElevatedButton.styleFrom(
++              backgroundColor: LivenessStyle.primary,
++              foregroundColor: Colors.white,
++              minimumSize: size,
++              shape: shape,
++              textStyle: textStyle,
++              elevation: 0,
++            ),
++            onPressed: onPressed,
++            child: label,
++          )
++        : OutlinedButton(
++            style: OutlinedButton.styleFrom(
++              foregroundColor: LivenessStyle.primary,
++              minimumSize: size,
++              shape: shape,
++              textStyle: textStyle,
++              side: const BorderSide(color: LivenessStyle.primary),
++            ),
++            onPressed: onPressed,
++            child: label,
++          );
++  }
++
++  static const String _attemptsLeftKey = 'liveness.retry.attempts_left';
 +
 +  static Color _toneColor(LivenessOvalTone tone) {
 +    switch (tone) {
 +      case LivenessOvalTone.neutral:
-+        return Colors.grey.shade600;
++        return LivenessStyle.neutral;
 +      case LivenessOvalTone.checking:
-+        return Colors.blue.shade600;
++        return LivenessStyle.primary;
 +      case LivenessOvalTone.challenge:
-+        return Colors.amber.shade800;
++        return LivenessStyle.challenge;
 +      case LivenessOvalTone.success:
-+        return Colors.green.shade600;
++        return LivenessStyle.success;
 +      case LivenessOvalTone.error:
-+        return Colors.red.shade600;
++        return LivenessStyle.failure;
 +    }
 +  }
++
++  /// The state badge: a circle in the state colour with the state icon.
++  static Widget _badge(LivenessIcon icon, Color tone) => Container(
++        width: LivenessStyle.badge,
++        height: LivenessStyle.badge,
++        alignment: Alignment.center,
++        decoration: BoxDecoration(
++          color: tone,
++          shape: BoxShape.circle,
++          border: Border.all(color: Colors.white, width: 1.5),
++        ),
++        child: _stateIcon(icon,
++            color: tone == LivenessStyle.challenge ? LivenessStyle.onChallenge : Colors.white,
++            size: LivenessStyle.badgeIcon),
++      );
 +
 +  /// The state icon, never mirrored in a right-to-left language: the turn arrows show
 +  /// the user's physical left and right, the same in every language.
@@ -30149,7 +30277,49 @@ index 0000000..9508ad6
 +      );
 +}
 +
-+/// The face-oval guide: the outside dimmed lightly, the outline in the state colour.
++/// The step bar: one segment per challenge. Done steps are filled; the current
++/// one is half filled and fills further with the challenge's progress.
++class LivenessStepBar extends StatelessWidget {
++  const LivenessStepBar({super.key, required this.count, required this.current, required this.progress});
++
++  final int count;
++
++  /// 1-based.
++  final int current;
++  final double progress;
++
++  @override
++  Widget build(BuildContext context) => Row(
++        children: [
++          for (var i = 1; i <= count; i++) ...[
++            if (i > 1) const SizedBox(width: LivenessStyle.segmentGap),
++            Expanded(
++              child: _segment(i < current ? 1.0 : (i == current ? math.max(0.5, progress.clamp(0.0, 1.0)).toDouble() : 0.0)),
++            ),
++          ],
++        ],
++      );
++
++  static Widget _segment(double fill) => ClipRRect(
++        borderRadius: BorderRadius.circular(LivenessStyle.segmentHeight / 2),
++        child: SizedBox(
++          height: LivenessStyle.segmentHeight,
++          child: Stack(
++            fit: StackFit.expand,
++            children: [
++              const ColoredBox(color: LivenessStyle.track),
++              FractionallySizedBox(
++                alignment: AlignmentDirectional.centerStart,
++                widthFactor: fill,
++                child: const ColoredBox(color: LivenessStyle.primary),
++              ),
++            ],
++          ),
++        ),
++      );
++}
++
++/// The face-oval guide: a 40 % scrim outside the oval, the outline in the state colour.
 +class _OvalPainter extends CustomPainter {
 +  _OvalPainter(this.color);
 +
@@ -30168,12 +30338,12 @@ index 0000000..9508ad6
 +      ..fillType = PathFillType.evenOdd
 +      ..addRect(Offset.zero & size)
 +      ..addOval(oval);
-+    canvas.drawPath(dim, Paint()..color = Colors.black.withOpacity(0.30));
++    canvas.drawPath(dim, Paint()..color = LivenessStyle.scrim);
 +    canvas.drawOval(
 +      oval,
 +      Paint()
 +        ..style = PaintingStyle.stroke
-+        ..strokeWidth = 4
++        ..strokeWidth = LivenessStyle.ovalStroke
 +        ..color = color,
 +    );
 +  }
@@ -30305,6 +30475,79 @@ index 0000000..cea20f2
 +    default:
 +      return key;
 +  }
++}
+diff --git a/lib/ui/liveness/liveness_style.dart b/lib/ui/liveness/liveness_style.dart
+new file mode 100644
+index 0000000..9fa1360
+--- /dev/null
++++ b/lib/ui/liveness/liveness_style.dart
+@@ -0,0 +1,67 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'package:flutter/material.dart';
++
++/// The liveness screen's design tokens (docs/ui-liveness-spec.md §9, "Visual
++/// design"). The Desktop client's liveness.css uses the same values.
++class LivenessStyle {
++  LivenessStyle._();
++
++  // State colours. Contrast ratios are against white unless noted.
++  /// Checking and guidance, done steps, primary buttons: the app bar's blue (8.9:1).
++  static const Color primary = Color(0xFF1C43A1);
++  /// Challenges. The badge glyph on it is [onChallenge] (6.3:1); white would be 2.6:1.
++  static const Color challenge = Color(0xFFE8890C);
++  static const Color onChallenge = Color(0xFF1F1F1F);
++  /// Passed and action detected (5.1:1).
++  static const Color success = Color(0xFF2E7D32);
++  /// Failure, PAD and device errors (5.0:1).
++  static const Color failure = Color(0xFFD32F2F);
++  /// Starting (6.2:1).
++  static const Color neutral = Color(0xFF616161);
++
++  static const Color background = Color(0xFFFFFFFF);
++  static const Color textPrimary = Color(0xFF212121); // 16:1
++  static const Color textSecondary = Color(0xFF616161); // grey-700, 6.2:1 (5.7:1 on the tips card)
++  static const Color warningIcon = Color(0xFFB26A00); // 4.2:1
++  static const Color track = Color(0xFFE0E0E0);
++  static const Color tipsBackground = Color(0xFFF5F5F5);
++  static const Color scrim = Color(0x66000000); // 40 % outside the oval
++
++  // Layout.
++  static const double maxContentWidth = 560;
++  static const double gutter = 16;
++  static const double cameraRadius = 16;
++  /// The camera card's height as a share of the screen's; it shrinks when space runs out (the tips).
++  static const double cameraShare = 0.45;
++  /// The tips card's most, as a share of the content area; beyond it the tips scroll.
++  static const double tipsMaxShare = 0.40;
++  static const double ovalStroke = 4;
++  static const double badge = 28;
++  static const double badgeIcon = 18;
++  static const double statusRadius = 12;
++  static const double statusMinHeight = 80;
++  static const double segmentHeight = 6;
++  static const double segmentGap = 4;
++  static const double buttonHeight = 48;
++  static const double buttonRadius = 12;
++  static const double buttonGap = 12;
++
++  // Type (the platform family, Roboto on Android).
++  /// 20 sp, stepping down to [statusMinSize] where 20 would need a third line.
++  static const TextStyle status =
++      TextStyle(fontSize: 20, fontWeight: FontWeight.w600, height: 1.25, color: textPrimary);
++  static const double statusMinSize = 16;
++  static const TextStyle body = TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: textSecondary);
++  static const TextStyle tips = TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: textPrimary);
++  static const TextStyle caption = TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: textSecondary);
++  static const TextStyle button = TextStyle(fontSize: 15, fontWeight: FontWeight.w600);
++
++  // Motion: a cross-fade when the status changes, nothing else.
++  static const Duration statusFade = Duration(milliseconds: 200);
 +}
 diff --git a/lib/ui/liveness/model_bundle_page.dart b/lib/ui/liveness/model_bundle_page.dart
 new file mode 100644
@@ -32376,9 +32619,142 @@ index 0000000..bacad04
 +    }
 +  });
 +}
+diff --git a/test/liveness/liveness_page_layout_test.dart b/test/liveness/liveness_page_layout_test.dart
+new file mode 100644
+index 0000000..d8e92ed
+--- /dev/null
++++ b/test/liveness/liveness_page_layout_test.dart
+@@ -0,0 +1,127 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
++import 'package:registration_client/ui/liveness/liveness_style.dart';
++
++import 'fake_liveness_service.dart';
++import 'liveness_screens.dart';
++import 'liveness_test_fonts.dart';
++
++class _Variant {
++  const _Variant(this.lang, this.textScale);
++
++  final String lang;
++  final double textScale;
++
++  @override
++  String toString() => textScale == 1.0 ? lang : '$lang ${textScale}x';
++}
++
++/// docs/ui-liveness-spec.md §9 on phones: every state fits 360x640 and 412x915
++/// (logical) without scrolling, the buttons are always on screen, a failed attempt
++/// shows one attempts line, and the state badge sits on the oval's top centre;
++/// also in Arabic (right to left) and at 1.3x text, where only the tips may scroll.
++void main() {
++  setUpAll(loadLivenessTestFonts);
++
++  const sizes = [Size(360, 640), Size(412, 915)];
++  const variants = [_Variant('en', 1.0), _Variant('ar', 1.0), _Variant('en', 1.3)];
++  final status = find.byKey(const Key('liveness.status'));
++  final tips = find.byKey(const Key('liveness.tips'));
++  final buttons = find.byWidgetPredicate((w) => w is ElevatedButton || w is OutlinedButton);
++
++  for (final screen in [...livenessScreens, ...livenessExtraScreens]) {
++    for (final size in sizes) {
++      for (final v in variants) {
++        testWidgets('${screen.name} at ${size.width.toInt()}x${size.height.toInt()}, $v', (tester) async {
++          await showLivenessScreen(tester, screen, size, lang: v.lang, textScale: v.textScale);
++          expect(tester.takeException(), isNull, reason: 'no overflow');
++          final l = AppLocalizations.of(tester.element(find.byType(LivenessPage)))!;
++          final hasTips = tips.evaluate().isNotEmpty;
++
++          // Nothing scrolls but the tips; the buttons are on screen, 48 high.
++          expect(find.byType(Scrollable), hasTips ? findsOneWidget : findsNothing);
++          if (hasTips) expect(find.descendant(of: tips, matching: find.byType(Scrollable)), findsOneWidget);
++          for (var i = 0; i < buttons.evaluate().length; i++) {
++            final r = tester.getRect(buttons.at(i));
++            expect(r.top, greaterThanOrEqualTo(0));
++            expect(r.bottom, lessThanOrEqualTo(size.height));
++            expect(r.height, greaterThanOrEqualTo(LivenessStyle.buttonHeight));
++          }
++
++          // The camera card keeps 3:4 and a useful size; the badge is on the oval's top centre, inside the card.
++          final camera = tester.getRect(find.byKey(const Key('liveness.camera')));
++          final badge = tester.getRect(find.byKey(const Key('liveness.badge')));
++          expect(camera.width / camera.height, moreOrLessEquals(3 / 4, epsilon: 0.01));
++          expect(camera.height, greaterThanOrEqualTo(size.height * (hasTips ? 0.15 : 0.30)),
++              reason: 'camera card ${camera.size}');
++          expect(badge.center.dx, moreOrLessEquals(camera.center.dx, epsilon: 0.5));
++          expect(badge.center.dy, moreOrLessEquals(camera.top + camera.height * 0.14, epsilon: 0.5));
++          expect(badge.top, greaterThanOrEqualTo(camera.top));
++          expect(badge.size, const Size(LivenessStyle.badge, LivenessStyle.badge));
++
++          // English at 1x: the status takes at most 2 lines.
++          final statusText = find.descendant(of: status, matching: find.byType(Text));
++          if (v.lang == 'en' && v.textScale == 1.0) {
++            expect(tester.getSize(statusText).height, lessThanOrEqualTo(2 * 20 * 1.25 + 0.5));
++          }
++
++          // After a failed attempt: the attempts left, never "Attempt a of m" as well.
++          if (screen.events.any((e) => e['type'] == 'ATTEMPT_FAILED')) {
++            expect(find.text(livenessText(l, 'liveness.retry.attempts_left', n: 3)), findsOneWidget);
++            expect(find.text(livenessText(l, 'liveness.progress.attempt', a: 1, m: 4)), findsNothing);
++          }
++
++          // Right to left: the status icon right of its text, the step label right of the bar,
++          // the first button (Retry or Close) right of the second.
++          if (v.lang == 'ar') {
++            final icon = find.descendant(of: status, matching: find.byType(Icon));
++            expect(tester.getCenter(icon).dx, greaterThan(tester.getCenter(statusText).dx));
++            final steps = screen.events.where((e) => (e['challengeCount'] as int? ?? 0) > 0);
++            if (steps.isNotEmpty) {
++              final step = find.text(livenessText(l, 'liveness.progress.step',
++                  i: steps.last['challengeIndex'] as int, n: steps.last['challengeCount'] as int));
++              expect(tester.getCenter(step).dx, greaterThan(tester.getCenter(find.byType(LivenessStepBar)).dx));
++            }
++            if (buttons.evaluate().length > 1) {
++              expect(tester.getCenter(buttons.at(0)).dx, greaterThan(tester.getCenter(buttons.at(1)).dx));
++            }
++          }
++        });
++      }
++    }
++  }
++
++  testWidgets('the status cross-fades in 200 ms; the progress row does not animate', (tester) async {
++    final service = await showLivenessScreen(tester, livenessScreens.first, const Size(360, 640));
++    service.emit(ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
++    await tester.pump(); // delivers the event
++    await tester.pump(); // draws it: the fade starts
++    await tester.pump(const Duration(milliseconds: 100));
++    expect(find.text('Checking face liveness…'), findsOneWidget, reason: 'fading out');
++    expect(find.text('Please blink'), findsOneWidget);
++    await tester.pump(const Duration(milliseconds: 150));
++    await tester.pump(); // the finished fade removes the old status
++    expect(find.text('Checking face liveness…'), findsNothing);
++    expect(tester.hasRunningAnimations, isFalse);
++  });
++
++  testWidgets('the step bar: done steps full, the current one at least half', (tester) async {
++    final service = await showLivenessScreen(tester, livenessScreens.first, const Size(360, 640));
++    service.emit(ev('CHALLENGE_PROMPT', challenge: 'SMILE', index: 2, count: 3));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 300));
++    List<double> fills() => tester
++        .widgetList<FractionallySizedBox>(
++            find.descendant(of: find.byType(LivenessStepBar), matching: find.byType(FractionallySizedBox)))
++        .map((b) => b.widthFactor!)
++        .toList();
++    expect(fills(), [1.0, 0.5, 0.0]);
++    service.emit(ev('CHALLENGE_PROGRESS', challenge: 'SMILE', index: 2, count: 3, progress: 0.8));
++    await tester.pump();
++    await tester.pump();
++    expect(fills(), [1.0, 0.8, 0.0]);
++  });
++}
 diff --git a/test/liveness/liveness_page_locale_test.dart b/test/liveness/liveness_page_locale_test.dart
 new file mode 100644
-index 0000000..fe2a49b
+index 0000000..47d92ee
 --- /dev/null
 +++ b/test/liveness/liveness_page_locale_test.dart
 @@ -0,0 +1,120 @@
@@ -32418,12 +32794,12 @@ index 0000000..fe2a49b
 +    await tester.pump();
 +  }
 +
-+  Finder stateIcon(IconData icon, double size) =>
-+      find.byWidgetPredicate((w) => w is Icon && w.icon == icon && w.size == size);
++  Finder statusIcon(IconData icon) =>
++      find.descendant(of: find.byKey(const Key('liveness.status')), matching: find.byIcon(icon));
 +
 +  void expectNotMirrored(WidgetTester tester, IconData icon) {
 +    final icons = find.byIcon(icon);
-+    expect(icons, findsNWidgets(2), reason: 'the oval badge and the status banner');
++    expect(icons, findsNWidgets(2), reason: 'the oval badge and the status card');
 +    for (final e in icons.evaluate()) {
 +      expect(Directionality.of(e), TextDirection.ltr);
 +    }
@@ -32442,10 +32818,10 @@ index 0000000..fe2a49b
 +    expect(prompt, findsOneWidget);
 +    expect(Directionality.of(tester.element(prompt)), TextDirection.rtl);
 +    expectNotMirrored(tester, Icons.arrow_back);
-+    // Right to left: the banner icon sits right of its text, the step text right of the progress bar.
-+    expect(tester.getCenter(stateIcon(Icons.arrow_back, 32)).dx, greaterThan(tester.getCenter(prompt).dx));
++    // Right to left: the status icon sits right of its text, the step text right of the step bar.
++    expect(tester.getCenter(statusIcon(Icons.arrow_back)).dx, greaterThan(tester.getCenter(prompt).dx));
 +    expect(tester.getCenter(find.text('الخطوة 1 من 2')).dx,
-+        greaterThan(tester.getCenter(find.byType(LinearProgressIndicator)).dx));
++        greaterThan(tester.getCenter(find.byType(LivenessStepBar)).dx));
 +
 +    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'TURN_RIGHT', index: 2, count: 2));
 +    expect(find.text('يرجى إدارة رأسك إلى اليمين'), findsOneWidget);
@@ -32456,11 +32832,11 @@ index 0000000..fe2a49b
 +    expect(find.text('تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.'), findsOneWidget);
 +    expect(find.text('المحاولات المتبقية: 2'), findsOneWidget);
 +    expect(find.text('نصائح:'), findsOneWidget);
-+    // The tips start at the right edge; Retry (first) is right of Cancel.
++    // The tips start at the right edge of their card; Retry (first) is right of Cancel.
 +    final tip = find.textContaining('انظر مباشرة إلى الكاميرا.');
 +    await tester.ensureVisible(tip);
 +    await tester.pump();
-+    expect(tester.getTopRight(tip).dx, greaterThan(411 - 16 - 1));
++    expect(tester.getTopRight(tip).dx, greaterThan(tester.getTopRight(find.byKey(const Key('liveness.tips'))).dx - 14 - 1));
 +    expect(tester.getCenter(find.text('إعادة المحاولة')).dx, greaterThan(tester.getCenter(find.text('إلغاء')).dx));
 +  });
 +
@@ -32765,6 +33141,231 @@ index 0000000..1bc0b19
 +    await tapText(tester, 'Cancel');
 +    await tester.pump(const Duration(milliseconds: 600));
 +  });
++}
+diff --git a/test/liveness/liveness_screens.dart b/test/liveness/liveness_screens.dart
+new file mode 100644
+index 0000000..434ce76
+--- /dev/null
++++ b/test/liveness/liveness_screens.dart
+@@ -0,0 +1,129 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++import 'package:registration_client/ui/liveness/liveness_style.dart';
++
++import 'fake_liveness_service.dart';
++
++/// Shows [screen] as the app does: pushed over another page (the app bar's back
++/// arrow), in the app's primary colour, after the fake engine's events and the
++/// status fade.
++Future<FakeLivenessService> showLivenessScreen(WidgetTester tester, LivenessScreen screen, Size size,
++    {String lang = 'en', double? textScale, double devicePixelRatio = 3, Key? rootKey}) async {
++  tester.view.physicalSize = size * devicePixelRatio;
++  tester.view.devicePixelRatio = devicePixelRatio;
++  addTearDown(tester.view.reset);
++  final service = FakeLivenessService()..permission = screen.permission;
++  final fake = screen.permission == CameraPermission.granted;
++  final page = LivenessPage(
++    workflow: screen.workflow,
++    service: service,
++    useFake: fake,
++    showDebugInfo: false,
++    previewBuilder: fake ? null : () => const LivenessPlaceholderPreview(),
++  );
++  await tester.pumpWidget(RepaintBoundary(
++    key: rootKey,
++    child: MaterialApp(
++      debugShowCheckedModeBanner: false,
++      locale: Locale(lang),
++      localizationsDelegates: AppLocalizations.localizationsDelegates,
++      supportedLocales: AppLocalizations.supportedLocales,
++      theme: ThemeData(colorScheme: const ColorScheme.light(primary: LivenessStyle.primary)),
++      builder: (context, child) => MediaQuery(
++        data: MediaQuery.of(context).copyWith(textScaleFactor: textScale ?? screen.textScale),
++        child: child!,
++      ),
++      onGenerateRoute: (_) => MaterialPageRoute<void>(builder: (_) => const SizedBox()),
++      onGenerateInitialRoutes: (_) => [
++        MaterialPageRoute<void>(builder: (_) => const SizedBox()),
++        MaterialPageRoute<void>(builder: (_) => page),
++      ],
++    ),
++  ));
++  await tester.pump();
++  await tester.pump(const Duration(milliseconds: 400)); // the start-up calls
++  for (final m in screen.events) {
++    service.emit(m);
++    await tester.pump();
++    await tester.pump();
++  }
++  await tester.pump(LivenessStyle.statusFade + const Duration(milliseconds: 50));
++  return service;
++}
++
++/// One state of the liveness screen, reached by the fake engine's events.
++class LivenessScreen {
++  const LivenessScreen(this.name, this.events,
++      {this.workflow = 'RESIDENT',
++      this.permission = CameraPermission.granted,
++      this.textScale = 1.0,
++      this.scrollTips = false});
++
++  /// The screenshot's file name in docs/images/android, without .png.
++  final String name;
++  final List<Map<String, Object?>> events;
++  final String workflow;
++  final CameraPermission permission;
++  final double textScale;
++
++  /// Scroll the tips to their end (the 1.3x screenshot).
++  final bool scrollTips;
++}
++
++final Map<String, Object?> _notVerified =
++    ev('ATTEMPT_FAILED', error: 'CHALLENGE_TIMEOUT', userMessage: 'LIVENESS_NOT_VERIFIED', retriesLeft: 3);
++
++Map<String, Object?> _maxAttempts(int attempt) => ev('FAILED_FINAL',
++    attempt: attempt, error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED', recoverable: false);
++
++final Map<String, Object?> _failedComplete =
++    complete('FAILED', failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED');
++
++/// The states of docs/images/android/README.md, in its order.
++final List<LivenessScreen> livenessScreens = [
++  LivenessScreen('01-checking', [ev('STARTED'), ev('CHECKING_PASSIVE')]),
++  LivenessScreen('02-challenge-blink', [ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 2, count: 2)]),
++  LivenessScreen('03-challenge-smile', [ev('CHALLENGE_PROMPT', challenge: 'SMILE', index: 1, count: 2)]),
++  LivenessScreen('04-challenge-turn-left', [ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 1, count: 2)]),
++  LivenessScreen('05-challenge-progress', [
++    ev('CHALLENGE_PROMPT', challenge: 'TURN_LEFT', index: 1, count: 2),
++    ev('CHALLENGE_PROGRESS', challenge: 'TURN_LEFT', index: 1, count: 2, progress: 0.7),
++  ]),
++  LivenessScreen('06-action-detected', [
++    ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2),
++    ev('ACTION_DETECTED', challenge: 'BLINK', index: 1, count: 2),
++  ]),
++  LivenessScreen('07-hold-still', [ev('HOLD_STILL')]),
++  LivenessScreen('08-passed', [ev('PASSED')]),
++  LivenessScreen('09-attempt-failed-tips', [_notVerified]),
++  LivenessScreen('10-attempt-failed-tips-buttons', [_notVerified], textScale: 1.3, scrollTips: true),
++  LivenessScreen('11-pad-generic', [
++    ev('ATTEMPT_FAILED', error: 'PAD_FAILURE', userMessage: 'VERIFICATION_NOT_COMPLETED', retriesLeft: 3),
++  ]),
++  LivenessScreen('12-guidance-no-face', [ev('CHECKING_PASSIVE'), ev('GUIDANCE', guidance: 'NO_FACE')]),
++  LivenessScreen(
++      '13-guidance-multiple-faces', [ev('CHECKING_PASSIVE'), ev('GUIDANCE', guidance: 'MULTIPLE_FACES')]),
++  LivenessScreen(
++      '14-guidance-improve-lighting', [ev('CHECKING_PASSIVE'), ev('GUIDANCE', guidance: 'IMPROVE_LIGHTING')]),
++  LivenessScreen('15-device-error-recoverable', [
++    ev('DEVICE_ERROR', error: 'DEVICE_DISCONNECTED', userMessage: 'DEVICE_PROBLEM', retriesLeft: 3),
++  ]),
++  LivenessScreen('16-device-failure-final', [
++    ev('FAILED_FINAL', error: 'DEVICE_FAILURE', userMessage: 'DEVICE_PROBLEM', recoverable: false),
++    complete('FAILED', failureCode: 'DEVICE_FAILURE', userMessage: 'DEVICE_PROBLEM'),
++  ]),
++  LivenessScreen('17-max-attempts-resident', [_maxAttempts(4), _failedComplete]),
++  LivenessScreen('18-max-attempts-operator', [_maxAttempts(4), _failedComplete], workflow: 'OPERATOR'),
++  LivenessScreen('19-max-attempts-supervisor', [_maxAttempts(4), _failedComplete], workflow: 'SUPERVISOR'),
++  LivenessScreen('20-operator-cooldown-refusal', [_maxAttempts(1), _failedComplete], workflow: 'OPERATOR'),
++];
++
++/// States the screenshots leave out, for the layout tests.
++final List<LivenessScreen> livenessExtraScreens = [
++  LivenessScreen('starting', [ev('STARTED')]),
++  LivenessScreen('hold-still-look-at-camera', [ev('HOLD_STILL'), ev('GUIDANCE', guidance: 'LOOK_AT_CAMERA')]),
++  const LivenessScreen('camera-refused-permanently', [], permission: CameraPermission.permanentlyDenied),
++];
+diff --git a/test/liveness/liveness_screenshots_test.dart b/test/liveness/liveness_screenshots_test.dart
+new file mode 100644
+index 0000000..07f602f
+--- /dev/null
++++ b/test/liveness/liveness_screenshots_test.dart
+@@ -0,0 +1,46 @@
++import 'dart:io';
++import 'dart:ui' as ui;
++
++import 'package:flutter/material.dart';
++import 'package:flutter/rendering.dart';
++import 'package:flutter_test/flutter_test.dart';
++
++import 'liveness_screens.dart';
++import 'liveness_test_fonts.dart';
++
++/// The documentation screenshots (docs/images/android): every state from the fake
++/// engine's events, with the placeholder instead of a camera, so no face or
++/// personal data can appear. 360x740 logical at 1.5x (540x1110 px), as before.
++///
++///   LIVENESS_SCREENSHOTS=<dir> flutter test test/liveness/liveness_screenshots_test.dart
++///
++/// Skipped without LIVENESS_SCREENSHOTS.
++void main() {
++  final out = Platform.environment['LIVENESS_SCREENSHOTS'];
++  const root = Key('screenshot');
++
++  setUpAll(() async {
++    if (out != null && !await loadLivenessTestFonts()) fail('Roboto not found in the Flutter SDK');
++  });
++
++  for (final screen in livenessScreens) {
++    testWidgets(screen.name, (tester) async {
++      debugDisableShadows = false; // flutter_test draws shadows as solid lines; back on below
++      await showLivenessScreen(tester, screen, const Size(360, 740), devicePixelRatio: 1.5, rootKey: root);
++      if (screen.scrollTips) {
++        final tips = find.descendant(of: find.byKey(const Key('liveness.tips')), matching: find.byType(Scrollable));
++        final position = tester.state<ScrollableState>(tips).position;
++        position.jumpTo(position.maxScrollExtent);
++        await tester.pump();
++      }
++      expect(tester.takeException(), isNull);
++      await tester.runAsync(() async {
++        final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(root));
++        final image = await boundary.toImage(pixelRatio: 1.5);
++        final png = await image.toByteData(format: ui.ImageByteFormat.png);
++        File('$out/${screen.name}.png').writeAsBytesSync(png!.buffer.asUint8List());
++      });
++      debugDisableShadows = true;
++    }, skip: out == null);
++  }
++}
+diff --git a/test/liveness/liveness_test_fonts.dart b/test/liveness/liveness_test_fonts.dart
+new file mode 100644
+index 0000000..79b69f5
+--- /dev/null
++++ b/test/liveness/liveness_test_fonts.dart
+@@ -0,0 +1,32 @@
++import 'dart:io';
++
++import 'package:flutter/services.dart';
++
++/// Loads Roboto (the Flutter SDK's copy) and the Material icons, so layout tests
++/// and screenshots measure real text instead of the 1-em-per-glyph test font.
++/// Returns false when the SDK's fonts cannot be found; the test font stays then.
++Future<bool> loadLivenessTestFonts() async {
++  final icons = FontLoader('MaterialIcons')..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
++  await icons.load();
++  final dir = _materialFonts();
++  if (dir == null) return false;
++  final roboto = FontLoader('Roboto');
++  for (final weight in ['regular', 'medium', 'bold']) {
++    final bytes = File('${dir.path}/roboto-$weight.ttf').readAsBytesSync();
++    roboto.addFont(Future.value(bytes.buffer.asByteData(bytes.offsetInBytes, bytes.lengthInBytes)));
++  }
++  await roboto.load();
++  return true;
++}
++
++/// flutter_tester runs from <sdk>/bin/cache/artifacts/engine/<platform>/; the fonts
++/// are in <sdk>/bin/cache/artifacts/material_fonts.
++Directory? _materialFonts() {
++  var dir = File(Platform.resolvedExecutable).parent;
++  for (var i = 0; i < 5; i++) {
++    final fonts = Directory('${dir.path}/material_fonts');
++    if (File('${fonts.path}/roboto-regular.ttf').existsSync()) return fonts;
++    dir = dir.parent;
++  }
++  return null;
 +}
 diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
 new file mode 100644
