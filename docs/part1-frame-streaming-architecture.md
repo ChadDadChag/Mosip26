@@ -105,7 +105,7 @@ flowchart TD
     M1[MockFrameSource] --> M2{Mode}
     M2 -->|static images| M3[StaticImageProducer<br/>pre-decoded, cycled<br/>attack tests]
     M2 -->|recorded video| M4[VideoFileProducer<br/>replays an MJPEG recording<br/>via the same MjpegFrameReader]
-    M2 -->|live webcam| M5[WebcamProducer<br/>SarxosWebcamFrameGrabber or test fake]
+    M2 -->|live webcam| M5[WebcamProducer<br/>WebcamGrabbers: OpenCV or sarxos, or a test fake]
     M3 --> M6[Frame]
     M4 --> M6
     M5 --> M6
@@ -162,7 +162,7 @@ restarts the source (§9).
 | SBI device | `MJPEG` (declared) | observed from decoded frames | measured over the first 15 raw frames | DECLARED, then OBSERVED |
 | `CapabilityProbe.probe(source, n, timeout)` / `SbiStreamFrameSourceFactory.probeCapabilities()` | from `info()` | from the sampled frames | from raw sequence/timestamps (stride-correct) | OBSERVED |
 | Mock images / video | `JPEG`/`PNG` or `MJPEG` | every distinct image size | configured fps | DECLARED |
-| Mock webcam (`SarxosWebcamFrameGrabber`) | — | driver's view sizes | configured fps | DECLARED |
+| Mock webcam (`WebcamGrabbers`: `OpenCvWebcamFrameGrabber` by default, `SarxosWebcamFrameGrabber` with `-Dliveness.capture=sarxos`) | — | sarxos: the driver's view sizes; OpenCV: unknown | configured fps | DECLARED |
 | Android CameraX | `YUV_420_888` | requested, then the size CameraX chose | — | DECLARED, then OBSERVED |
 
 MDS device info has no resolution or FPS fields, so for SBI devices these values can only be observed.

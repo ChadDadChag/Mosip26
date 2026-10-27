@@ -4,7 +4,7 @@ import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.Frame;
 import io.mosip.registration.liveness.api.FrameSource;
 import io.mosip.registration.liveness.device.mock.MockFrameSource;
-import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
+import io.mosip.registration.liveness.device.mock.WebcamGrabbers;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -56,7 +56,7 @@ public final class FramePipelineDemo {
         FrameSource source;
         switch (mode) {
             case "webcam":
-                source = MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), fps, stride);
+                source = MockFrameSource.ofWebcam(WebcamGrabbers.create(), fps, stride);
                 break;
             case "video":
                 source = MockFrameSource.ofVideoFile(Paths.get(args[1]), fps, true, stride);
@@ -104,8 +104,7 @@ public final class FramePipelineDemo {
         });
         source.start(new StatsListener(panel));
         closed.await();
-        source.stop();
-        System.exit(0);
+        WebcamGrabbers.exit(0, source::stop);
     }
 
     private static void usage() {

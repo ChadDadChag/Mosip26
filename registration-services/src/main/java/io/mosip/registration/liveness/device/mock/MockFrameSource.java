@@ -42,9 +42,9 @@ import javax.imageio.ImageIO;
  *       the identical parsing path production code uses.</li>
  *   <li><b>Live webcam relay</b> ({@link #ofWebcam(WebcamFrameGrabber, double)}) -
  *       delegates actual pixel capture to a {@link WebcamFrameGrabber}:
- *       {@link SarxosWebcamFrameGrabber} for a real camera (same library the
- *       ref-document-scanner module already uses), or a fake in tests (see
- *       {@code MockFrameSourceTest}).</li>
+ *       {@link WebcamGrabbers#create()} for a real camera (OpenCV by default, or
+ *       {@link SarxosWebcamFrameGrabber}, the library the ref-document-scanner
+ *       module already uses), or a fake in tests (see {@code MockFrameSourceTest}).</li>
  * </ol>
  *
  * <p>All three modes support {@code frameStride} (deliver every Nth frame) the

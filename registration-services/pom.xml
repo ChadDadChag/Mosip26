@@ -53,6 +53,13 @@
 			<artifactId>webcam-capture</artifactId>
 			<version>0.3.12</version>
 		</dependency>
+		<!-- F13b: the default development webcam backend (OpenCvWebcamFrameGrabber). The same openpnp build that
+		     biometrics-util already brings, declared because the code now uses it directly; no new jar ships. -->
+		<dependency>
+			<groupId>org.openpnp</groupId>
+			<artifactId>opencv</artifactId>
+			<version>4.5.3-4</version>
+		</dependency>
 		<!-- Lombok -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
