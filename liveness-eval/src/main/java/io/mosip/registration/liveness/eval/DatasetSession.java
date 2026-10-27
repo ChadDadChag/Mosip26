@@ -74,6 +74,7 @@ final class DatasetSession {
     static final String BANDING = "f2_banding";
     static final String SLIDESHOW = "slideshow";
     static final String PRINT_MULTI = "print_multi";
+    static final String CUTOUTS_CURVED = "cutouts_curved";
     private static final String OUT_OF_VIEW = "; your own face OUT of view";
     private static final String NOBODY = "; ONLY the picture and your hand in view: your face, body and anyone else OUT"
             + " of view";
@@ -142,6 +143,13 @@ final class DatasetSession {
         stream(p, PRINT_MULTI, "print_multi", "curved", 240,
                 "CUT-OUTS CURVED: each cut-out in turn CURVED around your hand, about 20 cm from the camera, twice for"
                         + " 5 s, taking it out of view for 1 s between" + OUT_OF_VIEW);
+        // The same, one short recording per cut-out (SPACE before each), segmented the same way.
+        for (int k = 1; k <= 12; k++) {
+            String condition = String.format("curved_%02d", k);
+            p.add(new Step("print_multi", 1, condition, "CUT-OUT " + k + " of 12, CURVED: bend it gently, about 20 cm from"
+                    + " the camera, face to the lens: 5 s, out of view 1 s, 5 s again" + OUT_OF_VIEW, CUTOUTS_CURVED,
+                    "streams/<subject>/" + condition, 13, 10, "jpg"));
+        }
         return p;
     }
 

@@ -82,5 +82,13 @@ class DatasetSessionTest {
             assertThat(s.take("s01", root).dir()).isEqualTo(new File(root, "streams/s01/" + s.condition));
         }
         assertThat(DatasetSession.cameraFps(show)).isEqualTo(15.0);
+        // One short recording per curved cut-out (SPACE before each), segmented like the long ones.
+        List<DatasetSession.Step> each = select(DatasetSession.CUTOUTS_CURVED);
+        assertThat(each).hasSize(12).allSatisfy(s -> {
+            assertThat(s.label).isEqualTo("print_multi");
+            assertThat(s.seconds).isEqualTo(13);
+        });
+        assertThat(each.get(0).take("s01", root).dir()).isEqualTo(new File(root, "streams/s01/curved_01"));
+        assertThat(each.get(11).prompt).startsWith("CUT-OUT 12 of 12, CURVED");
     }
 }
