@@ -19,6 +19,7 @@ import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.geometry.NodeOrientation;
 import javafx.geometry.Pos;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.AccessibleAttribute;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -67,6 +68,8 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 	static final double STATUS_SIZE = 20;
 	static final double STATUS_MIN_SIZE = 16;
 	static final Duration STATUS_FADE = Duration.millis(200);
+	/** Room for the window's title bar when {@link #fitTo} fits the window to a screen. */
+	static final double TITLE_BAR = 40;
 	static final String ATTEMPTS_LEFT = "liveness.retry.attempts_left";
 
 	private static final Map<LivenessScreenModel.Icon, String> ICONS = new EnumMap<>(LivenessScreenModel.Icon.class);
@@ -173,6 +176,16 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 		return root;
 	}
 
+	/**
+	 * Fits the window to a screen's usable area ({@code Screen.getVisualBounds()}): the FXML's 720x820 at most, less
+	 * on a smaller screen (1366x768, or 1920x1080 at 150%), so the buttons stay on it. The camera card gives up the
+	 * height. Call before the window is shown.
+	 */
+	public void fitTo(Rectangle2D visualBounds) {
+		root.setPrefSize(Math.min(root.getPrefWidth(), visualBounds.getWidth()),
+				Math.min(root.getPrefHeight(), visualBounds.getHeight() - TITLE_BAR));
+	}
+
 	public void setOnRetry(Runnable r) { onRetry = r; }
 	public void setOnCancel(Runnable r) { onCancel = r; }
 	public void setOnClose(Runnable r) { onClose = r; }
@@ -217,8 +230,7 @@ public final class LivenessView implements PreviewFrameSource.PreviewListener {
 			crossFade();
 		}
 		lastStatus = statusText;
-		statusMessage = statusText;
-		status.setText(statusText); // resize() breaks it into its lines
+		statusMessage = statusText; // resize() sets the label's text once, in its lines
 
 		String icon = ICONS.get(m.icon());
 		camera.badgeIcon().setContent(icon);

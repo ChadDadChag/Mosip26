@@ -23,15 +23,18 @@ import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.geometry.NodeOrientation;
 import javafx.geometry.Point2D;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 import javafx.scene.shape.LineTo;
 import javafx.scene.shape.MoveTo;
 import javafx.scene.shape.PathElement;
 import javafx.scene.text.Text;
+import javafx.stage.Stage;
 
 /**
  * {@code docs/ui-liveness-spec.md} §9 on the Desktop: every documented state (the screen demo's, {@code
@@ -65,6 +68,95 @@ public class LivenessViewLayoutTest {
 	@Test
 	public void everyStateFitsALargeScreen() throws Exception {
 		everyState(LivenessMessages.english(), 1280, 800);
+	}
+
+	/**
+	 * The window is 720x820 and not resizable. A 1366x768 screen, or 1920x1080 at 150%, has about 728 px of usable
+	 * height: with the title bar, the buttons were below the screen (task 19 review). The window now takes at most the
+	 * screen's usable height, and every state fits there.
+	 */
+	@Test
+	public void theWindowFitsAShortScreenAndEveryStateFitsThere() throws Exception {
+		AtomicReference<double[]> sizes = new AtomicReference<>();
+		onFx(() -> {
+			LivenessView short768 = LivenessView.load(LivenessMessages.english(), false);
+			short768.fitTo(new Rectangle2D(0, 0, 1366, 728)); // 1366x768 less a 40 px taskbar
+			LivenessView large = LivenessView.load(LivenessMessages.english(), false);
+			large.fitTo(new Rectangle2D(0, 0, 1920, 1040));
+			Region s768 = (Region) short768.root(), big = (Region) large.root();
+			sizes.set(new double[] { s768.getPrefWidth(), s768.getPrefHeight(), big.getPrefWidth(), big.getPrefHeight() });
+			short768.dispose();
+			large.dispose();
+		});
+		double[] s = sizes.get();
+		assertEquals(720, s[0], 0);
+		assertEquals(728 - LivenessView.TITLE_BAR, s[1], 0);
+		assertEquals(720, s[2], 0);
+		assertEquals(820, s[3], 0);
+		everyState(LivenessMessages.english(), s[0], s[1]);
+	}
+
+	/**
+	 * A render sets the status label's text once, already in its lines, and not at all when the status is the same:
+	 * each change is a relayout and, for a screen reader, a text change (task 19 review).
+	 */
+	@Test
+	public void aRenderChangesTheStatusTextOnlyWhenTheStatusChanges() throws Exception {
+		int[] wrapped = new int[1];
+		for (double width : new double[] { 720, 320 }) {
+			for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
+				onFx(() -> {
+					LivenessView v = LivenessScreenDemo.layOut(s, LivenessMessages.english(), width, 820, null);
+					wrapped[0] += v.status().getText().contains("\n") ? 1 : 0;
+					List<String> changes = new ArrayList<>();
+					v.status().textProperty().addListener((o, a, b) -> changes.add(b));
+					LivenessScreenModel same = new LivenessScreenModel(s.workflow, 3);
+					s.drive.accept(same);
+					v.render(same);
+					assertEquals(s.name + " at " + (int) width + ": " + changes, 0, changes.size());
+					v.dispose();
+				});
+			}
+		}
+		assertTrue("a wrapped status was rendered", wrapped[0] > 0);
+	}
+
+	/** At 125%, 150% and 175% display scaling no status, tip or button text is cut short. */
+	@Test
+	public void noTextIsCutShortAtFractionalScaling() throws Exception {
+		for (double scale : new double[] { 1.25, 1.5, 1.75 }) {
+			for (double width : new double[] { 720, 480, 320 }) {
+				for (LivenessScreenDemo.Screen s : LivenessScreenDemo.screens()) {
+					onFx(() -> {
+						LivenessView v = LivenessScreenDemo.layOut(s, LivenessMessages.english(), width, 820, null);
+						Stage stage = new Stage();
+						stage.setRenderScaleX(scale);
+						stage.setRenderScaleY(scale);
+						stage.setScene(v.root().getScene());
+						for (int i = 0; i < 2; i++) {
+							v.root().applyCss();
+							v.root().layout();
+						}
+						String at = s.name + " at " + (int) width + " x" + scale;
+						assertTrue(at + ": sizes snap to the scale's pixels", Math.abs(v.status().snapSizeX(1) - 1) > 0.1);
+						for (Node n : v.root().lookupAll(".label")) {
+							Label l = (Label) n;
+							Text drawn = (Text) l.lookup(".text");
+							if (shown(l) && drawn != null) {
+								assertEquals(at, l.getText(), drawn.getText());
+							}
+						}
+						for (Button b : v.buttons()) {
+							Text drawn = (Text) b.lookup(".text");
+							if (b.isManaged() && drawn != null) {
+								assertEquals(at, b.getText(), drawn.getText());
+							}
+						}
+						v.dispose();
+					});
+				}
+			}
+		}
 	}
 
 	/**

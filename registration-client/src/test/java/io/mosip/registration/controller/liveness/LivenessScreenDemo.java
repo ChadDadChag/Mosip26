@@ -181,6 +181,7 @@ public final class LivenessScreenDemo {
 		LivenessView view = LivenessView.load(LivenessMessages.english(), true);
 		Stage stage = new Stage();
 		stage.setTitle(LivenessMessages.english().text(model.title()));
+		view.fitTo(javafx.stage.Screen.getPrimary().getVisualBounds()); // as the gate does
 		stage.setScene(new Scene(view.root()));
 		view.render(model);
 		PreviewFrameSource source = new PreviewFrameSource(device);
