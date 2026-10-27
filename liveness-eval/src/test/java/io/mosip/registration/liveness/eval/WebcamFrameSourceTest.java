@@ -167,4 +167,35 @@ class WebcamFrameSourceTest {
         // The public constructors build without touching a camera (TraceRecorder instantiates reflectively).
         assertThat(new WebcamFrameSource().info().deviceId).isEqualTo("webcam:0");
     }
+
+    @Test
+    void theCaptureBackendIsOpencvWithASarxosFallbackOrSarxos() {
+        assertThat(WebcamFrameSource.grabber(null, 0)).isInstanceOf(WebcamFrameSource.FallbackGrabber.class);
+        assertThat(WebcamFrameSource.grabber(" OpenCV ", 0)).isInstanceOf(WebcamFrameSource.FallbackGrabber.class);
+        assertThat(WebcamFrameSource.grabber("sarxos", 1)).isInstanceOf(WebcamFrameSource.SarxosGrabber.class);
+        assertThat(WebcamFrameSource.grabber("opencv", 2).name()).isEqualTo("opencv:2"); // before open
+        assertThatThrownBy(() -> WebcamFrameSource.grabber("v4l", 0)).hasMessageContaining("opencv or sarxos");
+        assertThat(new WebcamFrameSource("sarxos", 3, 640, 480, 15).info().deviceId).isEqualTo("webcam:3");
+    }
+
+    @Test
+    void theFallbackIsUsedWhenTheFirstGrabberCannotOpen() throws Exception {
+        FakeGrabber broken = new FakeGrabber(), spare = new FakeGrabber();
+        broken.failOpen = true;
+        WebcamFrameSource.FallbackGrabber g = new WebcamFrameSource.FallbackGrabber(broken, spare);
+        g.open(4, 3);
+        assertThat(broken.closes.get()).isEqualTo(1);
+        assertThat(spare.opens.get()).isEqualTo(1);
+        assertThat(g.grab().getWidth()).isEqualTo(4);
+        assertThat(spare.grabs.get()).isEqualTo(1);
+        g.close();
+        assertThat(spare.closes.get()).isEqualTo(1);
+
+        FakeGrabber good = new FakeGrabber(), unused = new FakeGrabber();
+        WebcamFrameSource.FallbackGrabber h = new WebcamFrameSource.FallbackGrabber(good, unused);
+        h.open(4, 3);
+        h.grab();
+        assertThat(good.grabs.get()).isEqualTo(1);
+        assertThat(unused.opens.get()).isZero();
+    }
 }

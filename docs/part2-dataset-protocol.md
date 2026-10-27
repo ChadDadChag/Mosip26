@@ -154,6 +154,8 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
     their spectra (`docs/part2-f2-screen-cue-design.md`, section 6.2).
 - **Starting a block:** `scripts\dataset-session.ps1 -Consent -Subject s01 -Only <block>` runs the session with this
   repository's build. Without `-Consent` it refuses.
+- **Camera backend:** both launchers take `-Capture opencv|sarxos`. The default is OpenCV; if OpenCV cannot open the
+  camera, the tools fall back to sarxos and say so. F13: sarxos ended long series with a native exit (code 116).
 - **Many identities: a labelled photo folder.** Photos of people the participant knows, used with their consent,
   kept in an untracked folder that is also listed in `.git/info/exclude`. Nothing from it is ever committed: not
   the photos, not the recordings, not the print sheets, not the contact sheets, not `labels.csv`.
