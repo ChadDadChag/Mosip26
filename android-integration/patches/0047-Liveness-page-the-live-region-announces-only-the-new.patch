@@ -1,0 +1,139 @@
+From ed14f911890b3fd9d0561a7682507c1b1f2b5cd0 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 02:44:38 +0530
+Subject: [PATCH 47/57] Liveness page: the live region announces only the new
+ status; landscape and large text scroll (task 19 review)
+
+- Live region: during the 200 ms status cross-fade, the outgoing status was still in the semantics tree. The live
+  region briefly read the old and the new status together, so TalkBack could announce a status twice. The status card
+  now carries its label itself (the current status only) and excludes the switcher from semantics. The new test failed
+  before the fix: mid-fade the label still held the old status.
+- Overflow: the fixed layout has no scrolling (spec section 9: portrait up to a 1.3 text scale). On a landscape phone
+  (640x360) or at text scale 2.0, the fixed parts no longer fit: the camera card collapsed and the column overflowed.
+  The old page scrolled. When the content area is below 420 dp or the text scale is above 1.3, the page now scrolls,
+  with a camera card of 160 dp, and the buttons stay pinned.
+- Tests:
+  - 46 new: every state at 640x360 and at 360x640 with text scale 2.0, checking no overflow, the buttons on screen
+    and 48 high, and the camera card at 160. With the fallback switched off, all 46 failed, some with an overflow.
+  - The live-region test.
+  - 287 Flutter liveness tests in all.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/liveness/liveness_page.dart           | 27 +++++++++++++++++-
+ lib/ui/liveness/liveness_style.dart          |  5 ++++
+ test/liveness/liveness_page_layout_test.dart | 30 ++++++++++++++++++++
+ 3 files changed, 61 insertions(+), 1 deletion(-)
+
+diff --git a/lib/ui/liveness/liveness_page.dart b/lib/ui/liveness/liveness_page.dart
+index ff607bf..7413816 100644
+--- a/lib/ui/liveness/liveness_page.dart
++++ b/lib/ui/liveness/liveness_page.dart
+@@ -297,6 +297,26 @@ class _LivenessPageState extends State<LivenessPage> {
+ 
+   Widget _content(AppLocalizations l, LivenessViewState s, Color tone) {
+     return LayoutBuilder(builder: (context, c) {
++      // A landscape phone or a text scale above 1.3: the page scrolls, with a camera card of a fixed size, so nothing
++      // overflows and the preview never collapses. The fixed layout below is for portrait up to 1.3 (spec §9).
++      if (c.maxHeight < LivenessStyle.compactHeight ||
++          MediaQuery.textScaleFactorOf(context) > LivenessStyle.maxFixedTextScale) {
++        return SingleChildScrollView(
++          child: Column(
++            children: [
++              SizedBox(
++                height: LivenessStyle.compactCameraHeight,
++                child: Center(child: AspectRatio(aspectRatio: 3 / 4, child: _preview(s, tone))),
++              ),
++              const SizedBox(height: 12),
++              _statusCard(l, s, tone),
++              _secondaryLine(l, s),
++              _progressRow(l, s),
++              if (s.tips) ...[const SizedBox(height: 12), _tips(l)],
++            ],
++          ),
++        );
++      }
+       return Column(
+         children: [
+           // The camera card takes what is left, up to its share of the screen: less with the tips.
+@@ -361,10 +381,14 @@ class _LivenessPageState extends State<LivenessPage> {
+ 
+   Widget _statusCard(AppLocalizations l, LivenessViewState s, Color tone) {
+     final key = s.statusKey;
++    // The live region carries the current status only: during the cross-fade the outgoing text is still painted,
++    // and it must not be announced again together with the new one.
+     return Semantics(
+       liveRegion: true,
+       container: true,
+-      child: Container(
++      label: key == null ? '' : livenessText(l, key),
++      child: ExcludeSemantics(
++        child: Container(
+         key: const Key('liveness.status'),
+         width: double.infinity,
+         constraints: const BoxConstraints(minHeight: LivenessStyle.statusMinHeight),
+@@ -404,6 +428,7 @@ class _LivenessPageState extends State<LivenessPage> {
+           ),
+         ),
+       ),
++      ),
+     );
+   }
+ 
+diff --git a/lib/ui/liveness/liveness_style.dart b/lib/ui/liveness/liveness_style.dart
+index 3badbe2..9020e8a 100644
+--- a/lib/ui/liveness/liveness_style.dart
++++ b/lib/ui/liveness/liveness_style.dart
+@@ -41,6 +41,11 @@ class LivenessStyle {
+   static const double cameraShare = 0.45;
+   /// The tips card's most, as a share of the content area; beyond it the tips scroll.
+   static const double tipsMaxShare = 0.40;
++  /// Below this content height (a landscape phone) or above this text scale, the page scrolls instead, with a
++  /// camera card of [compactCameraHeight].
++  static const double compactHeight = 420;
++  static const double maxFixedTextScale = 1.3;
++  static const double compactCameraHeight = 160;
+   static const double ovalStroke = 4;
+   static const double badge = 28;
+   static const double badgeIcon = 18;
+diff --git a/test/liveness/liveness_page_layout_test.dart b/test/liveness/liveness_page_layout_test.dart
+index 0f6b018..9636da2 100644
+--- a/test/liveness/liveness_page_layout_test.dart
++++ b/test/liveness/liveness_page_layout_test.dart
+@@ -171,6 +171,36 @@ void main() {
+     expect(tester.hasRunningAnimations, isFalse);
+   });
+ 
++  // A landscape phone and a text scale of 2.0: the page scrolls, nothing overflows, the buttons stay on screen
++  // and the camera card keeps its compact size (the fixed layout is for portrait up to 1.3).
++  for (final screen in [...livenessScreens, ...livenessExtraScreens]) {
++    for (final compact in const [_Variant('landscape 640x360', 1.0), _Variant('360x640 at', 2.0)]) {
++      testWidgets('${screen.name}, compact: $compact', (tester) async {
++        final size = compact.textScale == 1.0 ? const Size(640, 360) : const Size(360, 640);
++        await showLivenessScreen(tester, screen, size, textScale: compact.textScale);
++        expect(tester.takeException(), isNull, reason: 'no overflow');
++        for (var i = 0; i < buttons.evaluate().length; i++) {
++          final r = tester.getRect(buttons.at(i));
++          expect(r.bottom, lessThanOrEqualTo(size.height));
++          expect(r.height, greaterThanOrEqualTo(LivenessStyle.buttonHeight));
++        }
++        expect(tester.getSize(find.byKey(const Key('liveness.camera'))).height,
++            moreOrLessEquals(LivenessStyle.compactCameraHeight, epsilon: 0.5));
++      });
++    }
++  }
++
++  testWidgets('during the status fade the live region holds only the new status', (tester) async {
++    final semantics = tester.ensureSemantics();
++    final service = await showLivenessScreen(tester, livenessScreens.first, const Size(360, 640));
++    service.emit(ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
++    await tester.pump();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 50)); // mid-fade: the old status is still painted
++    expect(tester.getSemantics(find.byKey(const Key('liveness.status'))).label, 'Please blink');
++    semantics.dispose();
++  });
++
+   testWidgets('the step bar: done steps full, the current one at least half', (tester) async {
+     final service = await showLivenessScreen(tester, livenessScreens.first, const Size(360, 640));
+     service.emit(ev('CHALLENGE_PROMPT', challenge: 'SMILE', index: 2, count: 3));

@@ -20,7 +20,7 @@ phone: [`docs/part5-android-benchmark.md`](../docs/part5-android-benchmark.md).
 
 | path | what it is |
 |---|---|
-| `patches/0001-*.patch` … `0042-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
+| `patches/0001-*.patch` … `0057-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
 | `person5-liveness.diff` | the same changes as one diff, for `git apply` |
 | `scripts/sync-engine.ps1` | builds the engine here and copies it into the client: the four engine jars, the signed model bundle and Part 1's `CameraXFrameSource.java`; writes `android/liveness/engine-sync.txt` |
 | `scripts/apply-integration.ps1` | clones the tag, applies the patches, runs the sync and, with `-BuildApk`, builds the app |
@@ -142,7 +142,9 @@ On a Samsung phone:
 4. If the phone has a Secure Folder, keep `--user 0` in the install command.
 
 Without a MOSIP backend the app stops at the Login page. In debug and profile builds that page
-has a **Liveness test** button (top right), which opens the debug page. From there you can:
+has a **Face liveness demo** button (top right). It opens the demo page: the three real checks, the F15
+identity check, the models, the diagnostics and the simulated screens (`docs/part5-android-integration.md`,
+section 9). Its last row, **Developer tools**, opens the debug page. From the debug page you can:
 - run sessions with the real or the fake engine;
 - run every hook through `LivenessGate` (the "Hook gates" buttons);
 - run the analyzer benchmark;
@@ -189,21 +191,49 @@ bundled version.
 
    For a byte-identical result, use `sync-engine.ps1 -SkipBuild` with the jars that were synced
    into the branch.
-2. **Tests** (counts as of 2026-10-27):
-   - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 112 tests, all passing. The face
+2. **Tests** (counts as of 2026-10-28):
+   - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 121 tests, all passing. The face
      binding and identity binding tests run the real matcher: the module's unit-test classpath swaps in the desktop
      ONNX Runtime (`android/liveness/build.gradle`).
-   - `flutter test test/liveness`: 98 tests, all passing.
-3. **On a phone:** open the debug page and run:
+   - `flutter test test/liveness`: 302 tests, all passing (the 20 screenshot tests are skipped unless
+     `LIVENESS_SCREENSHOTS` names a folder).
+3. **On a phone:** open the debug page (**Face liveness demo**, then **Developer tools**) and run:
    - one "Resident face" hook gate with the fake engine, which needs no camera;
    - one "Resident face" hook gate with the real engine, looking at the camera;
    - the face binding test: "1. Binding gate", then "2. Capture still and bind" with the same
      face in view, which gives MATCH;
    - the offline model install (F17): "Face liveness models (production page)", then Install
      model bundle with a signed test bundle zip in Downloads, then Roll back model bundle;
-   - identity binding (F15), in the "Identity binding test (F15)" card: enroll your face as the
-     test user, check yourself (MATCH), let a teammate check (NO_MATCH), then delete the test
-     template.
+   - identity binding (F15), in the demo page's "Identity check" card (or the debug page's
+     "Identity binding test (F15)" card): the operator enrolls once ("1. Enroll the operator's face
+     (once)"), checks themself ("Same person"), a teammate checks with "2. Check identity
+     (anyone)" ("Different person – refused"), then delete the test face. The verdict is the
+     panel in the card, not the face check's "face captured" screen before it.
+
+## Fonts (task 21)
+
+The app bundles one typeface for its six languages (patch 0054): Noto Sans, with Noto Sans Arabic, Devanagari,
+Kannada and Tamil as fallbacks. Static unhinted TTFs from
+[notofonts/notofonts.github.io](https://github.com/notofonts/notofonts.github.io) at commit
+`c1d3718e2a0eb25c2567a694ee017061fdaa5f51` (`fonts/<family>/unhinted/ttf/`), in the client's `assets/fonts/`.
+Licence: SIL Open Font License 1.1, in `assets/fonts/OFL.txt` (the five families' copyright lines and the OFL text,
+the same for all five, from google/fonts `ddf386ba1b9fbc6b2c818f1ddcd9148f54ced94b`); the app lists it on its
+licence page.
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `NotoSans-Bold.ttf` | 432,376 | `87cb2d84472a7d66da659ee47b6cdb9552326e8c128245231f191b6ac72529d9` |
+| `NotoSans-Medium.ttf` | 431,176 | `220e74546aee1b9a17cd50025dd917a064d0224e653f562287446c2328e4160b` |
+| `NotoSans-Regular.ttf` | 431,364 | `f3961a9cde016d41a4879aecda1474d3a36d6bf54fa0e4643de029cc2248b0e8` |
+| `NotoSans-SemiBold.ttf` | 431,500 | `a7af8d4a11e8e49fea9a19786a6469210b512cd4061413e8036bdd2425722795` |
+| `NotoSansArabic-Regular.ttf` | 142,140 | `bd86ca02f087d7f3c3788ba458fb6b73744c7639ed276b8d870dba6def6c40d0` |
+| `NotoSansArabic-SemiBold.ttf` | 141,856 | `36482b7e28267a3ea73eb6b86cf697747b5fbe272a9692df739ded695773642a` |
+| `NotoSansDevanagari-Regular.ttf` | 184,228 | `9c7d935139ea6a1e6ad9dbac4f6d27ece1e04bca8123c8888d00a0f9df4724cd` |
+| `NotoSansDevanagari-SemiBold.ttf` | 183,996 | `efaa7d3f82ef6898e3fa79101f0d2b5ab9a25554296044123b402b7b571311b9` |
+| `NotoSansKannada-Regular.ttf` | 135,488 | `2870274619c2a4abe5d6b11fcb7c4a372eba765b6b7881d459b0eb0a609a68eb` |
+| `NotoSansKannada-SemiBold.ttf` | 133,860 | `0fbd50bbab33fb6329a840019f1fc8b60e288a8a61c199e08b9d29b8c05ae98b` |
+| `NotoSansTamil-Regular.ttf` | 46,600 | `6634d9cc97a726e670df41281dd32b167a6b9b71f2036e19671ff08fdde0c292` |
+| `NotoSansTamil-SemiBold.ttf` | 46,400 | `834cfefd9865d9a74e650b21455c172b7078fcbe32215ac0f7b869111fcd7384` |
 
 ## Regenerate the patches
 

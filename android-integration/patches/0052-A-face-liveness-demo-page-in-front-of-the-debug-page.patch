@@ -1,0 +1,1504 @@
+From cc9d933e50ac5336077344e677221b562ffce844 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 11:54:01 +0530
+Subject: [PATCH 52/57] A face liveness demo page in front of the debug page
+ (task 21, A)
+
+The debug and profile builds open a new page, LivenessDemoPage ("Face
+liveness demo"), from the sign-in page; release builds get an empty
+Scaffold, as for the debug page. English only, always left to right (the
+app language it switches is for the face check, not for this menu).
+Sections:
+- Run a check: Resident face capture, Operator sign-in and Supervisor
+  approval, each through LivenessGate.run with the real engine, as the
+  debug page's hook gates call it. A result panel with a sentence
+  ("Passed - no action needed", "Passed after N actions", "Not
+  verified"), the engine's user message in English and one line of time
+  and attempts. It never shows an image (a test checks it). Under it:
+  "Always ask for actions" (the debug page's passiveThreshold 0.9999
+  override), the app language (the debug page's list) and front/back
+  (the camera override of all three workflows).
+- Identity check (F15): enroll, check, delete, with the debug page's
+  calls and the result in plain words.
+- Models: the loaded version and the production model page, with the
+  same diagnostics-only role override as the debug page.
+- Diagnostics: tiles of the persisted metrics (8 existing fields, with
+  units; no data shows "-"), Refresh, and Reset after a confirmation.
+- Simulated screens: the fake engine's 13 scenarios in plain words; each
+  opens LivenessPage on the fake engine with the placeholder preview.
+- Developer tools: opens LivenessDebugPage. On return from it or from the
+  model page, the shown state (overrides, models) is read again.
+
+The native side keeps config overrides in memory and cannot list them, so
+LivenessDevOverrides records the ones this process set. The debug page's
+_setOverride now sets them through it: the same native call, the same log
+line; nothing else in the debug page changes (its switches still start
+off, as before).
+
+Tests: liveness_demo_page_test.dart, 11 (no overflow at 360x640 and
+412x915 at text scale 1.0 and 1.3, including a failed result; each check
+card runs the gate with its workflow; no image in the result panel; each
+simulated row selects its scenario on the fake engine; the overrides;
+F15; the metrics tiles and Reset; Developer tools opens the debug page and
+the return refreshes). FakeLivenessService records the overrides and has a
+settable model version. flutter test test/liveness: 298 passing, 20
+skipped (the screenshots).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/liveness/liveness_debug_page.dart    |   3 +-
+ lib/ui/liveness/liveness_demo_page.dart     | 978 ++++++++++++++++++++
+ lib/ui/liveness/liveness_dev_overrides.dart |  34 +
+ test/liveness/fake_liveness_service.dart    |  15 +-
+ test/liveness/liveness_demo_page_test.dart  | 366 ++++++++
+ 5 files changed, 1393 insertions(+), 3 deletions(-)
+ create mode 100644 lib/ui/liveness/liveness_demo_page.dart
+ create mode 100644 lib/ui/liveness/liveness_dev_overrides.dart
+ create mode 100644 test/liveness/liveness_demo_page_test.dart
+
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index d2a95b0..876fa3a 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
+ import 'package:registration_client/pigeon/liveness_pigeon.dart';
+ import 'package:registration_client/platform_spi/liveness_service.dart';
+ import 'package:registration_client/provider/global_provider.dart';
++import 'package:registration_client/ui/liveness/liveness_dev_overrides.dart';
+ import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/ui/liveness/liveness_page.dart';
+ import 'package:registration_client/ui/liveness/model_bundle_page.dart';
+@@ -531,7 +532,7 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+ 
+   Future<void> _setOverride(String key, String value) async {
+     try {
+-      await _service.setConfigOverride(key, value);
++      await LivenessDevOverrides.set(_service, key, value); // recorded for the demo page
+       _addLog('override $key=${value.isEmpty ? '(removed)' : value}');
+     } on PlatformException catch (e) {
+       _addLog('override failed: ${e.message}');
+diff --git a/lib/ui/liveness/liveness_demo_page.dart b/lib/ui/liveness/liveness_demo_page.dart
+new file mode 100644
+index 0000000..b7ca90c
+--- /dev/null
++++ b/lib/ui/liveness/liveness_demo_page.dart
+@@ -0,0 +1,978 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'dart:async';
++
++import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:provider/provider.dart';
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/platform_spi/liveness_service.dart';
++import 'package:registration_client/provider/global_provider.dart';
++import 'package:registration_client/ui/liveness/liveness_debug_page.dart';
++import 'package:registration_client/ui/liveness/liveness_dev_overrides.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++import 'package:registration_client/ui/liveness/liveness_strings.dart';
++import 'package:registration_client/ui/liveness/liveness_style.dart';
++import 'package:registration_client/ui/liveness/model_bundle_page.dart';
++
++/// Debug and profile builds only (never release): the face liveness demo the sign-in page opens. It runs the real
++/// engine through [LivenessGate.run] as the registration flows do, the F15 identity test, the model page, the
++/// persisted metrics and the fake engine's scripted screens; [LivenessDebugPage] stays below as "Developer tools".
++/// English only and always left to right: the language picker changes the app (and so the face check), not this
++/// page. It never shows an image from a session.
++class LivenessDemoPage extends StatefulWidget {
++  const LivenessDemoPage({super.key, this.service, this.api, this.previewBuilder});
++
++  /// Tests: a scripted engine and diagnostics channel; null uses the app's.
++  final LivenessService? service;
++  final LivenessApi? api;
++
++  /// Tests: stands in for the camera preview of the real checks.
++  final Widget Function()? previewBuilder;
++
++  @override
++  State<LivenessDemoPage> createState() => _LivenessDemoPageState();
++}
++
++class _LivenessDemoPageState extends State<LivenessDemoPage> {
++  // The debug page's keys and values.
++  static const String _fakeScenarioKey = 'mosip.registration.liveness.fake.scenario';
++  static const String _passiveThresholdKey = 'mosip.registration.liveness.face.default.passiveThreshold';
++  static const String _forcedThreshold = '0.9999';
++  // LivenessServiceHolder.cameraFor reads <prefix><workflow>.camera.
++  static const String _cameraKeyPrefix = 'mosip.registration.liveness.face.android.';
++  static const String _identityTestUser = 'f15-test-user';
++  static const List<String> _workflows = [LivenessGate.resident, LivenessGate.operator, LivenessGate.supervisor];
++  // The debug page's list: the app's languages, by their own names.
++  static const Map<String, String> _uiLanguages = {
++    'eng': 'English',
++    'ara': 'العربية',
++    'fra': 'Français',
++    'hin': 'हिंदी',
++    'kan': 'ಕನ್ನಡ',
++    'tam': 'தமிழ்',
++  };
++  static const List<_Run> _runs = [
++    _Run('Resident face capture', 'Before a resident\'s photo is taken', Icons.face_outlined, LivenessGate.resident),
++    _Run('Operator sign-in', 'After the operator\'s password', Icons.login, LivenessGate.operator),
++    _Run('Supervisor approval', 'Before packets are approved', Icons.verified_user_outlined, LivenessGate.supervisor),
++  ];
++  // The fake engine's scenarios (FakeScenario), in plain words.
++  static const List<List<String>> _scenarios = [
++    ['PASS_PASSIVE', 'Passed with no action'],
++    ['PASS_ACTIVE', 'Passed after actions'],
++    ['FAIL_CHALLENGE_THEN_PASS_ON_RETRY', 'Wrong action, passed on retry'],
++    ['CHALLENGE_TIMEOUT', 'Action too slow, passed on retry'],
++    ['NO_FACE_THEN_PASS', 'No face at first, then passed'],
++    ['MULTIPLE_FACES', 'Two people in view'],
++    ['POOR_LIGHTING_HINTS', 'Poor lighting hints'],
++    ['PAD_ATTACK', 'Photo attack refused'],
++    ['MAX_RETRIES_EXCEEDED', 'Too many attempts'],
++    ['DEVICE_DISCONNECT', 'Camera disconnected, then passed'],
++    ['DEVICE_FAILURE', 'Camera keeps failing'],
++    ['ENGINE_ERROR', 'Engine error'],
++    ['RANDOM', 'A random scenario'],
++  ];
++
++  late final LivenessService _service = widget.service ?? LivenessService();
++  late final LivenessApi _api = widget.api ?? LivenessApi();
++  StreamSubscription<LivenessMessage>? _subscription;
++  // The passing attempt's challenge count of each session, from its result message.
++  final Map<String, int> _actions = {};
++
++  bool _busy = false;
++  bool _running = false;
++  _Run? _lastRun;
++  GateResult? _lastResult;
++  String _modelVersion = '';
++  String _camera = 'front';
++  bool _forceActions = false;
++  bool _identityTemplate = false;
++  String? _identityLine;
++  String? _identityDetail;
++  Map<String, String> _metrics = const {};
++  bool _metricsLoaded = false;
++
++  @override
++  void initState() {
++    super.initState();
++    _subscription = _service.messages.listen((m) {
++      final session = m.sessionId;
++      if (m.isComplete && session != null) _actions[session] = m.challengesIssued.length;
++    });
++    _refreshAll();
++  }
++
++  @override
++  void dispose() {
++    _subscription?.cancel();
++    super.dispose();
++  }
++
++  /// The shown state: the models, the overrides (also after the debug page changed them), the test face, the metrics.
++  Future<void> _refreshAll() async {
++    String version = _modelVersion;
++    String camera = _camera;
++    bool template = _identityTemplate;
++    try {
++      version = await _service.modelVersion();
++      camera = await _service.cameraFor(LivenessGate.resident);
++    } on PlatformException catch (e) {
++      debugPrint('liveness demo: engine state failed: ${e.message}');
++    }
++    try {
++      template = await _api.hasIdentityTestTemplate();
++    } on PlatformException catch (e) {
++      debugPrint('liveness demo: test face status failed: ${e.message}');
++    }
++    if (!mounted) return;
++    setState(() {
++      _modelVersion = version;
++      _camera = camera;
++      _forceActions = LivenessDevOverrides.valueOf(_passiveThresholdKey) == _forcedThreshold;
++      _identityTemplate = template;
++    });
++    await _refreshMetrics();
++  }
++
++  Future<void> _refreshMetrics() async {
++    try {
++      final text = await _api.metrics();
++      final values = <String, String>{};
++      for (final line in text.split('\n')) {
++        final eq = line.indexOf('=');
++        if (eq > 0) values[line.substring(0, eq).trim()] = line.substring(eq + 1).trim();
++      }
++      if (mounted) {
++        setState(() {
++          _metrics = values;
++          _metricsLoaded = true;
++        });
++      }
++    } on PlatformException catch (e) {
++      debugPrint('liveness demo: metrics failed: ${e.message}');
++    }
++  }
++
++  Future<void> _resetMetrics() async {
++    final ok = await showDialog<bool>(
++      context: context,
++      builder: (dialogContext) => Directionality(
++        textDirection: TextDirection.ltr,
++        child: AlertDialog(
++          title: const Text('Reset the diagnostics?'),
++          content: const Text('All counts and times on this phone start again from zero.'),
++          actions: [
++            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
++            TextButton(
++                key: const Key('demo.metrics.resetConfirm'),
++                onPressed: () => Navigator.pop(dialogContext, true),
++                child: const Text('Reset')),
++          ],
++        ),
++      ),
++    );
++    if (ok != true) return;
++    try {
++      await _api.resetMetrics();
++    } on PlatformException catch (e) {
++      debugPrint('liveness demo: metrics reset failed: ${e.message}');
++    }
++    await _refreshMetrics();
++  }
++
++  Future<void> _setOverride(String key, String value) async {
++    try {
++      await LivenessDevOverrides.set(_service, key, value);
++    } on PlatformException catch (e) {
++      debugPrint('liveness demo: override $key failed: ${e.message}');
++    }
++  }
++
++  Future<void> _setForceActions(bool on) async {
++    setState(() => _forceActions = on);
++    await _setOverride(_passiveThresholdKey, on ? _forcedThreshold : '');
++  }
++
++  Future<void> _setCamera(String camera) async {
++    setState(() => _camera = camera);
++    for (final w in _workflows) {
++      await _setOverride('$_cameraKeyPrefix${w.toLowerCase()}.camera', camera);
++    }
++  }
++
++  /// One real check, exactly as the registration flow's hook calls it.
++  Future<void> _runCheck(_Run run) async {
++    setState(() {
++      _busy = true;
++      _running = true;
++      _lastRun = run;
++      _lastResult = null;
++    });
++    final result = await LivenessGate.run(context,
++        workflow: run.workflow, service: _service, previewBuilder: widget.previewBuilder);
++    if (!mounted) return;
++    setState(() {
++      _busy = false;
++      _running = false;
++      _lastResult = result;
++    });
++    // The native side merges the session's metrics in the background.
++    Future<void>.delayed(const Duration(milliseconds: 500), _refreshMetrics);
++  }
++
++  /// One scripted session of the fake engine on the face check screen, with the placeholder instead of a camera.
++  Future<void> _runSimulated(String scenario) async {
++    setState(() => _busy = true);
++    await _setOverride(_fakeScenarioKey, scenario);
++    if (!mounted) return;
++    await Navigator.push<LivenessOutcome>(
++      context,
++      MaterialPageRoute(
++        builder: (_) => LivenessPage(
++          workflow: LivenessGate.resident,
++          camera: _camera,
++          useFake: true,
++          service: _service,
++          previewBuilder: () => const LivenessPlaceholderPreview(),
++          showDebugInfo: false,
++        ),
++      ),
++    );
++    if (mounted) setState(() => _busy = false);
++  }
++
++  /// F15, enroll: a real Operator gate; its best frame becomes the test face (app-private). It is never shown.
++  Future<void> _identityEnroll() async {
++    setState(() {
++      _busy = true;
++      _identityLine = null;
++      _identityDetail = null;
++    });
++    final gate = await LivenessGate.run(context,
++        workflow: LivenessGate.operator, service: _service, previewBuilder: widget.previewBuilder);
++    String line;
++    if (gate.disabled) {
++      line = 'Liveness is off for operators – nothing enrolled';
++    } else if (!gate.proceed || gate.sessionId == null) {
++      line = 'Face check not passed – nothing enrolled';
++    } else {
++      try {
++        final outcome = await _api.enrollIdentityTestTemplate(gate.sessionId!);
++        line = outcome == 'ENROLLED'
++            ? 'Your face is enrolled as the test user'
++            : outcome == 'NO_LIVE_FRAME'
++                ? 'No face kept from the check – nothing enrolled'
++                : 'Enrolment failed – try again';
++      } on PlatformException catch (e) {
++        line = 'Enrolment failed: ${e.message}';
++      }
++    }
++    await _identityDone(line, null);
++  }
++
++  /// F15, check: a new Operator gate, then the production identity check against the test face.
++  Future<void> _identityCheck() async {
++    setState(() {
++      _busy = true;
++      _identityLine = null;
++      _identityDetail = null;
++    });
++    final gate = await LivenessGate.run(context,
++        workflow: LivenessGate.operator, service: _service, previewBuilder: widget.previewBuilder);
++    String line;
++    String? detail;
++    if (gate.disabled) {
++      line = 'Liveness is off for operators – nothing compared';
++    } else if (!gate.proceed || gate.sessionId == null) {
++      line = 'Face check not passed – nothing compared';
++    } else {
++      try {
++        await _api.setIdentityDiagnosticOverride(true);
++        final info = await _service.verifyIdentity(gate.sessionId!, _identityTestUser, 'diagnostics', 1);
++        line = _identityText(info);
++        if (!info.similarity.isNaN && info.outcome != 'MATCH') {
++          detail = 'Similarity ${info.similarity.toStringAsFixed(2)}, needed ${info.threshold.toStringAsFixed(2)}';
++        }
++      } on PlatformException catch (e) {
++        line = 'Identity check failed: ${e.message}';
++      } finally {
++        await _api.setIdentityDiagnosticOverride(false);
++      }
++    }
++    await _identityDone(line, detail);
++  }
++
++  Future<void> _identityDelete() async {
++    setState(() => _busy = true);
++    String line;
++    try {
++      line = await _api.deleteIdentityTestTemplate() ? 'Test face deleted' : 'No test face enrolled';
++    } on PlatformException catch (e) {
++      line = 'Delete failed: ${e.message}';
++    }
++    await _identityDone(line, null);
++  }
++
++  Future<void> _identityDone(String line, String? detail) async {
++    bool template = _identityTemplate;
++    try {
++      template = await _api.hasIdentityTestTemplate();
++    } on PlatformException catch (e) {
++      debugPrint('liveness demo: test face status failed: ${e.message}');
++    }
++    if (!mounted) return;
++    setState(() {
++      _busy = false;
++      _identityTemplate = template;
++      _identityLine = line;
++      _identityDetail = detail;
++    });
++  }
++
++  static String _identityText(IdentityCheckInfo info) {
++    switch (info.outcome) {
++      case 'MATCH':
++        return info.similarity.isNaN
++            ? 'Same person'
++            : 'Same person (similarity ${info.similarity.toStringAsFixed(2)})';
++      case 'NO_MATCH':
++        return 'Different person – refused';
++      case 'NOT_BOUND_NO_TEMPLATE':
++        return 'No test face enrolled';
++      case 'NOT_BOUND_UNREADABLE':
++        return 'The test face cannot be read – enroll again';
++      case 'NO_LIVE_FACE':
++        return 'No face found in the check – try again';
++      case 'NO_LIVE_FRAME':
++        return 'No face kept from the check – try again';
++      case 'SKIPPED':
++        return 'The identity check is turned off';
++      default:
++        return 'The comparison failed – try again';
++    }
++  }
++
++  /// F17: the production model page, with the diagnostics-only stand-in for the supervisor role while it is open.
++  Future<void> _openModelPage() async {
++    setState(() => _busy = true);
++    try {
++      await _api.setModelBundleDiagnosticOverride(true);
++      if (!mounted) return;
++      await Navigator.push(context, MaterialPageRoute(builder: (_) => const ModelBundlePage()));
++    } on PlatformException catch (e) {
++      debugPrint('liveness demo: model page failed: ${e.message}');
++    } finally {
++      try {
++        await _api.setModelBundleDiagnosticOverride(false);
++      } on PlatformException catch (e) {
++        debugPrint('liveness demo: model page override off failed: ${e.message}');
++      }
++      if (mounted) setState(() => _busy = false);
++      // A new analyzer loads in the background; its version shows once loaded.
++      await _refreshAll();
++    }
++  }
++
++  Future<void> _openDeveloperTools() async {
++    await Navigator.push(context, MaterialPageRoute(builder: (_) => const LivenessDebugPage()));
++    await _refreshAll();
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    if (!kDebugMode && !kProfileMode) return const Scaffold(body: SizedBox.shrink());
++    return Directionality(
++      textDirection: TextDirection.ltr,
++      child: Scaffold(
++        backgroundColor: _Demo.pageBackground,
++        appBar: AppBar(
++          backgroundColor: LivenessStyle.primary,
++          foregroundColor: Colors.white,
++          elevation: 0,
++        ),
++        body: ListView(
++          key: const Key('demo.list'),
++          padding: const EdgeInsets.only(bottom: 32),
++          children: [
++            _header(),
++            _section('Run a check', null, [
++              for (final run in _runs) ...[_runCard(run), const SizedBox(height: 12)],
++              _resultPanel(),
++              const SizedBox(height: 12),
++              _settings(context),
++            ]),
++            _section('Identity check (F15)', null, [_identityCard()]),
++            _section('Models', null, [_modelsCard()]),
++            _section('Diagnostics', 'Real checks on this phone, stored without images or names', [_diagnostics()]),
++            _section('Simulated screens', 'Fake engine – shows every message without a real check',
++                [_simulatedCard()]),
++            _section(null, null, [_developerToolsCard()]),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _width(Widget child) => Center(
++        child: ConstrainedBox(
++          constraints: const BoxConstraints(maxWidth: LivenessStyle.maxContentWidth),
++          child: Padding(
++            padding: const EdgeInsets.symmetric(horizontal: LivenessStyle.gutter),
++            child: child,
++          ),
++        ),
++      );
++
++  Widget _header() => Container(
++        color: LivenessStyle.primary,
++        padding: const EdgeInsets.only(bottom: 24),
++        child: _width(Column(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            const Text('Face liveness demo', style: _Demo.headline),
++            const SizedBox(height: 8),
++            const Text('Developer build · works offline · no MOSIP server needed', style: _Demo.onPrimary),
++            const SizedBox(height: 16),
++            Container(
++              key: const Key('demo.modelChip'),
++              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
++              decoration: BoxDecoration(
++                color: Colors.white.withOpacity(0.16),
++                borderRadius: BorderRadius.circular(999),
++              ),
++              child: Row(
++                mainAxisSize: MainAxisSize.min,
++                children: [
++                  const Icon(Icons.verified_outlined, size: 16, color: Colors.white),
++                  const SizedBox(width: 6),
++                  Flexible(
++                    child: Text(
++                      // A version is shown only once its signed bundle has been verified and loaded.
++                      _modelVersion.isEmpty ? 'Models loading…' : 'Models $_modelVersion · signed',
++                      style: _Demo.chip,
++                    ),
++                  ),
++                ],
++              ),
++            ),
++          ],
++        )),
++      );
++
++  Widget _section(String? title, String? caption, List<Widget> children) => _width(Column(
++        crossAxisAlignment: CrossAxisAlignment.stretch,
++        children: [
++          const SizedBox(height: 28),
++          if (title != null) ...[
++            Text(title, style: _Demo.title),
++            if (caption != null) ...[
++              const SizedBox(height: 4),
++              Text(caption, style: _Demo.caption),
++            ],
++            const SizedBox(height: 12),
++          ],
++          ...children,
++        ],
++      ));
++
++  Widget _runCard(_Run run) => _DemoCard(
++        key: Key('demo.run.${run.workflow}'),
++        onTap: _busy ? null : () => _runCheck(run),
++        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
++        child: Row(
++          children: [
++            _IconBadge(run.icon),
++            const SizedBox(width: 16),
++            Expanded(
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: [
++                  Text(run.title, style: _Demo.cardTitle),
++                  const SizedBox(height: 2),
++                  Text(run.line, style: _Demo.secondary),
++                ],
++              ),
++            ),
++            const SizedBox(width: 8),
++            const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
++          ],
++        ),
++      );
++
++  /// The last real check: a sentence and its numbers, never an image.
++  Widget _resultPanel() {
++    final run = _lastRun;
++    final result = _lastResult;
++    Widget content;
++    if (run == null) {
++      content = const _ResultRow(
++        icon: Icons.play_circle_outline,
++        tone: LivenessStyle.neutral,
++        sentence: 'No check yet',
++        message: 'Tap a check above. Its result shows here.',
++      );
++    } else if (_running || result == null) {
++      content = _ResultRow(
++        icon: Icons.hourglass_top,
++        tone: LivenessStyle.primary,
++        sentence: 'Checking…',
++        message: run.title,
++      );
++    } else {
++      final outcome = result.outcome;
++      final en = lookupAppLocalizations(const Locale('en'));
++      final seconds = outcome == null ? null : (outcome.durationMs / 1000).toStringAsFixed(1);
++      final attempts = outcome == null ? 0 : outcome.attempts;
++      final detail = seconds == null
++          ? run.title
++          : '${run.title} · $seconds s · $attempts ${attempts == 1 ? 'attempt' : 'attempts'}';
++      if (result.disabled) {
++        content = _ResultRow(
++          icon: Icons.toggle_off_outlined,
++          tone: LivenessStyle.neutral,
++          sentence: 'Liveness is off for this step',
++          message: 'The policy turns the face check off here; the step goes ahead without it.',
++          detail: run.title,
++        );
++      } else if (result.proceed) {
++        final n = _actions[outcome?.sessionId ?? ''];
++        content = _ResultRow(
++          icon: Icons.check_circle,
++          tone: LivenessStyle.success,
++          sentence: outcome?.passPath == 'PASSIVE_ONLY'
++              ? 'Passed – no action needed'
++              : n == null
++                  ? 'Passed after actions'
++                  : 'Passed after $n ${n == 1 ? 'action' : 'actions'}',
++          message: livenessText(en, 'liveness.status.passed'),
++          detail: detail,
++        );
++      } else if (result.cancelled) {
++        content = _ResultRow(
++          icon: Icons.remove_circle_outline,
++          tone: LivenessStyle.neutral,
++          sentence: 'Cancelled',
++          message: 'The check was closed before it finished.',
++          detail: detail,
++        );
++      } else {
++        final code = outcome?.userMessage;
++        content = _ResultRow(
++          icon: Icons.cancel,
++          tone: LivenessStyle.failure,
++          sentence: 'Not verified',
++          message: livenessText(
++              en,
++              code == null || code == 'NONE'
++                  ? 'liveness.error.verification_not_completed'
++                  : 'liveness.error.${code.toLowerCase()}'),
++          detail: detail,
++        );
++      }
++    }
++    return _DemoCard(key: const Key('demo.result'), child: content);
++  }
++
++  Widget _settings(BuildContext context) {
++    final global = context.watch<GlobalProvider>();
++    final language = _uiLanguages.containsKey(global.selectedLanguage) ? global.selectedLanguage : 'eng';
++    return _DemoCard(
++      padding: const EdgeInsets.symmetric(vertical: 8),
++      child: Column(
++        children: [
++          SwitchListTile(
++            key: const Key('demo.forceActions'),
++            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
++            secondary: const Icon(Icons.gesture, color: LivenessStyle.primary),
++            title: const Text('Always ask for actions (blink, turn, smile)', style: _Demo.body),
++            value: _forceActions,
++            activeColor: LivenessStyle.primary,
++            onChanged: _busy ? null : _setForceActions,
++          ),
++          const Divider(height: 1, indent: 16, endIndent: 16),
++          _settingRow(
++            Icons.translate,
++            'App language',
++            DropdownButton<String>(
++              key: const Key('demo.language'),
++              value: language,
++              underline: const SizedBox.shrink(),
++              items: _uiLanguages.entries
++                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: _Demo.body)))
++                  .toList(),
++              onChanged: _busy ? null : (code) => context.read<GlobalProvider>().toggleLocale(code!),
++            ),
++          ),
++          const Divider(height: 1, indent: 16, endIndent: 16),
++          _settingRow(
++            Icons.cameraswitch_outlined,
++            'Camera',
++            SegmentedButton<String>(
++              key: const Key('demo.camera'),
++              showSelectedIcon: false,
++              // The app's blue, not the theme's secondary colour.
++              style: ButtonStyle(
++                backgroundColor: MaterialStateProperty.resolveWith(
++                    (states) => states.contains(MaterialState.selected) ? LivenessStyle.primary : Colors.white),
++                foregroundColor: MaterialStateProperty.resolveWith(
++                    (states) => states.contains(MaterialState.selected) ? Colors.white : LivenessStyle.primary),
++                side: const MaterialStatePropertyAll(BorderSide(color: LivenessStyle.primary)),
++              ),
++              segments: const [
++                ButtonSegment(value: 'front', label: Text('Front')),
++                ButtonSegment(value: 'back', label: Text('Back')),
++              ],
++              selected: {_camera},
++              onSelectionChanged: _busy ? null : (s) => _setCamera(s.first),
++            ),
++          ),
++        ],
++      ),
++    );
++  }
++
++  Widget _settingRow(IconData icon, String label, Widget control) => Padding(
++        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
++        child: Row(
++          children: [
++            Icon(icon, color: LivenessStyle.primary),
++            const SizedBox(width: 32),
++            Expanded(
++              child: Wrap(
++                alignment: WrapAlignment.spaceBetween,
++                crossAxisAlignment: WrapCrossAlignment.center,
++                runSpacing: 4,
++                children: [Text(label, style: _Demo.body), control],
++              ),
++            ),
++          ],
++        ),
++      );
++
++  Widget _identityCard() => _DemoCard(
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.stretch,
++          children: [
++            Row(
++              children: [
++                const _IconBadge(Icons.how_to_reg_outlined),
++                const SizedBox(width: 16),
++                Expanded(
++                  child: Text(
++                    _identityTemplate
++                        ? 'A test face is enrolled on this phone. A new face check is compared with it.'
++                        : 'Enroll a test face (kept only on this phone), then compare a new face check with it.',
++                    style: _Demo.secondary,
++                  ),
++                ),
++              ],
++            ),
++            const SizedBox(height: 16),
++            _stepButton(const Key('demo.identity.enroll'), '1. Enroll my face (test user)',
++                _busy ? null : _identityEnroll),
++            const SizedBox(height: 8),
++            _stepButton(const Key('demo.identity.check'), '2. Check identity',
++                _busy || !_identityTemplate ? null : _identityCheck),
++            const SizedBox(height: 8),
++            _stepButton(const Key('demo.identity.delete'), '3. Delete test face',
++                _busy || !_identityTemplate ? null : _identityDelete),
++            const SizedBox(height: 16),
++            Text(_identityLine ?? (_identityTemplate ? 'Test face enrolled' : 'No test face enrolled'),
++                key: const Key('demo.identity.result'), style: _Demo.cardTitle),
++            if (_identityDetail != null) ...[
++              const SizedBox(height: 2),
++              Text(_identityDetail!, style: _Demo.caption),
++            ],
++          ],
++        ),
++      );
++
++  Widget _stepButton(Key key, String label, VoidCallback? onPressed) => TextButton(
++        key: key,
++        onPressed: onPressed,
++        style: TextButton.styleFrom(
++          foregroundColor: LivenessStyle.primary,
++          backgroundColor: LivenessStyle.primary.withOpacity(0.08),
++          disabledForegroundColor: LivenessStyle.textSecondary,
++          disabledBackgroundColor: LivenessStyle.tipsBackground,
++          minimumSize: const Size.fromHeight(LivenessStyle.buttonHeight),
++          alignment: Alignment.centerLeft,
++          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
++          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(LivenessStyle.buttonRadius)),
++        ),
++        child: Text(label, style: _Demo.label),
++      );
++
++  Widget _modelsCard() => _DemoCard(
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.stretch,
++          children: [
++            Row(
++              children: [
++                const _IconBadge(Icons.memory),
++                const SizedBox(width: 16),
++                Expanded(
++                  child: Column(
++                    crossAxisAlignment: CrossAxisAlignment.start,
++                    children: [
++                      const Text('Models in use', style: _Demo.caption),
++                      const SizedBox(height: 2),
++                      Text(_modelVersion.isEmpty ? 'Loading…' : _modelVersion,
++                          key: const Key('demo.modelVersion'), style: _Demo.cardTitle),
++                      const SizedBox(height: 2),
++                      const Text('Signed bundle, verified when loaded', style: _Demo.caption),
++                    ],
++                  ),
++                ),
++              ],
++            ),
++            const SizedBox(height: 16),
++            _stepButton(const Key('demo.manageModels'), 'Manage models', _busy ? null : _openModelPage),
++          ],
++        ),
++      );
++
++  Widget _diagnostics() {
++    String count(String key) => _metrics[key] ?? '–';
++    String number(String key, String Function(double) format) {
++      final v = double.tryParse(_metrics[key] ?? '');
++      return v == null || v.isNaN ? '–' : format(v);
++    }
++
++    final tiles = <List<String>>[
++      ['sessions', count('sessions'), 'Sessions'],
++      ['passedPassive', count('passedPassive'), 'Passed, no action'],
++      ['passedActive', count('passedActive'), 'Passed after actions'],
++      ['failedFinal', count('failedFinal'), 'Not verified'],
++      ['avgProcessingMs', number('avgProcessingMs', (v) => '${v.round()} ms'), 'Average time per frame'],
++      [
++        'avgChallengeCompletionMs',
++        number('avgChallengeCompletionMs', (v) => '${(v / 1000).toStringAsFixed(1)} s'),
++        'Average time per action'
++      ],
++      ['retryRate', number('retryRate', (v) => v.toStringAsFixed(2)), 'Retries per session'],
++      ['failureRate', number('failureRate', (v) => '${(v * 100).toStringAsFixed(1)} %'), 'Sessions not verified'],
++    ];
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.stretch,
++      children: [
++        LayoutBuilder(
++          builder: (context, constraints) {
++            final width = (constraints.maxWidth - 12) / 2;
++            return Wrap(
++              spacing: 12,
++              runSpacing: 12,
++              children: [
++                for (final t in tiles)
++                  SizedBox(
++                    width: width,
++                    child: _DemoCard(
++                      key: Key('demo.metrics.${t[0]}'),
++                      padding: const EdgeInsets.all(14),
++                      child: Column(
++                        crossAxisAlignment: CrossAxisAlignment.start,
++                        children: [
++                          Text(_metricsLoaded ? t[1] : '–', style: _Demo.stat),
++                          const SizedBox(height: 4),
++                          Text(t[2], style: _Demo.caption),
++                        ],
++                      ),
++                    ),
++                  ),
++              ],
++            );
++          },
++        ),
++        const SizedBox(height: 8),
++        Wrap(
++          alignment: WrapAlignment.end,
++          spacing: 8,
++          children: [
++            TextButton.icon(
++              key: const Key('demo.metrics.refresh'),
++              onPressed: _refreshMetrics,
++              icon: const Icon(Icons.refresh),
++              label: const Text('Refresh', style: _Demo.label),
++            ),
++            TextButton.icon(
++              key: const Key('demo.metrics.reset'),
++              onPressed: _busy ? null : _resetMetrics,
++              icon: const Icon(Icons.restart_alt),
++              label: const Text('Reset', style: _Demo.label),
++            ),
++          ],
++        ),
++      ],
++    );
++  }
++
++  Widget _simulatedCard() => _DemoCard(
++        padding: const EdgeInsets.symmetric(vertical: 4),
++        child: Column(
++          children: [
++            for (var i = 0; i < _scenarios.length; i++) ...[
++              if (i > 0) const Divider(height: 1, indent: 56, endIndent: 16),
++              InkWell(
++                key: Key('demo.fake.${_scenarios[i][0]}'),
++                onTap: _busy ? null : () => _runSimulated(_scenarios[i][0]),
++                child: Padding(
++                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
++                  child: Row(
++                    children: [
++                      const Icon(Icons.play_circle_outline, color: LivenessStyle.primary),
++                      const SizedBox(width: 16),
++                      Expanded(child: Text(_scenarios[i][1], style: _Demo.body)),
++                      const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
++                    ],
++                  ),
++                ),
++              ),
++            ],
++          ],
++        ),
++      );
++
++  Widget _developerToolsCard() => _DemoCard(
++        key: const Key('demo.developerTools'),
++        onTap: _busy ? null : _openDeveloperTools,
++        child: const Row(
++          children: [
++            _IconBadge(Icons.build_outlined, tone: LivenessStyle.neutral),
++            SizedBox(width: 16),
++            Expanded(
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: [
++                  Text('Developer tools', style: _Demo.cardTitle),
++                  SizedBox(height: 2),
++                  Text('Raw events, benchmarks, model files and every setting', style: _Demo.secondary),
++                ],
++              ),
++            ),
++            SizedBox(width: 8),
++            Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
++          ],
++        ),
++      );
++}
++
++/// The demo page's look: [LivenessStyle]'s colours, the app's type scale (the family comes from the theme).
++class _Demo {
++  _Demo._();
++
++  static const Color pageBackground = Color(0xFFF3F5FA);
++  static const List<BoxShadow> shadow = [
++    BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 4)),
++    BoxShadow(color: Color(0x0A000000), blurRadius: 2, offset: Offset(0, 1)),
++  ];
++  static const TextStyle headline =
++      TextStyle(fontSize: 28, fontWeight: FontWeight.w600, height: 1.2, color: Colors.white);
++  static const TextStyle onPrimary = TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: Color(0xE6FFFFFF));
++  static const TextStyle chip = TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white);
++  static const TextStyle title =
++      TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
++  static const TextStyle cardTitle =
++      TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
++  static const TextStyle body = TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: LivenessStyle.textPrimary);
++  static const TextStyle secondary =
++      TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: LivenessStyle.textSecondary);
++  static const TextStyle label = TextStyle(fontSize: 14, fontWeight: FontWeight.w500);
++  static const TextStyle caption =
++      TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: LivenessStyle.textSecondary);
++  static const TextStyle stat = TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
++  static const TextStyle sentence =
++      TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
++}
++
++/// A real check: what it is called on this page, its line, its icon and the workflow the hook passes.
++class _Run {
++  const _Run(this.title, this.line, this.icon, this.workflow);
++
++  final String title;
++  final String line;
++  final IconData icon;
++  final String workflow;
++}
++
++/// A white card with a soft shadow and no outline; tappable when [onTap] is set.
++class _DemoCard extends StatelessWidget {
++  const _DemoCard({super.key, required this.child, this.onTap, this.padding = const EdgeInsets.all(16)});
++
++  final Widget child;
++  final VoidCallback? onTap;
++  final EdgeInsetsGeometry padding;
++
++  @override
++  Widget build(BuildContext context) {
++    final radius = BorderRadius.circular(16);
++    return DecoratedBox(
++      decoration: BoxDecoration(color: Colors.white, borderRadius: radius, boxShadow: _Demo.shadow),
++      child: Material(
++        type: MaterialType.transparency,
++        child: InkWell(
++          borderRadius: radius,
++          onTap: onTap,
++          child: Padding(padding: padding, child: child),
++        ),
++      ),
++    );
++  }
++}
++
++class _IconBadge extends StatelessWidget {
++  const _IconBadge(this.icon, {this.tone = LivenessStyle.primary});
++
++  final IconData icon;
++  final Color tone;
++
++  @override
++  Widget build(BuildContext context) => Container(
++        width: 44,
++        height: 44,
++        decoration: BoxDecoration(color: tone.withOpacity(0.10), borderRadius: BorderRadius.circular(12)),
++        child: Icon(icon, color: tone),
++      );
++}
++
++class _ResultRow extends StatelessWidget {
++  const _ResultRow(
++      {required this.icon, required this.tone, required this.sentence, required this.message, this.detail});
++
++  final IconData icon;
++  final Color tone;
++  final String sentence;
++  final String message;
++  final String? detail;
++
++  @override
++  Widget build(BuildContext context) => Row(
++        crossAxisAlignment: CrossAxisAlignment.start,
++        children: [
++          Icon(icon, size: 48, color: tone),
++          const SizedBox(width: 16),
++          Expanded(
++            child: Column(
++              crossAxisAlignment: CrossAxisAlignment.start,
++              children: [
++                Text(sentence, key: const Key('demo.result.sentence'), style: _Demo.sentence),
++                const SizedBox(height: 4),
++                Text(message, style: _Demo.secondary),
++                if (detail != null) ...[
++                  const SizedBox(height: 8),
++                  Text(detail!, style: _Demo.caption),
++                ],
++              ],
++            ),
++          ),
++        ],
++      );
++}
+diff --git a/lib/ui/liveness/liveness_dev_overrides.dart b/lib/ui/liveness/liveness_dev_overrides.dart
+new file mode 100644
+index 0000000..a7d1cb8
+--- /dev/null
++++ b/lib/ui/liveness/liveness_dev_overrides.dart
+@@ -0,0 +1,34 @@
++/*
++ * Copyright (c) Modular Open Source Identity Platform
++ * This source code is licensed under the MIT license found in the
++ * LICENSE file in the root directory of this source tree.
++ *
++*/
++
++import 'package:flutter/foundation.dart' show visibleForTesting;
++import 'package:registration_client/platform_spi/liveness_service.dart';
++
++/// Debug and profile builds: the config overrides this app process has set. The native side keeps them in memory
++/// for as long as the process lives and cannot list them, so the demo page reads them here after the debug page
++/// (which sets them through [set] too) or itself changed one.
++class LivenessDevOverrides {
++  LivenessDevOverrides._();
++
++  static final Map<String, String> _values = {};
++
++  /// The value set for [key], or null when none is set.
++  static String? valueOf(String key) => _values[key];
++
++  /// Sets [key] on the native side (an empty [value] removes it), then records it. A failed call records nothing.
++  static Future<void> set(LivenessService service, String key, String value) async {
++    await service.setConfigOverride(key, value);
++    if (value.isEmpty) {
++      _values.remove(key);
++    } else {
++      _values[key] = value;
++    }
++  }
++
++  @visibleForTesting
++  static void clear() => _values.clear();
++}
+diff --git a/test/liveness/fake_liveness_service.dart b/test/liveness/fake_liveness_service.dart
+index 8076e1e..a9ae3dc 100644
+--- a/test/liveness/fake_liveness_service.dart
++++ b/test/liveness/fake_liveness_service.dart
+@@ -60,11 +60,22 @@ class FakeLivenessService implements LivenessService {
+   @override
+   Future<void> cancel() async => cancels++;
+ 
++  String version = 'test-model';
++
+   @override
+-  Future<String> modelVersion() async => 'test-model';
++  Future<String> modelVersion() async => version;
++
++  /// The config overrides set, by key; an empty value removes one.
++  final Map<String, String> overrides = {};
+ 
+   @override
+-  Future<void> setConfigOverride(String key, String value) async {}
++  Future<void> setConfigOverride(String key, String value) async {
++    if (value.isEmpty) {
++      overrides.remove(key);
++    } else {
++      overrides[key] = value;
++    }
++  }
+ 
+   /// What armBinding returns (ARMED, DISABLED, REJECTED), or throws when [throwOnArm] is set.
+   String armResult = 'ARMED';
+diff --git a/test/liveness/liveness_demo_page_test.dart b/test/liveness/liveness_demo_page_test.dart
+new file mode 100644
+index 0000000..77c4953
+--- /dev/null
++++ b/test/liveness/liveness_demo_page_test.dart
+@@ -0,0 +1,366 @@
++import 'dart:math' as math;
++
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:provider/provider.dart';
++import 'package:registration_client/pigeon/liveness_pigeon.dart';
++import 'package:registration_client/provider/global_provider.dart';
++import 'package:registration_client/ui/liveness/liveness_debug_page.dart';
++import 'package:registration_client/ui/liveness/liveness_demo_page.dart';
++import 'package:registration_client/ui/liveness/liveness_dev_overrides.dart';
++import 'package:registration_client/ui/liveness/liveness_gate.dart';
++import 'package:registration_client/ui/liveness/liveness_page.dart';
++import 'package:registration_client/ui/liveness/liveness_style.dart';
++
++import 'fake_liveness_service.dart';
++import 'liveness_test_fonts.dart';
++
++/// The diagnostics calls the demo page makes, scripted; any other call fails the test.
++class FakeDemoApi implements LivenessApi {
++  String metricsText = 'sessions=38\npassedPassive=28\npassedActive=4\nfailedFinal=4\ncancelled=2\nretries=16\n'
++      'deviceErrors=0\navgProcessingMs=41.250\navgChallengeCompletionMs=1850.000\nretryRate=0.421\n'
++      'failureRate=0.105\npassiveShare=0.875\n';
++  bool template = false;
++  String enrollResult = 'ENROLLED';
++  final List<String> calls = [];
++
++  @override
++  Future<String> metrics() async => metricsText;
++
++  @override
++  Future<void> resetMetrics() async => calls.add('resetMetrics');
++
++  @override
++  Future<bool> hasIdentityTestTemplate() async => template;
++
++  @override
++  Future<String> enrollIdentityTestTemplate(String sessionId) async {
++    calls.add('enroll $sessionId');
++    if (enrollResult == 'ENROLLED') template = true;
++    return enrollResult;
++  }
++
++  @override
++  Future<bool> deleteIdentityTestTemplate() async {
++    calls.add('delete');
++    final had = template;
++    template = false;
++    return had;
++  }
++
++  @override
++  Future<void> setIdentityDiagnosticOverride(bool on) async => calls.add('identityOverride $on');
++
++  @override
++  Future<void> setModelBundleDiagnosticOverride(bool on) async => calls.add('modelOverride $on');
++
++  @override
++  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError('${invocation.memberName}');
++}
++
++void main() {
++  late FakeLivenessService service;
++  late FakeDemoApi api;
++
++  setUpAll(() async {
++    if (!await loadLivenessTestFonts()) fail('the test fonts were not found');
++  });
++
++  setUp(() {
++    service = FakeLivenessService()..version = 'pad-2026.10.5';
++    api = FakeDemoApi();
++    LivenessDevOverrides.clear();
++  });
++
++  Future<void> pumpDemo(WidgetTester tester, {Size size = const Size(412, 915), double textScale = 1.0}) async {
++    tester.view.physicalSize = size * 3;
++    tester.view.devicePixelRatio = 3;
++    addTearDown(tester.view.reset);
++    await tester.pumpWidget(ChangeNotifierProvider<GlobalProvider>(
++      create: (_) => GlobalProvider(),
++      child: MaterialApp(
++        localizationsDelegates: AppLocalizations.localizationsDelegates,
++        supportedLocales: AppLocalizations.supportedLocales,
++        theme: ThemeData(colorScheme: const ColorScheme.light(primary: LivenessStyle.primary)),
++        builder: (context, child) => MediaQuery(
++          data: MediaQuery.of(context).copyWith(textScaleFactor: textScale),
++          child: child!,
++        ),
++        home: LivenessDemoPage(
++            service: service, api: api, previewBuilder: () => const ColoredBox(color: Colors.grey)),
++      ),
++    ));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 100));
++  }
++
++  ScrollPosition listPosition(WidgetTester tester) => tester
++      .state<ScrollableState>(
++          find.descendant(of: find.byKey(const Key('demo.list')), matching: find.byType(Scrollable)).first)
++      .position;
++
++  /// The list builds lazily: scrolls from the top until [finder] is built, then fully into view.
++  Future<void> reveal(WidgetTester tester, Finder finder) async {
++    listPosition(tester).jumpTo(0);
++    await tester.pump();
++    await tester.scrollUntilVisible(finder, 200,
++        scrollable: find.descendant(of: find.byKey(const Key('demo.list')), matching: find.byType(Scrollable)).first);
++    await tester.ensureVisible(finder);
++    await tester.pump();
++  }
++
++  Future<void> tapKey(WidgetTester tester, String key) async {
++    await reveal(tester, find.byKey(Key(key)));
++    await tester.tap(find.byKey(Key(key)));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++  }
++
++  Future<void> send(WidgetTester tester, Map<String, Object?> m) async {
++    service.emit(m);
++    await tester.pump();
++    await tester.pump();
++  }
++
++  Future<void> passSession(WidgetTester tester, {List<String> challenges = const ['BLINK', 'SMILE']}) async {
++    await send(tester, ev('STARTED'));
++    await send(tester, ev('PASSED'));
++    final done = complete('PASSED');
++    done['challengesIssued'] = challenges;
++    done['passPath'] = challenges.isEmpty ? 'PASSIVE_ONLY' : 'ACTIVE_CHALLENGE';
++    done['bestFrameJpeg'] = Uint8List.fromList([0xFF, 0xD8, 1]);
++    await send(tester, done);
++    await tester.pump(const Duration(milliseconds: 1100));
++    await tester.pump(const Duration(milliseconds: 400));
++  }
++
++  Future<void> failSession(WidgetTester tester) async {
++    await send(tester, ev('FAILED_FINAL',
++        attempt: 4, error: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED', recoverable: false));
++    await send(tester, complete('FAILED', failureCode: 'MAX_RETRIES_EXCEEDED', userMessage: 'MAX_ATTEMPTS_REACHED'));
++    await tester.tap(find.text('Close'));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++  }
++
++  /// Scrolls the whole page in steps; nothing may overflow at any step.
++  Future<void> scrollThrough(WidgetTester tester, String reason) async {
++    final position = listPosition(tester);
++    for (var y = 0.0;; y += 200) {
++      position.jumpTo(math.min(y, position.maxScrollExtent));
++      await tester.pump();
++      expect(tester.takeException(), isNull, reason: '$reason at $y');
++      if (y >= position.maxScrollExtent) break;
++    }
++    position.jumpTo(0);
++    await tester.pump();
++  }
++
++  for (final size in const [Size(360, 640), Size(412, 915)]) {
++    for (final scale in const [1.0, 1.3]) {
++      testWidgets('nothing overflows at ${size.width.round()}x${size.height.round()}, text scale $scale',
++          (tester) async {
++        await pumpDemo(tester, size: size, textScale: scale);
++        await scrollThrough(tester, 'start');
++        expect(find.text('Models pad-2026.10.5 · signed'), findsOneWidget);
++        await reveal(tester, find.text('38'));
++
++        // The longest result: not verified, with the engine's message.
++        await tapKey(tester, 'demo.run.OPERATOR');
++        await failSession(tester);
++        await tester.pump(const Duration(milliseconds: 600)); // the metrics refresh after a check
++        expect(find.text('Not verified'), findsOneWidget);
++        await scrollThrough(tester, 'after a failed check');
++      });
++    }
++  }
++
++  testWidgets('each check runs the gate with its workflow and shows a plain result', (tester) async {
++    await pumpDemo(tester);
++    final expected = {
++      LivenessGate.resident: 'Passed after 2 actions',
++      LivenessGate.operator: 'Passed – no action needed',
++      LivenessGate.supervisor: 'Passed after 1 action',
++    };
++    final challenges = {
++      LivenessGate.resident: ['BLINK', 'SMILE'],
++      LivenessGate.operator: <String>[],
++      LivenessGate.supervisor: ['TURN_LEFT'],
++    };
++    for (final w in expected.keys) {
++      await tapKey(tester, 'demo.run.$w');
++      expect(find.byType(LivenessPage), findsOneWidget);
++      expect(service.started.last, '$w/front/false', reason: 'the real engine, the workflow\'s camera');
++      await passSession(tester, challenges: challenges[w]!);
++      expect(find.byType(LivenessPage), findsNothing);
++      expect(find.text(expected[w]!), findsOneWidget, reason: w);
++      expect(find.text('Good, face captured successfully'), findsOneWidget);
++    }
++    expect(service.started, ['RESIDENT/front/false', 'OPERATOR/front/false', 'SUPERVISOR/front/false']);
++  });
++
++  testWidgets('the result panel never shows an image, the best frame included', (tester) async {
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.run.RESIDENT');
++    await passSession(tester);
++    final panel = find.byKey(const Key('demo.result'));
++    expect(find.descendant(of: panel, matching: find.text('Passed after 2 actions')), findsOneWidget);
++    expect(find.descendant(of: panel, matching: find.byType(Image)), findsNothing);
++    expect(find.descendant(of: panel, matching: find.byType(RawImage)), findsNothing);
++    expect(find.descendant(of: panel, matching: find.byType(Ink)), findsNothing);
++  });
++
++  testWidgets('each simulated screen opens the face check on the fake engine with its scenario', (tester) async {
++    await pumpDemo(tester);
++    final scenarios = {
++      'PAD_ATTACK': 'Photo attack refused',
++      'MAX_RETRIES_EXCEEDED': 'Too many attempts',
++      'PASS_PASSIVE': 'Passed with no action',
++    };
++    for (final s in scenarios.entries) {
++      await reveal(tester, find.byKey(Key('demo.fake.${s.key}')));
++      expect(find.descendant(of: find.byKey(Key('demo.fake.${s.key}')), matching: find.text(s.value)),
++          findsOneWidget);
++      await tapKey(tester, 'demo.fake.${s.key}');
++      expect(service.overrides['mosip.registration.liveness.fake.scenario'], s.key);
++      expect(service.started.last, 'RESIDENT/front/true');
++      expect(find.byType(LivenessPlaceholderPreview), findsOneWidget);
++      Navigator.of(tester.element(find.byType(LivenessPage))).pop();
++      await tester.pump();
++      await tester.pump(const Duration(milliseconds: 400));
++    }
++    // Every scenario row selects its own scenario.
++    for (final key in const [
++      'PASS_ACTIVE',
++      'FAIL_CHALLENGE_THEN_PASS_ON_RETRY',
++      'CHALLENGE_TIMEOUT',
++      'NO_FACE_THEN_PASS',
++      'MULTIPLE_FACES',
++      'POOR_LIGHTING_HINTS',
++      'DEVICE_DISCONNECT',
++      'DEVICE_FAILURE',
++      'ENGINE_ERROR',
++      'RANDOM',
++    ]) {
++      await tapKey(tester, 'demo.fake.$key');
++      expect(service.overrides['mosip.registration.liveness.fake.scenario'], key);
++      expect(service.started.last, 'RESIDENT/front/true');
++      Navigator.of(tester.element(find.byType(LivenessPage))).pop();
++      await tester.pump();
++      await tester.pump(const Duration(milliseconds: 400));
++    }
++  });
++
++  testWidgets('the settings set the debug page\'s overrides', (tester) async {
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.forceActions');
++    expect(service.overrides['mosip.registration.liveness.face.default.passiveThreshold'], '0.9999');
++    expect(LivenessDevOverrides.valueOf('mosip.registration.liveness.face.default.passiveThreshold'), '0.9999');
++    await tapKey(tester, 'demo.forceActions');
++    expect(service.overrides.containsKey('mosip.registration.liveness.face.default.passiveThreshold'), isFalse);
++
++    await reveal(tester, find.byKey(const Key('demo.camera')));
++    await tester.tap(find.text('Back'));
++    await tester.pump();
++    for (final w in const ['resident', 'operator', 'supervisor']) {
++      expect(service.overrides['mosip.registration.liveness.face.android.$w.camera'], 'back');
++    }
++  });
++
++  testWidgets('identity check: enroll, check, delete, in plain lines', (tester) async {
++    service.identityResults = [
++      IdentityCheckInfo(outcome: 'MATCH', accepted: true, retryable: false, similarity: 0.82, threshold: 0.40),
++      IdentityCheckInfo(outcome: 'NO_MATCH', accepted: false, retryable: true, similarity: 0.21, threshold: 0.40),
++    ];
++    await pumpDemo(tester);
++    expect(find.text('No test face enrolled'), findsOneWidget);
++    expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.check'))).onPressed, isNull);
++
++    await tapKey(tester, 'demo.identity.enroll');
++    expect(service.started.last, 'OPERATOR/front/false');
++    await passSession(tester);
++    expect(api.calls, contains('enroll s-1'));
++    expect(find.text('Your face is enrolled as the test user'), findsOneWidget);
++
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(service.identityCalls.last, 's-1/f15-test-user/diagnostics/1');
++    expect(api.calls, containsAllInOrder(['identityOverride true', 'identityOverride false']));
++    expect(find.text('Same person (similarity 0.82)'), findsOneWidget);
++
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(find.text('Different person – refused'), findsOneWidget);
++    expect(find.text('Similarity 0.21, needed 0.40'), findsOneWidget);
++
++    await tapKey(tester, 'demo.identity.delete');
++    expect(find.text('Test face deleted'), findsOneWidget);
++    expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.delete'))).onPressed, isNull);
++  });
++
++  testWidgets('diagnostics: labelled tiles from the persisted metrics; Reset asks first', (tester) async {
++    await pumpDemo(tester);
++    Future<String> tile(String key) async {
++      await reveal(tester, find.byKey(Key('demo.metrics.$key')));
++      return tester
++          .widgetList<Text>(find.descendant(of: find.byKey(Key('demo.metrics.$key')), matching: find.byType(Text)))
++          .first
++          .data!;
++    }
++
++    expect(await tile('sessions'), '38');
++    expect(await tile('passedPassive'), '28');
++    expect(await tile('passedActive'), '4');
++    expect(await tile('failedFinal'), '4');
++    expect(await tile('avgProcessingMs'), '41 ms');
++    expect(await tile('avgChallengeCompletionMs'), '1.9 s');
++    expect(await tile('retryRate'), '0.42');
++    expect(await tile('failureRate'), '10.5 %');
++
++    api.metricsText = 'sessions=0\navgProcessingMs=NaN\n';
++    await tapKey(tester, 'demo.metrics.reset');
++    await tester.tap(find.text('Cancel'));
++    await tester.pumpAndSettle();
++    expect(api.calls, isNot(contains('resetMetrics')));
++    await tapKey(tester, 'demo.metrics.reset');
++    await tester.tap(find.byKey(const Key('demo.metrics.resetConfirm')));
++    await tester.pumpAndSettle();
++    expect(api.calls, contains('resetMetrics'));
++    expect(await tile('sessions'), '0');
++    expect(await tile('avgProcessingMs'), '–', reason: 'no data, not a made-up number');
++    expect(await tile('failureRate'), '–', reason: 'a field the metrics do not have');
++  });
++
++  testWidgets('Developer tools opens the debug page', (tester) async {
++    final messenger = tester.binding.defaultBinaryMessenger;
++    // The debug page's own engine and camera view: no platform side in a test.
++    messenger.setMockMethodCallHandler(
++        const MethodChannel('io.mosip.registration_client/liveness/events'), (_) async => null);
++    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (call) async => call.method == 'create' ? 0 : null);
++    addTearDown(() {
++      messenger.setMockMethodCallHandler(const MethodChannel('io.mosip.registration_client/liveness/events'), null);
++      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
++    });
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.developerTools');
++    expect(find.byType(LivenessDebugPage), findsOneWidget);
++    expect(find.text('Liveness test (debug)'), findsOneWidget);
++
++    // Changed there (the debug page records its overrides in the same place), shown here on return.
++    await LivenessDevOverrides.set(service, 'mosip.registration.liveness.face.default.passiveThreshold', '0.9999');
++    service.version = 'pad-2026.10.6';
++    service.cameras = {LivenessGate.resident: 'back'};
++    Navigator.of(tester.element(find.byType(LivenessDebugPage))).pop();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    listPosition(tester).jumpTo(0);
++    await tester.pump();
++    expect(find.text('Models pad-2026.10.6 · signed'), findsOneWidget);
++    await reveal(tester, find.byKey(const Key('demo.forceActions')));
++    expect(tester.widget<SwitchListTile>(find.byKey(const Key('demo.forceActions'))).value, isTrue);
++    await reveal(tester, find.byKey(const Key('demo.camera')));
++    expect(tester.widget<SegmentedButton<String>>(find.byKey(const Key('demo.camera'))).selected, {'back'});
++  });
++}

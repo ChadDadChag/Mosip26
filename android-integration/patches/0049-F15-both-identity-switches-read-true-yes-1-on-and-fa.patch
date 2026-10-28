@@ -1,0 +1,165 @@
+From d55032217213490bef75720bc102db8de55fca5b Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 03:56:51 +0530
+Subject: [PATCH 49/57] F15: both identity switches read true/yes/1/on and
+ false/no/0/off (task 20, A4)
+
+Planner's triage of A4 (task 19 review), as on Desktop:
+- binding.identity.requireTemplate was on only for "true": "yes" or "1" left
+  presence-only binding on. binding.identity.enabled was off only for "false".
+  Both now read true, yes, 1 or on as on and false, no, 0 or off as off (any
+  case, trimmed); unset is the default (enabled on, requireTemplate off), and
+  any other value is the default with a WARN log naming the key.
+- LivenessServiceHolder.analyzerConfig: an invalid analyzer setting still
+  sends every analyzer key to the Android defaults (unchanged), now logged at
+  WARN; the message starts with the offending key.
+
+IdentityBindingTest: every spelling of both switches and two values that are
+neither. :liveness:testDebugUnitTest 114, all passing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../liveness/android/IdentityBinding.java     | 37 +++++++++++++++----
+ .../android/LivenessServiceHolder.java        |  3 +-
+ .../liveness/android/IdentityBindingTest.java | 31 ++++++++++++++--
+ 3 files changed, 60 insertions(+), 11 deletions(-)
+
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
+index 88a1538..6b0ac63 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
+@@ -8,6 +8,8 @@ import java.util.Map;
+ import java.util.function.DoubleSupplier;
+ import java.util.function.Function;
+ 
++import android.util.Log;
++
+ import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
+ import io.mosip.registration.liveness.analyzer.match.IdentityResult;
+ import io.mosip.registration.liveness.api.Frame;
+@@ -30,9 +32,11 @@ import io.mosip.registration.liveness.api.WorkflowType;
+  *   <li>NO_MATCH, NO_LIVE_FACE, NO_LIVE_FRAME (nothing held for the session), ERROR: rejected and retryable (one new
+  *       liveness session, then the gate is blocked).</li>
+  *   <li>NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE (no onboarded face on this device, or none decodes to one face):
+- *       accepted on presence alone, unless {@value #REQUIRE_TEMPLATE_KEY} is true (then rejected, not retryable).</li>
+- *   <li>{@value #ENABLED_KEY} false: SKIPPED, accepted.</li>
++ *       accepted on presence alone, unless {@value #REQUIRE_TEMPLATE_KEY} is on (then rejected, not retryable).</li>
++ *   <li>{@value #ENABLED_KEY} off: SKIPPED, accepted.</li>
+  * </ul>
++ * Both switches read true/yes/1/on and false/no/0/off in any case; any other value keeps the default (enabled on,
++ * requireTemplate off) with a warning.
+  * Every decision is audited (REG-EVT-020): codes, the similarity (2 decimals), the threshold, the gate, the attempt,
+  * the user id and template counts. The Room rows have no creation time, so there is no template age. Images and
+  * templates stay in memory.
+@@ -43,6 +47,8 @@ public final class IdentityBinding {
+     public static final String REQUIRE_TEMPLATE_KEY = "mosip.registration.liveness.face.binding.identity.requireTemplate";
+     public static final String THRESHOLD_KEY = "mosip.registration.liveness.face.binding.identity.threshold";
+ 
++    private static final String TAG = "IdentityBinding";
++
+     /** The user's onboarded faces, each decoded on the worker thread. An empty list: none on this device. */
+     public interface TemplateSource {
+         List<FaceBinding.Decoder> load(String userId) throws Exception;
+@@ -120,7 +126,7 @@ public final class IdentityBinding {
+         d.put("userId", userId == null ? "NA" : userId);
+         if (extra != null) d.putAll(extra);
+         double t = threshold.getAsDouble();
+-        if (!enabled(config.apply(ENABLED_KEY))) {
++        if (!flag(ENABLED_KEY, true)) {
+             return finish(null, sessionId, new Result("SKIPPED", Double.NaN, t, true, false), d);
+         }
+         FaceBinding.Held held = binding.take(sessionId);
+@@ -159,7 +165,7 @@ public final class IdentityBinding {
+             accepted = true;
+             retryable = false;
+         } else if (outcome.startsWith("NOT_BOUND")) {
+-            boolean required = "true".equalsIgnoreCase(String.valueOf(config.apply(REQUIRE_TEMPLATE_KEY)).trim());
++            boolean required = flag(REQUIRE_TEMPLATE_KEY, false);
+             d.put("requireTemplate", Boolean.toString(required));
+             accepted = !required;
+             retryable = false;
+@@ -170,9 +176,26 @@ public final class IdentityBinding {
+         return finish(held.workflow, sessionId, new Result(outcome, similarity, t, accepted, retryable), d);
+     }
+ 
+-    /** {@value #ENABLED_KEY}: anything but "false" (or no value) keeps it on. */
+-    static boolean enabled(String value) {
+-        return value == null || !"false".equalsIgnoreCase(value.trim());
++    /** true/yes/1/on is TRUE, false/no/0/off is FALSE (any case, trimmed); anything else, or nothing, is null. */
++    static Boolean parseSwitch(String value) {
++        switch (value == null ? "" : value.trim().toLowerCase(Locale.ROOT)) {
++            case "true": case "yes": case "1": case "on":
++                return Boolean.TRUE;
++            case "false": case "no": case "0": case "off":
++                return Boolean.FALSE;
++            default:
++                return null;
++        }
++    }
++
++    /** A switch: its value, else {@code fallback}; a value that is set but not a switch is logged at WARN. */
++    private boolean flag(String key, boolean fallback) {
++        String value = config.apply(key);
++        Boolean b = parseSwitch(value);
++        if (b == null && value != null && !value.trim().isEmpty()) {
++            Log.w(TAG, "ignored " + key + "='" + value + "' (true/false, yes/no, 1/0 or on/off): using " + fallback);
++        }
++        return b == null ? fallback : b;
+     }
+ 
+     /** One template as RGB888, or null when it does not decode (counted as unreadable). */
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 8fc5835..932f9ac 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -703,7 +703,8 @@ public final class LivenessServiceHolder {
+         try {
+             return AnalyzerConfig.fromConfig(withDefaults);
+         } catch (IllegalArgumentException e) {
+-            Log.e(TAG, "invalid analyzer config, using the Android defaults: " + e.getMessage());
++            // The message starts with the offending key; one invalid key sends every analyzer key to its default.
++            Log.w(TAG, "invalid analyzer setting, all analyzer settings use the Android defaults: " + e.getMessage());
+             return AnalyzerConfig.fromConfig(ANDROID_ANALYZER_DEFAULTS::get);
+         }
+     }
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
+index 9496d03..a6d7836 100644
+--- a/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
+@@ -187,8 +187,33 @@ public class IdentityBindingTest {
+         assertEquals("SKIPPED", r.outcome);
+         assertTrue(r.accepted);
+         assertTrue(audits.get(0), audits.get(0).contains("templateSource=diagnostics-test"));
+-        assertTrue(IdentityBinding.enabled(null));
+-        assertTrue(IdentityBinding.enabled("true"));
+-        assertFalse(IdentityBinding.enabled(" FALSE "));
++    }
++
++    /** Both switches: true/yes/1/on and false/no/0/off in any case; anything else is the default (A4, task 20). */
++    @Test
++    public void bothSwitchesReadYesNoOneZeroOnOffAndKeepTheirDefaultOtherwise() {
++        for (String on : new String[] {"true", "YES", "1", " on "}) {
++            config.put(IdentityBinding.REQUIRE_TEMPLATE_KEY, on);
++            hold("s1", portrait);
++            assertFalse(on, identity.verify("s1", "op1", "password_login", 1, onboarded(), null).accepted);
++        }
++        for (String off : new String[] {"false", "No", "0", "OFF", "required", ""}) {
++            config.put(IdentityBinding.REQUIRE_TEMPLATE_KEY, off);
++            hold("s1", portrait);
++            assertTrue(off, identity.verify("s1", "op1", "password_login", 1, onboarded(), null).accepted);
++        }
++        for (String off : new String[] {"false", "NO", "0", "off"}) {
++            config.put(IdentityBinding.ENABLED_KEY, off);
++            hold("s1", portrait);
++            assertEquals(off, "SKIPPED", identity.verify("s1", "op1", "password_login", 1, onboarded(), null).outcome);
++        }
++        for (String on : new String[] {"true", "Yes", "1", "on", "disabled"}) {
++            config.put(IdentityBinding.ENABLED_KEY, on);
++            hold("s1", portrait);
++            assertEquals(on, "NOT_BOUND_NO_TEMPLATE",
++                    identity.verify("s1", "op1", "password_login", 1, onboarded(), null).outcome);
++        }
++        assertEquals(null, IdentityBinding.parseSwitch("disabled"));
++        assertEquals(null, IdentityBinding.parseSwitch(null));
+     }
+ }

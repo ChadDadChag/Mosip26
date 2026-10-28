@@ -442,21 +442,25 @@ sequenceDiagram
 One window for all three workflows; only the title and the recovery text differ. The preview is the device's live
 stream, mirrored like a selfie (the frames given to the engine are never mirrored), with the face oval. The oval's
 colour always comes with an icon and a text. Rendered by `LivenessScreenDemo --snapshots` from the production classes
-(the face is a public-domain NASA portrait used by Part 2's fixtures).
+at the window's size, 720×820 (the face is a public-domain NASA portrait used by Part 2's fixtures). On a screen with
+less usable height (1366×768, or 1920×1080 at 150%), the window is as high as the screen allows, and the camera card
+gives up the height, so the buttons stay on screen. The layout,
+colours and type are `docs/ui-liveness-spec.md` §9, the same as on Android.
 
 | | | |
 |---|---|---|
-| ![Checking](images/part4/01-checking.png) **Passive check** "Checking face liveness…", blue, indeterminate | ![Guidance](images/part4/02-guidance.png) **Positioning guidance** (hint line, warning icon) | ![Blink](images/part4/03-challenge-blink.png) **Challenge prompt**, amber, step 1 of 2 |
+| ![Checking](images/part4/01-checking.png) **Passive check** "Checking face liveness…", blue | ![Guidance](images/part4/02-guidance.png) **Positioning guidance** (hint line, warning icon) | ![Blink](images/part4/03-challenge-blink.png) **Challenge prompt**, amber, step 1 of 2 |
 | ![Progress](images/part4/04-challenge-progress.png) **Real-time feedback** "Please continue", progress | ![Detected](images/part4/05-action-detected.png) **Action detected**, green | ![Hold](images/part4/06-hold-still-look-at-camera.png) **Hold still** + "look at the camera" after a turn |
 | ![Passed](images/part4/07-passed.png) **Passed**: continues after ~1 s | ![Retry](images/part4/08-attempt-failed-retry.png) **Retry** available: attempts left, tips | ![PAD](images/part4/09-pad-failure-generic.png) **PAD failure**: the generic text only |
 | ![Device](images/part4/10-device-error.png) **Device error** with Retry | ![Max](images/part4/11-max-attempts-resident.png) **Maximum attempts**: resident recovery (biometric exception process) | ![Operator](images/part4/12-operator-login-challenge.png) **Operator** authentication |
 | ![Supervisor](images/part4/13-supervisor-final-failure.png) **Supervisor** failure | ![Unavailable](images/part4/14-unavailable-fail-closed.png) **Fail closed** (engine unavailable) | |
 
-Behaviour (spec §2, §3, §7): Retry only after a failed attempt or a recoverable device error; Cancel until the end;
-Close only on the final failure; no score, threshold, model or PAD detail is ever shown; the status line is 24 px and
-the hint 18 px; buttons are 48 px high and keyboard-focusable (Retry/Close take focus, Esc = Cancel); the challenge icon
-pulses unless `desktop.animations=false`; every status change updates the status label's accessible text and notifies
-the screen reader.
+Behaviour (spec §2, §3, §7, §9): Retry only after a failed attempt or a recoverable device error; Cancel until the
+end; Close only on the final failure; no score, threshold, model or PAD detail is ever shown; the status is 20 px
+semibold (at most 2 lines) and the hint 15 px; after a failed attempt the progress row shows only the attempts left;
+buttons are 48 px high, of equal width and keyboard-focusable (Retry/Close take focus, Esc = Cancel); the status
+cross-fades in 200 ms unless `desktop.animations=false`; the window is mirrored for Arabic, except the camera card;
+every status change updates the status label's accessible text and notifies the screen reader.
 
 Online and offline look identical: nothing on the screen depends on the network.
 
@@ -505,7 +509,7 @@ bundled defaults (audited in `LIVENESS_CONFIG_LOADED` as `configError`).
 | `sbi.maxReconnectAttempts`, `sbi.reconnectBackoffMs` | 3, 500 | reconnects after a mid-stream drop |
 | `autoContinueMs` | 1000 | how long the success state stays |
 | `operator.gatePasswordLogin` | true | OPERATOR liveness after a successful password login (skipped when a face login step follows) |
-| `animations` | true | challenge icon pulse (false = reduced motion) |
+| `animations` | true | the 200 ms status cross-fade (false = reduced motion) |
 | `metricsAuditEvery` | 20 | audit a metrics snapshot every N sessions (0 = never) |
 | `modelStoreDir` | `<client folder>/.liveness-models` | model store (signed bundles only); the online model update installs here |
 
@@ -660,6 +664,16 @@ modules succeeds. No failures, nothing skipped.
 identity retry rule in `LivenessGateTest`. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds. No
 failures, nothing skipped.
 
+**Results with F13b and the visual design (2026-10-28):** `registration-services` 175 tests pass (F13b's
+`WebcamGrabbersTest` adds 6). `registration-client` 37 tests pass: the 32 above, plus the 2 `LivenessScreenDemoTest`
+tests and the 3 `LivenessViewLayoutTest` tests. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds.
+No failures, nothing skipped.
+
+**Results with task 16b (2026-10-28):** `registration-services` 175 tests pass. `registration-client` 40 tests pass: the
+37 above, plus 2 `LivenessMessagesTest` tests (the plurals, apostrophes in formatted texts) and the wrapping test of
+`LivenessViewLayoutTest`. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds. No failures,
+nothing skipped.
+
 | Test | What it proves |
 |---|---|
 | `DesktopLivenessServiceTest` | real engine + signed ONNX models + recorded clip through the deferred source → FAILED with `lastCause=FACE_NOT_DETECTED`, audited through the audit module with the session id; workflow disabled by synced config → legacy flow; config sync applies to the next session; scripted engine is development-only and skips binding |
@@ -671,8 +685,9 @@ failures, nothing skipped.
 | `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
 | `DesktopModelUpdateTest` | online model update after a config sync, against a local HTTP server: enabled + newer bundle → INSTALLED with the bundled base kept for rollback, and the reload audits MODEL_LOADED with the new version; disabled or no URL → no request; a failure → audited as FAILED, the sync returns at once, the models stay; a running session keeps its analyzer until it ends |
 | `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
+| `LivenessViewLayoutTest` | the visual design (spec §9) on the 14 documented states, at 720×820 (the window), 720×688 (the window fitted to a 1366×768 screen) and 1280×800: buttons on screen, 48 high and of equal width; content centred and at most 560 wide; the camera card 4:3 at about 45% of the height, the badge on the oval's top centre; nothing overlaps; the status at most 2 lines; one attempts line after a failure. Arabic mirrored, except the camera card. Also at 480, 320 and 240 wide, in English and Arabic: a wrapped status keeps its badge beside its longest line, the two centred in the card, and a wrapped tip continues under its text, beside its bullet. Rendering the same state again leaves the status text unchanged; at 125%, 150% and 175% scaling no label or button text is cut short. Skipped without a JavaFX toolkit |
 | `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice; F15: one retry, and only when a new session can help |
-| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
+| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders; "attempts left" is a plural in English and French (0, 1, 3); every formatted liveness text in en, fr and ar keeps its apostrophes and leaves no placeholder |
 | `DesktopOfflineModelInstallTest` | F17 on the real service with signed bundles: install and reload; tampered or unsigned zips refused as MODEL_INTEGRITY_FAILED, also when they claim an older version; same or older refused; zip-slip; rollback, then nothing earlier; the role gate and the config switch; the audit has codes, versions and the user id, never a path |
 | `ModelBundleTextsTest` | F17: every outcome has its own key, a failed rollback says so; the version is filled in literally (apostrophes survive); every key in English, Arabic and French, translated, with the placeholder kept; the two tile titles in all three label bundles |
 | `IdentityBindingTest` | F15: a match is audited once (similarity with 2 decimals, the template age); another person is rejected and retryable; several templates and the newest age; not bound, with and without `requireTemplate`; every failure fails closed (not armed, another workflow, expired, no live frame, a matcher or database error); liveness off and switched off; the scripted engine; the demo path; the BIR is read, else the ISO column; the UTC creation time |

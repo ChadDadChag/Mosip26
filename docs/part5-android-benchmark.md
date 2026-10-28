@@ -393,7 +393,7 @@ These are the steps in the Android Registration Client fork.
 - Install either with `adb install -r --user 0 <apk>`.
 
 **Benchmark:**
-1. Open Login page → "Liveness test" → "Benchmark".
+1. Open Login page → "Face liveness demo" → "Developer tools" → "Benchmark".
 2. Face the camera for 5 s, then leave the phone still for 3–5 minutes.
 3. The report shows on the page and in logcat as `LivenessApi: benchmark| ...` lines.
 4. Optional: put extra signed bundles in `files/bench-bundles/<name>/`.

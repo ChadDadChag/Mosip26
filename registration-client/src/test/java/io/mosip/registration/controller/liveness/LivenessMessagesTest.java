@@ -19,6 +19,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.ResourceBundle;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -89,14 +91,64 @@ public class LivenessMessagesTest {
 		return p;
 	}
 
+	/** The arguments a text uses, once each: a choice pattern ({0,choice,...}) repeats {0} in its branches. */
 	private static List<String> placeholders(String text) {
-		List<String> found = new ArrayList<>();
-		Matcher m = Pattern.compile("\\{\\d+\\}").matcher(text);
+		Set<String> found = new TreeSet<>();
+		Matcher m = Pattern.compile("\\{(\\d+)[},]").matcher(text);
 		while (m.find()) {
-			found.add(m.group());
+			found.add("{" + m.group(1) + "}");
 		}
-		Collections.sort(found);
-		return found;
+		return new ArrayList<>(found);
+	}
+
+	private ResourceBundle messages(String lang) {
+		return ResourceBundle.getBundle("messages", new Locale(lang), getClass().getClassLoader(),
+				ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES));
+	}
+
+	@Test
+	public void theAttemptsLeftArePluralsInEnglishAndFrench() {
+		LivenessMessages en = LivenessMessages.of(messages("en"), "eng");
+		assertEquals("1 attempt left", en.text("liveness.retry.attempts_left", 1));
+		assertEquals("3 attempts left", en.text("liveness.retry.attempts_left", 3));
+		assertEquals("0 attempts left", en.text("liveness.retry.attempts_left", 0));
+		LivenessMessages fr = LivenessMessages.of(messages("fr"), "fra");
+		assertEquals("1 tentative restante", fr.text("liveness.retry.attempts_left", 1));
+		assertEquals("3 tentatives restantes", fr.text("liveness.retry.attempts_left", 3));
+		assertEquals("French \"one\" covers 0 and 1", "0 tentative restante", fr.text("liveness.retry.attempts_left", 0));
+	}
+
+	/**
+	 * Every liveness text that takes arguments, formatted the way the client formats it: the screen's through
+	 * {@link LivenessMessages#text} (MessageFormat), the F17 model texts through {@link ModelBundleTexts#fill}. No
+	 * apostrophe may be lost and no placeholder left.
+	 */
+	@Test
+	public void formattedTextsKeepTheirApostrophes() {
+		String apostrophe = "'";
+		int checked = 0;
+		for (String lang : new String[] { "en", "fr", "ar" }) {
+			ResourceBundle bundle = messages(lang);
+			LivenessMessages msg = LivenessMessages.of(bundle, lang);
+			for (String key : Collections.list(bundle.getKeys())) {
+				String pattern = bundle.getString(key);
+				if (!key.startsWith("liveness.") || !pattern.contains("{0")) {
+					continue;
+				}
+				boolean choice = pattern.contains(",choice,");
+				String out = ModelBundleTexts.KEYS.contains(key) ? ModelBundleTexts.fill(pattern, "pad-2026.10.8")
+						: msg.text(key, 3, 4);
+				String at = lang + " " + key + ": " + out;
+				assertFalse(at, out.contains("{"));
+				if (choice) {
+					assertFalse(lang + " " + key + ": no apostrophe inside a choice pattern", pattern.contains(apostrophe));
+				} else {
+					assertEquals(at, pattern.split(apostrophe, -1).length, out.split(apostrophe, -1).length);
+				}
+				checked++;
+			}
+		}
+		assertTrue("checked " + checked, checked >= 9); // step, attempt, attempts left and the F17 version, per language
 	}
 
 	@Test
@@ -104,7 +156,8 @@ public class LivenessMessagesTest {
 		LivenessMessages msg = LivenessMessages.english();
 		assertEquals("Step 1 of 2", msg.text("liveness.progress.step", 1, 2));
 		assertEquals("Attempt 3 of 4", msg.text("liveness.progress.attempt", 3, 4));
-		assertEquals("2 attempt(s) left", msg.text("liveness.retry.attempts_left", 2));
+		assertEquals("2 attempts left", msg.text("liveness.retry.attempts_left", 2));
+		assertEquals("1 attempt left", msg.text("liveness.retry.attempts_left", 1));
 		assertEquals("Checking face liveness…", msg.text("liveness.status.checking"));
 		assertEquals("no.such.key", msg.text("no.such.key"));
 	}

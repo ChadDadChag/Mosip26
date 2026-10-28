@@ -1,0 +1,883 @@
+From feb6e23bf9b38be3d4dbdc33f41032bf963ac993 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 13:29:36 +0530
+Subject: [PATCH 56/57] Demo page: the identity check says who enrolls and who
+ checks, when the test face was enrolled, and its verdict in a result panel;
+ the shorter subtitle (task 22)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two people each enrolled their own face and then checked it, so both
+"passed"; the face check's "Good, face captured successfully" read as the
+verdict, which was a small line under the buttons.
+
+- Buttons: "1. Enroll the operator's face (once)", "2. Check identity
+  (anyone)", "3. Delete test face"; the card says the operator enrolls once
+  and anyone else is refused. Enrolling over an existing test face asks
+  first ("Replace the enrolled test face?"); Cancel does not enroll.
+- "Test face enrolled · today 13:16" (or its date), from a new Pigeon call,
+  identityTestTemplateTime (the template file's lastModified, null when
+  there is none; diagnostics builds only). hasIdentityTestTemplate stays for
+  the debug page.
+- The verdict is a result panel inside the card, like the check's result:
+  "Same person" (green check), "Different person – refused" (red cross),
+  the other outcomes neutral with their texts; "Similarity 0.82 · needed
+  0.40" for every outcome with a number, MATCH included. After a check it
+  scrolls into view. An enrolment or a delete is a short note, not a
+  verdict, and clears the old verdict. Never an image.
+- LivenessApi's "identity binding ..." log line ends with ", similarity
+  0.82, threshold 0.40" in diagnostics builds (the score reaches Dart only
+  there too); release builds log the outcome as before.
+- Header subtitle: "Developer build · offline · no MOSIP server". It fits on
+  one line, so the header's column now takes the full width (a column as
+  wide as its longest line was centred).
+- The reset question and the replace question share one dialog helper.
+
+Tests: the identity flow (no question for a first enrolment, the enrolled
+time, MATCH and NO_MATCH with icon, colour and numbers, delete); the replace
+question and its Cancel; every outcome in the panel at 360x640 and 1.3
+(sentence, icon, colour, numbers or none, no image, no overflow), and a
+face check not passed; the panel scrolls into view; the overflow checks
+also cover a refusal and the replace question, and that the header starts
+at the gutter. flutter test test/liveness: 302 passing, 20 skipped.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../api_services/LivenessApi.java             |  15 +-
+ lib/ui/liveness/liveness_demo_page.dart       | 323 ++++++++++++------
+ pigeon/liveness.dart                          |   4 +
+ test/liveness/liveness_demo_page_test.dart    | 185 +++++++++-
+ 4 files changed, 420 insertions(+), 107 deletions(-)
+
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index 4c4361c..b2dd78f 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -20,6 +20,7 @@ import android.util.Log;
+ import android.util.Size;
+ 
+ import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
+ import androidx.camera.core.CameraSelector;
+ import androidx.camera.view.PreviewView;
+ import androidx.core.content.ContextCompat;
+@@ -623,7 +624,10 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+             LivenessPigeon.IdentityCheckInfo info;
+             try {
+                 IdentityBinding.Result r = holder.verifyIdentity(sessionId, userId, gate, attempt.intValue());
+-                Log.i(TAG, "identity binding " + r + " for session " + sessionId + " (" + gate + ", attempt " + attempt + ")");
++                // The numbers, like the score sent to Dart, only in diagnostics builds: a live check read from logcat.
++                Log.i(TAG, "identity binding " + r + " for session " + sessionId + " (" + gate + ", attempt " + attempt + ")"
++                        + (BuildConfig.LIVENESS_DIAGNOSTICS ? String.format(Locale.ROOT,
++                                ", similarity %.2f, threshold %.2f", r.similarity, r.threshold) : ""));
+                 info = new LivenessPigeon.IdentityCheckInfo.Builder()
+                         .setOutcome(r.outcome).setAccepted(r.accepted).setRetryable(r.retryable)
+                         .setSimilarity(BuildConfig.LIVENESS_DIAGNOSTICS ? r.similarity : Double.NaN)
+@@ -693,6 +697,15 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         return BuildConfig.LIVENESS_DIAGNOSTICS && identityTestTemplate().isFile();
+     }
+ 
++    /** F15, diagnostics builds only: the demo page shows when the test template was enrolled. */
++    @Nullable
++    @Override
++    public Long identityTestTemplateTime() {
++        File file = identityTestTemplate();
++        if (!BuildConfig.LIVENESS_DIAGNOSTICS || !file.isFile()) return null;
++        return file.lastModified();
++    }
++
+     /** F15, diagnostics builds: the debug page's check uses the test template; the holder ignores it in release. */
+     @Override
+     public void setIdentityDiagnosticOverride(@NonNull Boolean on) {
+diff --git a/lib/ui/liveness/liveness_demo_page.dart b/lib/ui/liveness/liveness_demo_page.dart
+index 375ee37..fd97054 100644
+--- a/lib/ui/liveness/liveness_demo_page.dart
++++ b/lib/ui/liveness/liveness_demo_page.dart
+@@ -82,6 +82,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+     ['DEVICE_FAILURE', 'Camera keeps failing'],
+     ['ENGINE_ERROR', 'Engine error'],
+   ];
++  static const List<String> _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+ 
+   late final LivenessService _service = widget.service ?? LivenessService();
+   late final LivenessApi _api = widget.api ?? LivenessApi();
+@@ -102,9 +103,15 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   String _modelVersion = '';
+   String _camera = 'front';
+   bool _forceActions = false;
+-  bool _identityTemplate = false;
+-  String? _identityLine;
+-  String? _identityDetail;
++  // The test face: when it was enrolled (milliseconds since the epoch), null when there is none.
++  int? _identityEnrolledAt;
++  // After an enrolment or a delete: a short note, never a verdict.
++  String? _identityNote;
++  // The last identity check: running, its answer, or why nothing was compared.
++  bool _identityChecking = false;
++  IdentityCheckInfo? _identityInfo;
++  String? _identityProblem;
++  final GlobalKey _verdictKey = GlobalKey();
+   Map<String, String> _metrics = const {};
+   bool _metricsLoaded = false;
+ 
+@@ -127,6 +134,8 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+     super.dispose();
+   }
+ 
++  bool get _identityTemplate => _identityEnrolledAt != null;
++
+   void _onScroll() {
+     // The list drops the header once it is far out of view: keep its last height.
+     _headerHeight = _headerKey.currentContext?.size?.height ?? _headerHeight;
+@@ -139,7 +148,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   Future<void> _refreshAll() async {
+     String version = _modelVersion;
+     String camera = _camera;
+-    bool template = _identityTemplate;
++    int? enrolledAt = _identityEnrolledAt;
+     try {
+       version = await _service.modelVersion();
+       camera = await _service.cameraFor(LivenessGate.resident);
+@@ -147,7 +156,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+       debugPrint('liveness demo: engine state failed: ${e.message}');
+     }
+     try {
+-      template = await _api.hasIdentityTestTemplate();
++      enrolledAt = await _api.identityTestTemplateTime();
+     } on PlatformException catch (e) {
+       debugPrint('liveness demo: test face status failed: ${e.message}');
+     }
+@@ -156,7 +165,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+       _modelVersion = version;
+       _camera = camera;
+       _forceActions = LivenessDevOverrides.valueOf(_passiveThresholdKey) == _forcedThreshold;
+-      _identityTemplate = template;
++      _identityEnrolledAt = enrolledAt;
+     });
+     await _refreshMetrics();
+   }
+@@ -180,25 +189,30 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+     }
+   }
+ 
+-  Future<void> _resetMetrics() async {
++  /// A question with Cancel and [action]; true only when [action] was tapped.
++  Future<bool> _confirm(String title, String message, String action, Key actionKey) async {
+     final ok = await showDialog<bool>(
+       context: context,
+       builder: (dialogContext) => Directionality(
+         textDirection: TextDirection.ltr,
+         child: AlertDialog(
+-          title: const Text('Reset the diagnostics?'),
+-          content: const Text('All counts and times on this phone start again from zero.'),
++          title: Text(title),
++          content: Text(message),
+           actions: [
+             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+-            TextButton(
+-                key: const Key('demo.metrics.resetConfirm'),
+-                onPressed: () => Navigator.pop(dialogContext, true),
+-                child: const Text('Reset')),
++            TextButton(key: actionKey, onPressed: () => Navigator.pop(dialogContext, true), child: Text(action)),
+           ],
+         ),
+       ),
+     );
+-    if (ok != true) return;
++    return ok == true;
++  }
++
++  Future<void> _resetMetrics() async {
++    if (!await _confirm('Reset the diagnostics?', 'All counts and times on this phone start again from zero.', 'Reset',
++        const Key('demo.metrics.resetConfirm'))) {
++      return;
++    }
+     try {
+       await _api.resetMetrics();
+     } on PlatformException catch (e) {
+@@ -268,100 +282,143 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+     if (mounted) setState(() => _busy = false);
+   }
+ 
+-  /// F15, enroll: a real Operator gate; its best frame becomes the test face (app-private). It is never shown.
++  /// F15, enroll: a real Operator gate; its best frame becomes the test face (app-private). It is never shown. Only
++  /// the operator enrolls, once: replacing the test face asks first.
+   Future<void> _identityEnroll() async {
++    if (_identityTemplate &&
++        !await _confirm('Replace the enrolled test face?',
++            'Only the operator enrolls. Everyone else uses 2. Check identity.', 'Replace',
++            const Key('demo.identity.replaceConfirm'))) {
++      return;
++    }
++    if (!mounted) return;
+     setState(() {
+       _busy = true;
+-      _identityLine = null;
+-      _identityDetail = null;
++      _identityNote = null;
++      // A verdict against the old test face no longer holds.
++      _identityInfo = null;
++      _identityProblem = null;
+     });
+     final gate = await LivenessGate.run(context,
+         workflow: LivenessGate.operator, service: _service, previewBuilder: widget.previewBuilder);
+-    String line;
++    String note;
+     if (gate.disabled) {
+-      line = 'Liveness is off for operators – nothing enrolled';
++      note = 'Liveness is off for operators – nothing enrolled';
+     } else if (!gate.proceed || gate.sessionId == null) {
+-      line = 'Face check not passed – nothing enrolled';
++      note = 'Face check not passed – nothing enrolled';
+     } else {
+       try {
+         final outcome = await _api.enrollIdentityTestTemplate(gate.sessionId!);
+-        line = outcome == 'ENROLLED'
+-            ? 'Your face is enrolled as the test user'
++        note = outcome == 'ENROLLED'
++            ? 'Enrolled – now anyone can use 2. Check identity'
+             : outcome == 'NO_LIVE_FRAME'
+                 ? 'No face kept from the check – nothing enrolled'
+                 : 'Enrolment failed – try again';
+       } on PlatformException catch (e) {
+-        line = 'Enrolment failed: ${e.message}';
++        note = 'Enrolment failed: ${e.message}';
+       }
+     }
+-    await _identityDone(line, null);
++    await _identityDone(note: note);
+   }
+ 
+   /// F15, check: a new Operator gate, then the production identity check against the test face.
+   Future<void> _identityCheck() async {
+     setState(() {
+       _busy = true;
+-      _identityLine = null;
+-      _identityDetail = null;
++      _identityChecking = true;
++      _identityNote = null;
++      _identityInfo = null;
++      _identityProblem = null;
+     });
+     final gate = await LivenessGate.run(context,
+         workflow: LivenessGate.operator, service: _service, previewBuilder: widget.previewBuilder);
+-    String line;
+-    String? detail;
++    IdentityCheckInfo? info;
++    String? problem;
+     if (gate.disabled) {
+-      line = 'Liveness is off for operators – nothing compared';
++      problem = 'Liveness is off for operators – nothing compared';
+     } else if (!gate.proceed || gate.sessionId == null) {
+-      line = 'Face check not passed – nothing compared';
++      problem = 'Face check not passed – nothing compared';
+     } else {
+       try {
+         await _api.setIdentityDiagnosticOverride(true);
+-        final info = await _service.verifyIdentity(gate.sessionId!, _identityTestUser, 'diagnostics', 1);
+-        line = _identityText(info);
+-        if (!info.similarity.isNaN && info.outcome != 'MATCH') {
+-          detail = 'Similarity ${info.similarity.toStringAsFixed(2)}, needed ${info.threshold.toStringAsFixed(2)}';
+-        }
++        info = await _service.verifyIdentity(gate.sessionId!, _identityTestUser, 'diagnostics', 1);
+       } on PlatformException catch (e) {
+-        line = 'Identity check failed: ${e.message}';
++        problem = 'Identity check failed: ${e.message}';
+       } finally {
+         await _api.setIdentityDiagnosticOverride(false);
+       }
+     }
+-    await _identityDone(line, detail);
++    await _identityDone(info: info, problem: problem);
++    // The verdict is the answer, not the face check's "captured" screen before it: bring it into view.
++    WidgetsBinding.instance.addPostFrameCallback((_) {
++      final panel = _verdictKey.currentContext;
++      if (panel == null) return;
++      Scrollable.ensureVisible(panel,
++          duration: const Duration(milliseconds: 300),
++          curve: Curves.easeOut,
++          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd);
++    });
+   }
+ 
+   Future<void> _identityDelete() async {
+-    setState(() => _busy = true);
+-    String line;
++    setState(() {
++      _busy = true;
++      _identityInfo = null;
++      _identityProblem = null;
++    });
++    String note;
+     try {
+-      line = await _api.deleteIdentityTestTemplate() ? 'Test face deleted' : 'No test face enrolled';
++      note = await _api.deleteIdentityTestTemplate() ? 'Test face deleted' : 'No test face enrolled';
+     } on PlatformException catch (e) {
+-      line = 'Delete failed: ${e.message}';
++      note = 'Delete failed: ${e.message}';
+     }
+-    await _identityDone(line, null);
++    await _identityDone(note: note);
+   }
+ 
+-  Future<void> _identityDone(String line, String? detail) async {
+-    bool template = _identityTemplate;
++  Future<void> _identityDone({String? note, IdentityCheckInfo? info, String? problem}) async {
++    int? enrolledAt = _identityEnrolledAt;
+     try {
+-      template = await _api.hasIdentityTestTemplate();
++      enrolledAt = await _api.identityTestTemplateTime();
+     } on PlatformException catch (e) {
+       debugPrint('liveness demo: test face status failed: ${e.message}');
+     }
+     if (!mounted) return;
+     setState(() {
+       _busy = false;
+-      _identityTemplate = template;
+-      _identityLine = line;
+-      _identityDetail = detail;
++      _identityChecking = false;
++      _identityEnrolledAt = enrolledAt;
++      _identityNote = note;
++      _identityInfo = info;
++      _identityProblem = problem;
+     });
+   }
+ 
++  /// "Test face enrolled · today 13:16" (or its date), or "No test face enrolled".
++  String _enrolledText() {
++    final at = _identityEnrolledAt;
++    if (at == null) return 'No test face enrolled';
++    // File.lastModified is 0 when the time cannot be read.
++    if (at <= 0) return 'Test face enrolled';
++    final t = DateTime.fromMillisecondsSinceEpoch(at);
++    final now = DateTime.now();
++    String two(int v) => v.toString().padLeft(2, '0');
++    final day = t.year == now.year && t.month == now.month && t.day == now.day
++        ? 'today'
++        : '${t.day} ${_months[t.month - 1]}${t.year == now.year ? '' : ' ${t.year}'}';
++    return 'Test face enrolled · $day ${two(t.hour)}:${two(t.minute)}';
++  }
++
++  /// "Similarity 0.82 · needed 0.40" when faces were compared (the number reaches Dart in diagnostics builds only).
++  static String? _similarityText(IdentityCheckInfo info) {
++    if (info.similarity.isNaN) return null;
++    final similarity = 'Similarity ${info.similarity.toStringAsFixed(2)}';
++    return info.threshold.isNaN ? similarity : '$similarity · needed ${info.threshold.toStringAsFixed(2)}';
++  }
++
+   static String _identityText(IdentityCheckInfo info) {
+     switch (info.outcome) {
+       case 'MATCH':
+-        return info.similarity.isNaN
+-            ? 'Same person'
+-            : 'Same person (similarity ${info.similarity.toStringAsFixed(2)})';
++        return 'Same person';
+       case 'NO_MATCH':
+         return 'Different person – refused';
+       case 'NOT_BOUND_NO_TEMPLATE':
+@@ -462,36 +519,40 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+         key: _headerKey,
+         color: LivenessStyle.primary,
+         padding: const EdgeInsets.only(bottom: 24),
+-        child: _width(Column(
+-          crossAxisAlignment: CrossAxisAlignment.start,
+-          children: [
+-            Text('Face liveness demo', style: _t.headline),
+-            const SizedBox(height: 8),
+-            Text('Developer build · works offline · no MOSIP server needed', style: _t.onPrimary),
+-            const SizedBox(height: 16),
+-            Container(
+-              key: const Key('demo.modelChip'),
+-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+-              decoration: BoxDecoration(
+-                color: Colors.white.withOpacity(0.16),
+-                borderRadius: BorderRadius.circular(999),
+-              ),
+-              child: Row(
+-                mainAxisSize: MainAxisSize.min,
+-                children: [
+-                  const Icon(Icons.verified_outlined, size: 16, color: Colors.white),
+-                  const SizedBox(width: 6),
+-                  Flexible(
+-                    child: Text(
+-                      // A version is shown only once its signed bundle has been verified and loaded.
+-                      _modelVersion.isEmpty ? 'Models loading…' : 'Models $_modelVersion · signed',
+-                      style: _t.chip,
++        // The full width: a column as wide as its longest line would be centred.
++        child: _width(SizedBox(
++          width: double.infinity,
++          child: Column(
++            crossAxisAlignment: CrossAxisAlignment.start,
++            children: [
++              Text('Face liveness demo', style: _t.headline),
++              const SizedBox(height: 8),
++              Text('Developer build · offline · no MOSIP server', style: _t.onPrimary),
++              const SizedBox(height: 16),
++              Container(
++                key: const Key('demo.modelChip'),
++                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
++                decoration: BoxDecoration(
++                  color: Colors.white.withOpacity(0.16),
++                  borderRadius: BorderRadius.circular(999),
++                ),
++                child: Row(
++                  mainAxisSize: MainAxisSize.min,
++                  children: [
++                    const Icon(Icons.verified_outlined, size: 16, color: Colors.white),
++                    const SizedBox(width: 6),
++                    Flexible(
++                      child: Text(
++                        // A version is shown only once its signed bundle has been verified and loaded.
++                        _modelVersion.isEmpty ? 'Models loading…' : 'Models $_modelVersion · signed',
++                        style: _t.chip,
++                      ),
+                     ),
+-                  ),
+-                ],
++                  ],
++                ),
+               ),
+-            ),
+-          ],
++            ],
++          ),
+         )),
+       );
+ 
+@@ -695,34 +756,98 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                 const SizedBox(width: 16),
+                 Expanded(
+                   child: Text(
+-                    _identityTemplate
+-                        ? 'A test face is enrolled on this phone. A new face check is compared with it.'
+-                        : 'Enroll a test face (kept only on this phone), then compare a new face check with it.',
++                    'The operator enrolls once; the test face stays on this phone. Then anyone checks: the '
++                    'operator passes, anyone else is refused.',
+                     style: _t.secondary,
+                   ),
+                 ),
+               ],
+             ),
+             const SizedBox(height: 16),
+-            _stepButton(const Key('demo.identity.enroll'), '1. Enroll my face (test user)',
++            Row(
++              children: [
++                Icon(_identityTemplate ? Icons.badge_outlined : Icons.person_off_outlined,
++                    size: 20, color: _identityTemplate ? LivenessStyle.primary : LivenessStyle.textSecondary),
++                const SizedBox(width: 8),
++                Expanded(
++                  child: Text(_enrolledText(),
++                      key: const Key('demo.identity.enrolled'),
++                      style: _t.label.copyWith(color: LivenessStyle.textPrimary)),
++                ),
++              ],
++            ),
++            if (_identityNote != null) ...[
++              const SizedBox(height: 4),
++              Padding(
++                padding: const EdgeInsets.only(left: 28),
++                child: Text(_identityNote!, key: const Key('demo.identity.note'), style: _t.caption),
++              ),
++            ],
++            const SizedBox(height: 16),
++            _stepButton(const Key('demo.identity.enroll'), '1. Enroll the operator\'s face (once)',
+                 _busy ? null : _identityEnroll),
+             const SizedBox(height: 8),
+-            _stepButton(const Key('demo.identity.check'), '2. Check identity',
++            _stepButton(const Key('demo.identity.check'), '2. Check identity (anyone)',
+                 _busy || !_identityTemplate ? null : _identityCheck),
+             const SizedBox(height: 8),
+             _stepButton(const Key('demo.identity.delete'), '3. Delete test face',
+                 _busy || !_identityTemplate ? null : _identityDelete),
+             const SizedBox(height: 16),
+-            Text(_identityLine ?? (_identityTemplate ? 'Test face enrolled' : 'No test face enrolled'),
+-                key: const Key('demo.identity.result'), style: _t.cardTitle),
+-            if (_identityDetail != null) ...[
+-              const SizedBox(height: 2),
+-              Text(_identityDetail!, style: _t.caption),
+-            ],
++            _identityVerdict(),
+           ],
+         ),
+       );
+ 
++  /// The last identity check's verdict, in the form of a check's result; never an image.
++  Widget _identityVerdict() {
++    final info = _identityInfo;
++    var icon = Icons.remove_circle_outline;
++    var tone = LivenessStyle.neutral;
++    String sentence;
++    String? message;
++    String? detail;
++    if (_identityChecking) {
++      icon = Icons.hourglass_top;
++      tone = LivenessStyle.primary;
++      sentence = 'Checking…';
++      message = 'A face check, then the comparison with the test face';
++    } else if (info != null) {
++      sentence = _identityText(info);
++      if (info.outcome == 'MATCH') {
++        icon = Icons.check_circle;
++        tone = LivenessStyle.success;
++        message = 'This face matches the enrolled test face.';
++      } else if (info.outcome == 'NO_MATCH') {
++        icon = Icons.cancel;
++        tone = LivenessStyle.failure;
++        message = 'This face does not match the enrolled test face.';
++      }
++      detail = _similarityText(info);
++    } else if (_identityProblem != null) {
++      sentence = _identityProblem!;
++    } else {
++      icon = Icons.person_search_outlined;
++      sentence = 'No identity check yet';
++      message = 'After 2. Check identity, the verdict shows here.';
++    }
++    return KeyedSubtree(
++      key: _verdictKey,
++      child: Container(
++        key: const Key('demo.identity.verdict'),
++        padding: const EdgeInsets.all(16),
++        decoration: BoxDecoration(color: tone.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
++        child: _ResultRow(
++          sentenceKey: const Key('demo.identity.verdict.sentence'),
++          icon: icon,
++          tone: tone,
++          sentence: sentence,
++          message: message,
++          detail: detail,
++        ),
++      ),
++    );
++  }
++
+   Widget _stepButton(Key key, String label, VoidCallback? onPressed) => TextButton(
+         key: key,
+         onPressed: onPressed,
+@@ -980,13 +1105,19 @@ class _IconBadge extends StatelessWidget {
+ 
+ class _ResultRow extends StatelessWidget {
+   const _ResultRow(
+-      {required this.icon, required this.tone, required this.sentence, required this.message, this.detail});
++      {required this.icon,
++      required this.tone,
++      required this.sentence,
++      this.message,
++      this.detail,
++      this.sentenceKey = const Key('demo.result.sentence')});
+ 
+   final IconData icon;
+   final Color tone;
+   final String sentence;
+-  final String message;
++  final String? message;
+   final String? detail;
++  final Key sentenceKey;
+ 
+   @override
+   Widget build(BuildContext context) {
+@@ -1000,9 +1131,11 @@ class _ResultRow extends StatelessWidget {
+           child: Column(
+             crossAxisAlignment: CrossAxisAlignment.start,
+             children: [
+-              Text(sentence, key: const Key('demo.result.sentence'), style: t.title),
+-              const SizedBox(height: 4),
+-              Text(message, style: t.secondary),
++              Text(sentence, key: sentenceKey, style: t.title),
++              if (message != null) ...[
++                const SizedBox(height: 4),
++                Text(message!, style: t.secondary),
++              ],
+               if (detail != null) ...[
+                 const SizedBox(height: 8),
+                 Text(detail!, style: t.caption),
+diff --git a/pigeon/liveness.dart b/pigeon/liveness.dart
+index 482fe8b..8121641 100644
+--- a/pigeon/liveness.dart
++++ b/pigeon/liveness.dart
+@@ -205,6 +205,10 @@ abstract class LivenessApi {
+   /// F15, diagnostics builds only: whether the test template exists.
+   bool hasIdentityTestTemplate();
+ 
++  /// F15, diagnostics builds only: when the test template was last written
++  /// (milliseconds since the epoch), or null when there is none.
++  int? identityTestTemplateTime();
++
+   /// F15, diagnostics builds only: while on, verifyIdentity uses the test
+   /// template instead of the user's onboarded faces (audited
+   /// templateSource=diagnostics-test). Release builds ignore it.
+diff --git a/test/liveness/liveness_demo_page_test.dart b/test/liveness/liveness_demo_page_test.dart
+index 0809610..0e79d43 100644
+--- a/test/liveness/liveness_demo_page_test.dart
++++ b/test/liveness/liveness_demo_page_test.dart
+@@ -12,6 +12,7 @@ import 'package:registration_client/ui/liveness/liveness_demo_page.dart';
+ import 'package:registration_client/ui/liveness/liveness_dev_overrides.dart';
+ import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/ui/liveness/liveness_page.dart';
++import 'package:registration_client/ui/liveness/liveness_style.dart';
+ 
+ import 'fake_liveness_service.dart';
+ import 'liveness_test_fonts.dart';
+@@ -21,7 +22,8 @@ class FakeDemoApi implements LivenessApi {
+   String metricsText = 'sessions=38\npassedPassive=28\npassedActive=4\nfailedFinal=4\ncancelled=2\nretries=16\n'
+       'deviceErrors=0\navgProcessingMs=41.250\navgChallengeCompletionMs=1850.000\nretryRate=0.421\n'
+       'failureRate=0.105\npassiveShare=0.875\n';
+-  bool template = false;
++  // When the test face was enrolled (milliseconds since the epoch); null: none.
++  int? templateTime;
+   String enrollResult = 'ENROLLED';
+   final List<String> calls = [];
+ 
+@@ -32,20 +34,23 @@ class FakeDemoApi implements LivenessApi {
+   Future<void> resetMetrics() async => calls.add('resetMetrics');
+ 
+   @override
+-  Future<bool> hasIdentityTestTemplate() async => template;
++  Future<bool> hasIdentityTestTemplate() async => templateTime != null;
++
++  @override
++  Future<int?> identityTestTemplateTime() async => templateTime;
+ 
+   @override
+   Future<String> enrollIdentityTestTemplate(String sessionId) async {
+     calls.add('enroll $sessionId');
+-    if (enrollResult == 'ENROLLED') template = true;
++    if (enrollResult == 'ENROLLED') templateTime = DateTime.now().millisecondsSinceEpoch;
+     return enrollResult;
+   }
+ 
+   @override
+   Future<bool> deleteIdentityTestTemplate() async {
+     calls.add('delete');
+-    final had = template;
+-    template = false;
++    final had = templateTime != null;
++    templateTime = null;
+     return had;
+   }
+ 
+@@ -161,9 +166,16 @@ void main() {
+     for (final scale in const [1.0, 1.3]) {
+       testWidgets('nothing overflows at ${size.width.round()}x${size.height.round()}, text scale $scale',
+           (tester) async {
++        api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++        service.identityResults = [
++          IdentityCheckInfo(outcome: 'NO_MATCH', accepted: false, retryable: true, similarity: 0.21, threshold: 0.40),
++        ];
+         await pumpDemo(tester, size: size, textScale: scale);
+         await scrollThrough(tester, 'start');
+         expect(find.text('Models pad-2026.10.5 · signed'), findsOneWidget);
++        // The header starts at the gutter, also when its subtitle fits on one line.
++        expect(tester.getTopLeft(find.text('Developer build · offline · no MOSIP server')).dx, 16);
++        expect(tester.getTopLeft(find.byKey(const Key('demo.modelChip'))).dx, 16);
+         await reveal(tester, find.text('38'));
+ 
+         // The longest result: not verified, with the engine's message.
+@@ -172,6 +184,17 @@ void main() {
+         await tester.pump(const Duration(milliseconds: 600)); // the metrics refresh after a check
+         expect(find.text('Not verified'), findsOneWidget);
+         await scrollThrough(tester, 'after a failed check');
++
++        // The fullest identity card: an enrolment date, and a refusal with its message and numbers.
++        await tapKey(tester, 'demo.identity.check');
++        await passSession(tester);
++        expect(find.text('Different person – refused'), findsOneWidget);
++        await scrollThrough(tester, 'after a refused identity check');
++        await tapKey(tester, 'demo.identity.enroll');
++        expect(find.byType(AlertDialog), findsOneWidget);
++        expect(tester.takeException(), isNull, reason: 'the replace question');
++        await tester.tap(find.text('Cancel'));
++        await tester.pumpAndSettle();
+       });
+     }
+   }
+@@ -286,37 +309,165 @@ void main() {
+     }
+   });
+ 
+-  testWidgets('identity check: enroll, check, delete, in plain lines', (tester) async {
++  Finder inVerdict(Finder finder) =>
++      find.descendant(of: find.byKey(const Key('demo.identity.verdict')), matching: finder);
++  String verdict(WidgetTester tester) =>
++      tester.widget<Text>(find.byKey(const Key('demo.identity.verdict.sentence'))).data!;
++  String enrolled(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('demo.identity.enrolled'))).data!;
++  String hhmm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
++
++  testWidgets('identity check: the operator enrolls, anyone checks, the verdict shows in its panel', (tester) async {
+     service.identityResults = [
+       IdentityCheckInfo(outcome: 'MATCH', accepted: true, retryable: false, similarity: 0.82, threshold: 0.40),
+       IdentityCheckInfo(outcome: 'NO_MATCH', accepted: false, retryable: true, similarity: 0.21, threshold: 0.40),
+     ];
+     await pumpDemo(tester);
+-    expect(find.text('No test face enrolled'), findsOneWidget);
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(find.text('1. Enroll the operator\'s face (once)'), findsOneWidget);
++    expect(find.text('2. Check identity (anyone)'), findsOneWidget);
++    expect(find.text('3. Delete test face'), findsOneWidget);
++    expect(enrolled(tester), 'No test face enrolled');
++    expect(verdict(tester), 'No identity check yet');
+     expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.check'))).onPressed, isNull);
+ 
++    // No test face yet: no question, straight to the face check.
+     await tapKey(tester, 'demo.identity.enroll');
++    expect(find.byType(AlertDialog), findsNothing);
+     expect(service.started.last, 'OPERATOR/front/false');
+     await passSession(tester);
+     expect(api.calls, contains('enroll s-1'));
+-    expect(find.text('Your face is enrolled as the test user'), findsOneWidget);
++    expect(enrolled(tester),
++        'Test face enrolled · today ${hhmm(DateTime.fromMillisecondsSinceEpoch(api.templateTime!))}');
++    expect(find.text('Enrolled – now anyone can use 2. Check identity'), findsOneWidget);
++    expect(verdict(tester), 'No identity check yet', reason: 'an enrolment is not a verdict');
+ 
+     await tapKey(tester, 'demo.identity.check');
+     await passSession(tester);
+     expect(service.identityCalls.last, 's-1/f15-test-user/diagnostics/1');
+     expect(api.calls, containsAllInOrder(['identityOverride true', 'identityOverride false']));
+-    expect(find.text('Same person (similarity 0.82)'), findsOneWidget);
++    expect(verdict(tester), 'Same person');
++    expect(inVerdict(find.text('Similarity 0.82 · needed 0.40')), findsOneWidget);
++    expect(tester.widget<Icon>(inVerdict(find.byType(Icon))).icon, Icons.check_circle);
++    expect(tester.widget<Icon>(inVerdict(find.byType(Icon))).color, LivenessStyle.success);
+ 
+     await tapKey(tester, 'demo.identity.check');
+     await passSession(tester);
+-    expect(find.text('Different person – refused'), findsOneWidget);
+-    expect(find.text('Similarity 0.21, needed 0.40'), findsOneWidget);
++    expect(verdict(tester), 'Different person – refused');
++    expect(inVerdict(find.text('Similarity 0.21 · needed 0.40')), findsOneWidget);
++    expect(tester.widget<Icon>(inVerdict(find.byType(Icon))).icon, Icons.cancel);
++    expect(tester.widget<Icon>(inVerdict(find.byType(Icon))).color, LivenessStyle.failure);
+ 
+     await tapKey(tester, 'demo.identity.delete');
++    expect(enrolled(tester), 'No test face enrolled');
+     expect(find.text('Test face deleted'), findsOneWidget);
++    expect(verdict(tester), 'No identity check yet');
+     expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.delete'))).onPressed, isNull);
+   });
+ 
++  testWidgets('replacing the test face asks first, and Cancel does not enroll', (tester) async {
++    api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++    await pumpDemo(tester);
++    await reveal(tester, find.byKey(const Key('demo.identity.enrolled')));
++    expect(enrolled(tester), 'Test face enrolled · 27 Oct 2025 09:05');
++
++    await tapKey(tester, 'demo.identity.enroll');
++    expect(find.text('Replace the enrolled test face?'), findsOneWidget);
++    expect(find.text('Only the operator enrolls. Everyone else uses 2. Check identity.'), findsOneWidget);
++    await tester.tap(find.text('Cancel'));
++    await tester.pumpAndSettle();
++    expect(find.byType(AlertDialog), findsNothing);
++    expect(service.started, isEmpty, reason: 'no face check');
++    expect(api.calls.where((c) => c.startsWith('enroll')), isEmpty);
++    expect(enrolled(tester), 'Test face enrolled · 27 Oct 2025 09:05');
++
++    await tapKey(tester, 'demo.identity.enroll');
++    await tester.tap(find.byKey(const Key('demo.identity.replaceConfirm')));
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(service.started.last, 'OPERATOR/front/false');
++    await passSession(tester);
++    expect(api.calls, contains('enroll s-1'));
++    expect(enrolled(tester), startsWith('Test face enrolled · today '));
++  });
++
++  testWidgets('the verdict panel shows each outcome in plain words, never an image', (tester) async {
++    final cases = [
++      _Verdict(
++          IdentityCheckInfo(outcome: 'MATCH', accepted: true, retryable: false, similarity: 0.82, threshold: 0.40),
++          'Same person',
++          icon: Icons.check_circle,
++          tone: LivenessStyle.success,
++          numbers: 'Similarity 0.82 · needed 0.40'),
++      _Verdict(
++          IdentityCheckInfo(outcome: 'NO_MATCH', accepted: false, retryable: true, similarity: 0.21, threshold: 0.40),
++          'Different person – refused',
++          icon: Icons.cancel,
++          tone: LivenessStyle.failure,
++          numbers: 'Similarity 0.21 · needed 0.40'),
++      _Verdict(identity('NO_LIVE_FACE'), 'No face found in the check – try again'),
++      _Verdict(identity('NO_LIVE_FRAME'), 'No face kept from the check – try again'),
++      _Verdict(identity('NOT_BOUND_NO_TEMPLATE'), 'No test face enrolled'),
++      _Verdict(identity('NOT_BOUND_UNREADABLE'), 'The test face cannot be read – enroll again'),
++      _Verdict(identity('SKIPPED'), 'The identity check is turned off'),
++      _Verdict(
++          IdentityCheckInfo(
++              outcome: 'ERROR', accepted: false, retryable: false, similarity: double.nan, threshold: double.nan),
++          'The comparison failed – try again'),
++    ];
++    service.identityResults = [for (final c in cases) c.info];
++    api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++    // The narrowest phone at the largest text scale.
++    await pumpDemo(tester, size: const Size(360, 640), textScale: 1.3);
++
++    void expectVerdict(String sentence, IconData icon, Color tone, String? numbers) {
++      expect(verdict(tester), sentence);
++      final shown = tester.widget<Icon>(inVerdict(find.byType(Icon)));
++      expect(shown.icon, icon, reason: sentence);
++      expect(shown.color, tone, reason: sentence);
++      expect(inVerdict(find.textContaining('Similarity')), numbers == null ? findsNothing : findsOneWidget);
++      if (numbers != null) expect(inVerdict(find.text(numbers)), findsOneWidget);
++      expect(inVerdict(find.byType(Image)), findsNothing);
++      expect(inVerdict(find.byType(RawImage)), findsNothing);
++      expect(inVerdict(find.byType(Ink)), findsNothing);
++      expect(tester.takeException(), isNull, reason: sentence);
++    }
++
++    for (final c in cases) {
++      await tapKey(tester, 'demo.identity.check');
++      await passSession(tester);
++      expectVerdict(c.sentence, c.icon, c.tone, c.numbers);
++    }
++    // The face check itself not passed: nothing compared.
++    await tapKey(tester, 'demo.identity.check');
++    await failSession(tester);
++    await tester.pump(const Duration(milliseconds: 400));
++    expectVerdict('Face check not passed – nothing compared', Icons.remove_circle_outline, LivenessStyle.neutral, null);
++  });
++
++  testWidgets('after a check the verdict scrolls into view', (tester) async {
++    api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++    await pumpDemo(tester, size: const Size(360, 640));
++    final check = find.byKey(const Key('demo.identity.check'));
++    final panel = find.byKey(const Key('demo.identity.verdict'));
++    await reveal(tester, check);
++    // The check button at the bottom of the screen: the verdict below it is out of view.
++    final viewport = tester.getRect(find.byKey(const Key('demo.list')));
++    final position = listPosition(tester);
++    position.jumpTo(position.pixels - (viewport.bottom - tester.getRect(check).bottom));
++    await tester.pump();
++    expect(tester.getRect(panel).bottom, greaterThan(viewport.bottom));
++
++    await tester.tap(check);
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    await passSession(tester);
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    expect(verdict(tester), 'Same person');
++    expect(tester.getRect(panel).bottom, lessThanOrEqualTo(viewport.bottom));
++    expect(tester.getRect(panel).top, greaterThanOrEqualTo(viewport.top));
++  });
++
+   testWidgets('diagnostics: labelled tiles from the persisted metrics; Reset asks first', (tester) async {
+     await pumpDemo(tester);
+     Future<String> tile(String key) async {
+@@ -381,3 +532,15 @@ void main() {
+     expect(tester.widget<SegmentedButton<String>>(find.byKey(const Key('demo.camera'))).selected, {'back'});
+   });
+ }
++
++/// An identity check's answer and how the verdict panel shows it (neutral, without numbers, unless set).
++class _Verdict {
++  _Verdict(this.info, this.sentence,
++      {this.icon = Icons.remove_circle_outline, this.tone = LivenessStyle.neutral, this.numbers});
++
++  final IdentityCheckInfo info;
++  final String sentence;
++  final IconData icon;
++  final Color tone;
++  final String? numbers;
++}

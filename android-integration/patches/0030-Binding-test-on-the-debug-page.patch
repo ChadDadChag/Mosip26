@@ -1,7 +1,7 @@
 From 78724c4aaf81d847a946e9761a9168ac529f383c Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sun, 25 Oct 2026 14:35:53 +0530
-Subject: [PATCH 30/42] Binding test on the debug page
+Subject: [PATCH 30/57] Binding test on the debug page
 
 Fix round 2, B6 and the phone figures of A2/A4 (debug and profile builds
 only, BuildConfig.LIVENESS_DIAGNOSTICS).

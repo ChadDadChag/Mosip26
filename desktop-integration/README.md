@@ -1,7 +1,7 @@
 # Part 4: Desktop integration patch
 
 `person4-desktop.diff` is every Part 4 change as one diff, relative to `registration-client/registration` at
-v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 67 text files:
+v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 69 text files:
 - new liveness classes, tests and docs;
 - the liveness block appended to the Arabic and French message bundles, and two tile titles appended to the label
   bundles;

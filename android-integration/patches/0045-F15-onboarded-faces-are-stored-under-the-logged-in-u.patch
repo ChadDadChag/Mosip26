@@ -1,0 +1,81 @@
+From 034ea648cff5f734300690a0af579c48c034b892 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 02:44:37 +0530
+Subject: [PATCH 45/57] F15: onboarded faces are stored under the logged-in
+ user's id (task 19 review)
+
+The review found that operator onboarding never stored a face under the operator's id. UserOnboardService takes the
+id from the "user_id" preference (SessionManager.USER_ID), and nothing wrote that preference: saveAuthToken writes
+the user name, the preferred user name and the email. So every onboarded face was stored with usr_id "", and each
+onboarding replaced the previous operator's rows. F15's lookup by the login user then found no template at any gate:
+NOT_BOUND_NO_TEMPLATE, accepted on liveness alone with the default requireTemplate=false. The same empty id also
+disabled the operator onboarding dedupe (Biometrics095Service), and F17's audit fell back to the preferred user name.
+
+saveAuthToken now also writes USER_ID: the token's preferred_username, which onboarding already sends to IDA and
+uses for the user details. clearAuthToken removes it.
+
+Faces onboarded before this fix are still stored under "". An operator must onboard again before F15 binds them.
+
+Test: SessionManagerTest checks that USER_ID is stored as the preferred user name and removed on logout.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../clientmanager/config/SessionManager.java  |  4 ++++
+ .../config/SessionManagerTest.java            | 22 +++++++++++++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
+index c264740..e0f1d81 100644
+--- a/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
++++ b/android/clientmanager/src/main/java/io/mosip/registration/clientmanager/config/SessionManager.java
+@@ -72,6 +72,9 @@ public class SessionManager {
+         editor.putString(USER_TOKEN, token);
+         editor.putString(USER_NAME, jwt.getClaim(USERNAME).asString());
+         editor.putString(PREFERRED_USERNAME, jwt.getClaim(PREFERRED_USERNAME).asString());
++        // The user id that operator onboarding stores the biometrics under (and IDA and the user details use): the
++        // preferred user name. Nothing set it before, so every onboarded face was stored under "" and F15 found none.
++        editor.putString(USER_ID, jwt.getClaim(PREFERRED_USERNAME).asString());
+         editor.putString(USER_EMAIL, jwt.getClaim(EMAIL).asString());
+         editor.putBoolean(IS_SUPERVISOR, roles.contains("REGISTRATION_SUPERVISOR"));
+         editor.putBoolean(IS_DEFAULT, roles.contains("Default"));
+@@ -115,6 +118,7 @@ public class SessionManager {
+         editor.remove(USER_TOKEN);
+         editor.remove(USER_NAME);
+         editor.remove(PREFERRED_USERNAME);
++        editor.remove(USER_ID);
+         editor.remove(USER_EMAIL);
+         editor.remove(IS_SUPERVISOR);
+         editor.remove(IS_DEFAULT);
+diff --git a/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java b/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java
+index 872d449..4e316eb 100644
+--- a/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java
++++ b/android/clientmanager/src/test/java/io/mosip/registration/clientmanager/config/SessionManagerTest.java
+@@ -87,6 +87,28 @@ public class SessionManagerTest {
+         }
+     }
+ 
++    @Test
++    public void saveAuthToken_storesTheUserIdThatOnboardingUses_andClearRemovesIt() throws Exception {
++        // F15: operator onboarding stores the face under the USER_ID preference; it must be the logged-in user.
++        Map<String, Object> realmAccess = new HashMap<>();
++        realmAccess.put("roles", Arrays.asList("REGISTRATION_OFFICER", "REGISTRATION_OPERATOR"));
++        Claim other = mockClaim("other"), roles = mockClaim(realmAccess), user = mockClaim("operator1");
++        try (MockedConstruction<JWT> jwtMock = Mockito.mockConstruction(JWT.class, (mock, context) -> {
++            lenient().when(mock.isExpired(15)).thenReturn(false);
++            lenient().when(mock.getClaim(anyString())).thenReturn(other);
++            lenient().when(mock.getClaim(eq("realm_access"))).thenReturn(roles);
++            lenient().when(mock.getClaim(eq("preferred_username"))).thenReturn(user);
++        })) {
++            SessionManager manager = SessionManager.getSessionManager(mockContext);
++            manager.saveAuthToken("valid.token");
++            verify(mockEditor).putString(SessionManager.USER_ID, "operator1");
++            verify(mockEditor).putString(SessionManager.PREFERRED_USERNAME, "operator1");
++
++            manager.clearAuthToken();
++            verify(mockEditor).remove(SessionManager.USER_ID);
++        }
++    }
++
+     private Claim mockClaim(Object value) {
+         Claim claim = mock(Claim.class);
+         if (value instanceof String) {

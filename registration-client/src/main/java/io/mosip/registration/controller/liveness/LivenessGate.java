@@ -1,6 +1,7 @@
 package io.mosip.registration.controller.liveness;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -29,6 +30,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.stage.Modality;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
@@ -250,8 +252,21 @@ public class LivenessGate {
 			stage.initOwner(owner);
 		}
 		stage.setResizable(false);
+		view.fitTo(screenOf(owner).getVisualBounds());
 		stage.setScene(new Scene(view.root()));
 		return stage;
+	}
+
+	/** The screen that holds most of the owner window, else the primary screen. */
+	private static Screen screenOf(Window owner) {
+		if (owner != null) {
+			List<Screen> screens = Screen.getScreensForRectangle(owner.getX(), owner.getY(), owner.getWidth(),
+					owner.getHeight());
+			if (!screens.isEmpty()) {
+				return screens.get(0);
+			}
+		}
+		return Screen.getPrimary();
 	}
 
 	/** One gate run: one session, one window, one outcome. */

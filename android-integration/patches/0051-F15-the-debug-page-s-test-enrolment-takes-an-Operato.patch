@@ -1,0 +1,37 @@
+From 092946ca252b58aa1d5803abf609034c5cd58a06 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 04:25:25 +0530
+Subject: [PATCH 51/57] F15: the debug page's test enrolment takes an Operator
+ frame (fixes the app build after A5)
+
+The previous commit gave FaceBinding.take a workflow argument, and the app
+module's LivenessApi.enrollIdentityTestTemplate (diagnostics builds only)
+still called take(sessionId): the app did not compile. The module's unit
+tests passed because the caller is in the app module; the APK build found
+it. The debug page enrols from an Operator gate (liveness_debug_page.dart),
+so it now takes the frame for OPERATOR, and a frame of another workflow is
+refused (NO_LIVE_FRAME), as in A5.
+
+flutter build apk --debug --split-per-abi --target-platform android-arm64:
+builds. :liveness:testDebugUnitTest 115 and flutter test test/liveness 287
+are unchanged (no module or Dart change).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../io/mosip/registration_client/api_services/LivenessApi.java | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+index 4ccab07..4c4361c 100644
+--- a/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
++++ b/android/app/src/main/java/io/mosip/registration_client/api_services/LivenessApi.java
+@@ -660,7 +660,8 @@ public class LivenessApi implements LivenessPigeon.LivenessApi {
+         }
+         holder.bindingWorker().execute(() -> {
+             String outcome;
+-            FaceBinding.Held held = holder.binding().take(sessionId);
++            // The debug page enrols from an Operator gate (liveness_debug_page.dart); a frame of another workflow is refused.
++            FaceBinding.Held held = holder.binding().take(sessionId, WorkflowType.OPERATOR);
+             if (held == null) {
+                 outcome = "NO_LIVE_FRAME";
+             } else {

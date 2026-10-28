@@ -1,0 +1,208 @@
+From 997842aee8c515730af3516e80e02147021c564e Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 03:57:08 +0530
+Subject: [PATCH 50/57] F15: no best frame outlives an identity check, and only
+ the gate's workflow is compared (task 20, A5)
+
+Planner's triage of A5 (task 19 review):
+- IdentityBinding.verify drops the held best frame whatever the outcome
+  (FaceBinding.dropHeld; armings stay). SKIPPED kept it until the next
+  session or the TTL, and NO_LIVE_FRAME left another session's frame held.
+- FaceBinding.take(sessionId, workflow) refuses (null) a frame held for
+  another workflow than the gate's: password_login, packet_auth and the debug
+  page's diagnostics run OPERATOR, supervisor_approval runs SUPERVISOR, and an
+  unknown gate gets nothing. The check then ends NO_LIVE_FRAME (retryable),
+  as for another session.
+
+IdentityBindingTest: a supervisor frame for the login, an operator frame for
+the approval, an unknown gate and another session are all NO_LIVE_FRAME and
+leave nothing held; SKIPPED leaves nothing held; take() with the wrong or no
+workflow keeps the frame for its own gate. :liveness:testDebugUnitTest 115,
+all passing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../liveness/android/FaceBinding.java         | 14 ++++--
+ .../liveness/android/IdentityBinding.java     | 34 +++++++++++--
+ .../liveness/android/IdentityBindingTest.java | 50 ++++++++++++++++++-
+ 3 files changed, 88 insertions(+), 10 deletions(-)
+
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/FaceBinding.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/FaceBinding.java
+index eab4a06..c5c39da 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/FaceBinding.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/FaceBinding.java
+@@ -199,17 +199,23 @@ public final class FaceBinding {
+ 
+     /**
+      * F15: the held best frame of {@code sessionId} for identity binding ({@link IdentityBinding}), which has no SBI
+-     * capture. Consumes it: everything is dropped. Null when nothing is held for that session (another session, a
+-     * pause, the TTL).
++     * capture, if that session ran {@code workflow} (the gate's). Consumes it: everything is dropped. Null when
++     * nothing is held for that session and workflow (another session or workflow, a pause, the TTL).
+      */
+-    public synchronized Held take(String sessionId) {
++    public synchronized Held take(String sessionId, WorkflowType workflow) {
+         sweep();
+         if (sessionId == null || bestFrame == null || !sessionId.equals(this.sessionId)) return null;
+-        Held h = new Held(workflow, bestFrame);
++        if (workflow == null || workflow != this.workflow) return null;
++        Held h = new Held(this.workflow, bestFrame);
+         resetAll();
+         return h;
+     }
+ 
++    /** F15: an identity check ended (any outcome): the held best frame, if any is left, is dropped; armings stay. */
++    public synchronized void dropHeld() {
++        dropFrame();
++    }
++
+     /** Whether a best frame is held (tests and diagnostics). */
+     public synchronized boolean holding() {
+         sweep();
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
+index 6b0ac63..7844a6c 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/IdentityBinding.java
+@@ -36,7 +36,8 @@ import io.mosip.registration.liveness.api.WorkflowType;
+  *   <li>{@value #ENABLED_KEY} off: SKIPPED, accepted.</li>
+  * </ul>
+  * Both switches read true/yes/1/on and false/no/0/off in any case; any other value keeps the default (enabled on,
+- * requireTemplate off) with a warning.
++ * requireTemplate off) with a warning. Whatever the outcome, no best frame is left held after a check, and a frame
++ * held for another workflow than the gate's is never compared.
+  * Every decision is audited (REG-EVT-020): codes, the similarity (2 decimals), the threshold, the gate, the attempt,
+  * the user id and template counts. The Room rows have no creation time, so there is no template age. Images and
+  * templates stay in memory.
+@@ -110,9 +111,25 @@ public final class IdentityBinding {
+         this.audit = audit;
+     }
+ 
++    /** The liveness workflow each identity gate runs (the debug page's "diagnostics" runs an Operator gate). */
++    static WorkflowType workflowOf(String gate) {
++        if (gate == null) return null;
++        switch (gate) {
++            case PASSWORD_LOGIN:
++            case "packet_auth":
++            case "diagnostics":
++                return WorkflowType.OPERATOR;
++            case "supervisor_approval":
++                return WorkflowType.SUPERVISOR;
++            default:
++                return null;
++        }
++    }
++
+     /**
+-     * The check after a PASSED gate: consumes the held best frame of {@code sessionId}. Blocking (loading, decoding
+-     * and matching take a few hundred ms): call it on a worker thread. Never throws.
++     * The check after a PASSED gate: consumes the held best frame of {@code sessionId}, if that session ran the gate's
++     * workflow. Blocking (loading, decoding and matching take a few hundred ms): call it on a worker thread. Never
++     * throws. Whatever the outcome, no best frame is held afterwards.
+      *
+      * @param gate    password_login, packet_auth or supervisor_approval (audited)
+      * @param attempt 1 for the gate's first liveness session, 2 for the retry (audited)
+@@ -120,6 +137,15 @@ public final class IdentityBinding {
+      */
+     public Result verify(String sessionId, String userId, String gate, int attempt, TemplateSource templates,
+                          Map<String, String> extra) {
++        try {
++            return check(sessionId, userId, gate, attempt, templates, extra);
++        } finally {
++            binding.dropHeld(); // SKIPPED and NO_LIVE_FRAME included: nothing outlives the check
++        }
++    }
++
++    private Result check(String sessionId, String userId, String gate, int attempt, TemplateSource templates,
++                         Map<String, String> extra) {
+         Map<String, String> d = new LinkedHashMap<>();
+         d.put("gate", gate == null ? "NA" : gate);
+         d.put("attempt", Integer.toString(attempt));
+@@ -129,7 +155,7 @@ public final class IdentityBinding {
+         if (!flag(ENABLED_KEY, true)) {
+             return finish(null, sessionId, new Result("SKIPPED", Double.NaN, t, true, false), d);
+         }
+-        FaceBinding.Held held = binding.take(sessionId);
++        FaceBinding.Held held = binding.take(sessionId, workflowOf(gate));
+         if (held == null) {
+             return finish(null, sessionId, new Result("NO_LIVE_FRAME", Double.NaN, t, false, true), d);
+         }
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
+index a6d7836..c48178e 100644
+--- a/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/IdentityBindingTest.java
+@@ -72,7 +72,11 @@ public class IdentityBindingTest {
+     }
+ 
+     private void hold(String session, FaceBinding.Rgb face) {
+-        binding.hold(session, WorkflowType.OPERATOR, new Frame(face.rgb, face.width, face.height, 0, 0, "test"));
++        hold(session, face, WorkflowType.OPERATOR);
++    }
++
++    private void hold(String session, FaceBinding.Rgb face, WorkflowType workflow) {
++        binding.hold(session, workflow, new Frame(face.rgb, face.width, face.height, 0, 0, "test"));
+     }
+ 
+     @Test
+@@ -119,7 +123,7 @@ public class IdentityBindingTest {
+ 
+     @Test
+     public void theBestOfSeveralTemplatesDecidesAndUnreadableOnesAreCounted() {
+-        hold("s1", portrait);
++        hold("s1", portrait, WorkflowType.SUPERVISOR);
+         IdentityBinding.Result r = identity.verify("s1", "sup1", "supervisor_approval", 1,
+                 onboarded(crewFace, null, blank, crew, mirrored), null);
+         assertEquals("MATCH", r.outcome);
+@@ -187,6 +191,7 @@ public class IdentityBindingTest {
+         assertEquals("SKIPPED", r.outcome);
+         assertTrue(r.accepted);
+         assertTrue(audits.get(0), audits.get(0).contains("templateSource=diagnostics-test"));
++        assertFalse("SKIPPED drops the held frame too", binding.holding());
+     }
+ 
+     /** Both switches: true/yes/1/on and false/no/0/off in any case; anything else is the default (A4, task 20). */
+@@ -216,4 +221,45 @@ public class IdentityBindingTest {
+         assertEquals(null, IdentityBinding.parseSwitch("disabled"));
+         assertEquals(null, IdentityBinding.parseSwitch(null));
+     }
++
++    /**
++     * A frame is compared only for the gate's own workflow, and no outcome leaves one held (A5, task 20): a frame held
++     * for another workflow or session is refused and dropped.
++     */
++    @Test
++    public void aFrameHeldForAnotherWorkflowIsRefusedAndNoOutcomeLeavesAFrameHeld() {
++        hold("s1", portrait, WorkflowType.SUPERVISOR);
++        IdentityBinding.Result login = identity.verify("s1", "op1", "password_login", 1, onboarded(mirrored), null);
++        assertEquals("a supervisor session for the operator login", "NO_LIVE_FRAME", login.outcome);
++        assertFalse(binding.holding());
++
++        hold("s1", portrait, WorkflowType.OPERATOR);
++        assertEquals("NO_LIVE_FRAME",
++                identity.verify("s1", "sup1", "supervisor_approval", 1, onboarded(mirrored), null).outcome);
++        assertFalse(binding.holding());
++
++        hold("s1", portrait, WorkflowType.OPERATOR);
++        assertEquals("an unknown gate", "NO_LIVE_FRAME",
++                identity.verify("s1", "op1", "self_service", 1, onboarded(mirrored), null).outcome);
++        assertFalse(binding.holding());
++
++        hold("s1", portrait, WorkflowType.OPERATOR);
++        assertEquals("another session", "NO_LIVE_FRAME",
++                identity.verify("s2", "op1", "packet_auth", 1, onboarded(mirrored), null).outcome);
++        assertFalse("the other session's frame is dropped", binding.holding());
++
++        hold("s1", portrait, WorkflowType.OPERATOR);
++        assertEquals("the debug page's Operator gate", "MATCH",
++                identity.verify("s1", "op1", "diagnostics", 1, onboarded(mirrored), null).outcome);
++        assertEquals(WorkflowType.OPERATOR, IdentityBinding.workflowOf("packet_auth"));
++        assertEquals(WorkflowType.SUPERVISOR, IdentityBinding.workflowOf("supervisor_approval"));
++
++        // FaceBinding.take itself: the workflow must match.
++        hold("s1", portrait, WorkflowType.SUPERVISOR);
++        assertEquals(null, binding.take("s1", WorkflowType.OPERATOR));
++        assertEquals(null, binding.take("s1", null));
++        assertTrue("a refused take keeps the frame for its own gate", binding.holding());
++        assertEquals(WorkflowType.SUPERVISOR, binding.take("s1", WorkflowType.SUPERVISOR).workflow);
++        assertFalse(binding.holding());
++    }
+ }
