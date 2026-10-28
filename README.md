@@ -248,7 +248,7 @@ Use the same setup as above (JDK 11, Registration Client v1.2.0.2 checkout, patc
 
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip
 
-As of 2026-10-26 this runs 288 tests (api 5, core 227, fake 44, tools 12), enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
+As of 2026-10-28 (task 30) this runs 289 tests (api 5, core 228, fake 44, tools 12), enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
 
 ## Use (Parts 4 and 5)
 
@@ -360,7 +360,7 @@ The engine is the same Java code as on the Desktop. It runs on the phone's camer
 
 | Path | What | Ships in the app |
 |---|---|---|
-| `android-integration/patches/` | 65 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, face binding of the SBI face capture (F1), the liveness texts in all six languages (five machine-translated, then reviewed and corrected by native speakers on 2026-10-28; Arabic right to left), the online model update (`ModelUpdateWorker`, off by default), audit events REG-EVT-009..020, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), per-ABI APKs, tests | yes |
+| `android-integration/patches/` | 68 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, face binding of the SBI face capture (F1), the liveness texts in all six languages (five machine-translated, then reviewed and corrected by native speakers on 2026-10-28; Arabic right to left), the online model update (`ModelUpdateWorker`, off by default), audit events REG-EVT-009..020, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), per-ABI APKs, tests | yes |
 | `android-integration/person5-liveness.diff` | the same changes as one diff | yes |
 | `android-integration/scripts/` | `sync-engine.ps1` (engine jars, signed models and the camera source into the client), `apply-integration.ps1` (clone, apply, sync, build), `export-patches.ps1` (regenerate the patches) | no |
 | `android-liveness-frame-source/` | Part 1's `CameraXFrameSource`, copied into the client by the sync | yes |
@@ -373,13 +373,13 @@ The patches leave out the engine jars, the model bundle and `CameraXFrameSource.
 
 That runs these steps:
 1. Clones `v1.1.1`.
-2. Applies the 65 patches with `git am`.
+2. Applies the 68 patches with `git am`.
 3. Builds and syncs the engine.
 4. Generates the Pigeon code.
 5. Builds an arm64 debug APK.
 
-The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 123 liveness module tests and 330 Flutter tests (`test/liveness`), measured on the client state the
-65 patches reproduce (clone 21a46b2, task 29's review fixes).
+The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 123 liveness module tests and 339 Flutter tests (`test/liveness`), measured on the client state the
+68 patches reproduce (clone 4d5e6b9, task 30).
 
 **Documentation:**
 - [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations

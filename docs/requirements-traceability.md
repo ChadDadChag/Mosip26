@@ -202,7 +202,7 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | Requirement | Status | Where (Part, code/doc path) | Evidence / verification | Notes / gaps |
 |---|---|---|---|---|
 | **IN-1** Desktop: Java, the existing Registration Client stack and device integration framework, a camera/device abstraction | ✅ | Java modules of `registration-client-parent` (JDK 11); SBI through the existing `MosipDeviceSpecificationFactory` and `BioService.getStream()`; `FrameSource` as the abstraction | Built and tested inside Registration Client v1.2.0.2 | Part 1 modified no existing client class ([README](../README.md)); the Part 4 hooks are additive ([P4 §1](part4-desktop-integration.md)) |
-| **IN-2** Android: Java/Flutter, Android camera APIs, the vendor device SDK | ✅ | Flutter screens + a Java native module (`arc:android/liveness/`); CameraX; SBI intents stay the source of the stored face | 123 module tests and 330 Flutter tests, measured on the client state the 65 patches reproduce (clone 21a46b2, task 29) ([P5 §10](part5-android-integration.md)) | — |
+| **IN-2** Android: Java/Flutter, Android camera APIs, the vendor device SDK | ✅ | Flutter screens + a Java native module (`arc:android/liveness/`); CameraX; SBI intents stay the source of the stored face | 123 module tests and 339 Flutter tests, measured on the client state the 68 patches reproduce (clone 4d5e6b9, task 30) ([P5 §10](part5-android-integration.md)) | — |
 | **IN-3** Common face capture device interface | ✅ | `api/Frame`, `api/FrameSource`, `api/DeviceCapabilities` ([P1 arch §2](part1-frame-streaming-architecture.md)) | `FrameTest`; `DevicePathInteropTest` | — |
 | **IN-4** Device adapter pattern for several vendors | ✅ | Adapters `device/sbi/SbiStreamFrameSource`, `device/mock/MockFrameSource`, `cam/CameraXFrameSource`; `PreviewFrameSource` tee | `DevicePathInteropTest`: the mock device and the SBI adapter give identical frames and the same decision | — |
 | **IN-5** Configurable liveness quality validation | ✅ | P2 analyzer keys `mosip.registration.liveness.face.analyzer.*` (luma, blur, face size, centring, moiré) ([P2 arch §9](part2-pad-architecture.md)); P3 thresholds | `AnalyzerConfigTest`, `QualityAssessorTest`, `RelativeBlurTest` | — |
@@ -472,7 +472,7 @@ screens rendered again from the production code. Android debug and profile build
 | **D3.14** Configuration support | ✅ | Section 5 | Section 5 | — |
 | **D3.15** Audit and diagnostic logging | ✅ | As ET-20 | As ET-20 | — |
 | **D3.16** Desktop Registration Client changes | ✅ | `desktop-integration/person4-desktop.diff` (69 text files on `main`) plus 14 screen images; [P4 doc](part4-desktop-integration.md) | Measured on `main` at 57b4c95 (2026-10-28), the Part 4 test command runs `registration-services` 179 (Part 1's 81 and Part 4's 52 liveness tests, the four F16 clips, and the existing audit, login and config sync suites) and `registration-client` 43, all passing; `RecordedVideoE2ETest` 5 of 5 ([P4 §10](part4-desktop-integration.md)) | Compiled and tested, not launched end to end (needs a registered machine, database and server) |
-| **D3.17** Android Registration Client changes | ✅ | `android-integration/patches/` (65 patches against v1.1.1), `person5-liveness.diff`, `scripts/` | With the 65 patches, measured on the client state they reproduce (clone 21a46b2, task 29): 123 module tests, 330 Flutter tests and 17 clientmanager tests (3 refresh-listener, 14 `SessionManagerTest`) pass. A fresh clone of v1.1.1 with the 65 patches, or with the consolidated diff, gives the integration branch's tree; rebuilt engine jars differ only in their embedded build info | 14 upstream v1.1.1 clientmanager tests fail identically before any liveness change ([P5 §10](part5-android-integration.md)) |
+| **D3.17** Android Registration Client changes | ✅ | `android-integration/patches/` (68 patches against v1.1.1), `person5-liveness.diff`, `scripts/` | With the 68 patches, measured on the client state they reproduce (clone 4d5e6b9, task 30): 123 module tests, 339 Flutter tests and 17 clientmanager tests (3 refresh-listener, 14 `SessionManagerTest`) pass. A fresh clone of v1.1.1 with the 68 patches, or with the consolidated diff, gives the integration branch's tree; rebuilt engine jars differ only in their embedded build info | 14 upstream v1.1.1 clientmanager tests fail identically before any liveness change ([P5 §10](part5-android-integration.md)) |
 
 ---
 
@@ -549,22 +549,22 @@ Android.
 | Model bundle signature | `ModelBundleTool verify --dir models` | repository root ([README, Part 2](../README.md)) |
 | PAD evaluation | `PadEvaluation --data eval-data` (needs consented local recordings, which are never committed) | repository root ([P2 eval §7](part2-iso30107-evaluation.md)) |
 
-**Where test counts are recorded.** Current counts are `main` at 57b4c95 (2026-10-28). The engine modules and the Desktop
-suites (the Part 4 test command: the liveness, audit, login and config sync tests, `RecordedVideoE2ETest` included) were
-run on that commit for this version. The Android counts were measured on the client state the 65 patches of task 29's
-review fixes reproduce (clone 21a46b2, 2026-10-28).
-The Desktop suites gave the same counts on the translation review's commit (3fa6731). A count recorded for an earlier phase is labelled with that phase.
+**Where test counts are recorded.** Current counts are review-fixes-1029 with f9-results-1028 merged (tasks 28 to 30,
+2026-10-28). The engine modules and the Desktop suites (the Part 4 test command: the liveness, audit, login and config
+sync tests, `RecordedVideoE2ETest` included) were run on it. On `main` at 57b4c95 they were the same except for
+liveness-core 227, liveness-eval 70 and `registration-client` 43. The Android counts were measured on the client state
+the 68 patches reproduce (clone 4d5e6b9, task 30). A count recorded for an earlier phase is labelled with that phase.
 
 | Suite | Count | Recorded in |
 |---|---|---|
-| `liveness-api`, `-core`, `-fake`, `-tools` | 288 on `main` at 57b4c95 (unchanged since 2026-10-26): api 5, core 227, fake 44, tools 12; `liveness-core` line coverage gated at 85%. At round 4 (2026-10-23): 273 (api 5, core 214, fake 44, tools 10), core line coverage 96.8% | [README, Part 3](../README.md), [P5 §10](part5-android-integration.md); round 4 in [P3 design §14](person3-design.md) and [PART3_STATUS](../PART3_STATUS.md) |
+| `liveness-api`, `-core`, `-fake`, `-tools` | 289: api 5, core 228 (task 30's Part 3 fix), fake 44, tools 12 (288 on `main` at 57b4c95); `liveness-core` line coverage gated at 85%. At round 4 (2026-10-23): 273 (api 5, core 214, fake 44, tools 10), core line coverage 96.8% | [README, Part 3](../README.md), [P5 §10](part5-android-integration.md); round 4 in [P3 design §14](person3-design.md) and [PART3_STATUS](../PART3_STATUS.md) |
 | `liveness-analyzer` | 258; coverage gated at 80% | [README, Part 2](../README.md), [P5 §10](part5-android-integration.md) |
-| `liveness-eval` | 70 | same |
+| `liveness-eval` | 77 (70 on `main` at 57b4c95; tasks 28 to 30) | same |
 | `registration-services` (Registration Client v1.2.0.2 build) | 133 liveness tests: Part 1's 81 and Part 4's 52. The Part 4 test command also runs the four F16 clips and the existing audit (4), login (26) and config sync (12) suites, 179 in all | [README, Part 4](../README.md), [P4 §10](part4-desktop-integration.md) |
-| `registration-client` | 43 | same |
+| `registration-client` | 44 (43 on `main` at 57b4c95; task 30's Arabic file title) | same |
 | Part 1 device pipeline | 96 at Part 1's delivery: 72 in `registration-services` (81 with F13b's 9 `WebcamGrabbersTest`), and 24 that moved with the heuristic analyzer to `liveness-analyzer` (counted in its 258). MockMDS patch: `FaceStreamProviderTest` 7 | [README, Part 1](../README.md) |
 | Android `android/liveness` module | 123 | [P5 §10](part5-android-integration.md), [android-integration/README.md](../android-integration/README.md) |
-| Flutter `test/liveness` | 330 | same |
+| Flutter `test/liveness` | 339 | same |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | 3 | [P5 §10](part5-android-integration.md) |
 | clientmanager `SessionManagerTest` | 14 | same |
 | Part 3 requirement audit | 29 DONE, 0 PARTIAL, 0 MISSING, 0 BROKEN | [PART3_STATUS](../PART3_STATUS.md) |
