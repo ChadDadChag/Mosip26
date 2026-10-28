@@ -934,9 +934,13 @@ provisional.
   bind. Fix (Part 1, Mosip26 56bf83b; patch 0057): the analysis and the preview are bound at the window's rotation
   (`Activity.getDisplay()` on API 30+, which includes the fixed-rotation adjustments), logged as `target rotation
   <window> (display <physical>)`; during a session a DisplayListener and the Activity's configuration changes
-  re-apply it, and `stop()` unregisters the listener. Unit tests (6). adb alone cannot set this up (the app has no fixed
-  orientation, so a display locked to landscape turns its window too); the live check on the phone, with a video in
-  picture-in-picture, is pending.
+  re-apply it, and `stop()` unregisters the listener. Unit tests (6; 3 of them fail without the fix). adb alone cannot
+  set this up (the app has no fixed orientation, so a display locked to landscape turns its window too). Live check
+  with APK 4, a video in picture-in-picture: at 15:30:48, phone upright, `target rotation 0 (display 0)`, analysis
+  rotation 270 -> 480x640, PASSED passively in 2.3 s; at 15:32:14, phone flat after landscape so the app opened in
+  landscape, `target rotation 90 (display 90)`, rotation 0 -> 640x480, PASSED after BLINK and TURN_RIGHT in 9.1 s.
+  The window/display mismatch of 14:07 (display 90, window 0) did not recur in these 2 tries, so the fix rests on the
+  unit tests; the bind's log line shows any future mismatch.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
