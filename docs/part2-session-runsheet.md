@@ -176,7 +176,8 @@ passed.
 
 **F5 retake (about 5 min; takes 1–4 were too small to judge).** Your own face stays out of view throughout.
 - Takes 5–8: the same `dataset-session.ps1 -Only screen_replay_monitor` command (takes 1–4 are skipped). Hold the
-  tablet so the face on its screen reads 20–35% on the live readout.
+  tablet so the face on its screen reads 20–35% on the live readout. Run it in the checkout whose `eval-data` holds
+  takes 1–4: elsewhere they are recorded again (on 2026-10-28 the F5 worktree recorded 1–4 anew, at real-face size).
 - Then `scripts\session-series.ps1 -Plan z,zf -LogDir eval-data\sessions`: z is the default policy, zf forced
   challenges. Position the tablet with the readout, then SPACE.
 

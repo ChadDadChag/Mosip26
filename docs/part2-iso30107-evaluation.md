@@ -63,7 +63,7 @@ Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 
 | `screen_photo` | 6 | phone photo at normal distance with its edges visible: the subject's selfie ×3, a public-domain NASA portrait ×3 |
 | `screen_photo_close` | 12 | phone held close as the subject judged it ×6 (face only about 4% of the picture), then about 10 cm away with a live face-size readout ×6 (face 20–31% of the picture) |
 | `screen_replay` | 6 | the subject's selfie video playing on the phone |
-| `screen_replay_monitor` | 4 | F5: the subject's own 2-minute selfie video (blinks, smiles, head turns and nods) on a **tablet (Galaxy Tab, about 11 in)** at maximum brightness, 40–60 cm from the webcam, the subject's own face out of view. There is no desktop monitor yet (section 4.6) |
+| `screen_replay_monitor` | 4 | F5: the subject's own 2-minute selfie video (blinks, smiles, head turns and nods) on a **tablet (Galaxy Tab, about 11 in)** at maximum brightness, 40–60 cm from the webcam, the subject's own face out of view. There is no desktop monitor yet (section 4.6). The 2026-10-28 retake at real-face size (8 takes) is evaluated on its own in section 4.6 and not counted here |
 | `print_flat` | 6 | colour A4 prints held flat: the subject's selfie ×2 and close ×1, the NASA portrait ×2 and close ×1 |
 | `print_curved` | 6 | the same prints, bent |
 | `screen_photo_multi` | 38 | a phone slideshow of 42 labelled photos of 15 consented people, at normal distance; one take per photo found, 14 of the 15 people (s01 among them), 14–56 frames each |
@@ -272,7 +272,7 @@ Replayed offline, the passing attempt goes to a challenge at 0.600, with both gu
 One subject (s01), one tablet (Galaxy Tab, about 11 in, maximum brightness), the subject's own 2-minute selfie video
 with blinks, smiles, head turns and nods, 40–60 cm from the webcam. Recorded on 2026-10-27: 4 dataset takes (60
 frames each) and 6 live sessions with the real engine (`SessionDemo`, RESIDENT; 3 with the default policy, 3 with
-forced challenges). Production settings, with the F18 guards.
+forced challenges). Production settings, with the F18 guards. Retaken at real-face size on 2026-10-28 (below).
 
 **Recorded takes** (`PadEvaluation`, 134 takes):
 
@@ -303,15 +303,57 @@ forced challenges). Production settings, with the F18 guards.
 - **Two sessions reached challenges.** No challenge was completed: PAD ended those attempts (PAD_FAILURE) while the
   challenge ran.
 
+**Retake at real-face size (2026-10-28).** The same subject, tablet and video, held so that the face on the screen
+covered 20–35% of the picture: the size at which a phone fooled the models (section 4.3). A face-size label on the
+video guided the positioning. Production settings with the F18 guards, model bundle pad-2026.10.5.
+
+*Recorded takes* (`PadEvaluation` over the retake's 8 takes on their own: they are kept apart from the 134 takes of
+section 3, and their numbers 1–4 repeat the first recording's):
+
+| Takes | Prompt | Face size (per-take medians) | Responding | Passive pass | Challenge | PAD reject | Non-response | PadMonitor below 0.30 |
+|---|---|---|---|---|---|---|---|---|
+| retake 1–4 | `selfie_video` (held at real-face size all the same) | 20.9–26.8% | 4 | 0/4 [≤ 52.7%] | 3 | 1 | 0 | 4/4 |
+| retake 5–8 | `video_realsize` | 21.6–26.5% | 3 | 0/3 [≤ 63.2%] | 2 | 1 | 1 | 3/4 |
+| first recording 1–4 (2026-10-27) | `selfie_video` | 2.9–3.5% | 0 | 0/4 [≤ 52.7%] | 0 | 0 | 4 | 4/4 |
+
+- **At real-face size the replay is judged, and refused.** 7 of the 8 takes filled a passive window (the first
+  recording: 0 of 4). APCER at today's thresholds: 0 of 7 [≤ 34.8%]. The first-window medians were 0.43, 0.59,
+  0.43 and 0.01 (retake 1–4) and 0.45, 0.33 and 0.09 (retake 5–7; take 8 had no full window), against 0.85: five
+  challenges and two PAD rejects.
+- **The models still score many replay frames live; the guards hold.** Without the cap or the guards, the per-frame
+  score was 0.83 [0.12–0.98] (median [10th–90th percentile]) in takes 5–8 and 0.16 in takes 1–4: the first windows
+  were low, later frames often high. The PAD latch fired in all 7 responding takes (at the 3rd to 28th scored
+  frame), so every later score is at most 0.60 and a retry cannot pass passively. Every responding take's 3-frame
+  rolling median dropped below 0.30, so the PAD monitor would end a challenge.
+- **The moiré cap decided nothing.** The per-take moiré medians were 1.03–1.19, below the cap's 1.40; the cap was set
+  on one frame in all 8 takes, in take 8, which never filled a window.
+
+*Live sessions* (the session log `eval-data/sessions/sessions-20261028-143229.jsonl` in the F5 worktree):
+
+| Case | Policy | Result | Face size: median (frames in 20–35%) | Attempts | Score median | Moiré cap |
+|---|---|---|---|---|---|---|
+| z1 | default (passive first) | FAILED, MAX_RETRIES_EXCEEDED, 15.7 s | 23.7% (53 of 71) | PAD_FAILURE ×3; the PAD latch fired | 0.32 | 0 frames |
+| zf2 | forced challenges | FAILED, MAX_RETRIES_EXCEEDED, 29.8 s | 21.0% (85 of 119) | FACE_NOT_DETECTED, CHALLENGE_FAILED (SMILE), PAD_FAILURE; the PAD latch fired | 0.60 | 0 frames |
+
+- **0 of 2 passed.** The moiré cap did not fire; PAD (the models' low scores and the PAD monitor) and the PAD latch
+  did the work.
+- **Positioning failures, not counted.** Three earlier runs that day started before the face-size label received
+  frames (fixed in the tools since), so the tablet was held too far: z1 at 12% (median face size), then z1 and zf2 at
+  8% and 6%. All three failed with MAX_RETRIES_EXCEEDED. They do not answer the real-face-size question, but the 12%
+  run is worth knowing: the models scored the replay as live (v2 and v1se medians 1.00 and 0.99 over 181 scored
+  frames), and the F18 volatility cap held the eligible frames at 0.60, so the passive window went to a challenge
+  (TURN_LEFT) the video did not follow; its other attempts ended on quality (face off-centre or cut off). The moiré
+  cap fired on 3 of its frames, each of them also capped by the volatility guard or not eligible.
+
 **What this does not show.**
-- One subject, one tablet, one 2-minute video, one webcam and one room: 4 takes and 6 sessions. 0/4 is "at most
-  about 53%".
+- One subject, one tablet, one 2-minute video, one webcam and one room: 12 takes and 8 counted sessions over two
+  days. 0/7 responding takes is "at most about 35%".
 - No desktop monitor, so the species' name promises more than was tested: larger screens, other pixel pitches and
   other panel types are not covered.
-- The recorded takes are all non-responses, so the PAD decision on recordings at a responding size is untested. The
-  live sessions, which the engine did judge, are the stronger evidence.
-- The tablet was not brought close enough to fill the frame, the case that fooled the models with a phone
-  (section 4.3).
+- Real-face size is no longer untested: the retake answers the first recording's open question (its takes were all
+  non-responses). A tablet held closer still, with the face over 35% of the picture, was not tested.
+- The retake's takes 1–4 have the same numbers as the first recording's, in another folder. Renumber them before the
+  two are evaluated together; the totals of section 3 do not include the retake.
 
 ## 5. Thresholds: recommendation, and why the defaults stay
 
@@ -334,9 +376,9 @@ The rule (provisional, on the grid 0.05 … 0.95, 0.99, 0.999):
 
 - One subject, one camera, one phone, one session of lighting. No children, older subjects, glasses or different skin
   tones yet.
-- Second-screen replays: one tablet only (section 4.6), at a distance where the recorded face was too small to
-  judge. There is no desktop monitor yet. The prints come from one printer and one paper; the cut-outs were held by
-  the subject, who knew the system.
+- Second-screen replays: one tablet only (section 4.6), judged at real-face size in the 2026-10-28 retake (0 of 7
+  responding takes and 0 of 2 live sessions passed). There is no desktop monitor yet. The prints come from one printer
+  and one paper; the cut-outs were held by the subject, who knew the system.
 - The many-identity species are recorded at distances where most faces are small, so many takes are non-responses
   (section 4.4). Their APCER covers only the responding takes.
 - The F18 guards were tuned on the cut-out that passed and checked on one bona fide subject. Their bona fide cost,
