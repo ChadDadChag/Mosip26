@@ -28,6 +28,9 @@ import java.util.List;
  * the factory warmed it up ({@code warmUpMatcher}). Binding is not presentation attack detection: a photo of the same
  * person matches. Use it after liveness passed, between {@code LivenessResult.bestFrame} and the captured face.
  * Thread-safe (calls are serialised). Nothing is kept between calls.
+ *
+ * <p>Identity binding (F15): {@link #identify} compares the same best frame with the user's onboarded face templates,
+ * with the same detection and alignment, and its own threshold ({@link AnalyzerConfig#identityCosineThreshold}).
  */
 public final class FaceMatcher implements AutoCloseable {
 
@@ -35,6 +38,7 @@ public final class FaceMatcher implements AutoCloseable {
     private final YuNetDetector detector;
     private final double secondFaceMinAreaRatio;
     private final double threshold;
+    private final double identityThreshold;
     private SFaceEmbedder embedder; // built on first use: the MATCHER session is lazy (OnnxModels.ensureSession)
     private boolean closed;
 
@@ -44,6 +48,7 @@ public final class FaceMatcher implements AutoCloseable {
         this.detector = new YuNetDetector(models.env(), models.session(ModelRole.DETECTOR), config.detector);
         this.secondFaceMinAreaRatio = config.detector.secondFaceMinAreaRatio;
         this.threshold = config.bindingCosineThreshold;
+        this.identityThreshold = config.identityCosineThreshold;
     }
 
     /** The embedder; the first call builds the MATCHER session unless the factory warmed it up. */
@@ -81,6 +86,66 @@ public final class FaceMatcher implements AutoCloseable {
         } catch (RuntimeException e) {
             throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "Unexpected failure matching faces", e);
         }
+    }
+
+    /**
+     * Identity binding (F15): is the live face (the PASSED session's best frame) the user whose onboarded face images
+     * are {@code templates}? Every template is detected, aligned and embedded as {@link #compare} does. A null entry (an
+     * undecodable template) and an image without exactly one face are unreadable. The best similarity over the readable
+     * templates decides: MATCH at or above {@link AnalyzerConfig#identityCosineThreshold}, else NO_MATCH. No template
+     * gives NOT_BOUND_NO_TEMPLATE, only unreadable ones NOT_BOUND_UNREADABLE; the host decides what those mean. Nothing
+     * is kept: the features exist only during this call.
+     */
+    public synchronized IdentityResult identify(Frame live, List<Frame> templates) throws LivenessEngineException {
+        if (closed) throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "face matcher is closed");
+        if (live == null) throw new LivenessEngineException(ErrorCode.INVALID_FRAME, "frame is null");
+        int given = templates == null ? 0 : templates.size();
+        if (given == 0) {
+            return new IdentityResult(IdentityResult.Outcome.NOT_BOUND_NO_TEMPLATE, Double.NaN, identityThreshold, 0, 0);
+        }
+        check(live.rgb(), live.width(), live.height(), "A");
+        SFaceEmbedder embedder = embedder();
+        try {
+            List<FaceDetection> faces = detector.detect(live.rgb(), live.width(), live.height());
+            if (YuNetDetector.countFaces(faces, secondFaceMinAreaRatio) != 1) {
+                return new IdentityResult(IdentityResult.Outcome.NO_LIVE_FACE, Double.NaN, identityThreshold, given, 0);
+            }
+            float[] liveFeature = embedder.embed(live.rgb(), live.width(), live.height(), YuNetDetector.primary(faces));
+            double best = Double.NaN;
+            int unreadable = 0;
+            for (Frame t : templates) {
+                if (t == null || t.rgb() == null || t.width() <= 0 || t.height() <= 0
+                        || t.rgb().length < (long) t.width() * t.height() * 3) {
+                    unreadable++;
+                    continue;
+                }
+                List<FaceDetection> tf = detector.detect(t.rgb(), t.width(), t.height());
+                if (YuNetDetector.countFaces(tf, secondFaceMinAreaRatio) != 1) {
+                    unreadable++;
+                    continue;
+                }
+                double sim = SFaceEmbedder.cosine(liveFeature,
+                        embedder.embed(t.rgb(), t.width(), t.height(), YuNetDetector.primary(tf)));
+                if (!Double.isNaN(sim) && (Double.isNaN(best) || sim > best)) best = sim;
+            }
+            return new IdentityResult(identityOutcome(given, unreadable, best, identityThreshold), best,
+                    identityThreshold, given, unreadable);
+        } catch (OrtException e) {
+            throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "ONNX Runtime failed while identifying a face", e);
+        } catch (RuntimeException e) {
+            throw new LivenessEngineException(ErrorCode.ENGINE_ERROR, "Unexpected failure identifying a face", e);
+        }
+    }
+
+    /**
+     * The F15 outcome over {@code given} templates of which {@code unreadable} were unreadable, with {@code best} the
+     * highest finite similarity (NaN if none). Unreadable only when no template was readable: a readable template
+     * without a finite similarity (a degenerate feature) is NO_MATCH, never "not bound", which the host may accept.
+     */
+    static IdentityResult.Outcome identityOutcome(int given, int unreadable, double best, double threshold) {
+        if (given == 0) return IdentityResult.Outcome.NOT_BOUND_NO_TEMPLATE;
+        if (unreadable >= given) return IdentityResult.Outcome.NOT_BOUND_UNREADABLE;
+        return !Double.isNaN(best) && best >= threshold ? IdentityResult.Outcome.MATCH : IdentityResult.Outcome.NO_MATCH;
     }
 
     /**
@@ -158,6 +223,11 @@ public final class FaceMatcher implements AutoCloseable {
     /** The threshold in use. */
     public double threshold() {
         return threshold;
+    }
+
+    /** The identity binding (F15) threshold in use. */
+    public double identityThreshold() {
+        return identityThreshold;
     }
 
     /** Marks the matcher closed; the factory's shared sessions stay open. */

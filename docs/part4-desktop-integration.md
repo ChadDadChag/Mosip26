@@ -150,6 +150,56 @@ the old behaviour (audited SKIPPED).
 - **The exception photo** (biometric exception process): it is the recovery path the resident failure text points to.
 - **Fingerprint, iris, password and OTP authentication**: liveness is a face control.
 
+### 2.5 Identity binding (F15)
+
+The password login (sequence (b2)) has no face capture, so F1 has nothing to bind. Liveness alone then proves only
+that some live person is at the machine, not that it is the user. F15 binds this gate to the user's onboarded face.
+It is a second factor after the password: a false match lets in someone who has the password AND a similar face.
+
+1. `LoginController.loadNextScreen` calls `LivenessGate.runWithIdentity(OPERATOR, window, userId)` instead of `run`.
+2. After PASSED, `IdentityBinding.verify` runs off the JavaFX thread. It takes the session's best frame from
+   `FaceBinding` (the arming is consumed).
+3. It reads the user's active Face rows of `reg.user_biometric`, which operator onboarding writes on this machine.
+   - Each row's BDB comes from the CBEFF BIR in `bio_raw_image`, else from `bio_iso_image`, as
+     `AuthenticationServiceImpl.authValidator` reads them.
+   - F1's `CapturedFaceDecoder` decodes it.
+4. Part 2's `FaceMatcher.identify` compares them:
+   - the same detection and alignment as F1;
+   - the best of several templates;
+   - its own threshold, `binding.identity.threshold` (0.40, provisional; Part 2 section 12.1).
+
+| Outcome | What happens |
+|---|---|
+| MATCH | The login goes on. |
+| NO_MATCH, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_ARMED, EXPIRED, ERROR | The client shows "Face verification could not be completed for this user. Please try again." with Retry and Cancel. Retry runs one new liveness session. No score is shown. |
+| The same after the retry, Cancel, or a retry session that does not pass (cancelled, closed, failed) | `IDENTITY_NOT_VERIFIED`: the user is logged out, the login page is shown, and the client counts one failed login (below). |
+| NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE | No onboarded face on this machine, or none decodes to one face. The login goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the login is refused at once, because a retry cannot help. |
+| Liveness off for OPERATOR, or `binding.identity.enabled=false` | The login goes on as before. The second case is audited `SKIPPED`. |
+
+**Failed logins.**
+- `IDENTITY_NOT_VERIFIED` calls the client's own `validateInvalidLogin` with the text, so it counts exactly like a wrong
+  password.
+- `unsuccessfulLoginCount` goes up by one. When it reaches `mosip.registration.invalid_login_count`, the account locks
+  for `mosip.registration.invalid_login_time` minutes. Both values come from the server config.
+
+Can one F15 failure alone lock the account?
+- One blocked gate adds one failed login, after both liveness sessions. On a clean count, it locks the account only if
+  `invalid_login_count` is 1.
+- The client does not reset the count when the password is correct; only a completed login resets it. So after
+  earlier wrong passwords, one F15 failure can be the one that reaches the limit, as one more wrong password would.
+
+**When there is no template.** A face row exists only if `mosip.registration.operator.onboarding.bioattributes`
+includes `face` and the user onboarded on this machine. User sync brings no biometrics.
+- With MOSIP's mock bio-SDK, the stored BDB is the SBI's ISO 19794-5 record, which decodes.
+- With a real bio-SDK, it may be a proprietary template that does not decode. Then the outcome is
+  NOT_BOUND_UNREADABLE, and the login goes on on presence alone unless `requireTemplate` is set.
+
+The audit makes both cases visible (REG-LIV-013, section 6).
+
+**Not changed.** Face login, and packet authentication or end-of-day approval with face, already match the capture
+against the template through the bio-SDK, with F1 binding. Password, OTP, fingerprint and iris authentication of a
+packet are not gated (section 2.4).
+
 ## 3. Sequence diagrams
 
 ### (a) Resident face capture
@@ -244,14 +294,22 @@ sequenceDiagram
     participant L as LoginController
     participant G as LivenessGate
     participant E as Liveness engine
+    participant I as IdentityBinding
 
     Op->>L: user id + password
     L->>L: SessionContext.create(PWORD) succeeds (local or after the pre-launch sync, unchanged)
     alt gatePasswordLogin=true and no face login step follows
-        L->>G: run(OPERATOR)
+        L->>G: runWithIdentity(OPERATOR, user id)
         G->>E: session (OPERATOR policy)
         alt PASSED
-            G-->>L: PROCEED → next login step, or home screen (unchanged)
+            G->>I: verify (best frame vs the user's onboarded face, F15)
+            alt MATCH, or no onboarded face (presence only)
+                G-->>L: PROCEED → next login step, or home screen (unchanged)
+            else not the user's face
+                G-->>Op: "Face verification could not be completed for this user." Retry (one new session) or Cancel
+                G-->>L: IDENTITY_NOT_VERIFIED (after the retry, or Cancel)
+                L->>L: SessionContext.destroySession(), login page, validateInvalidLogin (one failed login)
+            end
         else FAILED or Cancel
             G-->>L: BLOCKED / CANCELLED
             L->>L: SessionContext.destroySession(), back to the login page
@@ -261,9 +319,9 @@ sequenceDiagram
     end
 ```
 
-No face is captured or matched in this flow, so there is no binding: liveness proves a live person is present at
-the operator's password login, as on Android. The first (initial set-up) login is not gated: it restarts the client
-after the sync.
+No face is captured in this flow, so F1 has nothing to bind. Liveness proves that a live person is present at the
+operator's password login, as on Android, and F15 (section 2.5) checks that this person is the user. The first
+(initial set-up) login is not gated: it restarts the client after the sync.
 
 ### (c) Packet authentication (operator) and biometric-exception review (supervisor)
 
@@ -431,6 +489,13 @@ bundled defaults (audited in `LIVENESS_CONFIG_LOADED` as `configError`).
 **Face binding and analyzer**: `binding.enabled` (true), `binding.cosineThreshold` (0.45), and Part 2's optional
 `analyzer.*` keys ([part2-pad-architecture.md](part2-pad-architecture.md)).
 
+**Identity binding (F15, section 2.5)**:
+- `binding.identity.enabled` (true; `false`, `no`, `0` or `off` switches it off, `true`, `yes`, `1` or `on` keeps it
+  on, any other value keeps the default with a warning in the log);
+- `binding.identity.threshold` (0.40, provisional; valid from 0.30 to 1.0);
+- `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence alone,
+  audited; read like `enabled`, so only `true`, `yes`, `1` or `on` turns it on).
+
 **Desktop** (`mosip.registration.liveness.face.desktop.*`):
 
 | Key | Default | Meaning |
@@ -511,9 +576,10 @@ characters; longer records are split into numbered parts).
 | REG-LIV-010 | LIVENESS_FACE_BINDING | Desktop: capture compared with the live face | outcome, similarity, threshold, accepted |
 | REG-LIV-011 | LIVENESS_METRICS | Desktop: every `metricsAuditEvery` sessions | anonymised counters and rates (§7) |
 | REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5); an offline install or a rollback (F17) | online: outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point). Offline (`trigger=offline`) and rollback (`trigger=rollback`): outcome (INSTALLED, UP_TO_DATE, FAILED, ROLLED_BACK, REFUSED), errorCode (MODEL_INTEGRITY_FAILED for a bad bundle), reason (a `Reason` code, NOT_NEWER, NOTHING_TO_ROLL_BACK or NOT_ALLOWED), fromVersion, toVersion, durationMs, userId; never a path |
+| REG-LIV-013 | LIVENESS_IDENTITY_BINDING | Desktop: the password login's live face compared with the user's onboarded face (F15, section 2.5) | outcome (MATCH, NO_MATCH, NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_ARMED, EXPIRED, ERROR, SKIPPED), similarity (2 decimals), threshold, attempt (1, or 2 for the retry), gate, userId, templates, unreadable, templateAgeDays (the newest template, from the row's creation time), requireTemplate (when not bound), accepted; never an image or a template |
 
-The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019); the ids differ because the Desktop's
-`REG-EVT-009..018` were already taken.
+The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019, REG-LIV-013 is REG-EVT-020); the ids differ
+because the Desktop's `REG-EVT-009..018` were already taken.
 
 **Scores, PAD reasons and challenge outcomes** are therefore in the audit trail; **raw face images never are**: the
 engine passes only codes and numbers, and `DesktopAuditSink` enforces it again (keys must be short identifiers, values
@@ -589,6 +655,11 @@ regression clips in `RecordedVideoE2ETest` (Part 2) and the 7 `DesktopOfflineMod
 `registration-client` 31 tests pass: the 28 above plus the 3 `ModelBundleTextsTest` tests. `mvn install` of both
 modules succeeds. No failures, nothing skipped.
 
+**Results with F15 (2026-10-27):** `registration-services` 169 tests pass: the 158 above, plus the 10
+`IdentityBindingTest` tests and `RealIdentityBindingTest`. `registration-client` 32 tests pass: the 31 above plus the
+identity retry rule in `LivenessGateTest`. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds. No
+failures, nothing skipped.
+
 | Test | What it proves |
 |---|---|
 | `DesktopLivenessServiceTest` | real engine + signed ONNX models + recorded clip through the deferred source → FAILED with `lastCause=FACE_NOT_DETECTED`, audited through the audit module with the session id; workflow disabled by synced config → legacy flow; config sync applies to the next session; scripted engine is development-only and skips binding |
@@ -600,10 +671,12 @@ modules succeeds. No failures, nothing skipped.
 | `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
 | `DesktopModelUpdateTest` | online model update after a config sync, against a local HTTP server: enabled + newer bundle → INSTALLED with the bundled base kept for rollback, and the reload audits MODEL_LOADED with the new version; disabled or no URL → no request; a failure → audited as FAILED, the sync returns at once, the models stay; a running session keeps its analyzer until it ends |
 | `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
-| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
+| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice; F15: one retry, and only when a new session can help |
 | `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
 | `DesktopOfflineModelInstallTest` | F17 on the real service with signed bundles: install and reload; tampered or unsigned zips refused as MODEL_INTEGRITY_FAILED, also when they claim an older version; same or older refused; zip-slip; rollback, then nothing earlier; the role gate and the config switch; the audit has codes, versions and the user id, never a path |
 | `ModelBundleTextsTest` | F17: every outcome has its own key, a failed rollback says so; the version is filled in literally (apostrophes survive); every key in English, Arabic and French, translated, with the placeholder kept; the two tile titles in all three label bundles |
+| `IdentityBindingTest` | F15: a match is audited once (similarity with 2 decimals, the template age); another person is rejected and retryable; several templates and the newest age; not bound, with and without `requireTemplate`; every failure fails closed (not armed, another workflow, expired, no live frame, a matcher or database error); liveness off and switched off; the scripted engine; the demo path; the BIR is read, else the ISO column; the UTC creation time |
+| `RealIdentityBindingTest` | F15 on the service, with ISO records from MOSIP's encoder and the signed SFace model: the same portrait matches; another crew member is NO_MATCH; the best of several decides; a group photo and garbage are unreadable; no template is NOT_BOUND_NO_TEMPLATE, accepted |
 
 **Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
 can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
@@ -613,6 +686,16 @@ arguments):
     mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png"
     mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator"
     mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--live webcam"
+
+**F15 without a backend.** The demo runs the client's `IdentityBinding` on a test template, a stand-in for an
+onboarded face:
+- `--live webcam --workflow operator --identity enroll`: a PASSED session's best frame becomes an ISO 19794-5 record,
+  made with MOSIP's encoder, in `eval-data/f15/test-template.iso`.
+  - A `--template` path outside `eval-data/` is refused, and `eval-data/` is gitignored, so the face never leaves this
+    computer.
+- `--live webcam --workflow operator --identity verify`: a new session, then `IdentityBinding.verifyLive` against the
+  template. It prints the outcome and the similarity (the client never shows a score) and the REG-LIV-013 record.
+- `--identity delete`: deletes the template.
 
 **In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 (real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).
@@ -630,6 +713,14 @@ arguments):
   config switch. `ModelBundleTextsTest` proves the texts. The tiles, the file chooser and the alerts were checked by
   compilation and code review only. Android has the same limit; its debug build opens the same production page
   from the Login page instead (part 5).
+- **F15 was not tried in a logged-in client either**, for the same reason: the password login needs a registered
+  machine and a user synced from a server, and an onboarded face needs onboarding against the server.
+  - `IdentityBindingTest` and `RealIdentityBindingTest` prove the service with real ISO records and the signed model.
+  - `LivenessGateTest` proves the retry rule.
+  - The screen demo runs the same `IdentityBinding` on a live webcam session against a test template (section 10).
+  - The login hook, the retry dialog and the failed-login count were checked by compilation and code review only.
+  - Whether a real bio-SDK's stored template decodes was not checked. If it does not, the outcome is
+    NOT_BOUND_UNREADABLE (section 2.5).
 - **No SBI hardware and no MockMDS run** in Part 4. The SBI path is Part 1's, tested there (unplug/replug, recorded
   clips, MockMDS 45/45 frames).
 - **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was
@@ -651,6 +742,12 @@ arguments):
   a face device must therefore be connected for every operator login while operator liveness is enabled; set the key
   to false (or `operator.enabled=false`) where that is not wanted. OTP-only, fingerprint and iris logins are not gated.
 - The operator cooldown is in memory (Part 3, proposal P1).
+- The F15 identity threshold (`binding.identity.threshold`), like the `analyzer.*` settings, is read when the
+  models are built: at start, and after a model install, update or rollback. A config sync reloads only the policies,
+  so a new threshold from a sync applies after a restart.
+- An F15 rejection after the retry is one failed login (section 2.5). On a clean count it locks the account only if
+  `mosip.registration.invalid_login_count` is 1. After earlier wrong passwords it can be the failure that reaches the
+  limit, because a correct password does not reset the count.
 
 **For Person 2 / Person 5 (shared spec):**
 1. **`LOOK_AT_CAMERA` text.** The handover message asks for "Look directly at the camera"; the shared spec and both
@@ -658,5 +755,5 @@ arguments):
    the tip text). Desktop follows the spec; change it in the spec and both apps together if wanted.
 2. **Turn prompt.** Part 2's findings recommend "Please turn your head to the left, then look back at the camera"; the
    spec keeps the problem statement's "Please turn your head to the left". Desktop follows the spec.
-3. **Audit ids.** Desktop uses `REG-LIV-001..012` with the Android event names (the Desktop's `REG-EVT-009..018` are
+3. **Audit ids.** Desktop uses `REG-LIV-001..013` with the Android event names (the Desktop's `REG-EVT-009..018` are
    taken).

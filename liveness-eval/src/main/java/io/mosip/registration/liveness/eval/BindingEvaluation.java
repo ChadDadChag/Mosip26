@@ -37,9 +37,13 @@ import java.util.regex.Pattern;
  *                     [--golden liveness-analyzer/src/test/resources/golden] [--out eval-data/reports/binding-yyyyMMdd]
  *                     [--bundle &lt;signed bundle dir&gt;] [--speed] [--warm-up]
  *                     [--labelled &lt;photos&gt;/labels.csv [--labels-confirmed]]
+ *                     [--identity [--subject-map s02=p05,s03=p11]]
  * </pre>
  * {@code --labelled} adds a folder of consented photos labelled by person ({@link #labelledSets}); the report calls
  * those numbers provisional until {@code --labels-confirmed} says the owner of the photos checked the labels.
+ * {@code --subject-map} says which labelled person a recorded subject is (codes only, never names); a person_id equal
+ * to the subject code (s01) needs no entry. {@code --identity} adds the F15 identity binding sets ({@link #identitySets})
+ * and the threshold rule ({@link IdentityRule}).
  * {@code --bundle} evaluates another signed bundle (for example a local test bundle with the int8 SFace), verified
  * against the built-in keys as the bundled one is. {@code --speed} only times: preload, the first comparison, and warm
  * comparisons on the golden portrait and its mirror (run it in a fresh JVM). {@code --warm-up} calls
@@ -144,7 +148,8 @@ public final class BindingEvaluation {
     static int run(String[] args, PrintStream out, PrintStream err) {
         try {
             ModelBundleTool.Args a = ModelBundleTool.Args.parse(args, 0,
-                    Arrays.asList("--speed", "--warm-up", "--labels-confirmed"));
+                    Arrays.asList("--speed", "--warm-up", "--labels-confirmed", "--identity"));
+            Map<String, String> subjectMap = subjectMap(a.has("--subject-map") ? a.single("--subject-map") : null);
             File data = new File(a.has("--data") ? a.single("--data") : "eval-data");
             File portraits = new File(a.has("--portraits") ? a.single("--portraits") : "models/tools/.cache/pitch-calibration");
             File list = new File(a.has("--list") ? a.single("--list") : "models/tools/pitch_calibration_urls.txt");
@@ -166,6 +171,7 @@ public final class BindingEvaluation {
             Map<String, String> notes = new LinkedHashMap<String, String>();
             String version = factory.modelVersion();
             int subjects = 0;
+            IdentityRule rule = null;
             try (FaceMatcher matcher = factory.createMatcher()) {
                 if (a.has("--warm-up")) {
                     long w0 = System.nanoTime();
@@ -192,6 +198,7 @@ public final class BindingEvaluation {
                         continue;
                     }
                     recorded.add(t.subject, kind, f);
+                    if (kind == Recorded.Kind.LIVE) recorded.addTake(t.subject, t.take, t.condition, f);
                     out.println("embedded best frame of " + t);
                 }
                 subjects = recorded.live.size();
@@ -234,13 +241,20 @@ public final class BindingEvaluation {
                 pairs(crew, i3);
                 for (float[] c : crew) for (Portrait p : people) i3.values.add(SFaceEmbedder.cosine(c, p.feature));
 
+                Map<String, List<float[]>> labelled = new TreeMap<String, List<float[]>>();
                 if (a.has("--labelled")) {
                     Labelled l = Labelled.load(new File(a.single("--labelled")), matcher);
                     List<float[]> nasa = new ArrayList<float[]>();
                     nasa.add(matcher.featureOfSingleFace(portrait.rgb(), portrait.width(), portrait.height()));
                     for (Portrait p : people) nasa.add(p.feature);
-                    labelledSets(sets, l.byPerson, recorded, nasa);
+                    labelledSets(sets, l.byPerson, recorded, nasa, subjectMap);
+                    labelled = l.byPerson;
                     notes.put("labelled photos", l.summary(a.has("--labels-confirmed")));
+                }
+                if (!subjectMap.isEmpty()) notes.put("subject map (codes only)", subjectMap.toString());
+                if (a.has("--identity")) {
+                    rule = IdentityRule.apply(identitySets(sets, recorded, labelled, subjectMap));
+                    notes.put("F15 enrollment takes", recorded.enrollmentSummary());
                 }
 
                 speed.measureWarm(matcher, portrait, mirrored);
@@ -248,6 +262,7 @@ public final class BindingEvaluation {
                 factory.close();
             }
             String report = report(sets, notes, version, speed, date, subjects);
+            if (rule != null) report += rule.section();
             out.print(report);
             if (!outDir.isDirectory() && !outDir.mkdirs()) throw new IOException("cannot create " + outDir);
             Files.write(new File(outDir, "report.md").toPath(), report.getBytes(StandardCharsets.UTF_8));
@@ -297,6 +312,33 @@ public final class BindingEvaluation {
             List<float[]> all = new ArrayList<float[]>();
             for (List<float[]> l : live.values()) all.addAll(l);
             return all;
+        }
+
+        /** Bona fide takes by subject and take number (F15). */
+        final Map<String, TreeMap<Integer, float[]>> takes = new TreeMap<String, TreeMap<Integer, float[]>>();
+        /** The F15 enrollment per subject: the lowest-numbered "normal" take with a usable best frame. */
+        final Map<String, Integer> enrollment = new TreeMap<String, Integer>();
+
+        void addTake(String subject, int take, String condition, float[] feature) {
+            TreeMap<Integer, float[]> m = takes.get(subject);
+            if (m == null) takes.put(subject, m = new TreeMap<Integer, float[]>());
+            m.put(take, feature);
+            if ("normal".equals(condition)) {
+                Integer e = enrollment.get(subject);
+                if (e == null || take < e) enrollment.put(subject, take);
+            }
+        }
+
+        String enrollmentSummary() {
+            StringBuilder b = new StringBuilder();
+            String sep = "";
+            for (Map.Entry<String, TreeMap<Integer, float[]>> e : takes.entrySet()) {
+                Integer take = enrollment.get(e.getKey());
+                b.append(sep).append(e.getKey()).append(": ").append(take == null ? "no normal take, not enrolled"
+                        : "take " + take + " (the first normal take), " + (e.getValue().size() - 1) + " other takes");
+                sep = "; ";
+            }
+            return b.length() == 0 ? "no recorded subjects" : b.toString();
         }
 
         String summary() {
@@ -377,11 +419,11 @@ public final class BindingEvaluation {
 
     /**
      * The sets of a labelled photo folder: genuine pairs within a person_id; impostors across person_ids, against the
-     * recorded subjects (a person_id equal to a subject's code, such as s01, is that subject: those pairs are genuine)
-     * and against the NASA portraits.
+     * recorded subjects (a person_id equal to a subject's code, such as s01, or mapped to it by the subject map, is that
+     * subject: those pairs are genuine) and against the NASA portraits.
      */
     static void labelledSets(Map<String, Scores> sets, Map<String, List<float[]>> byPerson, Recorded r,
-                             List<float[]> nasa) {
+                             List<float[]> nasa, Map<String, String> subjectMap) {
         Scores genuine = set(sets, "genuine: labelled photos of the same person, pairwise", true);
         Scores between = set(sets, "impostor: labelled photos of different people", false);
         List<String> ids = new ArrayList<String>(byPerson.keySet());
@@ -395,12 +437,197 @@ public final class BindingEvaluation {
         Scores subjects = set(sets, "impostor: labelled photos vs the recorded subjects", false);
         for (Map.Entry<String, List<float[]>> p : byPerson.entrySet()) {
             for (Map.Entry<String, List<float[]>> s : r.live.entrySet()) {
-                cross(p.getValue(), s.getValue(), p.getKey().equals(s.getKey()) ? own : subjects);
+                cross(p.getValue(), s.getValue(), p.getKey().equals(personOf(s.getKey(), subjectMap)) ? own : subjects);
             }
         }
         if (own.values.isEmpty()) sets.remove(own.name);
         Scores vsNasa = set(sets, "impostor: labelled photos vs the NASA portraits", false);
         cross(all, nasa, vsNasa);
+    }
+
+    /** The labelled person a recorded subject is: the subject map's entry, else the subject code itself. */
+    static String personOf(String subject, Map<String, String> subjectMap) {
+        String p = subjectMap.get(subject);
+        return p == null ? subject : p;
+    }
+
+    /**
+     * {@code --subject-map s02=p05,s03=p11}: recorded subject codes to labelled person codes. Codes only: anything that
+     * is not sNN=pNN is refused, so a name can never be passed in.
+     */
+    static Map<String, String> subjectMap(String spec) {
+        Map<String, String> m = new TreeMap<String, String>();
+        if (spec == null || spec.trim().isEmpty()) return m;
+        java.util.Set<String> people = new java.util.HashSet<String>();
+        for (String part : spec.split(",")) {
+            String[] kv = part.trim().split("=");
+            if (kv.length != 2 || !kv[0].trim().matches("s\\d{2}") || !kv[1].trim().matches("p\\d{2}")) {
+                throw new IllegalArgumentException("--subject-map: expected sNN=pNN entries, got '" + part.trim() + "'");
+            }
+            if (m.put(kv[0].trim(), kv[1].trim()) != null || !people.add(kv[1].trim())) {
+                throw new IllegalArgumentException("--subject-map: " + part.trim() + " repeats a subject or a person");
+            }
+        }
+        return m;
+    }
+
+    /**
+     * The F15 sets ({@link #identitySets}); photoPairs is context only, not part of the rule. onboardingPeople: the
+     * distinct people in the onboarding-like set.
+     */
+    static final class IdentitySets {
+        final Scores onboarding, sameDay, labelledImpostors, enrollmentImpostors, photoPairs;
+        final int onboardingPeople;
+
+        IdentitySets(Scores onboarding, Scores sameDay, Scores labelledImpostors, Scores enrollmentImpostors,
+                     Scores photoPairs, int onboardingPeople) {
+            this.onboarding = onboarding;
+            this.sameDay = sameDay;
+            this.labelledImpostors = labelledImpostors;
+            this.enrollmentImpostors = enrollmentImpostors;
+            this.photoPairs = photoPairs;
+            this.onboardingPeople = onboardingPeople;
+        }
+    }
+
+    /**
+     * The F15 identity binding sets. Enrollment: each subject's first "normal" bona fide take (the run sheet's take
+     * normal#1) stands for the onboarded face, and the subject's other takes are same-day verifications.
+     * Onboarding-like: a labelled person's photos (other days, other cameras) against that person's live takes (the
+     * subject map, or a person_id equal to the subject code). Labelled impostors: labelled photos of different people,
+     * and labelled photos against every other subject's live takes. Enrollment impostors: each subject's enrollment
+     * against every other subject's takes. Context only: labelled photos of the same person, pairwise (photo against
+     * photo, other days and cameras on both sides).
+     */
+    static IdentitySets identitySets(Map<String, Scores> sets, Recorded r, Map<String, List<float[]>> labelled,
+                                     Map<String, String> subjectMap) {
+        Scores onboarding = set(sets, "F15 genuine, onboarding-like: labelled photos vs the same person's live takes", true);
+        Scores sameDay = set(sets, "F15 genuine, same day: each subject's enrollment take vs their other takes", true);
+        Scores labelledImpostors = set(sets,
+                "F15 impostor, labelled: photos of different people, and photos vs other people's live takes", false);
+        Scores enrollmentImpostors = set(sets, "F15 impostor: each subject's enrollment vs other subjects' takes", false);
+        Scores photoPairs = set(sets, "F15 context, genuine: labelled photos of the same person, pairwise", true);
+        List<String> ids = new ArrayList<String>(labelled.keySet());
+        for (int i = 0; i < ids.size(); i++) {
+            pairs(labelled.get(ids.get(i)), photoPairs);
+            for (int j = i + 1; j < ids.size(); j++) cross(labelled.get(ids.get(i)), labelled.get(ids.get(j)), labelledImpostors);
+        }
+        java.util.Set<String> onboarded = new java.util.TreeSet<String>();
+        for (Map.Entry<String, TreeMap<Integer, float[]>> s : r.takes.entrySet()) {
+            List<float[]> live = new ArrayList<float[]>(s.getValue().values());
+            String person = personOf(s.getKey(), subjectMap);
+            for (Map.Entry<String, List<float[]>> p : labelled.entrySet()) {
+                boolean same = p.getKey().equals(person);
+                cross(p.getValue(), live, same ? onboarding : labelledImpostors);
+                if (same && !p.getValue().isEmpty() && !live.isEmpty()) onboarded.add(person);
+            }
+            Integer e = r.enrollment.get(s.getKey());
+            if (e == null) continue;
+            float[] enrolled = s.getValue().get(e);
+            for (Map.Entry<Integer, float[]> t : s.getValue().entrySet()) {
+                if (!t.getKey().equals(e)) sameDay.values.add(SFaceEmbedder.cosine(enrolled, t.getValue()));
+            }
+            for (Map.Entry<String, TreeMap<Integer, float[]>> other : r.takes.entrySet()) {
+                if (other.getKey().equals(s.getKey())) continue;
+                for (float[] t : other.getValue().values()) enrollmentImpostors.values.add(SFaceEmbedder.cosine(enrolled, t));
+            }
+        }
+        return new IdentitySets(onboarding, sameDay, labelledImpostors, enrollmentImpostors, photoPairs,
+                onboarded.size());
+    }
+
+    /**
+     * The F15 threshold rule, fixed before the F9 teammate data: among 0.36 to 0.50 in steps of 0.02, the value with
+     * the lowest labelled-impostor FMR whose FNMR on the onboarding-like pairs is at most 5% (ties go to the lower
+     * value, which rejects fewer genuine users). If no value qualifies, the provisional 0.40 stays. The rule decides
+     * only with at least {@value #MIN_PEOPLE} distinct people and {@value #MIN_PAIRS} pairs in the onboarding-like set,
+     * and some labelled impostors (guard added 2026-10-27); otherwise 0.40 stays too.
+     */
+    static final class IdentityRule {
+        static final double[] CANDIDATES = {0.36, 0.38, 0.40, 0.42, 0.44, 0.46, 0.48, 0.50};
+        static final double MAX_FNMR = 0.05;
+        static final double FALLBACK = 0.40;
+        static final int MIN_PEOPLE = 3;
+        static final int MIN_PAIRS = 50;
+
+        final IdentitySets sets;
+        final double chosen;
+        final boolean met;
+
+        private IdentityRule(IdentitySets sets, double chosen, boolean met) {
+            this.sets = sets;
+            this.chosen = chosen;
+            this.met = met;
+        }
+
+        /** Enough onboarding-like data for the rule to decide anything. */
+        static boolean decidable(IdentitySets s) {
+            return s.onboardingPeople >= MIN_PEOPLE && s.onboarding.values.size() >= MIN_PAIRS
+                    && !s.labelledImpostors.values.isEmpty();
+        }
+
+        static IdentityRule apply(IdentitySets s) {
+            if (!decidable(s)) {
+                return new IdentityRule(s, FALLBACK, false);
+            }
+            double best = Double.NaN, bestFmr = Double.NaN;
+            for (double t : CANDIDATES) {
+                if (s.onboarding.errorRate(t) > MAX_FNMR) continue;
+                double fmr = s.labelledImpostors.errorRate(t);
+                if (Double.isNaN(best) || fmr < bestFmr) {
+                    best = t;
+                    bestFmr = fmr;
+                }
+            }
+            return Double.isNaN(best) ? new IdentityRule(s, FALLBACK, false) : new IdentityRule(s, best, true);
+        }
+
+        String section() {
+            StringBuilder sb = new StringBuilder("\n## F15 identity threshold rule\n\n");
+            sb.append("Fixed before the F9 teammate data: from 0.36 to 0.50 in steps of 0.02, the value with the lowest ")
+                    .append("labelled-impostor FMR whose FNMR on the onboarding-like pairs is at most 5% (ties go to the ")
+                    .append("lower value). If no value qualifies, 0.40 stays and older templates should be re-onboarded. ")
+                    .append("The rule decides only with at least 3 people and 50 pairs in the onboarding-like set; ")
+                    .append("otherwise 0.40 stays. ")
+                    .append("F15 is a second factor after the password: its FMR is the rate at which someone who has ")
+                    .append("the password AND a similar face gets in.\n\n")
+                    .append("| threshold | FNMR onboarding-like | FNMR same day | FMR labelled impostors | ")
+                    .append("FMR enrollment impostors | FNMR at most 5% | context: FNMR photo vs photo, same person |\n")
+                    .append("|---|---|---|---|---|---|---|\n");
+            for (double t : CANDIDATES) {
+                String mark = t != chosen ? "" : met ? " (chosen)" : " (stays)";
+                sb.append(String.format(Locale.ROOT, "| %.2f%s | %s | %s | %s | %s | %s | %s |%n", t, mark,
+                        cell(sets.onboarding, t), cell(sets.sameDay, t), cell(sets.labelledImpostors, t),
+                        cell(sets.enrollmentImpostors, t), sets.onboarding.values.isEmpty() ? "-"
+                                : sets.onboarding.errorRate(t) <= MAX_FNMR ? "yes" : "no", cell(sets.photoPairs, t)));
+            }
+            sb.append('\n');
+            if (met) {
+                sb.append(String.format(Locale.ROOT, "**Result: %.2f** meets the rule.%n", chosen));
+            } else if (!decidable(sets)) {
+                int people = sets.onboardingPeople;
+                sb.append(String.format(Locale.ROOT, "**Result: not decidable: %d %s / %d pairs** in the onboarding-like "
+                        + "set%s (the rule needs at least %d people and %d pairs). 0.40 stays.%n", people,
+                        people == 1 ? "person" : "people", sets.onboarding.values.size(),
+                        sets.labelledImpostors.values.isEmpty() ? ", and no labelled impostors" : "", MIN_PEOPLE,
+                        MIN_PAIRS));
+            } else {
+                sb.append(String.format(Locale.ROOT, "**Result: no value meets the rule.** 0.40 stays, with FNMR %s on the "
+                        + "onboarding-like pairs; older templates should be re-onboarded.%n", cell(sets.onboarding, FALLBACK)));
+            }
+            int n = sets.onboarding.values.size();
+            if (n > 0 && n < 100) {
+                sb.append(String.format(Locale.ROOT, "%nOnly %d onboarding-like pairs: one more false non-match moves their "
+                        + "FNMR by %.1f points.%n", n, 100.0 / n));
+            }
+            sb.append("\nThe context column is not part of the rule: both sides are photos, from other days and cameras.\n");
+            return sb.toString();
+        }
+
+        private static String cell(Scores s, double t) {
+            return s.values.isEmpty() ? "-" : String.format(Locale.ROOT, "%d/%d (%.1f%%)", s.errors(t), s.values.size(),
+                    100 * s.errorRate(t));
+        }
     }
 
     private static Scores set(Map<String, Scores> sets, String name, boolean genuine) {

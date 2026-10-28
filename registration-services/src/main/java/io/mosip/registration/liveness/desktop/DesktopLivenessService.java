@@ -25,6 +25,7 @@ import io.mosip.registration.config.AppConfig;
 import io.mosip.registration.constants.AuditEvent;
 import io.mosip.registration.constants.RegistrationConstants;
 import io.mosip.registration.context.SessionContext;
+import io.mosip.registration.dao.UserDetailDAO;
 import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
@@ -65,7 +66,8 @@ import io.mosip.registration.util.advice.AuthenticationAdvice;
  * <li><b>Config:</b> {@link DesktopLivenessConfig}, the synced global config. A change (after a config sync) is picked
  * up before the next session; a running session keeps its policy.</li>
  * <li><b>Audit:</b> {@link DesktopAuditSink}, the client's audit module.</li>
- * <li><b>Face binding:</b> {@link #binding()}.</li>
+ * <li><b>Face binding:</b> {@link #binding()}; identity binding (F15) after the password login's gate:
+ * {@link #identity()}.</li>
  * <li><b>Online model update:</b> after each successful config sync ({@link ConfigSyncedEvent}), when enabled, a newer
  * signed bundle is downloaded into the model store and new sessions use it ({@link #checkModelUpdateAsync}).</li>
  * <li><b>Offline model install (F17):</b> supervisors and admins install a signed bundle zip from removable media, or
@@ -89,6 +91,9 @@ public class DesktopLivenessService {
 	@Autowired
 	private BioService bioService;
 
+	@Autowired
+	private UserDetailDAO userDetailDAO;
+
 	private final DesktopLivenessConfig config;
 	private final ExecutorService background = Executors.newSingleThreadExecutor(r -> {
 		Thread t = new Thread(r, "liveness-background");
@@ -104,6 +109,8 @@ public class DesktopLivenessService {
 	private ModelStore modelStore;
 	private LivenessService engine;
 	private FaceBinding binding;
+	private IdentityBinding identity;
+	private IdentityBinding.TemplateSource identityTemplates;
 	private String configFingerprint;
 
 	public DesktopLivenessService() {
@@ -125,6 +132,12 @@ public class DesktopLivenessService {
 
 	public DesktopLivenessConfig config() {
 		return config;
+	}
+
+	/** Tests: the users' onboarded faces (the client reads {@code reg.user_biometric}). Call before the first use. */
+	synchronized DesktopLivenessService withIdentityTemplates(IdentityBinding.TemplateSource templates) {
+		this.identityTemplates = templates;
+		return this;
 	}
 
 	/** Tests: another bundled model source and its trusted keys (bundles signed with a throwaway key). */
@@ -511,6 +524,12 @@ public class DesktopLivenessService {
 		return binding;
 	}
 
+	/** Identity binding (F15): the live face against the user's onboarded face, after the password login's gate. */
+	public synchronized IdentityBinding identity() {
+		engine();
+		return identity;
+	}
+
 	/**
 	 * Called by the gate after every session: logs the anonymised metrics in diagnostic mode, and audits them every
 	 * {@code desktop.metricsAuditEvery} sessions.
@@ -582,6 +601,10 @@ public class DesktopLivenessService {
 				throw new LivenessEngineException(io.mosip.registration.liveness.api.ErrorCode.ENGINE_ERROR,
 						"scripted engine has no matcher");
 			}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, true);
+			identity = new IdentityBinding(this::isEnabled, config, binding, (live, faces) -> {
+				throw new LivenessEngineException(io.mosip.registration.liveness.api.ErrorCode.ENGINE_ERROR,
+						"scripted engine has no matcher");
+			}, identityTemplates(), audit, true);
 			return fake;
 		}
 		analyzers = new SwappableAnalyzerFactory(newAnalyzerFactory());
@@ -592,7 +615,13 @@ public class DesktopLivenessService {
 				return new FaceBinding.Comparison(m.outcome.name(), m.similarity, m.threshold);
 			}
 		}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, false);
+		identity = new IdentityBinding(this::isEnabled, config, binding,
+				IdentityBinding.onnx(() -> matcherSource.current().createMatcher()), identityTemplates(), audit, false);
 		return DefaultLivenessService.builder().config(config).analyzerFactory(analyzers).auditSink(audit).build();
+	}
+
+	private IdentityBinding.TemplateSource identityTemplates() {
+		return identityTemplates != null ? identityTemplates : IdentityBinding.fromUserBiometrics(userDetailDAO);
 	}
 
 	private synchronized OnnxFaceAnalyzerFactory newAnalyzerFactory() {

@@ -2,6 +2,7 @@ package io.mosip.registration.liveness.desktop;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.TreeMap;
@@ -42,6 +43,13 @@ public class DesktopLivenessConfig implements ConfigProvider {
 	public static final String SOURCE_KEY = PREFIX + "desktop.source";
 
 	public static final String BINDING_ENABLED_KEY = PREFIX + "binding.enabled";
+	/** F15: after a password-only liveness gate, the live face must be the user's onboarded face (default true). */
+	public static final String IDENTITY_ENABLED_KEY = PREFIX + "binding.identity.enabled";
+	/**
+	 * F15: true blocks a user who has no readable onboarded face on this machine; false (the default) lets them in
+	 * on presence alone, audited NOT_BOUND_NO_TEMPLATE or NOT_BOUND_UNREADABLE.
+	 */
+	public static final String IDENTITY_REQUIRE_TEMPLATE_KEY = PREFIX + "binding.identity.requireTemplate";
 	public static final String SBI_FRAME_TIMEOUT_KEY = PREFIX + "desktop.sbi.frameTimeoutMs";
 	public static final String SBI_FRAME_STRIDE_KEY = PREFIX + "desktop.sbi.frameStride";
 	public static final String SBI_RECONNECTS_KEY = PREFIX + "desktop.sbi.maxReconnectAttempts";
@@ -94,6 +102,30 @@ public class DesktopLivenessConfig implements ConfigProvider {
 	public boolean getBoolean(String key, boolean fallback) {
 		String v = get(key);
 		return v == null ? fallback : Boolean.parseBoolean(v);
+	}
+
+	/**
+	 * A switch where a typo must not flip it: true, yes, 1 or on is on; false, no, 0 or off is off (any case);
+	 * unset is {@code fallback}, and any other value is {@code fallback} with a warning.
+	 */
+	public boolean getSwitch(String key, boolean fallback) {
+		Boolean v = parseSwitch(get(key));
+		if (v == null && get(key) != null) {
+			LOGGER.warn("Ignoring invalid value for {} (true/false, yes/no, 1/0 or on/off): {}", key, get(key));
+		}
+		return v == null ? fallback : v;
+	}
+
+	/** true/yes/1/on, false/no/0/off (any case, trimmed), else null. */
+	static Boolean parseSwitch(String value) {
+		switch (value == null ? "" : value.trim().toLowerCase(Locale.ROOT)) {
+			case "true": case "yes": case "1": case "on":
+				return Boolean.TRUE;
+			case "false": case "no": case "0": case "off":
+				return Boolean.FALSE;
+			default:
+				return null;
+		}
 	}
 
 	public long getLong(String key, long fallback) {

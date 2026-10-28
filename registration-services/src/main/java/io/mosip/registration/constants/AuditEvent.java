@@ -337,6 +337,8 @@ public enum AuditEvent {
 			"Face liveness: anonymised operational metrics"),
 	LIVENESS_MODEL_UPDATE("REG-LIV-012", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_UPDATE",
 			"Face liveness: online model update checked"),
+	LIVENESS_IDENTITY_BINDING("REG-LIV-013", SYSTEM_EVENT.getCode(), "LIVENESS_IDENTITY_BINDING",
+			"Face liveness: live face compared with the user's onboarded face"),
 
 	CLIENT_UPGRADE_JARS_DOWNLOADED("REG-UPG-001", USER_EVENT.getCode(), "CLIENT_UPGRADE_JARS_DOWNLOADED",
 			"Client Upgrade: Successfully downloaded all the upgrade jars"),

@@ -53,6 +53,8 @@ public final class LivenessMessages {
 		m.put("liveness.error.verification_not_completed", "Face verification could not be completed. Please try again.");
 		m.put("liveness.error.max_attempts_reached", "Face verification could not be completed.");
 		m.put("liveness.error.device_problem", "Camera/device not available. Check the connection and try again.");
+		m.put("liveness.error.identity_not_verified",
+				"Face verification could not be completed for this user. Please try again.");
 		m.put("liveness.tips.title", "Tips:");
 		m.put("liveness.tips.look_at_camera", "Look directly at the camera.");
 		m.put("liveness.tips.face_visible", "Ensure your face is clearly visible.");

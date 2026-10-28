@@ -34,12 +34,17 @@ import io.mosip.registration.liveness.api.ConfigProvider;
  * </ul>
  * Face binding (F1) has its own key, outside the analyzer prefix: {@value #BINDING_THRESHOLD_KEY} (0.45, decided in
  * fix round 2 from the binding evaluation; OpenCV's SFace default is 0.363;
- * {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}).
+ * {@link io.mosip.registration.liveness.analyzer.match.FaceMatcher}). Identity binding (F15: the live face against the
+ * user's onboarded face) has another: {@value #IDENTITY_THRESHOLD_KEY} (0.40, provisional; an onboarding photo is older
+ * and from another camera than F1's same-session capture, see {@code FaceMatcher.identify}).
  */
 public final class AnalyzerConfig {
 
     public static final String KEY_PREFIX = "mosip.registration.liveness.face.analyzer.";
     public static final String BINDING_THRESHOLD_KEY = "mosip.registration.liveness.face.binding.cosineThreshold";
+    public static final String IDENTITY_THRESHOLD_KEY = "mosip.registration.liveness.face.binding.identity.threshold";
+    /** The lowest valid F15 threshold: below it the second factor would accept almost any face. */
+    public static final double MIN_IDENTITY_THRESHOLD = 0.30;
 
     /** ONNX Runtime execution provider. Unavailable providers fall back to CPU. */
     public enum Accelerator { CPU, XNNPACK, NNAPI }
@@ -78,6 +83,8 @@ public final class AnalyzerConfig {
     public final double moireVetoThreshold;
     /** Face binding: two faces are the same person when the SFace cosine is at or above this, in [-1, 1]. */
     public final double bindingCosineThreshold;
+    /** Identity binding (F15): the live face is the onboarded user when the best SFace cosine is at or above this. */
+    public final double identityCosineThreshold;
     /** BLURRY also below this fraction of the session's rolling lapVar median, in (0, 1]; NaN = off. */
     public final double qualityRelativeBlurRatio;
     /** Mesh ROI from the previous frame's landmarks when the face box overlaps (IoU >= 0.3); else from YuNet. */
@@ -115,6 +122,7 @@ public final class AnalyzerConfig {
         moireMinFrames = b.moireMinFrames;
         moireVetoThreshold = b.moireVetoThreshold;
         bindingCosineThreshold = b.bindingCosineThreshold;
+        identityCosineThreshold = b.identityCosineThreshold;
         qualityRelativeBlurRatio = b.qualityRelativeBlurRatio;
         meshTracking = b.meshTracking;
         padLatchThreshold = b.padLatchThreshold;
@@ -157,6 +165,7 @@ public final class AnalyzerConfig {
         b.moireMinFrames = moireMinFrames;
         b.moireVetoThreshold = moireVetoThreshold;
         b.bindingCosineThreshold = bindingCosineThreshold;
+        b.identityCosineThreshold = identityCosineThreshold;
         b.qualityRelativeBlurRatio = qualityRelativeBlurRatio;
         b.meshTracking = meshTracking;
         b.padLatchThreshold = padLatchThreshold;
@@ -222,15 +231,20 @@ public final class AnalyzerConfig {
             }
             b.meshTracking = t.equals("true");
         }
-        String binding = cfg.get(BINDING_THRESHOLD_KEY);
-        if (binding != null && !binding.trim().isEmpty()) {
-            try {
-                b.bindingCosineThreshold = Double.parseDouble(binding.trim());
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException(BINDING_THRESHOLD_KEY + ": not a number: '" + binding + "'");
-            }
-        }
+        b.bindingCosineThreshold = cosine(cfg, BINDING_THRESHOLD_KEY, b.bindingCosineThreshold);
+        b.identityCosineThreshold = cosine(cfg, IDENTITY_THRESHOLD_KEY, b.identityCosineThreshold);
         return b.build();
+    }
+
+    /** A cosine threshold under its own full key (outside the analyzer prefix); missing keeps the default. */
+    private static double cosine(ConfigProvider cfg, String key, double dflt) {
+        String s = cfg.get(key);
+        if (s == null || s.trim().isEmpty()) return dflt;
+        try {
+            return Double.parseDouble(s.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(key + ": not a number: '" + s + "'");
+        }
     }
 
     /**
@@ -283,6 +297,12 @@ public final class AnalyzerConfig {
         if (!Double.isNaN(volatilityMinScore)) positiveUpTo("volatilityMinScore", volatilityMinScore, 1);
         if (!(bindingCosineThreshold >= -1 && bindingCosineThreshold <= 1)) {
             throw new IllegalArgumentException(BINDING_THRESHOLD_KEY + " must be in [-1.0, 1.0], got " + bindingCosineThreshold);
+        }
+        // F15 is a second factor: a low or negative value would let almost any face match (SFace impostor cosines sit
+        // well below 0.30), so the floor is part of the check, not only NaN and the range of a cosine.
+        if (!(identityCosineThreshold >= MIN_IDENTITY_THRESHOLD && identityCosineThreshold <= 1)) {
+            throw new IllegalArgumentException(IDENTITY_THRESHOLD_KEY + " must be in [" + MIN_IDENTITY_THRESHOLD
+                    + ", 1.0], got " + identityCosineThreshold);
         }
     }
 
@@ -355,6 +375,7 @@ public final class AnalyzerConfig {
         private int moireMinFrames = 3;
         private double moireVetoThreshold = Double.NaN;
         private double bindingCosineThreshold = 0.45;
+        private double identityCosineThreshold = 0.40;
         private double qualityRelativeBlurRatio = 0.45;
         private boolean meshTracking = true;
         private double padLatchThreshold = 0.30;
@@ -391,6 +412,7 @@ public final class AnalyzerConfig {
         /** NaN (the default) switches the veto off. */
         public Builder moireVetoThreshold(double v) { moireVetoThreshold = v; return this; }
         public Builder bindingCosineThreshold(double v) { bindingCosineThreshold = v; return this; }
+        public Builder identityCosineThreshold(double v) { identityCosineThreshold = v; return this; }
         /** NaN switches the relative blur rule off. */
         public Builder qualityRelativeBlurRatio(double v) { qualityRelativeBlurRatio = v; return this; }
         public Builder meshTracking(boolean v) { meshTracking = v; return this; }

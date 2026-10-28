@@ -1,7 +1,7 @@
 From cf2ceff3bb9c567368d59274d6959592089f6a38 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sun, 25 Oct 2026 14:35:31 +0530
-Subject: [PATCH 29/40] F1: bind the captured face to the liveness best frame
+Subject: [PATCH 29/42] F1: bind the captured face to the liveness best frame
 
 Fix round 2, B1-B5, with the planner's option A for B4: the face is bound
 BEFORE the SBI capture is stored, so nothing is ever discarded.

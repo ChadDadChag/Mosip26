@@ -67,6 +67,31 @@ class AnalyzerConfigTest {
     }
 
     @Test
+    void theIdentityThresholdHasItsOwnKey() {
+        assertThat(AnalyzerConfig.defaults().identityCosineThreshold).isEqualTo(0.40);
+        assertThat(AnalyzerConfig.IDENTITY_THRESHOLD_KEY)
+                .isEqualTo("mosip.registration.liveness.face.binding.identity.threshold");
+        Map<String, String> m = new HashMap<String, String>();
+        m.put(AnalyzerConfig.IDENTITY_THRESHOLD_KEY, " 0.42 ");
+        AnalyzerConfig c = AnalyzerConfig.fromConfig(provider(m));
+        assertThat(c.identityCosineThreshold).isEqualTo(0.42);
+        assertThat(c.bindingCosineThreshold).as("F1 keeps its own").isEqualTo(0.45);
+        assertThat(c.toBuilder().build().identityCosineThreshold).isEqualTo(0.42);
+        m.put(AnalyzerConfig.IDENTITY_THRESHOLD_KEY, "low");
+        assertThatThrownBy(() -> AnalyzerConfig.fromConfig(provider(m)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(AnalyzerConfig.IDENTITY_THRESHOLD_KEY);
+        assertThatThrownBy(() -> AnalyzerConfig.builder().identityCosineThreshold(-1.5).build())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("identity.threshold");
+        // A low, zero or negative value (a typo like 0.04) would switch the second factor off: refused.
+        for (double weak : new double[] {0.29, 0.04, 0, -0.4, Double.NaN, Double.POSITIVE_INFINITY}) {
+            assertThatThrownBy(() -> AnalyzerConfig.builder().identityCosineThreshold(weak).build())
+                    .as("threshold %s", weak).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("identity.threshold");
+        }
+        assertThat(AnalyzerConfig.builder().identityCosineThreshold(0.30).build().identityCosineThreshold).isEqualTo(0.30);
+    }
+
+    @Test
     void defaultsMatchTheReferencePipeline() {
         AnalyzerConfig c = AnalyzerConfig.defaults();
         assertThat(c.intraOpThreads).isEqualTo(2);

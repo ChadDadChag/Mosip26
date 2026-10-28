@@ -57,15 +57,18 @@ diff --git a/desktop-integration/README.md b/desktop-integration/README.md
 new file mode 100644
 --- /dev/null
 +++ b/desktop-integration/README.md
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,18 @@
 +# Part 4: Desktop integration patch
 +
 +`person4-desktop.diff` is every Part 4 change as one diff, relative to `registration-client/registration` at
-+v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 63 text files: new liveness classes,
-+tests and docs, the liveness block appended to the Arabic and French message bundles, two tile titles appended to the
-+label bundles, plus small additive hooks in existing client classes and the home page's operational tasks (offline
-+model install and rollback, F17). The 14 screen images in `docs/images/part4/` are binary and are shipped as files, not in the
-+diff.
++v1.2.0.2 with this repository (Parts 1, 2, 3 and 5) copied over it. It changes 66 text files:
++- new liveness classes, tests and docs;
++- the liveness block appended to the Arabic and French message bundles, and two tile titles appended to the label
++  bundles;
++- small additive hooks in existing client classes: the home page's operational tasks (offline model install and
++  rollback, F17), and the password login's identity check (F15).
++
++The 14 screen images in `docs/images/part4/` are binary and are shipped as files, not in the diff.
 +
 +Apply, from `registration-client/registration` after copying this repository over it:
 +
@@ -77,7 +80,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,662 @@
+@@ -0,0 +1,759 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -230,6 +233,56 @@ new file mode 100644
 +- **The exception photo** (biometric exception process): it is the recovery path the resident failure text points to.
 +- **Fingerprint, iris, password and OTP authentication**: liveness is a face control.
 +
++### 2.5 Identity binding (F15)
++
++The password login (sequence (b2)) has no face capture, so F1 has nothing to bind. Liveness alone then proves only
++that some live person is at the machine, not that it is the user. F15 binds this gate to the user's onboarded face.
++It is a second factor after the password: a false match lets in someone who has the password AND a similar face.
++
++1. `LoginController.loadNextScreen` calls `LivenessGate.runWithIdentity(OPERATOR, window, userId)` instead of `run`.
++2. After PASSED, `IdentityBinding.verify` runs off the JavaFX thread. It takes the session's best frame from
++   `FaceBinding` (the arming is consumed).
++3. It reads the user's active Face rows of `reg.user_biometric`, which operator onboarding writes on this machine.
++   - Each row's BDB comes from the CBEFF BIR in `bio_raw_image`, else from `bio_iso_image`, as
++     `AuthenticationServiceImpl.authValidator` reads them.
++   - F1's `CapturedFaceDecoder` decodes it.
++4. Part 2's `FaceMatcher.identify` compares them:
++   - the same detection and alignment as F1;
++   - the best of several templates;
++   - its own threshold, `binding.identity.threshold` (0.40, provisional; Part 2 section 12.1).
++
++| Outcome | What happens |
++|---|---|
++| MATCH | The login goes on. |
++| NO_MATCH, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_ARMED, EXPIRED, ERROR | The client shows "Face verification could not be completed for this user. Please try again." with Retry and Cancel. Retry runs one new liveness session. No score is shown. |
++| The same after the retry, Cancel, or a retry session that does not pass (cancelled, closed, failed) | `IDENTITY_NOT_VERIFIED`: the user is logged out, the login page is shown, and the client counts one failed login (below). |
++| NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE | No onboarded face on this machine, or none decodes to one face. The login goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the login is refused at once, because a retry cannot help. |
++| Liveness off for OPERATOR, or `binding.identity.enabled=false` | The login goes on as before. The second case is audited `SKIPPED`. |
++
++**Failed logins.**
++- `IDENTITY_NOT_VERIFIED` calls the client's own `validateInvalidLogin` with the text, so it counts exactly like a wrong
++  password.
++- `unsuccessfulLoginCount` goes up by one. When it reaches `mosip.registration.invalid_login_count`, the account locks
++  for `mosip.registration.invalid_login_time` minutes. Both values come from the server config.
++
++Can one F15 failure alone lock the account?
++- One blocked gate adds one failed login, after both liveness sessions. On a clean count, it locks the account only if
++  `invalid_login_count` is 1.
++- The client does not reset the count when the password is correct; only a completed login resets it. So after
++  earlier wrong passwords, one F15 failure can be the one that reaches the limit, as one more wrong password would.
++
++**When there is no template.** A face row exists only if `mosip.registration.operator.onboarding.bioattributes`
++includes `face` and the user onboarded on this machine. User sync brings no biometrics.
++- With MOSIP's mock bio-SDK, the stored BDB is the SBI's ISO 19794-5 record, which decodes.
++- With a real bio-SDK, it may be a proprietary template that does not decode. Then the outcome is
++  NOT_BOUND_UNREADABLE, and the login goes on on presence alone unless `requireTemplate` is set.
++
++The audit makes both cases visible (REG-LIV-013, section 6).
++
++**Not changed.** Face login, and packet authentication or end-of-day approval with face, already match the capture
++against the template through the bio-SDK, with F1 binding. Password, OTP, fingerprint and iris authentication of a
++packet are not gated (section 2.4).
++
 +## 3. Sequence diagrams
 +
 +### (a) Resident face capture
@@ -324,14 +377,22 @@ new file mode 100644
 +    participant L as LoginController
 +    participant G as LivenessGate
 +    participant E as Liveness engine
++    participant I as IdentityBinding
 +
 +    Op->>L: user id + password
 +    L->>L: SessionContext.create(PWORD) succeeds (local or after the pre-launch sync, unchanged)
 +    alt gatePasswordLogin=true and no face login step follows
-+        L->>G: run(OPERATOR)
++        L->>G: runWithIdentity(OPERATOR, user id)
 +        G->>E: session (OPERATOR policy)
 +        alt PASSED
-+            G-->>L: PROCEED → next login step, or home screen (unchanged)
++            G->>I: verify (best frame vs the user's onboarded face, F15)
++            alt MATCH, or no onboarded face (presence only)
++                G-->>L: PROCEED → next login step, or home screen (unchanged)
++            else not the user's face
++                G-->>Op: "Face verification could not be completed for this user." Retry (one new session) or Cancel
++                G-->>L: IDENTITY_NOT_VERIFIED (after the retry, or Cancel)
++                L->>L: SessionContext.destroySession(), login page, validateInvalidLogin (one failed login)
++            end
 +        else FAILED or Cancel
 +            G-->>L: BLOCKED / CANCELLED
 +            L->>L: SessionContext.destroySession(), back to the login page
@@ -341,9 +402,9 @@ new file mode 100644
 +    end
 +```
 +
-+No face is captured or matched in this flow, so there is no binding: liveness proves a live person is present at
-+the operator's password login, as on Android. The first (initial set-up) login is not gated: it restarts the client
-+after the sync.
++No face is captured in this flow, so F1 has nothing to bind. Liveness proves that a live person is present at the
++operator's password login, as on Android, and F15 (section 2.5) checks that this person is the user. The first
++(initial set-up) login is not gated: it restarts the client after the sync.
 +
 +### (c) Packet authentication (operator) and biometric-exception review (supervisor)
 +
@@ -511,6 +572,13 @@ new file mode 100644
 +**Face binding and analyzer**: `binding.enabled` (true), `binding.cosineThreshold` (0.45), and Part 2's optional
 +`analyzer.*` keys ([part2-pad-architecture.md](part2-pad-architecture.md)).
 +
++**Identity binding (F15, section 2.5)**:
++- `binding.identity.enabled` (true; `false`, `no`, `0` or `off` switches it off, `true`, `yes`, `1` or `on` keeps it
++  on, any other value keeps the default with a warning in the log);
++- `binding.identity.threshold` (0.40, provisional; valid from 0.30 to 1.0);
++- `binding.identity.requireTemplate` (false: a user without a readable onboarded face gets in on presence alone,
++  audited; read like `enabled`, so only `true`, `yes`, `1` or `on` turns it on).
++
 +**Desktop** (`mosip.registration.liveness.face.desktop.*`):
 +
 +| Key | Default | Meaning |
@@ -591,9 +659,10 @@ new file mode 100644
 +| REG-LIV-010 | LIVENESS_FACE_BINDING | Desktop: capture compared with the live face | outcome, similarity, threshold, accepted |
 +| REG-LIV-011 | LIVENESS_METRICS | Desktop: every `metricsAuditEvery` sessions | anonymised counters and rates (§7) |
 +| REG-LIV-012 | LIVENESS_MODEL_UPDATE | Desktop: an online model update check finished (§5); an offline install or a rollback (F17) | online: outcome (INSTALLED, UP_TO_DATE, FAILED), version, reason (a `ModelUpdater.Reason` code, no URL), durationMs, trigger (the sync's trigger point). Offline (`trigger=offline`) and rollback (`trigger=rollback`): outcome (INSTALLED, UP_TO_DATE, FAILED, ROLLED_BACK, REFUSED), errorCode (MODEL_INTEGRITY_FAILED for a bad bundle), reason (a `Reason` code, NOT_NEWER, NOTHING_TO_ROLL_BACK or NOT_ALLOWED), fromVersion, toVersion, durationMs, userId; never a path |
++| REG-LIV-013 | LIVENESS_IDENTITY_BINDING | Desktop: the password login's live face compared with the user's onboarded face (F15, section 2.5) | outcome (MATCH, NO_MATCH, NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_ARMED, EXPIRED, ERROR, SKIPPED), similarity (2 decimals), threshold, attempt (1, or 2 for the retry), gate, userId, templates, unreadable, templateAgeDays (the newest template, from the row's creation time), requireTemplate (when not bound), accepted; never an image or a template |
 +
-+The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019); the ids differ because the Desktop's
-+`REG-EVT-009..018` were already taken.
++The names are the Android client's (REG-LIV-012 is Android's REG-EVT-019, REG-LIV-013 is REG-EVT-020); the ids differ
++because the Desktop's `REG-EVT-009..018` were already taken.
 +
 +**Scores, PAD reasons and challenge outcomes** are therefore in the audit trail; **raw face images never are**: the
 +engine passes only codes and numbers, and `DesktopAuditSink` enforces it again (keys must be short identifiers, values
@@ -660,14 +729,19 @@ new file mode 100644
 +
 +(`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 +
-+**Results (2026-10-26, with the follow-ups):** `registration-services` 147 tests pass: the 33 Desktop tests plus the
-+existing Part 1 liveness (72), audit (4), login (26) and config sync (`GlobalParamServiceTest`, 12) suites.
-+`registration-client` 28 tests pass. No failures, nothing skipped.
++**Results (as of 2026-10-26, with the follow-ups):** `registration-services` 105 liveness tests pass: Part 1's 72 and
++Part 4's 33. `registration-client` 28 tests pass. The command also runs the existing audit (4), login (26) and config
++sync (`GlobalParamServiceTest`, 12) suites, which pass too. No failures, nothing skipped.
 +
 +**Results with F17 (2026-10-27):** `registration-services` 158 tests pass. That is the 147 above, plus the four F16
 +regression clips in `RecordedVideoE2ETest` (Part 2) and the 7 `DesktopOfflineModelInstallTest` tests.
 +`registration-client` 31 tests pass: the 28 above plus the 3 `ModelBundleTextsTest` tests. `mvn install` of both
 +modules succeeds. No failures, nothing skipped.
++
++**Results with F15 (2026-10-27):** `registration-services` 169 tests pass: the 158 above, plus the 10
++`IdentityBindingTest` tests and `RealIdentityBindingTest`. `registration-client` 32 tests pass: the 31 above plus the
++identity retry rule in `LivenessGateTest`. `RecordedVideoE2ETest` 5/5, and `mvn install` of both modules succeeds. No
++failures, nothing skipped.
 +
 +| Test | What it proves |
 +|---|---|
@@ -680,10 +754,12 @@ new file mode 100644
 +| `DesktopModelPreloadTest` | start-up preload: a bundle that does not verify is audited as MODEL_INTEGRITY_FAILED; a face matcher warm-up failure is only logged and the preload still succeeds (bundles signed with a throwaway key) |
 +| `DesktopModelUpdateTest` | online model update after a config sync, against a local HTTP server: enabled + newer bundle → INSTALLED with the bundled base kept for rollback, and the reload audits MODEL_LOADED with the new version; disabled or no URL → no request; a failure → audited as FAILED, the sync returns at once, the models stay; a running session keeps its analyzer until it ends |
 +| `LivenessScreenModelTest` | every row of the spec's state table, debounce, PAD = generic, cooldown, cancel, every key has a text |
-+| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice |
++| `LivenessGateTest` | password login gated when the key is on and no face step follows; never twice; F15: one retry, and only when a new session can help |
 +| `LivenessMessagesTest` | `messages_en.properties` = built-in catalogue = the spec's block, word for word; no technical words in any text; `messages_ar` and `messages_fr` resolve every key, as in the spec's Appendix A, with the English placeholders |
 +| `DesktopOfflineModelInstallTest` | F17 on the real service with signed bundles: install and reload; tampered or unsigned zips refused as MODEL_INTEGRITY_FAILED, also when they claim an older version; same or older refused; zip-slip; rollback, then nothing earlier; the role gate and the config switch; the audit has codes, versions and the user id, never a path |
 +| `ModelBundleTextsTest` | F17: every outcome has its own key, a failed rollback says so; the version is filled in literally (apostrophes survive); every key in English, Arabic and French, translated, with the placeholder kept; the two tile titles in all three label bundles |
++| `IdentityBindingTest` | F15: a match is audited once (similarity with 2 decimals, the template age); another person is rejected and retryable; several templates and the newest age; not bound, with and without `requireTemplate`; every failure fails closed (not armed, another workflow, expired, no live frame, a matcher or database error); liveness off and switched off; the scripted engine; the demo path; the BIR is read, else the ISO column; the UTC creation time |
++| `RealIdentityBindingTest` | F15 on the service, with ISO records from MOSIP's encoder and the signed SFace model: the same portrait matches; another crew member is NO_MATCH; the best of several decides; a group photo and garbage are unreadable; no template is NOT_BOUND_NO_TEMPLATE, accepted |
 +
 +**Screen demo.** `LivenessScreenDemo` is a development tool in the client's **test** sources. It writes PNG files and
 +can open a webcam, so it is not in the client jar. Run it on the test classpath, from `registration/` after an
@@ -693,6 +769,16 @@ new file mode 100644
 +    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--snapshots docs/images/part4 --face liveness-analyzer/src/test/resources/golden/portrait_frontal.png"
 +    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--scenario FAIL_CHALLENGE_THEN_PASS_ON_RETRY --workflow operator"
 +    mvn -pl registration-client test-compile exec:java "-Dexec.classpathScope=test" "-Dexec.mainClass=io.mosip.registration.controller.liveness.LivenessScreenDemo" "-Dexec.args=--live webcam"
++
++**F15 without a backend.** The demo runs the client's `IdentityBinding` on a test template, a stand-in for an
++onboarded face:
++- `--live webcam --workflow operator --identity enroll`: a PASSED session's best frame becomes an ISO 19794-5 record,
++  made with MOSIP's encoder, in `eval-data/f15/test-template.iso`.
++  - A `--template` path outside `eval-data/` is refused, and `eval-data/` is gitignored, so the face never leaves this
++    computer.
++- `--live webcam --workflow operator --identity verify`: a new session, then `IdentityBinding.verifyLive` against the
++  template. It prints the outcome and the similarity (the client never shows a score) and the REG-LIV-013 record.
++- `--identity delete`: deletes the template.
 +
 +**In the client without an SBI device:** start it with `-Dmosip.registration.liveness.face.desktop.source=webcam`
 +(real engine on the webcam) or `-Dmosip.registration.liveness.face.desktop.engine=fake` (scripted engine).
@@ -710,6 +796,14 @@ new file mode 100644
 +  config switch. `ModelBundleTextsTest` proves the texts. The tiles, the file chooser and the alerts were checked by
 +  compilation and code review only. Android has the same limit; its debug build opens the same production page
 +  from the Login page instead (part 5).
++- **F15 was not tried in a logged-in client either**, for the same reason: the password login needs a registered
++  machine and a user synced from a server, and an onboarded face needs onboarding against the server.
++  - `IdentityBindingTest` and `RealIdentityBindingTest` prove the service with real ISO records and the signed model.
++  - `LivenessGateTest` proves the retry rule.
++  - The screen demo runs the same `IdentityBinding` on a live webcam session against a test template (section 10).
++  - The login hook, the retry dialog and the failed-login count were checked by compilation and code review only.
++  - Whether a real bio-SDK's stored template decodes was not checked. If it does not, the outcome is
++    NOT_BOUND_UNREADABLE (section 2.5).
 +- **No SBI hardware and no MockMDS run** in Part 4. The SBI path is Part 1's, tested there (unplug/replug, recorded
 +  clips, MockMDS 45/45 frames).
 +- **Screen reader:** JavaFX 11 has no live regions; status changes update the accessible text and notify, but this was
@@ -731,6 +825,12 @@ new file mode 100644
 +  a face device must therefore be connected for every operator login while operator liveness is enabled; set the key
 +  to false (or `operator.enabled=false`) where that is not wanted. OTP-only, fingerprint and iris logins are not gated.
 +- The operator cooldown is in memory (Part 3, proposal P1).
++- The F15 identity threshold (`binding.identity.threshold`), like the `analyzer.*` settings, is read when the
++  models are built: at start, and after a model install, update or rollback. A config sync reloads only the policies,
++  so a new threshold from a sync applies after a restart.
++- An F15 rejection after the retry is one failed login (section 2.5). On a clean count it locks the account only if
++  `mosip.registration.invalid_login_count` is 1. After earlier wrong passwords it can be the failure that reaches the
++  limit, because a correct password does not reset the count.
 +
 +**For Person 2 / Person 5 (shared spec):**
 +1. **`LOOK_AT_CAMERA` text.** The handover message asks for "Look directly at the camera"; the shared spec and both
@@ -738,13 +838,13 @@ new file mode 100644
 +   the tip text). Desktop follows the spec; change it in the spec and both apps together if wanted.
 +2. **Turn prompt.** Part 2's findings recommend "Please turn your head to the left, then look back at the camera"; the
 +   spec keeps the problem statement's "Please turn your head to the left". Desktop follows the spec.
-+3. **Audit ids.** Desktop uses `REG-LIV-001..012` with the Android event names (the Desktop's `REG-EVT-009..018` are
++3. **Audit ids.** Desktop uses `REG-LIV-001..013` with the Android event names (the Desktop's `REG-EVT-009..018` are
 +   taken).
 diff --git a/docs/part4-registration-default.properties b/docs/part4-registration-default.properties
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-registration-default.properties
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,78 @@
 +# ----------------------------------------------------------------------------------------------------------------
 +# Face liveness / PAD for the Registration Client (Desktop Part 4, Android Part 5).
 +# Append to registration-default.properties in mosip-config. The client syncs it into its local GLOBAL_PARAM table,
@@ -791,6 +891,13 @@ new file mode 100644
 +# --- Face binding (F1): the captured face must be the person who passed liveness ----------------------------------
 +mosip.registration.liveness.face.binding.enabled=true
 +mosip.registration.liveness.face.binding.cosineThreshold=0.45
++
++# --- Identity binding (F15): after a password login's liveness check, the live face must be the user's onboarded face
++# The threshold is provisional (docs/part2-pad-architecture.md section 12.1). requireTemplate=true blocks users
++# without a readable onboarded face on the machine; false lets them in on presence alone (audited NOT_BOUND_*).
++mosip.registration.liveness.face.binding.identity.enabled=true
++mosip.registration.liveness.face.binding.identity.threshold=0.40
++mosip.registration.liveness.face.binding.identity.requireTemplate=false
 +
 +# --- Desktop client ------------------------------------------------------------------------------------------------
 +mosip.registration.liveness.face.desktop.sbi.frameTimeoutMs=15000
@@ -839,7 +946,15 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  
  ## 4. Texts (English)
  
-@@ -171,6 +184,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+@@ -157,6 +170,7 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
+ | `liveness.retry.attempts_left` | {n} attempt(s) left | ATTEMPT_FAILED |
+ | `liveness.error.max_attempts_reached` | Face verification could not be completed. | FAILED_FINAL (§10.7) |
+ | `liveness.error.device_problem` | Camera/device not available. Check the connection and try again. | DEVICE_ERROR, final device failure |
++| `liveness.error.identity_not_verified` | Face verification could not be completed for this user. Please try again. | F15: liveness passed, but the live face is not the user's onboarded face (outside the liveness screen; section 6) |
+ | `liveness.recovery.resident` | Please contact the supervisor. The resident can be registered using the biometric exception process. | FAILED_FINAL, resident |
+ | `liveness.recovery.operator` | Please contact your administrator or try again later. | FAILED_FINAL, operator |
+ | `liveness.recovery.supervisor` | Please contact your administrator. | FAILED_FINAL, supervisor |
+@@ -171,6 +185,35 @@ The source of truth is the `liveness-api` contract: `LivenessEvent`, `LivenessRe
  **Error mapping.** Always go through `event.error.userMessage()` and never switch on the raw `ErrorCode` in the UI:
  `NONE` shows nothing, and the other four values map to `liveness.error.<value in lower case>`.
  
@@ -875,7 +990,23 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  ## 5. Message keys and ready-to-paste catalogues
  
  - **Canonical keys** are dotted lower case, as above. `liveness.challenge.<name lower>` is already fixed by the
-@@ -289,9 +331,13 @@ liveness.button.open_settings=Open settings
+@@ -219,6 +262,7 @@ liveness.error.liveness_not_verified=We could not verify face liveness. Please t
+ liveness.error.verification_not_completed=Face verification could not be completed. Please try again.
+ liveness.error.max_attempts_reached=Face verification could not be completed.
+ liveness.error.device_problem=Camera/device not available. Check the connection and try again.
++liveness.error.identity_not_verified=Face verification could not be completed for this user. Please try again.
+ liveness.tips.title=Tips:
+ liveness.tips.look_at_camera=Look directly at the camera.
+ liveness.tips.face_visible=Ensure your face is clearly visible.
+@@ -268,6 +312,7 @@ liveness.button.open_settings=Open settings
+ "liveness_error_verification_not_completed": "Face verification could not be completed. Please try again.",
+ "liveness_error_max_attempts_reached": "Face verification could not be completed.",
+ "liveness_error_device_problem": "Camera/device not available. Check the connection and try again.",
++"liveness_error_identity_not_verified": "Face verification could not be completed for this user. Please try again.",
+ "liveness_tips_title": "Tips:",
+ "liveness_tips_look_at_camera": "Look directly at the camera.",
+ "liveness_tips_face_visible": "Ensure your face is clearly visible.",
+@@ -289,9 +334,13 @@ liveness.button.open_settings=Open settings
  "liveness_button_open_settings": "Open settings"
  ```
  
@@ -892,7 +1023,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  
  **Key lookup from events:**
  
-@@ -362,6 +408,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
+@@ -362,6 +411,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
    also opens the app's settings. No session is started without the permission.
  - **Config after a sync**: the client re-reads the liveness config after every global-param refresh (sync). New
    sessions use it; a running session keeps its policy and analyzer.
@@ -903,14 +1034,44 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
    and there is no best frame.
  
-@@ -440,3 +490,294 @@ whose best frame was dropped meanwhile fails closed.
+@@ -423,6 +476,29 @@ The best frame is dropped after the comparison, when a new session starts, when
+ (unless an armed SBI capture is under way: the SBI app itself pauses the client) and after 5 minutes. An armed capture
+ whose best frame was dropped meanwhile fails closed.
+ 
++### Identity binding (F15): the person who passed must be the user
++
++Some gates have no face capture after them: the operator's password login (both clients), and on Android also the
++operator's packet authentication and the supervisor's approval with a password. After such a gate PASSED, the
++session's best frame is compared with the user's face onboarded on the device (`user_biometric`, Face rows).
++Part 2's `FaceMatcher.identify` does the comparison: the best of several templates, threshold
++`mosip.registration.liveness.face.binding.identity.threshold` (0.40, provisional).
++
++| Result | Screen |
++|---|---|
++| MATCH | The flow goes on. |
++| Not the user's face, no live face, or an error | `liveness.error.identity_not_verified` in a dialog with **Retry** and **Cancel**. Retry runs one new liveness session. |
++| The same after the retry, Cancel, or a retry session that does not pass | The step is refused with `liveness.error.identity_not_verified`. Login: logged out, back to the login page; it counts as one failed login (Desktop at the end, Android at the first rejection), so cancelling the retry cannot hide it. Packet authentication and approval: nothing is submitted or approved. |
++| No onboarded face, or none decodes to one face | The flow goes on, on presence alone, audited. With `binding.identity.requireTemplate=true` the step is refused at once. |
++| Liveness disabled for the workflow | The legacy flow, unchanged. |
++
++The text is generic: it never shows a score, a threshold or a reason. Audit: Desktop `REG-LIV-013`, Android
++`REG-EVT-020` (outcome, similarity rounded to 2 decimals, threshold, gate, attempt, user id, template counts).
++
++- **Desktop:** `LivenessGate.runWithIdentity` from `LoginController.loadNextScreen`.
++- **Android:** `IdentityBinding.run` (`lib/ui/liveness/identity_binding.dart`) from `login_page.dart`,
++  `generic_process.dart` and `authenticate_dialogbox.dart`, through Pigeon `verifyIdentity`.
++
+ ## 7. Accessibility
+ 
+ - **Screen readers.** Announce every status-line change: the prompt, the result and the failure text. Use
+@@ -440,3 +516,299 @@ whose best frame was dropped meanwhile fails closed.
  `policy.diagnosticMode = true` adds detail to logs and the audit trail only (scores, model version, timings). It
  **never** changes what is on screen. Production screens look identical whatever the setting. Developer overlays such
  as frame times or scores are allowed only on separate debug-only screens that are not reachable in release builds.
 +
 +## Appendix A. The liveness texts in five more languages (machine-translated)
 +
-+The Android client has the 44 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
++The Android client has the 45 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
 +`app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
 +paste. **All five languages are machine-translated and need a review by a native speaker before release.** The ARB
 +files carry the same note, as `"@@x-liveness-translation"`.
@@ -981,6 +1142,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
 +liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
 +liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
++liveness.error.identity_not_verified=تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.
 +liveness.tips.title=نصائح:
 +liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
 +liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
@@ -1031,6 +1193,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.error.verification_not_completed=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e. Veuillez r\u00e9essayer.
 +liveness.error.max_attempts_reached=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e.
 +liveness.error.device_problem=Cam\u00e9ra ou appareil indisponible. V\u00e9rifiez la connexion et r\u00e9essayez.
++liveness.error.identity_not_verified=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e pour cet utilisateur. Veuillez r\u00e9essayer.
 +liveness.tips.title=Conseils\u00a0:
 +liveness.tips.look_at_camera=Regardez directement la cam\u00e9ra.
 +liveness.tips.face_visible=Assurez-vous que votre visage est bien visible.
@@ -1081,6 +1244,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.error.verification_not_completed=चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
 +liveness.error.max_attempts_reached=चेहरा सत्यापन पूरा नहीं हो सका।
 +liveness.error.device_problem=कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।
++liveness.error.identity_not_verified=इस उपयोगकर्ता के लिए चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
 +liveness.tips.title=सुझाव:
 +liveness.tips.look_at_camera=सीधे कैमरे की ओर देखें।
 +liveness.tips.face_visible=सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।
@@ -1131,6 +1295,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.error.verification_not_completed=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
 +liveness.error.max_attempts_reached=ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.
 +liveness.error.device_problem=ಕ್ಯಾಮರಾ/ಸಾಧನ ಲಭ್ಯವಿಲ್ಲ. ಸಂಪರ್ಕವನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
++liveness.error.identity_not_verified=ಈ ಬಳಕೆದಾರರಿಗೆ ಮುಖ ಪರಿಶೀಲನೆಯನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.
 +liveness.tips.title=ಸಲಹೆಗಳು:
 +liveness.tips.look_at_camera=ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
 +liveness.tips.face_visible=ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.
@@ -1181,6 +1346,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.error.verification_not_completed=முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
 +liveness.error.max_attempts_reached=முக சரிபார்ப்பை முடிக்க முடியவில்லை.
 +liveness.error.device_problem=கேமரா/சாதனம் கிடைக்கவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.
++liveness.error.identity_not_verified=இந்தப் பயனருக்கான முக சரிபார்ப்பை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.
 +liveness.tips.title=குறிப்புகள்:
 +liveness.tips.look_at_camera=நேரடியாக கேமராவைப் பார்க்கவும்.
 +liveness.tips.face_visible=உங்கள் முகம் தெளிவாகத் தெரிவதை உறுதிசெய்யவும்.
@@ -1353,15 +1519,16 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 diff --git a/registration-client/src/main/java/io/mosip/registration/controller/auth/LoginController.java b/registration-client/src/main/java/io/mosip/registration/controller/auth/LoginController.java
 --- a/registration-client/src/main/java/io/mosip/registration/controller/auth/LoginController.java
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/auth/LoginController.java
-@@ -36,6 +36,7 @@
+@@ -36,6 +36,8 @@ import io.mosip.registration.controller.BaseController;
  import io.mosip.registration.controller.ClientApplication;
  import io.mosip.registration.controller.FXUtils;
  import io.mosip.registration.controller.device.Streamer;
 +import io.mosip.registration.controller.liveness.LivenessGate;
++import io.mosip.registration.controller.liveness.LivenessMessages;
  import io.mosip.registration.controller.reg.HeaderController;
  import io.mosip.registration.controller.reg.Validations;
  import io.mosip.registration.dto.AuthenticationValidatorDTO;
-@@ -47,6 +48,7 @@
+@@ -47,6 +49,7 @@ import io.mosip.registration.dto.mastersync.GenericDto;
  import io.mosip.registration.enums.Role;
  import io.mosip.registration.exception.RegBaseCheckedException;
  import io.mosip.registration.exception.RegBaseUncheckedException;
@@ -1369,7 +1536,7 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
  import io.mosip.registration.scheduler.SchedulerUtil;
  import io.mosip.registration.service.bio.BioService;
  import io.mosip.registration.service.login.LoginService;
-@@ -214,6 +216,9 @@
+@@ -214,6 +217,9 @@ public class LoginController extends BaseController implements Initializable {
  	@Autowired
  	private SoftwareUpdateHandler softwareUpdateHandler;
  
@@ -1379,7 +1546,7 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
  	private BorderPane loginRoot;
  	private Service<List<String>> taskService;
  	private List<String> loginList = new ArrayList<>();
-@@ -669,8 +674,16 @@
+@@ -669,8 +675,16 @@ public class LoginController extends BaseController implements Initializable {
  		AuthenticationValidatorDTO authenticationValidatorDTO = new AuthenticationValidatorDTO();
  		authenticationValidatorDTO.setUserId(userId.getText());
  
@@ -1398,13 +1565,15 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
  	}
  
  	private void executeValidationTask(UserDTO userDTO, String loginMethod, boolean isInitialSetUp,
-@@ -841,6 +854,26 @@
+@@ -841,6 +855,33 @@ public class LoginController extends BaseController implements Initializable {
  	 * @param loginMode the loginMode
  	 */
  	private void loadNextScreen(UserDTO userDTO, String loginMode) {
 +		if (RegistrationConstants.PWORD.equalsIgnoreCase(loginMode) && livenessGate.gatesPasswordLogin(loginList)) {
-+			// Face liveness after a successful password (as on Android): the operator must be present in person.
-+			livenessGate.run(WorkflowType.OPERATOR, ClientApplication.getPrimaryStage(), outcome -> {
++			// Face liveness after a successful password (as on Android): the operator must be present in person, and
++			// (F15) be the user whose face was onboarded on this machine.
++			livenessGate.runWithIdentity(WorkflowType.OPERATOR, ClientApplication.getPrimaryStage(), userDTO.getId(),
++					outcome -> {
 +				if (outcome.proceed()) {
 +					proceedAfterLogin(userDTO, loginMode);
 +				} else {
@@ -1414,6 +1583,11 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 +					loginList.clear();
 +					SessionContext.destroySession();
 +					loadInitialScreen(ClientApplication.getPrimaryStage());
++					if (outcome == LivenessGate.Outcome.IDENTITY_NOT_VERIFIED) {
++						// F15: a failed login, as a wrong password is (it shows the text, and may lock the account).
++						validateInvalidLogin(userDTO, LivenessMessages.forApplicationLanguage()
++								.text(LivenessGate.IDENTITY_NOT_VERIFIED_KEY));
++					}
 +				}
 +			});
 +			return;
@@ -1659,10 +1833,12 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessGate.java
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,372 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.util.Collection;
++import java.util.Locale;
++import java.util.Optional;
 +import java.util.function.Consumer;
 +
 +import org.springframework.beans.factory.annotation.Autowired;
@@ -1680,10 +1856,14 @@ new file mode 100644
 +import io.mosip.registration.liveness.api.WorkflowType;
 +import io.mosip.registration.liveness.desktop.DesktopLivenessConfig;
 +import io.mosip.registration.liveness.desktop.DesktopLivenessService;
++import io.mosip.registration.liveness.desktop.IdentityBinding;
 +import io.mosip.registration.liveness.device.util.PreviewFrameSource;
 +import javafx.animation.PauseTransition;
 +import javafx.application.Platform;
 +import javafx.scene.Scene;
++import javafx.scene.control.Alert;
++import javafx.scene.control.ButtonBar;
++import javafx.scene.control.ButtonType;
 +import javafx.stage.Modality;
 +import javafx.stage.Stage;
 +import javafx.stage.StageStyle;
@@ -1705,18 +1885,33 @@ new file mode 100644
 + * </ul>
 + * It never throws: any error inside it ends as BLOCKED with the generic text (fail closed). The accept or reject
 + * decision comes only from {@code onComplete(result)}; events only drive the screen.
++ *
++ * <p>The password login, which no face capture follows, uses {@link #runWithIdentity} instead (F15): after the
++ * session PASSED, the live face must also be the user's onboarded face.
 + */
 +@Component
 +public class LivenessGate {
 +
 +	private static final Logger LOGGER = AppConfig.getLogger(LivenessGate.class);
 +
++	/** The text when identity binding (F15) rejects the live face. Generic: never a score or a reason. */
++	public static final String IDENTITY_NOT_VERIFIED_KEY = "liveness.error.identity_not_verified";
++	/** Liveness sessions per identity gate: the first, and one retry after a rejection. */
++	static final int IDENTITY_ATTEMPTS = 2;
++
 +	public enum Outcome {
-+		PROCEED, CANCELLED, BLOCKED;
++		PROCEED, CANCELLED, BLOCKED,
++		/** F15: liveness passed, but the live face was not verified as the user's onboarded face, after the retry. */
++		IDENTITY_NOT_VERIFIED;
 +
 +		public boolean proceed() {
 +			return this == PROCEED;
 +		}
++	}
++
++	/** What follows an identity check: go on, offer the one retry, or stop. */
++	enum IdentityStep {
++		PROCEED, RETRY, NOT_VERIFIED
 +	}
 +
 +	@Autowired
@@ -1777,6 +1972,90 @@ new file mode 100644
 +			session.cancel();
 +			showUnavailable(workflow, owner, done);
 +		}
++	}
++
++	/**
++	 * F15: {@link #run}, then identity binding for {@code userId} ({@link IdentityBinding}): the live face must be the
++	 * user's face onboarded on this machine. A rejection shows {@value #IDENTITY_NOT_VERIFIED_KEY} with Retry, which
++	 * runs one new liveness session; a second rejection, Cancel, or a rejection that a retry cannot fix ends as
++	 * {@link Outcome#IDENTITY_NOT_VERIFIED}. The caller counts that as a failed login. {@code done} is called once, on
++	 * the JavaFX thread.
++	 */
++	public void runWithIdentity(WorkflowType workflow, Window owner, String userId, Consumer<Outcome> done) {
++		identityAttempt(workflow, owner, userId, 1, done);
++	}
++
++	private void identityAttempt(WorkflowType workflow, Window owner, String userId, int attempt,
++			Consumer<Outcome> done) {
++		run(workflow, owner, outcome -> {
++			if (!outcome.proceed()) {
++				done.accept(livenessEnded(outcome, attempt));
++				return;
++			}
++			// Loading, decoding and matching take a few hundred ms: off the JavaFX thread.
++			Thread worker = new Thread(() -> {
++				IdentityBinding.Verdict v = null;
++				try {
++					v = livenessService.identity().verify(workflow, userId, IdentityBinding.GATE_PASSWORD_LOGIN, attempt);
++				} catch (Throwable e) { // an Error too: the login must end refused, not wait for ever
++					LOGGER.error("Identity binding could not run for {}: {}", workflow, e.getClass().getSimpleName());
++				}
++				final IdentityStep step = v == null ? (attempt < IDENTITY_ATTEMPTS ? IdentityStep.RETRY
++						: IdentityStep.NOT_VERIFIED) : identityStep(v.accepted(), v.retryable(), attempt);
++				LOGGER.info("Identity binding for {}: {} (attempt {})", workflow, v == null ? "ERROR" : v, attempt);
++				Platform.runLater(() -> afterIdentity(step, workflow, owner, userId, attempt, done));
++			}, "liveness-identity");
++			worker.setDaemon(true);
++			worker.start();
++		});
++	}
++
++	/**
++	 * The outcome when a liveness session of the identity step does not pass. The retry session follows a rejection,
++	 * so however it ends (Cancel, the window's X, a failure), the login is {@link Outcome#IDENTITY_NOT_VERIFIED} and
++	 * counts as a failed login: cancelling the retry must not hide the rejection.
++	 */
++	static Outcome livenessEnded(Outcome liveness, int attempt) {
++		return attempt > 1 ? Outcome.IDENTITY_NOT_VERIFIED : liveness;
++	}
++
++	/** The step after an identity check: one retry, and only when a new liveness session can change the result. */
++	static IdentityStep identityStep(boolean accepted, boolean retryable, int attempt) {
++		if (accepted) {
++			return IdentityStep.PROCEED;
++		}
++		return retryable && attempt < IDENTITY_ATTEMPTS ? IdentityStep.RETRY : IdentityStep.NOT_VERIFIED;
++	}
++
++	private void afterIdentity(IdentityStep step, WorkflowType workflow, Window owner, String userId, int attempt,
++			Consumer<Outcome> done) {
++		if (step == IdentityStep.PROCEED) {
++			done.accept(Outcome.PROCEED);
++			return;
++		}
++		if (step == IdentityStep.NOT_VERIFIED) {
++			done.accept(Outcome.IDENTITY_NOT_VERIFIED);
++			return;
++		}
++		try {
++			LivenessMessages texts = LivenessMessages.forApplicationLanguage();
++			ButtonType retry = new ButtonType(texts.text("liveness.button.retry"), ButtonBar.ButtonData.OK_DONE);
++			ButtonType cancel = new ButtonType(texts.text("liveness.button.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
++			Alert alert = new Alert(Alert.AlertType.WARNING, texts.text(IDENTITY_NOT_VERIFIED_KEY), retry, cancel);
++			alert.setHeaderText(null);
++			alert.setTitle(texts.text("liveness.title." + workflow.name().toLowerCase(Locale.ROOT)));
++			if (owner != null) {
++				alert.initOwner(owner);
++			}
++			Optional<ButtonType> choice = alert.showAndWait();
++			if (choice.isPresent() && choice.get() == retry) {
++				identityAttempt(workflow, owner, userId, attempt + 1, done);
++				return;
++			}
++		} catch (RuntimeException e) {
++			LOGGER.error("Identity binding retry could not be offered: {}", e.getClass().getSimpleName());
++		}
++		done.accept(Outcome.IDENTITY_NOT_VERIFIED);
 +	}
 +
 +	/** The fail-closed screen: generic text, recovery guidance, Close. */
@@ -1931,7 +2210,7 @@ diff --git a/registration-client/src/main/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/main/java/io/mosip/registration/controller/liveness/LivenessMessages.java
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,138 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.text.MessageFormat;
@@ -1987,6 +2266,8 @@ new file mode 100644
 +		m.put("liveness.error.verification_not_completed", "Face verification could not be completed. Please try again.");
 +		m.put("liveness.error.max_attempts_reached", "Face verification could not be completed.");
 +		m.put("liveness.error.device_problem", "Camera/device not available. Check the connection and try again.");
++		m.put("liveness.error.identity_not_verified",
++				"Face verification could not be completed for this user. Please try again.");
 +		m.put("liveness.tips.title", "Tips:");
 +		m.put("liveness.tips.look_at_camera", "Look directly at the camera.");
 +		m.put("liveness.tips.face_visible", "Ensure your face is clearly visible.");
@@ -3257,7 +3538,7 @@ new file mode 100644
 diff --git a/registration-client/src/main/resources/messages_ar.properties b/registration-client/src/main/resources/messages_ar.properties
 --- a/registration-client/src/main/resources/messages_ar.properties
 +++ b/registration-client/src/main/resources/messages_ar.properties
-@@ -473,4 +473,67 @@ INVALID_FLOW_TYPE=\u0646\u0648\u0639 \u062a\u062f\u0641\u0642 \u0627\u0644\u062a
+@@ -473,4 +473,68 @@ INVALID_FLOW_TYPE=\u0646\u0648\u0639 \u062a\u062f\u0641\u0642 \u0627\u0644\u062a
  ADDITIONAL_INFO_REQ_ID_MISSING=\u0645\u0639\u0631\u0641 \u0637\u0644\u0628 \u0645\u0639\u0644\u0648\u0645\u0627\u062a \u0625\u0636\u0627\u0641\u064a\u0629 \u0645\u0637\u0644\u0648\u0628 \u0644\u0644\u0645\u062a\u0627\u0628\u0639\u0629\u002e
  LOGOUT_ALERT = \u062A\u0645 \u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0623\u062F\u0648\u0627\u0631 \u0627\u0644\u062E\u0627\u0635\u0629 \u0628\u0643. \u0633\u064A\u062A\u0645 \u062A\u0633\u062C\u064A\u0644 \u062E\u0631\u0648\u062C \u0627\u0644\u062C\u0644\u0633\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629. \u0627\u0644\u0631\u062C\u0627\u0621 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649 \u0644\u0644\u0645\u062A\u0627\u0628\u0639\u0629.
  
@@ -3294,6 +3575,7 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.error.verification_not_completed=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
 +liveness.error.max_attempts_reached=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647.
 +liveness.error.device_problem=\u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0623\u0648 \u0627\u0644\u062C\u0647\u0627\u0632 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D. \u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0648\u062D\u0627\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
++liveness.error.identity_not_verified=\u062a\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062a\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062c\u0647 \u0644\u0647\u0630\u0627 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645. \u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062e\u0631\u0649.
 +liveness.tips.title=\u0646\u0635\u0627\u0626\u062D:
 +liveness.tips.look_at_camera=\u0627\u0646\u0638\u0631 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
 +liveness.tips.face_visible=\u062A\u0623\u0643\u062F \u0645\u0646 \u0623\u0646 \u0648\u062C\u0647\u0643 \u0638\u0627\u0647\u0631 \u0628\u0648\u0636\u0648\u062D.
@@ -3331,7 +3613,7 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 diff --git a/registration-client/src/main/resources/messages_en.properties b/registration-client/src/main/resources/messages_en.properties
 --- a/registration-client/src/main/resources/messages_en.properties
 +++ b/registration-client/src/main/resources/messages_en.properties
-@@ -471,3 +471,68 @@ INVALID_FLOW_TYPE=Invalid registration flow type!
+@@ -471,3 +471,69 @@ INVALID_FLOW_TYPE=Invalid registration flow type!
  ADDITIONAL_INFO_REQ_ID_MISSING=AdditionalInfo request id is required to proceed.
  
  TOKEN_SAVE_FAILED=Failed to save auth-token, Invalid token / token too large.#TYPE#ERROR
@@ -3366,6 +3648,7 @@ diff --git a/registration-client/src/main/resources/messages_en.properties b/reg
 +liveness.error.verification_not_completed=Face verification could not be completed. Please try again.
 +liveness.error.max_attempts_reached=Face verification could not be completed.
 +liveness.error.device_problem=Camera/device not available. Check the connection and try again.
++liveness.error.identity_not_verified=Face verification could not be completed for this user. Please try again.
 +liveness.tips.title=Tips:
 +liveness.tips.look_at_camera=Look directly at the camera.
 +liveness.tips.face_visible=Ensure your face is clearly visible.
@@ -3403,7 +3686,7 @@ diff --git a/registration-client/src/main/resources/messages_en.properties b/reg
 diff --git a/registration-client/src/main/resources/messages_fr.properties b/registration-client/src/main/resources/messages_fr.properties
 --- a/registration-client/src/main/resources/messages_fr.properties
 +++ b/registration-client/src/main/resources/messages_fr.properties
-@@ -468,4 +468,67 @@ LOGOUT_ALERT = Vos r
+@@ -468,4 +468,68 @@ LOGOUT_ALERT = Vos r
  INVALID_FLOW_TYPE=Type de flux d'enregistrement non valide�!
  ADDITIONAL_INFO_REQ_ID_MISSING=L'identifiant de la demande AdditionalInfo est requis pour continuer.
  
@@ -3440,6 +3723,7 @@ diff --git a/registration-client/src/main/resources/messages_fr.properties b/reg
 +liveness.error.verification_not_completed=La v\u00E9rification faciale n'a pas pu \u00EAtre effectu\u00E9e. Veuillez r\u00E9essayer.
 +liveness.error.max_attempts_reached=La v\u00E9rification faciale n'a pas pu \u00EAtre effectu\u00E9e.
 +liveness.error.device_problem=Cam\u00E9ra ou appareil indisponible. V\u00E9rifiez la connexion et r\u00E9essayez.
++liveness.error.identity_not_verified=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e pour cet utilisateur. Veuillez r\u00e9essayer.
 +liveness.tips.title=Conseils\u00A0:
 +liveness.tips.look_at_camera=Regardez directement la cam\u00E9ra.
 +liveness.tips.face_visible=Assurez-vous que votre visage est bien visible.
@@ -3478,9 +3762,10 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,54 @@
 +package io.mosip.registration.controller.liveness;
 +
++import static org.junit.Assert.assertEquals;
 +import static org.junit.Assert.assertFalse;
 +import static org.junit.Assert.assertTrue;
 +
@@ -3489,7 +3774,7 @@ new file mode 100644
 +
 +import org.junit.Test;
 +
-+/** When a successful password login is followed by a liveness check. */
++/** When a successful password login is followed by a liveness check, and the identity binding (F15) retry rule. */
 +public class LivenessGateTest {
 +
 +	@Test
@@ -3508,6 +3793,28 @@ new file mode 100644
 +	public void notGatedTwiceWhenAFaceLoginStepFollows() {
 +		assertFalse(LivenessGate.gatesPasswordLogin(true, Arrays.asList("face")));
 +		assertFalse(LivenessGate.gatesPasswordLogin(true, Arrays.asList("OTP", "FACE")));
++	}
++
++	@Test
++	public void identityBindingAllowsOneRetryAndOnlyWhenItCanHelp() {
++		assertEquals(2, LivenessGate.IDENTITY_ATTEMPTS);
++		assertEquals(LivenessGate.IdentityStep.PROCEED, LivenessGate.identityStep(true, false, 1));
++		assertEquals(LivenessGate.IdentityStep.PROCEED, LivenessGate.identityStep(true, false, 2));
++		assertEquals("a different face: one new session", LivenessGate.IdentityStep.RETRY,
++				LivenessGate.identityStep(false, true, 1));
++		assertEquals("then blocked", LivenessGate.IdentityStep.NOT_VERIFIED, LivenessGate.identityStep(false, true, 2));
++		assertEquals("no readable onboarded face while one is required: a retry cannot help",
++				LivenessGate.IdentityStep.NOT_VERIFIED, LivenessGate.identityStep(false, false, 1));
++		assertFalse(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED.proceed());
++		// The retry session follows a rejection: cancelling or failing it still counts as a failed login.
++		assertEquals(LivenessGate.Outcome.CANCELLED, LivenessGate.livenessEnded(LivenessGate.Outcome.CANCELLED, 1));
++		assertEquals(LivenessGate.Outcome.BLOCKED, LivenessGate.livenessEnded(LivenessGate.Outcome.BLOCKED, 1));
++		assertEquals(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED,
++				LivenessGate.livenessEnded(LivenessGate.Outcome.CANCELLED, 2));
++		assertEquals(LivenessGate.Outcome.IDENTITY_NOT_VERIFIED,
++				LivenessGate.livenessEnded(LivenessGate.Outcome.BLOCKED, 2));
++		assertEquals("liveness.error.identity_not_verified", LivenessGate.IDENTITY_NOT_VERIFIED_KEY);
++		assertTrue(LivenessMessages.ENGLISH.containsKey(LivenessGate.IDENTITY_NOT_VERIFIED_KEY));
 +	}
 +}
 diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessMessagesTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessMessagesTest.java
@@ -3639,15 +3946,20 @@ diff --git a/registration-client/src/test/java/io/mosip/registration/controller/
 new file mode 100644
 --- /dev/null
 +++ b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessScreenDemo.java
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,381 @@
 +package io.mosip.registration.controller.liveness;
 +
 +import java.awt.image.BufferedImage;
++import java.io.ByteArrayOutputStream;
 +import java.io.File;
 +import java.io.IOException;
++import java.nio.file.Files;
 +import java.nio.file.Paths;
++import java.util.Arrays;
++import java.util.Collections;
 +import java.util.HashMap;
 +import java.util.LinkedHashMap;
++import java.util.Locale;
 +import java.util.Map;
 +import java.util.concurrent.CountDownLatch;
 +import java.util.concurrent.atomic.AtomicReference;
@@ -3655,6 +3967,13 @@ new file mode 100644
 +
 +import javax.imageio.ImageIO;
 +
++import io.mosip.biometrics.util.ConvertRequestDto;
++import io.mosip.biometrics.util.face.FaceEncoder;
++import io.mosip.registration.audit.AuditManagerService;
++import io.mosip.registration.constants.AuditEvent;
++import io.mosip.registration.constants.Components;
++import io.mosip.registration.context.ApplicationContext;
++import io.mosip.registration.dto.ResponseDTO;
 +import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 +import io.mosip.registration.liveness.api.ChallengeType;
 +import io.mosip.registration.liveness.api.ConfigProvider;
@@ -3670,6 +3989,9 @@ new file mode 100644
 +import io.mosip.registration.liveness.api.LivenessSession;
 +import io.mosip.registration.liveness.api.WorkflowType;
 +import io.mosip.registration.liveness.core.DefaultLivenessService;
++import io.mosip.registration.liveness.desktop.DesktopAuditSink;
++import io.mosip.registration.liveness.desktop.DesktopLivenessConfig;
++import io.mosip.registration.liveness.desktop.IdentityBinding;
 +import io.mosip.registration.liveness.device.mock.MockFrameSource;
 +import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
 +import io.mosip.registration.liveness.device.util.PreviewFrameSource;
@@ -3688,12 +4010,25 @@ new file mode 100644
 + *   LivenessScreenDemo --snapshots &lt;dir&gt; [--face &lt;image&gt;]     every screen state as PNG (the UI deliverable)
 + *   LivenessScreenDemo --scenario PASS_ACTIVE [--workflow operator] the scripted engine, interactive
 + *   LivenessScreenDemo --live webcam|video:&lt;file.mjpeg&gt;          the real engine and models on a webcam or clip
++ *   LivenessScreenDemo --live webcam --identity enroll|verify     F15 identity binding on a test template
++ *   LivenessScreenDemo --identity delete                          deletes the test template
 + * </pre>
++ * {@code --identity enroll} turns a PASSED session's best frame into an ISO/IEC 19794-5 record (MOSIP's encoder, as
++ * an onboarded face) in {@value #DEFAULT_TEMPLATE} (or {@code --template}, or the JVM property {@value
++ * #TEMPLATE_PROPERTY} for a path with spaces; it must be under {@code eval-data/}: the
++ * folder is gitignored, so the face never leaves this computer). {@code --identity verify} runs the client's
++ * {@code IdentityBinding} on a PASSED session against it and prints the outcome and the similarity (the client never
++ * shows a score).
 + * It drives exactly the classes the client uses ({@link LivenessScreenModel}, {@link LivenessView}); only the
 + * Spring wiring of {@link LivenessGate} is replaced. It lives in the test sources, so it never ships in the client jar
 + * (it writes PNG files and can open a webcam); run it on the test classpath (docs/part4-desktop-integration.md §10).
 + */
 +public final class LivenessScreenDemo {
++
++	/** F15 diagnostics: the test template, a stand-in for an onboarded face, in the gitignored eval-data/. */
++	static final String DEFAULT_TEMPLATE = "eval-data/f15/test-template.iso";
++	/** The template path as a JVM property (Maven passes it whole, spaces included). */
++	static final String TEMPLATE_PROPERTY = "liveness.f15.template";
 +
 +	private LivenessScreenDemo() {
 +	}
@@ -3702,6 +4037,19 @@ new file mode 100644
 +		Map<String, String> a = new HashMap<>();
 +		for (int i = 0; i + 1 < args.length; i += 2) {
 +			a.put(args[i], args[i + 1]);
++		}
++		String identity = a.get("--identity");
++		if (identity != null && !Arrays.asList("enroll", "verify", "delete").contains(identity)) {
++			throw new IllegalArgumentException("--identity enroll|verify|delete");
++		}
++		File template = templateFile(a.getOrDefault("--template", System.getProperty(TEMPLATE_PROPERTY)));
++		if ("delete".equals(identity)) {
++			System.out.println(Files.deleteIfExists(template.toPath()) ? "F15 test template deleted: " + template
++					: "No F15 test template at " + template);
++			return;
++		}
++		if (identity != null && a.get("--live") == null) {
++			throw new IllegalArgumentException("--identity " + identity + " needs --live webcam|video:<file>");
 +		}
 +		CountDownLatch started = new CountDownLatch(1);
 +		Platform.startup(started::countDown);
@@ -3715,7 +4063,7 @@ new file mode 100644
 +		Platform.setImplicitExit(true);
 +		Platform.runLater(() -> {
 +			try {
-+				interactive(workflow, a.get("--scenario"), a.get("--live"));
++				interactive(workflow, a.get("--scenario"), a.get("--live"), identity, template);
 +			} catch (Exception e) {
 +				e.printStackTrace();
 +				Platform.exit();
@@ -3723,15 +4071,26 @@ new file mode 100644
 +		});
 +	}
 +
++	/** The test template's file; refused outside an eval-data folder, so a face can never land in a tracked path. */
++	static File templateFile(String path) throws IOException {
++		File f = new File(path == null ? DEFAULT_TEMPLATE : path);
++		if (!f.getCanonicalPath().replace('\\', '/').contains("/eval-data/")) {
++			throw new IllegalArgumentException("the F15 test template must be under eval-data/ (gitignored): " + f);
++		}
++		return f;
++	}
++
 +	// ------------------------------------------------------------------ interactive
 +
-+	private static void interactive(WorkflowType workflow, String scenario, String live) throws Exception {
++	private static void interactive(WorkflowType workflow, String scenario, String live, String identity,
++			File template) throws Exception {
 +		Map<String, String> cfg = new HashMap<>();
 +		ConfigProvider config = cfg::get;
 +		LivenessService service;
 +		FrameSource device;
++		OnnxFaceAnalyzerFactory analyzers = null;
 +		if (live != null) {
-+			OnnxFaceAnalyzerFactory analyzers = new OnnxFaceAnalyzerFactory();
++			analyzers = new OnnxFaceAnalyzerFactory();
 +			analyzers.preload();
 +			service = DefaultLivenessService.builder().config(config).analyzerFactory(analyzers)
 +					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
@@ -3771,6 +4130,7 @@ new file mode 100644
 +			System.exit(0);
 +		});
 +		stage.show();
++		final OnnxFaceAnalyzerFactory matchers = analyzers;
 +		session.start(source, new LivenessListener() {
 +			@Override
 +			public void onEvent(LivenessEvent e) {
@@ -3784,12 +4144,80 @@ new file mode 100644
 +			@Override
 +			public void onComplete(LivenessResult r) {
 +				System.out.println("RESULT " + r.decision + " " + (r.failureCode == null ? r.passPath : r.failureCode));
++				if (identity != null && r.passed()) {
++					identity(identity, template, matchers, workflow, r);
++				}
 +				Platform.runLater(() -> {
 +					model.onComplete(r);
 +					view.render(model);
 +				});
 +			}
 +		});
++	}
++
++	/** F15 on a PASSED session: enroll its best frame as the test template, or verify it against the template. */
++	private static void identity(String mode, File template, OnnxFaceAnalyzerFactory matchers, WorkflowType workflow,
++			LivenessResult passed) {
++		try {
++			if ("enroll".equals(mode)) {
++				ByteArrayOutputStream png = new ByteArrayOutputStream();
++				ImageIO.write(image(passed.bestFrame), "png", png);
++				ConvertRequestDto request = new ConvertRequestDto();
++				request.setVersion("ISO19794_5_2011");
++				request.setModality("Face");
++				request.setPurpose("REGISTRATION");
++				request.setImageType(0);
++				request.setInputBytes(png.toByteArray());
++				byte[] iso = FaceEncoder.convertFaceImageToISO(request);
++				Files.createDirectories(template.getAbsoluteFile().getParentFile().toPath());
++				Files.write(template.toPath(), iso);
++				System.out.println("F15 test template enrolled: " + template + " (" + iso.length
++						+ " bytes, gitignored; delete it with --identity delete)");
++				return;
++			}
++			final byte[] iso = template.isFile() ? Files.readAllBytes(template.toPath()) : null;
++			ApplicationContext.getInstance(); // DesktopLivenessConfig reads the (empty) application map first
++			IdentityBinding binding = new IdentityBinding(w -> true, new DesktopLivenessConfig(), null,
++					IdentityBinding.onnx(matchers::createMatcher),
++					userId -> iso == null ? Collections.<IdentityBinding.Template>emptyList()
++							: Collections.singletonList(new IdentityBinding.Template(iso, template.lastModified())),
++					new DesktopAuditSink(PRINTED_AUDIT, Runnable::run), false);
++			IdentityBinding.Verdict v = binding.verifyLive(workflow, "f15-test-user", IdentityBinding.GATE_DIAGNOSTICS, 1,
++					passed.sessionId, passed.bestFrame);
++			System.out.println(String.format(Locale.ROOT, "F15 identity check: %s, similarity %.3f (development only)", v,
++					v.similarity));
++		} catch (Exception e) {
++			System.out.println("F15 " + mode + " failed: " + e);
++		}
++	}
++
++	/** The audit records of the demo's identity check, printed (the client writes them to its audit table). */
++	private static final AuditManagerService PRINTED_AUDIT = new AuditManagerService() {
++		@Override
++		public void audit(AuditEvent e, Components c, String refId, String refIdType) {
++			audit(e, c, refId, refIdType, null);
++		}
++
++		@Override
++		public void audit(AuditEvent e, Components c, String refId, String refIdType, String description) {
++			System.out.println("AUDIT " + e.getId() + " " + e.getName() + " " + description);
++		}
++
++		@Override
++		public ResponseDTO deleteAuditLogs() {
++			return null;
++		}
++	};
++
++	private static BufferedImage image(Frame f) {
++		BufferedImage img = new BufferedImage(f.width(), f.height(), BufferedImage.TYPE_INT_RGB);
++		byte[] rgb = f.rgb();
++		for (int y = 0, i = 0; y < f.height(); y++) {
++			for (int x = 0; x < f.width(); x++, i += 3) {
++				img.setRGB(x, y, (rgb[i] & 0xff) << 16 | (rgb[i + 1] & 0xff) << 8 | (rgb[i + 2] & 0xff));
++			}
++		}
++		return img;
 +	}
 +
 +	// ------------------------------------------------------------------ snapshots
@@ -4407,7 +4835,7 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/audit/Aud
 diff --git a/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java b/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java
 --- a/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java
 +++ b/registration-services/src/main/java/io/mosip/registration/constants/AuditEvent.java
-@@ -312,7 +312,32 @@
+@@ -312,7 +312,34 @@ public enum AuditEvent {
  			"Demographic Details : A blocklisted word has been accepted in Registration"),
  	REG_BLOCKLISTED_WORD_REJECTED("REG-EVT-103", USER_EVENT.getCode(), "REG_BLOCKLISTED_WORD_REJECTED",
  			"Demographic Details : A blocklisted word has been rejected in Registration"),
@@ -4437,6 +4865,8 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/constants
 +			"Face liveness: anonymised operational metrics"),
 +	LIVENESS_MODEL_UPDATE("REG-LIV-012", SYSTEM_EVENT.getCode(), "LIVENESS_MODEL_UPDATE",
 +			"Face liveness: online model update checked"),
++	LIVENESS_IDENTITY_BINDING("REG-LIV-013", SYSTEM_EVENT.getCode(), "LIVENESS_IDENTITY_BINDING",
++			"Face liveness: live face compared with the user's onboarded face"),
 +
  	CLIENT_UPGRADE_JARS_DOWNLOADED("REG-UPG-001", USER_EVENT.getCode(), "CLIENT_UPGRADE_JARS_DOWNLOADED",
  			"Client Upgrade: Successfully downloaded all the upgrade jars"),
@@ -4849,11 +5279,12 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DesktopLivenessConfig.java
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,192 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.io.IOException;
 +import java.io.InputStream;
++import java.util.Locale;
 +import java.util.Map;
 +import java.util.Properties;
 +import java.util.TreeMap;
@@ -4894,6 +5325,13 @@ new file mode 100644
 +	public static final String SOURCE_KEY = PREFIX + "desktop.source";
 +
 +	public static final String BINDING_ENABLED_KEY = PREFIX + "binding.enabled";
++	/** F15: after a password-only liveness gate, the live face must be the user's onboarded face (default true). */
++	public static final String IDENTITY_ENABLED_KEY = PREFIX + "binding.identity.enabled";
++	/**
++	 * F15: true blocks a user who has no readable onboarded face on this machine; false (the default) lets them in
++	 * on presence alone, audited NOT_BOUND_NO_TEMPLATE or NOT_BOUND_UNREADABLE.
++	 */
++	public static final String IDENTITY_REQUIRE_TEMPLATE_KEY = PREFIX + "binding.identity.requireTemplate";
 +	public static final String SBI_FRAME_TIMEOUT_KEY = PREFIX + "desktop.sbi.frameTimeoutMs";
 +	public static final String SBI_FRAME_STRIDE_KEY = PREFIX + "desktop.sbi.frameStride";
 +	public static final String SBI_RECONNECTS_KEY = PREFIX + "desktop.sbi.maxReconnectAttempts";
@@ -4946,6 +5384,30 @@ new file mode 100644
 +	public boolean getBoolean(String key, boolean fallback) {
 +		String v = get(key);
 +		return v == null ? fallback : Boolean.parseBoolean(v);
++	}
++
++	/**
++	 * A switch where a typo must not flip it: true, yes, 1 or on is on; false, no, 0 or off is off (any case);
++	 * unset is {@code fallback}, and any other value is {@code fallback} with a warning.
++	 */
++	public boolean getSwitch(String key, boolean fallback) {
++		Boolean v = parseSwitch(get(key));
++		if (v == null && get(key) != null) {
++			LOGGER.warn("Ignoring invalid value for {} (true/false, yes/no, 1/0 or on/off): {}", key, get(key));
++		}
++		return v == null ? fallback : v;
++	}
++
++	/** true/yes/1/on, false/no/0/off (any case, trimmed), else null. */
++	static Boolean parseSwitch(String value) {
++		switch (value == null ? "" : value.trim().toLowerCase(Locale.ROOT)) {
++			case "true": case "yes": case "1": case "on":
++				return Boolean.TRUE;
++			case "false": case "no": case "0": case "off":
++				return Boolean.FALSE;
++			default:
++				return null;
++		}
 +	}
 +
 +	public long getLong(String key, long fallback) {
@@ -5014,7 +5476,7 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/DesktopLivenessService.java
-@@ -0,0 +1,614 @@
+@@ -0,0 +1,643 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.io.File;
@@ -5042,6 +5504,7 @@ new file mode 100644
 +import io.mosip.registration.constants.AuditEvent;
 +import io.mosip.registration.constants.RegistrationConstants;
 +import io.mosip.registration.context.SessionContext;
++import io.mosip.registration.dao.UserDetailDAO;
 +import io.mosip.registration.liveness.analyzer.AnalyzerConfig;
 +import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 +import io.mosip.registration.liveness.analyzer.integrity.BundleSource;
@@ -5082,7 +5545,8 @@ new file mode 100644
 + * <li><b>Config:</b> {@link DesktopLivenessConfig}, the synced global config. A change (after a config sync) is picked
 + * up before the next session; a running session keeps its policy.</li>
 + * <li><b>Audit:</b> {@link DesktopAuditSink}, the client's audit module.</li>
-+ * <li><b>Face binding:</b> {@link #binding()}.</li>
++ * <li><b>Face binding:</b> {@link #binding()}; identity binding (F15) after the password login's gate:
++ * {@link #identity()}.</li>
 + * <li><b>Online model update:</b> after each successful config sync ({@link ConfigSyncedEvent}), when enabled, a newer
 + * signed bundle is downloaded into the model store and new sessions use it ({@link #checkModelUpdateAsync}).</li>
 + * <li><b>Offline model install (F17):</b> supervisors and admins install a signed bundle zip from removable media, or
@@ -5106,6 +5570,9 @@ new file mode 100644
 +	@Autowired
 +	private BioService bioService;
 +
++	@Autowired
++	private UserDetailDAO userDetailDAO;
++
 +	private final DesktopLivenessConfig config;
 +	private final ExecutorService background = Executors.newSingleThreadExecutor(r -> {
 +		Thread t = new Thread(r, "liveness-background");
@@ -5121,6 +5588,8 @@ new file mode 100644
 +	private ModelStore modelStore;
 +	private LivenessService engine;
 +	private FaceBinding binding;
++	private IdentityBinding identity;
++	private IdentityBinding.TemplateSource identityTemplates;
 +	private String configFingerprint;
 +
 +	public DesktopLivenessService() {
@@ -5142,6 +5611,12 @@ new file mode 100644
 +
 +	public DesktopLivenessConfig config() {
 +		return config;
++	}
++
++	/** Tests: the users' onboarded faces (the client reads {@code reg.user_biometric}). Call before the first use. */
++	synchronized DesktopLivenessService withIdentityTemplates(IdentityBinding.TemplateSource templates) {
++		this.identityTemplates = templates;
++		return this;
 +	}
 +
 +	/** Tests: another bundled model source and its trusted keys (bundles signed with a throwaway key). */
@@ -5528,6 +6003,12 @@ new file mode 100644
 +		return binding;
 +	}
 +
++	/** Identity binding (F15): the live face against the user's onboarded face, after the password login's gate. */
++	public synchronized IdentityBinding identity() {
++		engine();
++		return identity;
++	}
++
 +	/**
 +	 * Called by the gate after every session: logs the anonymised metrics in diagnostic mode, and audits them every
 +	 * {@code desktop.metricsAuditEvery} sessions.
@@ -5599,6 +6080,10 @@ new file mode 100644
 +				throw new LivenessEngineException(io.mosip.registration.liveness.api.ErrorCode.ENGINE_ERROR,
 +						"scripted engine has no matcher");
 +			}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, true);
++			identity = new IdentityBinding(this::isEnabled, config, binding, (live, faces) -> {
++				throw new LivenessEngineException(io.mosip.registration.liveness.api.ErrorCode.ENGINE_ERROR,
++						"scripted engine has no matcher");
++			}, identityTemplates(), audit, true);
 +			return fake;
 +		}
 +		analyzers = new SwappableAnalyzerFactory(newAnalyzerFactory());
@@ -5609,7 +6094,13 @@ new file mode 100644
 +				return new FaceBinding.Comparison(m.outcome.name(), m.similarity, m.threshold);
 +			}
 +		}, new CapturedFaceDecoder(), audit, System::currentTimeMillis, false);
++		identity = new IdentityBinding(this::isEnabled, config, binding,
++				IdentityBinding.onnx(() -> matcherSource.current().createMatcher()), identityTemplates(), audit, false);
 +		return DefaultLivenessService.builder().config(config).analyzerFactory(analyzers).auditSink(audit).build();
++	}
++
++	private IdentityBinding.TemplateSource identityTemplates() {
++		return identityTemplates != null ? identityTemplates : IdentityBinding.fromUserBiometrics(userDetailDAO);
 +	}
 +
 +	private synchronized OnnxFaceAnalyzerFactory newAnalyzerFactory() {
@@ -5633,7 +6124,7 @@ diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/FaceBinding.java
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,238 @@
 +package io.mosip.registration.liveness.desktop;
 +
 +import java.util.LinkedHashMap;
@@ -5772,6 +6263,36 @@ new file mode 100644
 +		armed = null;
 +	}
 +
++	/** The armed live face for a check without an SBI capture: the frame, or why there is none. */
++	static final class Live {
++		final String sessionId;
++		final Frame frame;
++		/** Null, NOT_ARMED (none, or another workflow's), EXPIRED or NO_LIVE_FRAME. */
++		final String problem;
++
++		Live(String sessionId, Frame frame, String problem) {
++			this.sessionId = sessionId;
++			this.frame = frame;
++			this.problem = problem;
++		}
++	}
++
++	/**
++	 * F15: consumes the arming for identity binding ({@link IdentityBinding}), which has no SBI capture. Never null; a
++	 * missing, other-workflow or expired arming comes back as a problem.
++	 */
++	synchronized Live takeLive(WorkflowType workflow) {
++		Armed a = armed;
++		armed = null;
++		if (a == null || a.workflow != workflow) {
++			return new Live(a == null ? null : a.sessionId, null, "NOT_ARMED");
++		}
++		if (clock.getAsLong() > a.expiresAtMs) {
++			return new Live(a.sessionId, null, "EXPIRED");
++		}
++		return new Live(a.sessionId, a.bestFrame, a.bestFrame == null ? "NO_LIVE_FRAME" : null);
++	}
++
 +	/**
 +	 * Decides whether a face capture of {@code workflow} may be used. Consumes the arming in every case. Call it on a
 +	 * background thread: decoding and matching take about 100 ms.
@@ -5839,6 +6360,318 @@ new file mode 100644
 +		}
 +		details.put("accepted", String.valueOf(verdict.accepted()));
 +		audit.record(AuditEvent.LIVENESS_FACE_BINDING, workflow, sessionId, details);
++		return verdict;
++	}
++}
+diff --git a/registration-services/src/main/java/io/mosip/registration/liveness/desktop/IdentityBinding.java b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/IdentityBinding.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/main/java/io/mosip/registration/liveness/desktop/IdentityBinding.java
+@@ -0,0 +1,307 @@
++package io.mosip.registration.liveness.desktop;
++
++import java.time.ZoneOffset;
++import java.util.ArrayList;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++import java.util.concurrent.Callable;
++import java.util.function.LongSupplier;
++import java.util.function.Predicate;
++
++import io.mosip.kernel.biometrics.commons.CbeffValidator;
++import io.mosip.kernel.biometrics.entities.BIR;
++import io.mosip.kernel.core.logger.spi.Logger;
++import io.mosip.registration.config.AppConfig;
++import io.mosip.registration.constants.AuditEvent;
++import io.mosip.registration.dao.UserDetailDAO;
++import io.mosip.registration.entity.UserBiometric;
++import io.mosip.registration.liveness.analyzer.match.FaceMatcher;
++import io.mosip.registration.liveness.analyzer.match.IdentityResult;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.WorkflowType;
++
++/**
++ * Identity binding (F15): after a liveness gate that no face capture follows (the password login), the live face must
++ * be the user's own onboarded face.
++ *
++ * <p>F1 binds the live face to an SBI capture. A password login has no capture, so without this check liveness proves
++ * only that some live person is at the machine. {@link #verify} takes the PASSED session's best frame (held by
++ * {@link FaceBinding}) and compares it with the face templates the user onboarded on this machine ({@link
++ * #fromUserBiometrics}): each decoded as F1 decodes a capture, then {@code FaceMatcher.identify}, the best of several
++ * templates, with its own threshold ({@code mosip.registration.liveness.face.binding.identity.threshold}, provisional
++ * 0.40).
++ *
++ * <p>F15 is a second factor after the password: a false match lets in someone who has the password AND a similar face.
++ * <ul>
++ * <li>MATCH: accepted.</li>
++ * <li>NO_MATCH, NO_LIVE_FACE, NO_LIVE_FRAME, NOT_ARMED, EXPIRED, ERROR: rejected; {@link Verdict#retryable()} (one
++ * new liveness session, then the gate is blocked).</li>
++ * <li>NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE (no onboarded face on this machine, or none decodes to one face):
++ * accepted on presence alone, unless {@value DesktopLivenessConfig#IDENTITY_REQUIRE_TEMPLATE_KEY} is true.</li>
++ * </ul>
++ * Every decision is audited as LIVENESS_IDENTITY_BINDING (REG-LIV-013): codes, the similarity (2 decimals), the
++ * threshold, template counts and, when known, the newest template's age in days. Images and templates stay in memory;
++ * nothing is logged but that record.
++ */
++public class IdentityBinding {
++
++	private static final Logger LOGGER = AppConfig.getLogger(IdentityBinding.class);
++
++	/** The gate names used in the audit. */
++	public static final String GATE_PASSWORD_LOGIN = "password_login";
++	/** The development screen demo's check on a test template (never the client). */
++	public static final String GATE_DIAGNOSTICS = "diagnostics";
++
++	private static final long DAY_MS = 24L * 60 * 60 * 1000;
++
++	/** One onboarded face: its ISO/IEC 19794-5 record and when it was stored (epoch ms, null when unknown). */
++	public static final class Template {
++		final byte[] isoRecord;
++		final Long storedAtMs;
++
++		public Template(byte[] isoRecord, Long storedAtMs) {
++			this.isoRecord = isoRecord;
++			this.storedAtMs = storedAtMs;
++		}
++	}
++
++	/** The user's onboarded faces. An empty list: none on this machine. */
++	public interface TemplateSource {
++		List<Template> load(String userId) throws Exception;
++	}
++
++	/** Compares the live face with the decoded templates (a null entry is an undecodable template). */
++	public interface Identifier {
++		Identification identify(Frame live, List<Frame> templates) throws Exception;
++	}
++
++	/** What {@link Identifier} found; holds no image or feature. */
++	public static final class Identification {
++		final String outcome;
++		final double similarity;
++		final double threshold;
++		final int templates;
++		final int unreadable;
++
++		public Identification(String outcome, double similarity, double threshold, int templates, int unreadable) {
++			this.outcome = outcome;
++			this.similarity = similarity;
++			this.threshold = threshold;
++			this.templates = templates;
++			this.unreadable = unreadable;
++		}
++	}
++
++	/** The decision for one gate. */
++	public static final class Verdict {
++		public enum Kind {
++			/** Liveness is off for this workflow: the legacy flow, nothing to bind. */
++			LIVENESS_DISABLED,
++			/** Identity binding is switched off by config, or the scripted engine runs (audited SKIPPED). */
++			DISABLED,
++			MATCH,
++			/** No readable onboarded face, and templates are not required: accepted on presence alone. */
++			NOT_BOUND,
++			REJECTED
++		}
++
++		public final Kind kind;
++		/** Outcome for audit and logs: MATCH, NO_MATCH, NOT_BOUND_NO_TEMPLATE, NOT_BOUND_UNREADABLE, ERROR, ... */
++		public final String reason;
++		/** Only for the development screen demo, which shows it; the client never shows a score. */
++		public final double similarity;
++
++		Verdict(Kind kind, String reason, double similarity) {
++			this.kind = kind;
++			this.reason = reason;
++			this.similarity = similarity;
++		}
++
++		/** Whether the user may go on. */
++		public boolean accepted() {
++			return kind != Kind.REJECTED;
++		}
++
++		/** Whether one more liveness session may help: not when the user has no readable onboarded face. */
++		public boolean retryable() {
++			return kind == Kind.REJECTED && !reason.startsWith("NOT_BOUND");
++		}
++
++		@Override
++		public String toString() {
++			return kind + "(" + reason + ")";
++		}
++	}
++
++	private final Predicate<WorkflowType> livenessEnabled;
++	private final DesktopLivenessConfig config;
++	private final FaceBinding binding;
++	private final Identifier identifier;
++	private final TemplateSource templates;
++	private final CapturedFaceDecoder decoder;
++	private final DesktopAuditSink audit;
++	private final LongSupplier clock;
++	private final boolean scriptedEngine;
++
++	/**
++	 * The client builds one in {@link DesktopLivenessService}; the development screen demo builds one on a test template
++	 * (binding null: it passes the live face itself to {@link #verifyLive}).
++	 */
++	public IdentityBinding(Predicate<WorkflowType> livenessEnabled, DesktopLivenessConfig config, FaceBinding binding,
++			Identifier identifier, TemplateSource templates, DesktopAuditSink audit, boolean scriptedEngine) {
++		this(livenessEnabled, config, binding, identifier, templates, new CapturedFaceDecoder(), audit,
++				System::currentTimeMillis, scriptedEngine);
++	}
++
++	IdentityBinding(Predicate<WorkflowType> livenessEnabled, DesktopLivenessConfig config, FaceBinding binding,
++			Identifier identifier, TemplateSource templates, CapturedFaceDecoder decoder, DesktopAuditSink audit,
++			LongSupplier clock, boolean scriptedEngine) {
++		this.livenessEnabled = livenessEnabled;
++		this.config = config;
++		this.binding = binding;
++		this.identifier = identifier;
++		this.templates = templates;
++		this.decoder = decoder;
++		this.audit = audit;
++		this.clock = clock;
++		this.scriptedEngine = scriptedEngine;
++	}
++
++	/** The production identifier: a matcher on the current model bundle, closed after the call. */
++	public static Identifier onnx(Callable<FaceMatcher> matchers) {
++		return (live, faces) -> {
++			try (FaceMatcher matcher = matchers.call()) {
++				IdentityResult r = matcher.identify(live, faces);
++				return new Identification(r.outcome.name(), r.similarity, r.threshold, r.templates, r.unreadable);
++			}
++		};
++	}
++
++	/**
++	 * The client's templates: the user's active Face rows of {@code reg.user_biometric}, written by operator onboarding
++	 * on this machine. Each row's BDB comes from the CBEFF BIR in {@code bio_raw_image}, else from {@code bio_iso_image},
++	 * as {@code AuthenticationServiceImpl.authValidator} reads them. The age comes from the row's creation time (UTC).
++	 */
++	public static TemplateSource fromUserBiometrics(UserDetailDAO users) {
++		return userId -> {
++			List<Template> out = new ArrayList<>();
++			if (userId == null || users == null) {
++				return out;
++			}
++			List<UserBiometric> rows = users.getUserSpecificBioDetails(userId, "Face");
++			if (rows == null) {
++				return out;
++			}
++			for (UserBiometric row : rows) {
++				out.add(new Template(bdb(row), row.getCrDtime() == null ? null
++						: row.getCrDtime().toLocalDateTime().toInstant(ZoneOffset.UTC).toEpochMilli()));
++			}
++			return out;
++		};
++	}
++
++	static byte[] bdb(UserBiometric row) {
++		if (row.getBioRawImage() != null && row.getBioRawImage().length > 0) {
++			try {
++				BIR bir = CbeffValidator.getBIRFromXML(row.getBioRawImage());
++				if (bir != null && bir.getBirs() != null && !bir.getBirs().isEmpty()
++						&& bir.getBirs().get(0).getBdb() != null) {
++					return bir.getBirs().get(0).getBdb();
++				}
++			} catch (Exception e) {
++				// Rows stored before 1.2.0.1-B2 hold no BIR here; the ISO column has the BDB.
++			}
++		}
++		return row.getBioIsoImage();
++	}
++
++	/**
++	 * The check after a PASSED gate of {@code workflow} for {@code userId}: consumes the arming of {@link FaceBinding}.
++	 * Call it on a background thread: loading, decoding and matching take a few hundred ms.
++	 *
++	 * @param attempt 1 for the first liveness session of this gate, 2 for the retry (audited)
++	 */
++	public Verdict verify(WorkflowType workflow, String userId, String gate, int attempt) {
++		FaceBinding.Live live = binding.takeLive(workflow);
++		return check(workflow, userId, gate, attempt, live.sessionId, live.frame, live.problem);
++	}
++
++	/** The same check on a live face the caller holds (the development screen demo). */
++	public Verdict verifyLive(WorkflowType workflow, String userId, String gate, int attempt, String sessionId,
++			Frame live) {
++		return check(workflow, userId, gate, attempt, sessionId, live, live == null ? "NO_LIVE_FRAME" : null);
++	}
++
++	private Verdict check(WorkflowType workflow, String userId, String gate, int attempt, String sessionId, Frame live,
++			String problem) {
++		if (!livenessEnabled.test(workflow)) {
++			return new Verdict(Verdict.Kind.LIVENESS_DISABLED, "LIVENESS_DISABLED", Double.NaN);
++		}
++		Map<String, String> d = details(userId, gate, attempt);
++		// Only false/no/0/off switches F15 off: any other value keeps it on, with a warning.
++		if (!config.getSwitch(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, true)) {
++			return finish(workflow, sessionId, new Verdict(Verdict.Kind.DISABLED, "SKIPPED", Double.NaN), d);
++		}
++		if (problem != null) {
++			return finish(workflow, sessionId, new Verdict(Verdict.Kind.REJECTED, problem, Double.NaN), d);
++		}
++		if (scriptedEngine) {
++			// Development only (JVM property): its best frame is synthetic, there is no live face to compare.
++			return finish(workflow, sessionId,
++					new Verdict(Verdict.Kind.DISABLED, "SKIPPED_SCRIPTED_ENGINE", Double.NaN), d);
++		}
++		Identification id;
++		try {
++			List<Template> stored = templates.load(userId);
++			List<Frame> faces = new ArrayList<>();
++			Long newest = null;
++			for (Template t : stored) {
++				faces.add(decoder.decode(t.isoRecord));
++				if (t.storedAtMs != null && (newest == null || t.storedAtMs > newest)) {
++					newest = t.storedAtMs;
++				}
++			}
++			if (newest != null) {
++				d.put("templateAgeDays", String.valueOf(Math.max(0L, (clock.getAsLong() - newest) / DAY_MS)));
++			}
++			id = identifier.identify(live, faces);
++		} catch (Exception e) {
++			LOGGER.error("Identity binding failed: {}", e.getClass().getSimpleName());
++			return finish(workflow, sessionId, new Verdict(Verdict.Kind.REJECTED, "ERROR", Double.NaN), d);
++		}
++		d.put("similarity", Double.isNaN(id.similarity) ? "NaN" : String.format(Locale.ROOT, "%.2f", id.similarity));
++		d.put("threshold", String.format(Locale.ROOT, "%.2f", id.threshold));
++		d.put("templates", String.valueOf(id.templates));
++		d.put("unreadable", String.valueOf(id.unreadable));
++		Verdict.Kind kind;
++		if ("MATCH".equals(id.outcome)) {
++			kind = Verdict.Kind.MATCH;
++		} else if (id.outcome.startsWith("NOT_BOUND")) {
++			boolean required = config.getSwitch(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, false);
++			d.put("requireTemplate", String.valueOf(required));
++			kind = required ? Verdict.Kind.REJECTED : Verdict.Kind.NOT_BOUND;
++		} else {
++			kind = Verdict.Kind.REJECTED;
++		}
++		return finish(workflow, sessionId, new Verdict(kind, id.outcome, id.similarity), d);
++	}
++
++	private static Map<String, String> details(String userId, String gate, int attempt) {
++		Map<String, String> d = new LinkedHashMap<>();
++		d.put("gate", gate);
++		d.put("attempt", String.valueOf(attempt));
++		d.put("userId", userId == null ? "NA" : userId);
++		return d;
++	}
++
++	private Verdict finish(WorkflowType workflow, String sessionId, Verdict verdict, Map<String, String> d) {
++		Map<String, String> details = new LinkedHashMap<>();
++		details.put("outcome", verdict.reason);
++		details.putAll(d);
++		details.put("accepted", String.valueOf(verdict.accepted()));
++		audit.record(AuditEvent.LIVENESS_IDENTITY_BINDING, workflow, sessionId, details);
 +		return verdict;
 +	}
 +}
@@ -6049,7 +6882,7 @@ diff --git a/registration-services/src/main/resources/liveness-desktop-default.p
 new file mode 100644
 --- /dev/null
 +++ b/registration-services/src/main/resources/liveness-desktop-default.properties
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,46 @@
 +# Face liveness: Desktop defaults, used when the synced global config (the server's registration-default.properties)
 +# does not set a key. The policy keys (mosip.registration.liveness.face.<default|resident|operator|supervisor>.*)
 +# fall back to the engine's own liveness-default.properties; only Desktop-specific keys live here.
@@ -6057,6 +6890,13 @@ new file mode 100644
 +
 +# F1 face binding: the SBI face that is stored or matched must be the person who passed liveness.
 +mosip.registration.liveness.face.binding.enabled=true
++
++# F15 identity binding: after a password login's liveness check, the live face must be the user's face onboarded on
++# this machine (SFace cosine at or above the threshold, provisional). A user without a readable onboarded face gets in
++# on presence alone (audited NOT_BOUND_*), unless requireTemplate=true.
++mosip.registration.liveness.face.binding.identity.enabled=true
++mosip.registration.liveness.face.binding.identity.threshold=0.40
++mosip.registration.liveness.face.binding.identity.requireTemplate=false
 +
 +# SBI /stream frame source (Part 1 SbiStreamFrameSource)
 +mosip.registration.liveness.face.desktop.sbi.frameTimeoutMs=15000
@@ -7260,6 +8100,314 @@ new file mode 100644
 +		return new Frame(new byte[4 * 4 * 3], 4, 4, 0, 0, "test");
 +	}
 +}
+diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/IdentityBindingTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/IdentityBindingTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/IdentityBindingTest.java
+@@ -0,0 +1,303 @@
++package io.mosip.registration.liveness.desktop;
++
++import static org.junit.Assert.assertArrayEquals;
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNotEquals;
++import static org.junit.Assert.assertNull;
++import static org.junit.Assert.assertTrue;
++
++import java.sql.Timestamp;
++import java.time.LocalDateTime;
++import java.time.ZoneOffset;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.EnumSet;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Properties;
++import java.util.Set;
++
++import org.junit.Test;
++import org.mockito.Mockito;
++
++import io.mosip.registration.constants.AuditEvent;
++import io.mosip.registration.dao.UserDetailDAO;
++import io.mosip.registration.entity.UserBiometric;
++import io.mosip.registration.liveness.api.ChallengeType;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.LivenessResult;
++import io.mosip.registration.liveness.api.WorkflowType;
++
++public class IdentityBindingTest {
++
++	private static final long DAY = 24L * 60 * 60 * 1000;
++
++	private final Map<String, Object> synced = new HashMap<>();
++	private final DesktopLivenessConfig config = new DesktopLivenessConfig(() -> synced, new Properties());
++	private final RecordingAuditManager audit = new RecordingAuditManager();
++	private final Set<WorkflowType> enabled = EnumSet.allOf(WorkflowType.class);
++	private final Frame live = frame();
++	private Frame decoded = frame();
++	private String outcome = "MATCH";
++	private long now = 100 * DAY;
++	private List<IdentityBinding.Template> stored = new ArrayList<>(
++			Collections.singletonList(new IdentityBinding.Template(new byte[] { 1 }, 70 * DAY)));
++	private final List<List<Frame>> identified = new ArrayList<>();
++	private final List<String> loadedFor = new ArrayList<>();
++
++	private final CapturedFaceDecoder decoder = new CapturedFaceDecoder() {
++		@Override
++		Frame decode(byte[] iso) {
++			return decoded;
++		}
++	};
++
++	private final FaceBinding faceBinding = new FaceBinding(enabled::contains, config, (a, b) -> null, decoder,
++			new DesktopAuditSink(audit, Runnable::run), () -> now, false);
++
++	private IdentityBinding identity(boolean scripted) {
++		return new IdentityBinding(enabled::contains, config, faceBinding, (l, faces) -> {
++			identified.add(faces);
++			if ("THROW".equals(outcome)) {
++				throw new IllegalStateException("matcher closed");
++			}
++			double sim = "MATCH".equals(outcome) ? 0.6789 : outcome.startsWith("NOT_BOUND") ? Double.NaN : 0.1234;
++			return new IdentityBinding.Identification(outcome, sim, 0.40, faces.size(),
++					"NOT_BOUND_UNREADABLE".equals(outcome) ? faces.size() : 0);
++		}, userId -> {
++			loadedFor.add(userId);
++			return stored;
++		}, decoder, new DesktopAuditSink(audit, Runnable::run), () -> now, scripted);
++	}
++
++	private final IdentityBinding identity = identity(false);
++
++	@Test
++	public void theOnboardedUserMatchesOnceAndIsAudited() {
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		IdentityBinding.Verdict v = identity.verify(WorkflowType.OPERATOR, "op1", IdentityBinding.GATE_PASSWORD_LOGIN, 1);
++		assertEquals(IdentityBinding.Verdict.Kind.MATCH, v.kind);
++		assertTrue(v.accepted());
++		assertEquals(Collections.singletonList("op1"), loadedFor);
++		assertEquals(AuditEvent.LIVENESS_IDENTITY_BINDING, audit.last().event);
++		String d = audit.last().description;
++		assertTrue(d, d.contains("outcome=MATCH; similarity=0.68; threshold=0.40; attempt=1"));
++		assertTrue(d, d.contains("gate=password_login") && d.contains("templateAgeDays=30") && d.contains("templates=1")
++				&& d.contains("unreadable=0") && d.contains("userId=op1") && d.contains("accepted=true"));
++		assertFalse("no score with more decimals", d.contains("0.678"));
++		assertEquals("session-1", audit.last().refId);
++
++		IdentityBinding.Verdict again = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 2);
++		assertEquals("the arming is consumed", "NOT_ARMED", again.reason);
++		assertFalse(again.accepted());
++		assertTrue(again.retryable());
++	}
++
++	@Test
++	public void anotherPersonIsRejectedAndMayRetry() {
++		outcome = "NO_MATCH";
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		IdentityBinding.Verdict v = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertFalse(v.accepted());
++		assertTrue(v.retryable());
++		assertEquals("NO_MATCH", v.reason);
++		assertTrue(audit.last().description.contains("outcome=NO_MATCH; similarity=0.12"));
++		assertTrue(audit.last().description.contains("accepted=false"));
++	}
++
++	@Test
++	public void everyTemplateIsDecodedAndPassedOn() {
++		stored = Arrays.asList(new IdentityBinding.Template(new byte[] { 1 }, null),
++				new IdentityBinding.Template(new byte[] { 2 }, 99 * DAY), new IdentityBinding.Template(null, 10 * DAY));
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertEquals(3, identified.get(0).size());
++		assertTrue("the newest template's age", audit.last().description.contains("templateAgeDays=1"));
++	}
++
++	@Test
++	public void withoutAReadableTemplateTheUserGetsInOnPresenceUnlessTemplatesAreRequired() {
++		List<IdentityBinding.Template> one = stored;
++		for (String notBound : new String[] { "NOT_BOUND_NO_TEMPLATE", "NOT_BOUND_UNREADABLE" }) {
++			outcome = notBound;
++			boolean none = notBound.endsWith("NO_TEMPLATE");
++			stored = none ? Collections.<IdentityBinding.Template>emptyList() : one;
++			synced.remove(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			IdentityBinding.Verdict v = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++			assertEquals(IdentityBinding.Verdict.Kind.NOT_BOUND, v.kind);
++			assertTrue(v.accepted());
++			assertTrue(audit.last().description, audit.last().description.contains("outcome=" + notBound
++					+ "; similarity=NaN") && audit.last().description.contains("requireTemplate=false"));
++			assertEquals("an age only with a template", !none, audit.last().description.contains("templateAgeDays="));
++
++			synced.put(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, "true");
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			IdentityBinding.Verdict required = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++			assertFalse(required.accepted());
++			assertFalse("a new liveness session cannot help", required.retryable());
++			assertTrue(audit.last().description.contains("requireTemplate=true"));
++		}
++	}
++
++	/** Both F15 switches: true/yes/1/on and false/no/0/off in any case; anything else is the default (A4, task 20). */
++	@Test
++	public void bothSwitchesReadYesNoOneZeroOnOffAndKeepTheirDefaultOtherwise() {
++		outcome = "NOT_BOUND_NO_TEMPLATE";
++		stored = Collections.emptyList();
++		for (String on : new String[] { "true", "YES", "1", " on " }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, on);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertFalse(on, identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).accepted());
++		}
++		for (String off : new String[] { "false", "No", "0", "OFF", "required", "" }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_REQUIRE_TEMPLATE_KEY, off);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertTrue(off, identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).accepted());
++		}
++
++		outcome = "MATCH";
++		stored = Collections.singletonList(new IdentityBinding.Template(new byte[] { 1 }, 70 * DAY));
++		for (String off : new String[] { "false", "NO", "0", "off" }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, off);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertEquals(off, IdentityBinding.Verdict.Kind.DISABLED,
++					identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).kind);
++		}
++		for (String on : new String[] { "true", "Yes", "1", "on", "disabled" }) {
++			synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, on);
++			faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++			assertEquals(on, IdentityBinding.Verdict.Kind.MATCH,
++					identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).kind);
++		}
++		assertNull(DesktopLivenessConfig.parseSwitch("disabled"));
++		assertNull(DesktopLivenessConfig.parseSwitch(null));
++	}
++
++	@Test
++	public void everyOtherFailureFailsClosed() {
++		identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertTrue("never armed", audit.last().description.contains("outcome=NOT_ARMED"));
++
++		faceBinding.arm(WorkflowType.SUPERVISOR, passed(live));
++		assertEquals("armed for another workflow", "NOT_ARMED",
++				identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).reason);
++
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		now += FaceBinding.ARM_TTL_MS + 1;
++		assertEquals("EXPIRED", identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).reason);
++
++		faceBinding.arm(WorkflowType.OPERATOR, passed(null));
++		assertEquals("NO_LIVE_FRAME", identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).reason);
++
++		outcome = "THROW";
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		IdentityBinding.Verdict error = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 2);
++		assertEquals("ERROR", error.reason);
++		assertTrue(error.retryable());
++		assertTrue(audit.last().description.contains("attempt=2"));
++
++		outcome = "NO_LIVE_FACE";
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		assertFalse(identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).accepted());
++
++		IdentityBinding broken = new IdentityBinding(enabled::contains, config, faceBinding, (l, f) -> null, userId -> {
++			throw new IllegalStateException("database closed");
++		}, decoder, new DesktopAuditSink(audit, Runnable::run), () -> now, false);
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		assertEquals("ERROR", broken.verify(WorkflowType.OPERATOR, "op1", "password_login", 1).reason);
++	}
++
++	@Test
++	public void livenessOffKeepsTheLegacyFlowAndSwitchedOffIsAudited() {
++		enabled.remove(WorkflowType.OPERATOR);
++		IdentityBinding.Verdict legacy = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertEquals(IdentityBinding.Verdict.Kind.LIVENESS_DISABLED, legacy.kind);
++		assertTrue(legacy.accepted());
++		assertTrue("nothing to audit", audit.calls.isEmpty());
++
++		enabled.add(WorkflowType.OPERATOR);
++		synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, "false");
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		IdentityBinding.Verdict off = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertEquals(IdentityBinding.Verdict.Kind.DISABLED, off.kind);
++		assertTrue(off.accepted());
++		assertTrue(audit.last().description.contains("outcome=SKIPPED"));
++		assertTrue("no template read", loadedFor.isEmpty());
++
++		// A malformed value is not "off": F15 still checks the face.
++		synced.put(DesktopLivenessConfig.IDENTITY_ENABLED_KEY, "yes");
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		IdentityBinding.Verdict typo = identity.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertNotEquals(IdentityBinding.Verdict.Kind.DISABLED, typo.kind);
++		assertEquals("the onboarded faces were read", Arrays.asList("op1"), loadedFor);
++	}
++
++	@Test
++	public void onlyTheScriptedEngineSkipsTheComparison() {
++		IdentityBinding dev = identity(true);
++		faceBinding.arm(WorkflowType.OPERATOR, passed(live));
++		IdentityBinding.Verdict v = dev.verify(WorkflowType.OPERATOR, "op1", "password_login", 1);
++		assertTrue(v.accepted());
++		assertEquals("SKIPPED_SCRIPTED_ENGINE", v.reason);
++		assertTrue(identified.isEmpty());
++	}
++
++	@Test
++	public void theDemoPassesItsOwnLiveFace() {
++		IdentityBinding.Verdict v = identity.verifyLive(WorkflowType.OPERATOR, "test-user",
++				IdentityBinding.GATE_DIAGNOSTICS, 1, "demo-1", live);
++		assertEquals(IdentityBinding.Verdict.Kind.MATCH, v.kind);
++		assertEquals(0.6789, v.similarity, 1e-9);
++		assertTrue(audit.last().description.contains("gate=diagnostics"));
++		assertEquals("NO_LIVE_FRAME",
++				identity.verifyLive(WorkflowType.OPERATOR, "test-user", "diagnostics", 1, "demo-2", null).reason);
++	}
++
++	@Test
++	public void theClientReadsTheBirFromTheRowElseTheIsoColumn() throws Exception {
++		UserDetailDAO dao = Mockito.mock(UserDetailDAO.class);
++		UserBiometric legacy = new UserBiometric();
++		legacy.setBioRawImage(null);
++		legacy.setBioIsoImage(new byte[] { 7, 7 });
++		UserBiometric garbled = new UserBiometric();
++		garbled.setBioRawImage("<not a BIR".getBytes("UTF-8"));
++		garbled.setBioIsoImage(new byte[] { 8 });
++		Mockito.when(dao.getUserSpecificBioDetails("op1", "Face")).thenReturn(Arrays.asList(legacy, garbled));
++		List<IdentityBinding.Template> t = IdentityBinding.fromUserBiometrics(dao).load("op1");
++		assertEquals(2, t.size());
++		assertArrayEquals(new byte[] { 7, 7 }, t.get(0).isoRecord);
++		assertArrayEquals("an unreadable BIR falls back to the ISO column", new byte[] { 8 }, t.get(1).isoRecord);
++		assertNull("no creation time set", t.get(0).storedAtMs);
++		assertTrue(IdentityBinding.fromUserBiometrics(dao).load("nobody").isEmpty());
++		assertTrue(IdentityBinding.fromUserBiometrics(null).load("op1").isEmpty());
++	}
++
++	@Test
++	public void theTemplateAgeComesFromTheUtcCreationTime() throws Exception {
++		UserDetailDAO dao = Mockito.mock(UserDetailDAO.class);
++		UserBiometric row = new UserBiometric();
++		row.setBioIsoImage(new byte[] { 1 });
++		// The client stores crDtime as the UTC wall-clock time (DateUtils.getUTCCurrentDateTime()).
++		LocalDateTime utc = LocalDateTime.of(2026, 9, 27, 10, 0);
++		Timestamp ts = Timestamp.valueOf(utc);
++		java.lang.reflect.Field f = io.mosip.registration.entity.RegistrationCommonFields.class.getDeclaredField("crDtime");
++		f.setAccessible(true);
++		f.set(row, ts);
++		Mockito.when(dao.getUserSpecificBioDetails("op1", "Face")).thenReturn(Collections.singletonList(row));
++		assertEquals(Long.valueOf(utc.toInstant(ZoneOffset.UTC).toEpochMilli()),
++				IdentityBinding.fromUserBiometrics(dao).load("op1").get(0).storedAtMs);
++	}
++
++	private static LivenessResult passed(Frame best) {
++		return new LivenessResult(LivenessResult.Decision.PASSED, LivenessResult.PassPath.PASSIVE_ONLY, null, best,
++				0.93f, Collections.<ChallengeType>emptyList(), 1, 1500, "session-1", "pad-2026.10.5");
++	}
++
++	private static Frame frame() {
++		return new Frame(new byte[4 * 4 * 3], 4, 4, 0, 0, "test");
++	}
++}
 diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RealFaceBindingTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RealFaceBindingTest.java
 new file mode 100644
 --- /dev/null
@@ -7351,6 +8499,121 @@ new file mode 100644
 +	private static LivenessResult passed(Frame best) {
 +		return new LivenessResult(LivenessResult.Decision.PASSED, LivenessResult.PassPath.PASSIVE_ONLY, null, best,
 +				0.95f, Collections.<ChallengeType>emptyList(), 1, 1200, "real-1", "pad-2026.10.5");
++	}
++}
+diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RealIdentityBindingTest.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RealIdentityBindingTest.java
+new file mode 100644
+--- /dev/null
++++ b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RealIdentityBindingTest.java
+@@ -0,0 +1,110 @@
++package io.mosip.registration.liveness.desktop;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assume.assumeTrue;
++
++import java.awt.image.BufferedImage;
++import java.io.ByteArrayOutputStream;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.List;
++
++import javax.imageio.ImageIO;
++
++import org.junit.Test;
++
++import io.mosip.biometrics.util.ConvertRequestDto;
++import io.mosip.biometrics.util.face.FaceEncoder;
++import io.mosip.registration.constants.AuditEvent;
++import io.mosip.registration.liveness.api.ChallengeType;
++import io.mosip.registration.liveness.api.Frame;
++import io.mosip.registration.liveness.api.LivenessResult;
++import io.mosip.registration.liveness.api.WorkflowType;
++
++/**
++ * Identity binding (F15) with real data: onboarded faces as ISO/IEC 19794-5 records made by MOSIP's own encoder,
++ * decoded by {@link CapturedFaceDecoder} and compared by the signed SFace model through the client's service. Uses
++ * Part 2's public-domain fixtures (NASA portraits, see liveness-analyzer/src/test/resources/golden/README.md).
++ */
++public class RealIdentityBindingTest {
++
++	private static final Path GOLDEN = Paths.get("..", "liveness-analyzer", "src", "test", "resources", "golden");
++
++	private final RecordingAuditManager audit = new RecordingAuditManager();
++	private final List<IdentityBinding.Template> onboarded = new ArrayList<>();
++	private final DesktopLivenessService service = new DesktopLivenessService(
++			new DesktopLivenessConfig(HashMap::new, DesktopLivenessConfig.loadDefaults()), audit, null, null)
++			.withIdentityTemplates(userId -> onboarded);
++
++	@Test(timeout = 120_000)
++	public void theOnboardedPersonMatchesAndOthersDoNot() throws Exception {
++		Path portrait = GOLDEN.resolve("portrait_frontal.png");
++		Path crew = GOLDEN.resolve("crew_multi.png");
++		assumeTrue("Part 2 fixtures not next to this module", Files.isRegularFile(portrait) && Files.isRegularFile(crew));
++		BufferedImage crewImage = ImageIO.read(crew.toFile());
++		byte[] someoneElse = iso(png(crewImage.getSubimage(160, 90, 150, 200)));
++		Frame live = CapturedFaceDecoder.toFrame(ImageIO.read(portrait.toFile()));
++
++		onboarded.add(new IdentityBinding.Template(iso(Files.readAllBytes(portrait)), null));
++		assertEquals(IdentityBinding.Verdict.Kind.MATCH, verify(live).kind);
++		audit.await(AuditEvent.LIVENESS_IDENTITY_BINDING, "threshold=0.40");
++
++		onboarded.clear();
++		onboarded.add(new IdentityBinding.Template(someoneElse, null));
++		IdentityBinding.Verdict other = verify(live);
++		assertEquals(other.toString(), "NO_MATCH", other.reason);
++		assertTrue(other.retryable());
++
++		// Several templates: the best one decides; a group photo and garbage are unreadable.
++		onboarded.add(new IdentityBinding.Template(iso(Files.readAllBytes(crew)), null));
++		onboarded.add(new IdentityBinding.Template(new byte[] { 1, 2, 3 }, null));
++		assertEquals("NO_MATCH", verify(live).reason);
++		audit.await(AuditEvent.LIVENESS_IDENTITY_BINDING, "templates=3; unreadable=2");
++		onboarded.add(new IdentityBinding.Template(iso(Files.readAllBytes(portrait)), null));
++		assertEquals(IdentityBinding.Verdict.Kind.MATCH, verify(live).kind);
++
++		onboarded.clear();
++		onboarded.addAll(Arrays.asList(new IdentityBinding.Template(iso(Files.readAllBytes(crew)), null),
++				new IdentityBinding.Template(new byte[] { 9 }, null)));
++		IdentityBinding.Verdict unreadable = verify(live);
++		assertEquals("NOT_BOUND_UNREADABLE", unreadable.reason);
++		assertTrue("presence only by default", unreadable.accepted());
++
++		onboarded.clear();
++		IdentityBinding.Verdict none = verify(live);
++		assertEquals("NOT_BOUND_NO_TEMPLATE", none.reason);
++		assertTrue(none.accepted());
++		assertFalse(audit.await(AuditEvent.LIVENESS_IDENTITY_BINDING, "outcome=NOT_BOUND_NO_TEMPLATE")
++				.contains("templateAgeDays"));
++	}
++
++	private IdentityBinding.Verdict verify(Frame live) {
++		service.binding().arm(WorkflowType.OPERATOR, new LivenessResult(LivenessResult.Decision.PASSED,
++				LivenessResult.PassPath.PASSIVE_ONLY, null, live, 0.95f, Collections.<ChallengeType>emptyList(), 1, 1200,
++				"real-1", "pad-2026.10.5"));
++		return service.identity().verify(WorkflowType.OPERATOR, "op1", IdentityBinding.GATE_PASSWORD_LOGIN, 1);
++	}
++
++	private static byte[] png(BufferedImage img) throws Exception {
++		ByteArrayOutputStream out = new ByteArrayOutputStream();
++		ImageIO.write(img, "png", out);
++		return out.toByteArray();
++	}
++
++	private static byte[] iso(byte[] image) throws Exception {
++		ConvertRequestDto request = new ConvertRequestDto();
++		request.setVersion("ISO19794_5_2011");
++		request.setModality("Face");
++		request.setPurpose("REGISTRATION");
++		request.setImageType(0);
++		request.setInputBytes(image);
++		return FaceEncoder.convertFaceImageToISO(request);
 +	}
 +}
 diff --git a/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RecordingAuditManager.java b/registration-services/src/test/java/io/mosip/registration/liveness/desktop/RecordingAuditManager.java
