@@ -1,7 +1,7 @@
 From 248181c46c097f50c3b826bcc4e013a868cc422e Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 22:38:36 +0530
-Subject: [PATCH 64/65] Kannada: the model texts' review note says "no changes"
+Subject: [PATCH 64/68] Kannada: the model texts' review note says "no changes"
  (task 29)
 
 L1: app_kn.arb's @@x-liveness-model-translation said "corrected", but the Kannada review changed no model text

@@ -1,7 +1,7 @@
 From 21a46b28d1995b95df018392eb1f6f5c169a9897 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 22:43:14 +0530
-Subject: [PATCH 65/65] The rotation test runs the real bind and checks the
+Subject: [PATCH 65/68] The rotation test runs the real bind and checks the
  Activity's own display: sync CameraXFrameSource (F19, task 29)
 
 Two F19 test gaps, each shown by a mutation that left all 6 tests green:

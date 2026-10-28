@@ -1,0 +1,45 @@
+From a374d787e1ab454595e2eb523e2c3dde6dac6410 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 23:12:17 +0530
+Subject: [PATCH 66/68] Arabic: a left-to-right mark keeps "(.zip)" in order in
+ the model file text (task 30)
+
+L3: drawn right to left, "(.zip)" after Arabic text resolves its period right to left (java.text.Bidi: level 1, with
+the brackets) and shows "(zip.)". A U+200E before the period gives it zip's level (2). The mark is invisible: the
+reviewer's words do not change. liveness_model_select_file is not used on Android today (the Desktop file chooser
+uses its text); it is kept the same as the Desktop's (Mosip26, messages_ar.properties).
+
+model_bundle_test: the Arabic text has the mark before ".zip".
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ assets/l10n/app_ar.arb               | 2 +-
+ test/liveness/model_bundle_test.dart | 3 +++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/assets/l10n/app_ar.arb b/assets/l10n/app_ar.arb
+index ad2c559..f299ec1 100644
+--- a/assets/l10n/app_ar.arb
++++ b/assets/l10n/app_ar.arb
+@@ -420,7 +420,7 @@
+   "liveness_model_current": "النماذج المستخدمة: {version}",
+   "liveness_model_install": "تثبيت حزمة النماذج",
+   "liveness_model_rollback": "استعادة حزمة النماذج السابقة",
+-  "liveness_model_select_file": "اختيار حزمة نماذج (.zip)",
++  "liveness_model_select_file": "اختيار حزمة نماذج (‎.zip)",
+   "liveness_model_working": "جارٍ معالجة حزمة النماذج… يرجى الانتظار.",
+   "liveness_model_installed": "تم تثبيت حزمة النماذج {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
+   "liveness_model_rolled_back": "تمت استعادة النماذج إلى الإصدار {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
+diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
+index 449871b..5fa1313 100644
+--- a/test/liveness/model_bundle_test.dart
++++ b/test/liveness/model_bundle_test.dart
+@@ -183,5 +183,8 @@ void main() {
+       }
+       expect(a['@@x-liveness-model-translation'], review[lang]);
+     }
++    // Drawn right to left, "(.zip)" after Arabic text showed "(zip.)": a left-to-right mark (invisible) before the
++    // period keeps it with "zip", as on the Desktop (task 30).
++    expect(arb('ar')['liveness_model_select_file'] as String, contains('(‎.zip)'));
+   });
+ }

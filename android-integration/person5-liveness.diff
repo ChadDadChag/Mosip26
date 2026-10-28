@@ -1873,16 +1873,16 @@ index 0000000..686d49a
 +-keep class ai.onnxruntime.** { *; }
 diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
 new file mode 100644
-index 0000000..7f31c49
+index 0000000..1034ce1
 --- /dev/null
 +++ b/android/liveness/engine-sync.txt
 @@ -0,0 +1,14 @@
 +# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
-+engine commit c0e8f6a
-+libs/liveness-api-1.2.0.2.jar 8afcd23e6b2835629216d5d7ee02e627f4e94b04e9714bf1e8c643a6ee67af8b
-+libs/liveness-core-1.2.0.2.jar 542ac4ab9cfad3f990fcbba83ed42672f6d7ded8aa23dd2739bb20738c3a1672
-+libs/liveness-fake-1.2.0.2.jar 7a60dba0fb88d1c2afc8cb903083140cb64eef50a89936c56bcc081551068ca8
-+libs/liveness-analyzer-1.2.0.2.jar c9937eab042bee8adf020a27c98ca515b6f4c50ae93a881ced4b8069d086fa14
++engine commit 5777716
++libs/liveness-api-1.2.0.2.jar b0ab1892d90577d8f40f57a8fe0080ff06e3951b8b7a9d5e52a11356d3f21c36
++libs/liveness-core-1.2.0.2.jar 4e5c0cca253f06eddacaaadefad30955df9ad0d67cac3c43bf39ba54e3a050f3
++libs/liveness-fake-1.2.0.2.jar 2c3bd7c51628d73e16dc577f548a14d2964e45ed9e5a99f5943954cd65f20d9c
++libs/liveness-analyzer-1.2.0.2.jar 5e5cf201f3d2434928a3981a73ee2d2db5092d1d03c8bcb0d388c7a7de307056
 +assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
 +assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
 +assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0
@@ -55170,7 +55170,7 @@ index 0000000..f241a9d
 +FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 +OTHER DEALINGS IN THE FONT SOFTWARE.
 diff --git a/assets/l10n/app_ar.arb b/assets/l10n/app_ar.arb
-index c3b216a..ad2c559 100644
+index c3b216a..f299ec1 100644
 --- a/assets/l10n/app_ar.arb
 +++ b/assets/l10n/app_ar.arb
 @@ -368,6 +368,67 @@
@@ -55230,7 +55230,7 @@ index c3b216a..ad2c559 100644
 +  "liveness_model_current": "النماذج المستخدمة: {version}",
 +  "liveness_model_install": "تثبيت حزمة النماذج",
 +  "liveness_model_rollback": "استعادة حزمة النماذج السابقة",
-+  "liveness_model_select_file": "اختيار حزمة نماذج (.zip)",
++  "liveness_model_select_file": "اختيار حزمة نماذج (‎.zip)",
 +  "liveness_model_working": "جارٍ معالجة حزمة النماذج… يرجى الانتظار.",
 +  "liveness_model_installed": "تم تثبيت حزمة النماذج {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
 +  "liveness_model_rolled_back": "تمت استعادة النماذج إلى الإصدار {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
@@ -56014,6 +56014,23 @@ index 0000000..f41772b
 +
 +  factory ModelBundleService() => getModelBundleServiceImpl();
 +}
+diff --git a/lib/ui/approve_packet/approve_packet_ui.dart b/lib/ui/approve_packet/approve_packet_ui.dart
+index ea394cb..baa1f1d 100644
+--- a/lib/ui/approve_packet/approve_packet_ui.dart
++++ b/lib/ui/approve_packet/approve_packet_ui.dart
+@@ -112,7 +112,11 @@ class _ApprovePacketsPageState extends State<ApprovePacketsPage> {
+             ),
+           ),
+         ),
+-        title: Text(AppLocalizations.of(context)!.pending_approval),
++        // One line: a title too wide for a 360 dp phone (French, or a 1.3 text scale) shrinks instead of ending in "…".
++        title: FittedBox(
++          fit: BoxFit.scaleDown,
++          child: Text(AppLocalizations.of(context)!.pending_approval),
++        ),
+       ),
+       backgroundColor: backgroundColor,
+       body: Padding(
 diff --git a/lib/ui/approve_packet/widget/authenticate_dialogbox.dart b/lib/ui/approve_packet/widget/authenticate_dialogbox.dart
 index 94425ad..7e3fc6f 100644
 --- a/lib/ui/approve_packet/widget/authenticate_dialogbox.dart
@@ -56053,6 +56070,40 @@ index 94425ad..7e3fc6f 100644
        try {
          await context.read<ApprovePacketsProvider>().submitSelected();
          Navigator.of(context).pop();
+diff --git a/lib/ui/dashboard/user_dashboard.dart b/lib/ui/dashboard/user_dashboard.dart
+index a8f322c..2c22420 100644
+--- a/lib/ui/dashboard/user_dashboard.dart
++++ b/lib/ui/dashboard/user_dashboard.dart
+@@ -542,13 +542,13 @@ class _UserDashBoardState extends State<UserDashBoard> {
+             color: dashBoardPacketUploadPendingColor,
+           ),
+           Expanded(
++            // Wraps: cut to one line, "Active - Not Onboarded" lost its point on a 360 dp phone ("Active - Not On…").
+             child: Text(
+               " ${appLocalizations.active_not_onboarded}",
+               style: TextStyle(
+                   fontSize: isMobileSize ? 10 : 16,
+                   color: appBlackShade2,
+                   fontWeight: FontWeight.w500),
+-              overflow: TextOverflow.ellipsis,
+             ),
+           ),
+         ],
+@@ -563,13 +563,13 @@ class _UserDashBoardState extends State<UserDashBoard> {
+             color: appBlackShade3,
+           ),
+           Expanded(
++            // Wraps, as the status above.
+             child: Text(
+               " ${appLocalizations.user_inactive}",
+               style: TextStyle(
+                   fontSize: isMobileSize ? 10 : 16,
+                   color: appBlackShade2,
+                   fontWeight: FontWeight.w500),
+-              overflow: TextOverflow.ellipsis,
+             ),
+           ),
+         ],
 diff --git a/lib/ui/liveness/face_binding.dart b/lib/ui/liveness/face_binding.dart
 new file mode 100644
 index 0000000..7cdb702
@@ -60656,6 +60707,46 @@ index ec27eb7..fce0518 100644
  
      return MobileHomePage(
        operationalTasks: operationalTasks,
+diff --git a/lib/ui/onboard/widgets/bottom_navbar_widget.dart b/lib/ui/onboard/widgets/bottom_navbar_widget.dart
+index 6821e3a..43f37d0 100644
+--- a/lib/ui/onboard/widgets/bottom_navbar_widget.dart
++++ b/lib/ui/onboard/widgets/bottom_navbar_widget.dart
+@@ -29,7 +29,9 @@ class BottomNavBarWidget extends StatelessWidget {
+   @override
+   Widget build(BuildContext context) {
+     return Container(
+-      padding: const EdgeInsets.all(14),
++      // On a 360 dp phone each of the four items is 90 dp wide: with 14 dp on each side, "Tableau de bord" (French)
++      // and "Dashboard" at a 1.3 text scale were cut to "…". 4 dp leaves the label 82 dp.
++      padding: EdgeInsets.symmetric(horizontal: isMobileSize ? 4 : 14, vertical: 14),
+       decoration: BoxDecoration(
+         color: selectedIndex == index ? bottomBarSelectedColor : Colors.white,
+         borderRadius: BorderRadius.circular(10),
+@@ -39,12 +41,18 @@ class BottomNavBarWidget extends StatelessWidget {
+         children: [
+           selectedIndex == index ? SvgPicture.asset(selectedImagePath) : SvgPicture.asset(imagePath),
+           const SizedBox(height: 5),
+-          Text(
+-            title,
+-            style: TextStyle(
+-              fontSize: isMobileSize ? 10 : 18,
+-              fontWeight: semiBold,
+-              color: selectedIndex == index ? solidPrimary : secondaryColors.elementAt(5),
++          // One line; a label still too wide (French at a 1.3 text scale) shrinks to fit instead of being cut.
++          FittedBox(
++            fit: BoxFit.scaleDown,
++            child: Text(
++              title,
++              maxLines: 1,
++              softWrap: false,
++              style: TextStyle(
++                fontSize: isMobileSize ? 10 : 18,
++                fontWeight: semiBold,
++                color: selectedIndex == index ? solidPrimary : secondaryColors.elementAt(5),
++              ),
+             ),
+           ),
+         ],
 diff --git a/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart b/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
 index d74d2af..373a05d 100644
 --- a/lib/ui/onboard/widgets/operator_biometric_capture_scan_block_view.dart
@@ -64196,10 +64287,10 @@ index 0000000..62dcff9
 +    );
 diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
 new file mode 100644
-index 0000000..449871b
+index 0000000..5fa1313
 --- /dev/null
 +++ b/test/liveness/model_bundle_test.dart
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,190 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -64385,6 +64476,328 @@ index 0000000..449871b
 +      }
 +      expect(a['@@x-liveness-model-translation'], review[lang]);
 +    }
++    // Drawn right to left, "(.zip)" after Arabic text showed "(zip.)": a left-to-right mark (invisible) before the
++    // period keeps it with "zip", as on the Desktop (task 30).
++    expect(arb('ar')['liveness_model_select_file'] as String, contains('(‎.zip)'));
++  });
++}
+diff --git a/test/liveness/mosip_screens_layout_test.dart b/test/liveness/mosip_screens_layout_test.dart
+new file mode 100644
+index 0000000..b770c3e
+--- /dev/null
++++ b/test/liveness/mosip_screens_layout_test.dart
+@@ -0,0 +1,313 @@
++import 'package:flutter/material.dart';
++import 'package:flutter/rendering.dart';
++import 'package:flutter_gen/gen_l10n/app_localizations.dart';
++import 'package:flutter_screenutil/flutter_screenutil.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:geolocator/geolocator.dart';
++import 'package:provider/provider.dart';
++import 'package:registration_client/pigeon/dash_board_pigeon.dart';
++import 'package:registration_client/pigeon/dynamic_response_pigeon.dart';
++import 'package:registration_client/provider/approve_packets_provider.dart';
++import 'package:registration_client/provider/auth_provider.dart';
++import 'package:registration_client/provider/connectivity_provider.dart';
++import 'package:registration_client/provider/global_provider.dart';
++import 'package:registration_client/provider/registration_task_provider.dart';
++import 'package:registration_client/provider/sync_provider.dart';
++import 'package:registration_client/ui/approve_packet/approve_packet_ui.dart';
++import 'package:registration_client/ui/login_page.dart';
++import 'package:registration_client/ui/onboard/home_page.dart';
++import 'package:registration_client/ui/onboard/onboarding_page.dart';
++import 'package:registration_client/utils/app_fonts.dart';
++
++import 'liveness_test_fonts.dart';
++
++/// MOSIP's own screens with the app-wide Noto Sans (task 21) at 360x740 dp, at text scales 1.0 and 1.3, in English,
++/// French and Hindi: no overflow and no text cut off at its line limit (task 30). There is no backend: the providers'
++/// start-up loads are switched off here, and the screens get the state a synced client would show.
++
++/// GlobalProvider without the start-up loads (no backend); the languages are set as after a sync.
++class _QuietGlobalProvider extends GlobalProvider {
++  _QuietGlobalProvider() {
++    setLanguages(['eng', 'ara', 'fra', 'hin', 'kan', 'tam']);
++    setCodeToLanguageMapper({
++      'eng': 'English',
++      'ara': 'العربية',
++      'fra': 'Français',
++      'hin': 'हिंदी',
++      'kan': 'ಕನ್ನಡ',
++      'tam': 'தமிழ்',
++    });
++  }
++
++  @override
++  setMachineDetails() async {}
++
++  @override
++  initializeLanguageDataList(bool isManualSync) async {}
++
++  @override
++  initializeLocationHierarchyMap() async {}
++
++  @override
++  setGitHeadAttributes() async {}
++
++  @override
++  getAudit(String id, String componentId, [dynamic arguments]) async {}
++
++  @override
++  getRegCenterName(String regCenterId, String langCode) async {}
++
++  @override
++  Future<Position?> fetchLocation() async => null;
++}
++
++class _QuietAuthProvider extends AuthProvider {
++  @override
++  getPasswordLength() async {}
++}
++
++class _QuietTaskProvider extends RegistrationTaskProvider {
++  @override
++  getListOfProcesses() async {}
++
++  @override
++  getListOfSettings() async {}
++
++  @override
++  getLastUpdatedTime() async {}
++
++  @override
++  Future<List<DynamicFieldData?>> getFieldValues(String fieldName, String langCode, List<String> languages) async =>
++      [];
++
++  // The dashboard as on a client with some work done: counts and two operators (placeholders, no real names).
++  @override
++  Future<List<DashBoardData?>> getDashBoardDetails() async => [
++        DashBoardData(userId: 'operator1', userName: 'Operator One', userStatus: true, userIsOnboarded: true),
++        DashBoardData(userId: 'supervisor1', userName: 'Supervisor One', userStatus: true, userIsOnboarded: false),
++        DashBoardData(userId: 'operator2', userName: 'Operator Two', userStatus: false, userIsOnboarded: false),
++      ];
++
++  @override
++  Future<int> getPacketUploadedDetails() async => 128;
++
++  @override
++  Future<int> getPacketUploadedPendingDetails() async => 12;
++
++  @override
++  Future<int> getCreatedPacketDetails() async => 140;
++
++  @override
++  Future<int> getSyncedPacketDetails() async => 133;
++}
++
++class _QuietApprovePacketsProvider extends ApprovePacketsProvider {
++  @override
++  void getPackets() async {}
++
++  @override
++  void getTotalCreatedPackets() async {}
++}
++
++class _QuietConnectivityProvider extends ConnectivityProvider {
++  @override
++  Future<void> checkGPSStatus() async {}
++}
++
++/// The app's theme and ScreenUtil set-up (lib/main.dart), with the bundled fonts.
++Widget _app(Widget home, Locale locale, double textScale, GlobalProvider global, AuthProvider auth) {
++  return MultiProvider(
++    providers: [
++      ChangeNotifierProvider<GlobalProvider>.value(value: global),
++      ChangeNotifierProvider<AuthProvider>.value(value: auth),
++      ChangeNotifierProvider<ConnectivityProvider>(create: (_) => _QuietConnectivityProvider()),
++      ChangeNotifierProvider<RegistrationTaskProvider>(create: (_) => _QuietTaskProvider()),
++      ChangeNotifierProvider(create: (_) => SyncProvider()),
++      ChangeNotifierProvider<ApprovePacketsProvider>(create: (_) => _QuietApprovePacketsProvider()),
++    ],
++    child: MaterialApp(
++      debugShowCheckedModeBanner: false,
++      localizationsDelegates: AppLocalizations.localizationsDelegates,
++      supportedLocales: AppLocalizations.supportedLocales,
++      locale: locale,
++      theme: ThemeData(
++        fontFamily: AppFonts.family,
++        fontFamilyFallback: AppFonts.fallback,
++        extensions: const [AppTypeScale.standard],
++        textTheme: const TextTheme(
++          titleLarge: TextStyle(fontSize: 24),
++          bodyLarge: TextStyle(fontSize: 18),
++        ),
++      ),
++      builder: (context, child) {
++        final media = MediaQuery.of(context).copyWith(textScaleFactor: textScale);
++        return MediaQuery(
++          data: media,
++          child: Builder(builder: (context) {
++            ScreenUtil.init(context,
++                designSize: media.size.width < 750 ? const Size(390, 844) : const Size(800, 1280),
++                minTextAdapt: true,
++                splitScreenMode: true);
++            return child!;
++          }),
++        );
++      },
++      home: home,
++    ),
++  );
++}
++
++/// Texts cut off: over their line limit (maxLines, with an ellipsis or a clip), or wider than their box when they may
++/// not wrap. Each paragraph's text is laid out again with its own settings (RenderParagraph does not expose it).
++List<String> _cutOff(WidgetTester tester) {
++  final out = <String>[];
++  void visit(RenderObject o) {
++    if (o is RenderParagraph && o.hasSize) {
++      final painter = TextPainter(
++        text: o.text,
++        textAlign: o.textAlign,
++        textDirection: o.textDirection,
++        maxLines: o.maxLines,
++        ellipsis: o.overflow == TextOverflow.ellipsis ? '…' : null,
++        textScaleFactor: o.textScaleFactor,
++        locale: o.locale,
++        strutStyle: o.strutStyle,
++        textWidthBasis: o.textWidthBasis,
++        textHeightBehavior: o.textHeightBehavior,
++      )..layout(maxWidth: o.softWrap ? o.constraints.maxWidth : double.infinity);
++      if (painter.didExceedMaxLines || (!o.softWrap && painter.width > o.size.width + 0.5)) {
++        final text = o.text.toPlainText().replaceAll('\n', ' ');
++        out.add(text.length > 40 ? '${text.substring(0, 40)}…' : text);
++      }
++      painter.dispose();
++    }
++    o.visitChildren(visit);
++  }
++
++  visit(tester.binding.renderView);
++  return out;
++}
++
++void main() {
++  setUpAll(() async {
++    if (!await loadLivenessTestFonts()) fail('the test fonts were not found');
++  });
++
++  const locales = [Locale('en'), Locale('fr'), Locale('hi')];
++  const scales = [1.0, 1.3];
++
++  /// The layout problems of [screen] at 360x740 dp: overflows and other errors reported while it is built, and
++  /// texts cut off. [prepare] sets the state before the first frame; [shown] is a text the screen must show.
++  Future<List<String>> check(WidgetTester tester, Widget Function() screen,
++      {required Locale locale,
++      required double scale,
++      void Function(GlobalProvider global, AuthProvider auth)? prepare,
++      Future<void> Function(WidgetTester tester, AppLocalizations l)? act,
++      String Function(AppLocalizations l)? shown,
++      List<String> Function(AppLocalizations l)? knownCuts}) async {
++    final problems = <String>[];
++    final original = FlutterError.onError;
++    FlutterError.onError = (details) => problems.add(details.exceptionAsString().split('\n').first);
++    try {
++      tester.view.physicalSize = const Size(360, 740) * 3;
++      tester.view.devicePixelRatio = 3;
++      final global = _QuietGlobalProvider();
++      final auth = _QuietAuthProvider();
++      prepare?.call(global, auth);
++      await tester.pumpWidget(_app(screen(), locale, scale, global, auth));
++      await tester.pump();
++      await tester.pump(const Duration(milliseconds: 500));
++      final l = await AppLocalizations.delegate.load(locale);
++      if (act != null) {
++        await act(tester, l);
++        await tester.pump();
++        await tester.pump(const Duration(milliseconds: 500));
++      }
++      if (shown != null) {
++        final text = shown(l);
++        if (find.textContaining(text, skipOffstage: false).evaluate().isEmpty) problems.add('not shown: "$text"');
++      }
++      final known = knownCuts?.call(l) ?? const <String>[];
++      problems.addAll(_cutOff(tester).where((t) => !known.contains(t)).map((t) => 'text cut off: "$t"'));
++    } finally {
++      FlutterError.onError = original;
++      await tester.pumpWidget(const SizedBox());
++      tester.view.reset();
++    }
++    return problems.map((p) => '${locale.languageCode} x$scale: $p').toList();
++  }
++
++  Future<void> everywhere(WidgetTester tester, Widget Function() screen,
++      {void Function(GlobalProvider global, AuthProvider auth)? prepare,
++      Future<void> Function(WidgetTester tester, AppLocalizations l)? act,
++      String Function(AppLocalizations l)? shown,
++      List<String> Function(AppLocalizations l)? knownCuts}) async {
++    final problems = <String>[];
++    for (final locale in locales) {
++      for (final scale in scales) {
++        problems.addAll(await check(tester, screen,
++            locale: locale, scale: scale, prepare: prepare, act: act, shown: shown, knownCuts: knownCuts));
++      }
++    }
++    expect(problems, isEmpty);
++  }
++
++  /// Taps a bottom navigation item of the home page by its label.
++  Future<void> Function(WidgetTester, AppLocalizations) tab(String Function(AppLocalizations l) label) =>
++      (tester, l) => tester.tap(find.text(label(l)));
++
++  testWidgets('the checks find an overflow and a cut-off text', (tester) async {
++    // The detectors themselves: a row wider than the screen, and a long text held to one line.
++    final problems = await check(
++        tester,
++        () => const Scaffold(
++              body: Column(children: [
++                Row(children: [SizedBox(width: 400, height: 10)]),
++                Text('a text far too long to stay on one line at this width, so it is cut', maxLines: 1,
++                    overflow: TextOverflow.ellipsis),
++              ]),
++            ),
++        locale: const Locale('en'),
++        scale: 1.0);
++    expect(problems, contains(startsWith('en x1.0: A RenderFlex overflowed')));
++    expect(problems, contains(startsWith('en x1.0: text cut off: "a text far too long')));
++  });
++
++  testWidgets('the sign-in page, username step', (tester) async {
++    await everywhere(tester, () => const LoginPage(), shown: (l) => l.login_text);
++  });
++
++  testWidgets('the sign-in page, password step', (tester) async {
++    await everywhere(tester, () => const LoginPage(),
++        prepare: (_, auth) => auth.setIsValidUser(true), shown: (l) => l.login_button);
++  });
++
++  testWidgets('the home page: the operational tasks', (tester) async {
++    await everywhere(tester, () => const HomePage(), shown: (l) => l.synchronize_data);
++  });
++
++  testWidgets('the home page: the dashboard tab', (tester) async {
++    await everywhere(tester, () => const HomePage(), act: tab((l) => l.dashboard), shown: (_) => 'Operator One');
++  });
++
++  testWidgets('the home page: the settings tab', (tester) async {
++    await everywhere(tester, () => const HomePage(), act: tab((l) => l.settings));
++  });
++
++  testWidgets('the home page: the profile tab', (tester) async {
++    await everywhere(tester, () => const HomePage(), act: tab((l) => l.profile));
++  });
++
++  testWidgets('the supervisor\'s approval page, with no application waiting', (tester) async {
++    // Known, not changed (task 30): the search field's floating label is cut on a 360 dp phone, English at 1.0
++    // included. The field has two thirds of the row beside the submit button: fixing it is a layout change (the field
++    // on its own row on phones), left to the planner. The field itself works.
++    await everywhere(tester, () => const ApprovePacketsPage(), knownCuts: (l) => [l.search_application]);
++  });
++
++  testWidgets('operator onboarding: the onboarding page', (tester) async {
++    // As after an operator's first sign-in: the user's name (a placeholder) is known. (OnboardLandingPage is a
++    // registered route that nothing navigates to, and has no Scaffold of its own: not checked.)
++    await everywhere(tester, () => const OnboardingPage(), prepare: (global, _) => global.setName('operator one'));
 +  });
 +}
 diff --git a/windows/flutter/generated_plugin_registrant.cc b/windows/flutter/generated_plugin_registrant.cc

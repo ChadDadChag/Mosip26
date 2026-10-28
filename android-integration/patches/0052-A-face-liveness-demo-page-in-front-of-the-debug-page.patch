@@ -1,7 +1,7 @@
 From cc9d933e50ac5336077344e677221b562ffce844 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 11:54:01 +0530
-Subject: [PATCH 52/65] A face liveness demo page in front of the debug page
+Subject: [PATCH 52/68] A face liveness demo page in front of the debug page
  (task 21, A)
 
 The debug and profile builds open a new page, LivenessDemoPage ("Face
