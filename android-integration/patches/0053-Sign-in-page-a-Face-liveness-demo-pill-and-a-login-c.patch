@@ -1,7 +1,7 @@
 From 99348c6c0d4f601b5124f9d5a14289722c366bba Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 11:54:01 +0530
-Subject: [PATCH 53/55] Sign-in page: a "Face liveness demo" pill and a login
+Subject: [PATCH 53/56] Sign-in page: a "Face liveness demo" pill and a login
  card without the black outline (task 21, B)
 
 Visual only; the login logic and its texts are unchanged.

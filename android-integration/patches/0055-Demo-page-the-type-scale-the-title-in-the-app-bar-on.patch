@@ -1,7 +1,7 @@
 From 92c6267bafbc2b2c71f398ad1e687e29b216cfbd Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 12:07:56 +0530
-Subject: [PATCH 55/55] Demo page: the type scale, the title in the app bar
+Subject: [PATCH 55/56] Demo page: the type scale, the title in the app bar
  once the header has scrolled away, "Identity check", no random scenario (task
  21, C and review)
 

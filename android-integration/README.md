@@ -20,7 +20,7 @@ phone: [`docs/part5-android-benchmark.md`](../docs/part5-android-benchmark.md).
 
 | path | what it is |
 |---|---|
-| `patches/0001-*.patch` … `0055-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
+| `patches/0001-*.patch` … `0056-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
 | `person5-liveness.diff` | the same changes as one diff, for `git apply` |
 | `scripts/sync-engine.ps1` | builds the engine here and copies it into the client: the four engine jars, the signed model bundle and Part 1's `CameraXFrameSource.java`; writes `android/liveness/engine-sync.txt` |
 | `scripts/apply-integration.ps1` | clones the tag, applies the patches, runs the sync and, with `-BuildApk`, builds the app |
@@ -195,7 +195,7 @@ bundled version.
    - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 115 tests, all passing. The face
      binding and identity binding tests run the real matcher: the module's unit-test classpath swaps in the desktop
      ONNX Runtime (`android/liveness/build.gradle`).
-   - `flutter test test/liveness`: 299 tests, all passing (the 20 screenshot tests are skipped unless
+   - `flutter test test/liveness`: 302 tests, all passing (the 20 screenshot tests are skipped unless
      `LIVENESS_SCREENSHOTS` names a folder).
 3. **On a phone:** open the debug page (**Face liveness demo**, then **Developer tools**) and run:
    - one "Resident face" hook gate with the fake engine, which needs no camera;
@@ -204,9 +204,11 @@ bundled version.
      face in view, which gives MATCH;
    - the offline model install (F17): "Face liveness models (production page)", then Install
      model bundle with a signed test bundle zip in Downloads, then Roll back model bundle;
-   - identity binding (F15), in the "Identity binding test (F15)" card: enroll your face as the
-     test user, check yourself (MATCH), let a teammate check (NO_MATCH), then delete the test
-     template.
+   - identity binding (F15), in the demo page's "Identity check" card (or the debug page's
+     "Identity binding test (F15)" card): the operator enrolls once ("1. Enroll the operator's face
+     (once)"), checks themself ("Same person"), a teammate checks with "2. Check identity
+     (anyone)" ("Different person – refused"), then delete the test face. The verdict is the
+     panel in the card, not the face check's "face captured" screen before it.
 
 ## Fonts (task 21)
 
