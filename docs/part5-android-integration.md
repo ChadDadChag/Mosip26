@@ -707,10 +707,10 @@ derived values; the debug page shows them and has a Reset button.
   - Logs, audit records and metrics contain codes, scores, versions and timings only.
   - The best frame goes back to the calling screen in memory. It is never logged, and no screen
     renders it: the debug page shows only its size.
-- **Diagnostics only in debug and profile builds.** `BuildConfig.LIVENESS_DIAGNOSTICS` is false in
-  release. That switches off the demo and debug pages and the login page's button to them, config overrides,
-  detailed logs, the benchmark, and model install and rollback. The native methods refuse those
-  calls.
+- **Diagnostics only in debug and profile builds.** In a release build, Dart's `kDebugMode || kProfileMode` is
+  false: the demo and debug pages and the login page's button to them are not shown. `BuildConfig.LIVENESS_DIAGNOSTICS`
+  is false too, and the native side refuses config overrides, detailed logs, the benchmark, model install and
+  rollback, the F15 test face and, since task 29, the fake engine (it passes gates with no camera), whoever calls.
 - **No telemetry.**
   - ONNX Runtime's `TelemetryInitializer` provider is removed from the merged manifest.
   - The analyzer calls `OrtEnvironment.setTelemetry(false)` once.
@@ -745,7 +745,7 @@ short:
 | step | what |
 |---|---|
 | toolchain | git; JDK 11 + Maven 3.9.9 (engine); JDK 21, Android SDK 34 (build-tools 34.0.0), Flutter 3.10.4 (app) |
-| apply | clone `v1.1.1`, then `git am` the 61 patches (or `git apply` the one diff) |
+| apply | clone `v1.1.1`, then `git am` the 65 patches (or `git apply` the one diff) |
 | sync | `android-integration/scripts/sync-engine.ps1 -Clone <client>`: engine jars, signed models, camera source, and `engine-sync.txt` with commit and SHA-256 |
 | generate | `pigeon.sh` (Git Bash), then restore `ios/Runner/pigeon.h/.m` |
 | build | `flutter build apk --debug` (diagnostics); `--profile --split-per-abi` (timings, one APK per ABI; not debuggable); `--release` (no diagnostics; add `--split-per-abi` to distribute) |
@@ -787,8 +787,12 @@ this page. It offers:
   `identityTestTemplateTime`, the file's last-modified time), and asks before replacing it. The verdict is a result
   panel in the card: "Same person" (green), "Different person – refused" (red), the other outcomes neutral with their
   texts, and "Similarity 0.82 · needed 0.40" whenever there is a number; after a check it scrolls into view. An
-  enrolment or a delete is a short note, not a verdict;
-- **Models**: the loaded version and **Manage models**, the production page (section 3 (i));
+  enrolment or a delete is a short note, not a verdict. A test face enrolled or deleted on Developer tools clears the
+  verdict and the note. A failed identity call ends the check with its reason; if the test face cannot be switched
+  off again, the page says to restart the app before signing in (task 29);
+- **Models**: the loaded version and **Manage models**, the production page (section 3 (i)). While the models load
+  (at start, after an install or a rollback) the version is read again every 2 s; a bundle that never loads shows
+  "Models not loaded" after 30 s;
 - **Diagnostics**: the persisted metrics (section 7) as tiles with their units, Refresh, and Reset after a
   confirmation;
 - **Simulated screens**: 12 of the fake engine's scenarios in plain words, each on the face check screen with the
@@ -797,8 +801,12 @@ this page. It offers:
 
 The native side keeps config overrides in memory and cannot list them. `LivenessDevOverrides` records the ones
 the app set (the debug page sets them through it too), so the demo page shows the debug page's changes when the
-user comes back. The blue header carries the title and "Developer build · offline · no MOSIP server"; once it has
-scrolled away, the title fades into the app bar.
+user comes back, and the debug page's controls (fake scenario, force challenges, exposure assist, fake speed, one
+challenge) start from them, so what they show is what runs (task 29). A hot restart clears the record while the
+native side keeps its overrides: restart the app instead. The blue header carries the title and "Developer build ·
+offline · no MOSIP server"; once it has scrolled away, the title fades into the app bar. For TalkBack, the run
+cards, the simulated rows and Developer tools are buttons with an enabled state, and the verdict and the result
+panel are live regions.
 
 **Sign-in page (task 21).** Visual only; the login logic and texts are MOSIP's. The login card has no outline: white,
 radius 16, a soft shadow (all builds). The demo button is a white outlined pill (debug and profile builds only).
@@ -840,8 +848,8 @@ Counts as of 2026-10-28.
 
 | suite | tests | covers |
 |---|---|---|
-| `android/liveness` module (JVM) | **121**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7), the target rotation with Robolectric (F19: the app window's, not the display's nor CameraX's default, at bind, after a display change and after the Activity's configuration change, for the analysis and the preview; analysis only without a preview; unregistered once on stop; never registered by a bind that ends after stop; an Activity's rotation and its DisplayListener) (6); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped and the frame dropped, the failed-login rule, both switches in every spelling, a frame held for another workflow or session refused and dropped (9); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
-| Flutter `test/liveness` | **325**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with the bundled Noto fonts (task 21; Roboto before): no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines (the English device-error text: at most 3 below about 380 dp, measured), one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); Hindi at 360×640 dp, every state: buttons on screen and 48 high, each button label on one line, the status at most 2 lines (23, task 27); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47); the demo page (15): no overflow at 360×640 and 412×915 dp at a 1.0 and a 1.3 text scale (also with a failed result, a refused identity check and the replace question), the header at the gutter, the app bar shows the title only once the header has scrolled away, each check card runs the gate with its workflow, no image in the result panel, each simulated row runs its scenario on the fake engine and none is the random one, the overrides, F15 enroll, check and delete with the new labels and the enrolled time, the replace question (only when a test face exists; Cancel does not enroll), every outcome in the verdict panel at 360×640 and a 1.3 text scale (sentence, icon, colour, the numbers line or none, no image), the panel scrolled into view after a check, the metrics tiles and Reset, Developer tools opens the debug page and the return refreshes the shown state. Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
+| `android/liveness` module (JVM) | **123**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7), the target rotation with Robolectric (F19: the app window's, not the display's nor CameraX's default, at bind, after a display change and after the Activity's configuration change, for the analysis and the preview; analysis only without a preview; unregistered once on stop; never registered by a bind that ends after stop; an Activity's rotation and its DisplayListener; an Activity's own display, not the default display; all through the real bind with a mock camera provider) (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped and the frame dropped, the failed-login rule, both switches in every spelling, a frame held for another workflow or session refused and dropped (9); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1); only a debug or profile build hands out the fake engine (1) |
+| Flutter `test/liveness` | **330**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with the bundled Noto fonts (task 21; Roboto before): no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines (the English device-error text: at most 3 below about 380 dp, measured), one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); Hindi at 360×640 dp, every state: buttons on screen and 48 high, each button label on one line, the status at most 2 lines (23, task 27); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47); the demo page (20): no overflow at 360×640 and 412×915 dp at a 1.0 and a 1.3 text scale (also with a failed result, a refused identity check and the replace question), the header at the gutter, the app bar shows the title only once the header has scrolled away, each check card runs the gate with its workflow, no image in the result panel, each simulated row runs its scenario on the fake engine and none is the random one, the overrides, F15 enroll, check and delete with the new labels and the enrolled time, the replace question (only when a test face exists; Cancel does not enroll), every outcome in the verdict panel at 360×640 and a 1.3 text scale (sentence, icon, colour, the numbers line or none, no image), the panel scrolled into view after a check, the metrics tiles and Reset, Developer tools opens the debug page and the return refreshes the shown state; a test face changed on Developer tools clears the verdict and the note, a failed identity call or override switch-off still ends the check, the debug page starts from the overrides the demo set, models that load late or never, and the TalkBack roles and live regions (task 29). Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
 | clientmanager `SessionManagerTest` | **14**, all passing | upstream's tests, and the login token's user name stored as the user id that onboarding uses, removed at logout (task 19) |
 | engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 258, eval 70 (`main` at 57b4c95) | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
@@ -936,13 +944,18 @@ provisional.
   bind. Fix (Part 1, Mosip26 56bf83b; patch 0057): the analysis and the preview are bound at the window's rotation
   (`Activity.getDisplay()` on API 30+, which includes the fixed-rotation adjustments), logged as `target rotation
   <window> (display <physical>)`; during a session a DisplayListener and the Activity's configuration changes
-  re-apply it, and `stop()` unregisters the listener. Unit tests (6; 3 of them fail without the fix). adb alone cannot
+  re-apply it, and `stop()` unregisters the listener. Unit tests (7, since task 29 on the real bind with a mock
+  camera provider): the display the window's rotation is read from (an Activity's own display at 0 while the default
+  display is at 90), the bind, a display change, the configuration change and `stop()`; reading the default display,
+  or a bind that does not follow the rotation, makes them fail. adb alone cannot
   set this up (the app has no fixed orientation, so a display locked to landscape turns its window too). Live check
   with APK 4, a video in picture-in-picture: at 15:30:48, phone upright, `target rotation 0 (display 0)`, analysis
   rotation 270 -> 480x640, PASSED passively in 2.3 s; at 15:32:14, phone flat after landscape so the app opened in
   landscape, `target rotation 90 (display 90)`, rotation 0 -> 640x480, PASSED after BLINK and TURN_RIGHT in 9.1 s.
-  The window/display mismatch of 14:07 (display 90, window 0) did not recur in these 2 tries, so the fix rests on the
-  unit tests; the bind's log line shows any future mismatch.
+  The window/display mismatch of 14:07 (display 90, window 0) did not recur in these 2 tries. So the unit tests show
+  that the source binds at the Activity's own display's rotation and follows it; that this display reports the
+  window's rotation under a fixed-rotation transform is the platform's behaviour (API 30+), which neither a test nor
+  the live check reproduced. The bind's log line shows any future mismatch.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles

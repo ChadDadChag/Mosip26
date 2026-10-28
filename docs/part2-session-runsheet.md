@@ -6,7 +6,7 @@
 | 4 and 5, many identities | about 12 minutes, plus 3.5 minutes for the optional close-up slideshow pass |
 | 6, multiple faces | about 4 minutes |
 | 7, each teammate | about 10 minutes |
-| 8, second screen | about 3 minutes |
+| 8, second screen | about 6 minutes |
 | Before the day | about 20 minutes of preparation |
 
 Claude starts each block and does the checks; you hold things and press keys.
@@ -169,18 +169,24 @@ passed.
     - close_whole ×2: lean in until LIVE reads 25–40%.
     You press SPACE.
 
-## 8. F5 second screen (optional; 4 takes, about 3 min)
+## 8. F5 second screen (optional; 8 takes, about 6 min)
 
-29. Play your selfie video in a loop on the second screen. Place it at normal distance, with its edges visible.
-30. Claude runs `scripts\dataset-session.ps1 -Consent -Subject s01 -Only screen_replay_monitor`. For each take, the
-    prompt is "SECOND SCREEN playing your SELFIE VIDEO", with your own face out of view.
+29. Play your selfie video in a loop on the second screen.
+30. Claude runs `scripts\dataset-session.ps1 -Consent -Subject <code> -Only screen_replay_monitor`. That selects both
+    second-screen steps, takes 1–8; your own face stays out of view throughout:
+    - takes 1–4 (`selfie_video`): "SECOND SCREEN playing your SELFIE VIDEO", the screen at normal distance, with its
+      edges visible;
+    - takes 5–8 (`video_realsize`): hold the screen so the face on it reads 20–35% on the live readout, the size of a
+      real face.
 
-**F5 retake (about 5 min; takes 1–4 were too small to judge).** Your own face stays out of view throughout.
-- Takes 5–8: the same `dataset-session.ps1 -Only screen_replay_monitor` command (takes 1–4 are skipped). Hold the
-  tablet so the face on its screen reads 20–35% on the live readout. Run it in the checkout whose `eval-data` holds
-  takes 1–4: elsewhere they are recorded again (on 2026-10-28 the F5 worktree recorded 1–4 anew, at real-face size).
-- Then `scripts\session-series.ps1 -Plan z,zf -LogDir eval-data\sessions`: z is the default policy, zf forced
-  challenges. Position the tablet with the readout, then SPACE.
+    `-Only selfie_video` or `-Only video_realsize` records one of the two. A take already on disk is skipped, so run
+    it in the checkout whose `eval-data` holds the subject's earlier takes: elsewhere they are recorded again.
+
+**s01's F5 is done (2026-10-28, P2 eval section 4.6).** s01's takes 1–4 (40–60 cm) were too small to judge. The
+retake at real-face size, recorded in the F5 working copy, is takes 9–16 in the main `eval-data`. s01 has no takes
+5–8 there, so step 30 for s01 would record a third set: do not run it again for s01.
+- The live sessions of the retake: `scripts\session-series.ps1 -Plan z,zf -LogDir eval-data\sessions`. z is the
+  default policy, zf forced challenges. Position the tablet with the readout, then SPACE.
 
 ## Afterwards (Claude)
 
