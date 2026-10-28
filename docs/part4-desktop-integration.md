@@ -650,11 +650,12 @@ From `registration-client/registration` (JDK 11; first build online):
 
 (`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 
-**Results on `main` (57b4c95, 2026-10-28):** `registration-services` 175 tests pass: 133 liveness tests (Part 1's 78,
-that is 72 and F13b's 6 `WebcamGrabbersTest`; Part 4's 51, that is 33 and F17's 7 and F15's 11; and the four F16 clips
-of `RecordedVideoE2ETest`) and the existing audit (4), login (26) and config sync (12) suites. `registration-client` 40
-tests pass, the visual design's `LivenessViewLayoutTest` among them (spec §9; the 14 screens in `docs/images/part4/`
-are rendered from the production classes). `RecordedVideoE2ETest` 5/5. Live, with the laptop webcam on 2026-10-28
+**Results on `main` (57b4c95, measured 2026-10-28 with the command above on that commit):** `registration-services`
+179 tests pass: 137 liveness tests (Part 1's 81, that is 72 and F13b's 9 `WebcamGrabbersTest`; Part 4's 52, that is 33
+and F17's 7 and F15's 12; and the four F16 clips of `RecordedVideoE2ETest`) and the existing audit (4), login (26) and
+config sync (12) suites. `registration-client` 43 tests pass, the visual design's 7 `LivenessViewLayoutTest` tests
+among them (spec §9; the 14 screens in `docs/images/part4/` are rendered from the production classes).
+`RecordedVideoE2ETest` 5/5. No failures, nothing skipped. Live, with the laptop webcam on 2026-10-28
 (the screen demo, `--live webcam --workflow operator --identity verify`, on a client built from the ui-polish overlay):
 - F15 against the operator's test template: a second person was refused (passive PASSED, then NO_MATCH, similarity
   0.07 against the 0.40 threshold); the operator was accepted (passive PASSED, then MATCH, similarity 0.64; 0.815 on
@@ -662,7 +663,8 @@ are rendered from the production classes). `RecordedVideoE2ETest` 5/5. Live, wit
 - F13b: both runs and the delete exited cleanly, with no hang. The grabber in use (OpenCV, or the sarxos fallback) was
   not captured.
 
-The paragraphs below record how the counts grew.
+The paragraphs below record how the counts grew. They stop at task 16b (175 and 40): the review fixes after it added
+3 `WebcamGrabbersTest` and 3 `LivenessViewLayoutTest` tests (task 19) and 1 `IdentityBindingTest` test (task 20).
 
 **Results on 2026-10-26, with the follow-ups:** `registration-services` 105 liveness tests pass: Part 1's 72 and
 Part 4's 33. `registration-client` 28 tests pass. The command also runs the existing audit (4), login (26) and config

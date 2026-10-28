@@ -200,8 +200,8 @@ order and byte-identical through `MjpegFrameReader`.
 
 - **Real build.** The suite runs inside the real Registration Client v1.2.0.2 build (JDK 11, the upstream MOSIP
   classes, no stubs), with the "Build and test" command above. At Part 1's delivery the Part 1 liveness tests totalled
-  96, all passing: the original 83, plus 13 new. 72 of them run in `registration-services`; F13b added 6
-  (`WebcamGrabbersTest`), so 78 as of 2026-10-28. The other 24 test the Part 2 heuristic analyzer and moved with it
+  96, all passing: the original 83, plus 13 new. 72 of them run in `registration-services`; F13b added 9
+  (`WebcamGrabbersTest`), so 81 as of 2026-10-28. The other 24 test the Part 2 heuristic analyzer and moved with it
   to `liveness-analyzer`, where they are counted in its 258.
 - **New tests:**
   - preview tee
@@ -378,8 +378,8 @@ That runs these steps:
 4. Generates the Pigeon code.
 5. Builds an arm64 debug APK.
 
-The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass, as of 2026-10-28 (`main` at 57b4c95): 121 liveness module tests and 302 Flutter tests
-(`test/liveness`).
+The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 121 liveness module tests and 302 Flutter tests (`test/liveness`), measured on the client state the
+57 patches on `main` reproduce (clone a4cc328, the patch set of ui-polish e2ba409).
 
 **Documentation:**
 - [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations
@@ -412,7 +412,7 @@ Build and test (JDK 11, from `registration-client/registration`):
     mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip
     mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip
 
-Result as of 2026-10-28 (`main` at 57b4c95), all passing: registration-services 133 liveness tests (Part 1's 78, Part 4's 51, the four F16 clips) and registration-client 40. The command also runs the existing audit (`AuditFactoryTest`, 4), login (`LoginServiceTest`, 26) and config sync (`GlobalParamServiceTest`, 12) suites, which pass too. Outside a git checkout add `-Dmaven.gitcommitid.skip=true`.
+Result measured on `main` at 57b4c95 (2026-10-28), all passing: registration-services 137 liveness tests (Part 1's 81, Part 4's 52, the four F16 clips) and registration-client 43. The command also runs the existing audit (`AuditFactoryTest`, 4), login (`LoginServiceTest`, 26) and config sync (`GlobalParamServiceTest`, 12) suites, which pass too. Outside a git checkout add `-Dmaven.gitcommitid.skip=true`.
 
 **Documentation:**
 - [docs/part4-desktop-integration.md](docs/part4-desktop-integration.md): architecture, the hooks, face binding, sequence diagrams (resident, operator login, packet authentication, supervisor approval, failure, device, config sync), UI screens, configuration, audit and diagnostic logging, metrics, online/offline, security and privacy, testing, limitations
