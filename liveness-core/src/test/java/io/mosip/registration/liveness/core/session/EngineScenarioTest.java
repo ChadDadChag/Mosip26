@@ -351,6 +351,41 @@ class EngineScenarioTest {
         assertThat(d.attemptErrors()).as("no liveness retry used").isEmpty();
     }
 
+    /**
+     * Task 30 (R5): a Retry after a device problem restarts the source (stop, then start) while the user may cancel
+     * from the UI thread. A cancel that lands between the restart's stop and its start releases the source, which
+     * happens once per session; the restart must not leave it started afterwards (the camera, and on Android a display
+     * listener holding the Activity). The source's stop hook runs the cancel to completion at exactly that point.
+     */
+    @Test
+    void aCancelBetweenADeviceRestartsStopAndStartLeavesTheSourceStopped() {
+        ScenarioDriver d = ScenarioDriver.resident();
+        d.autoRetry = false;
+        d.frames(45, d.score(0.6f)).untilPrompt();
+        d.deviceError(ErrorCode.DEVICE_DISCONNECTED, true);
+        d.noFramesFor(1500);
+        d.deviceError(ErrorCode.DEVICE_CONNECTION_FAILED, false);
+        d.noFramesFor(5000);
+        assertThat(d.lastEvent(Type.DEVICE_ERROR).recoverable).as("UI shows Retry").isTrue();
+
+        final java.util.concurrent.atomic.AtomicBoolean once = new java.util.concurrent.atomic.AtomicBoolean();
+        d.source.onStop = () -> {
+            if (!once.compareAndSet(false, true)) return; // only the restart's own stop
+            Thread ui = new Thread(d.session::cancel, "ui");
+            ui.start();
+            try {
+                ui.join(5000);
+            } catch (InterruptedException e) {
+                throw new AssertionError(e);
+            }
+        };
+        d.retry(); // RESTART_SOURCE: stop (the user cancels here), then start
+        for (int i = 0; i < 3; i++) d.step(); // the worker handles the cancel and cleans up
+        assertThat(d.result.decision).isEqualTo(Decision.CANCELLED);
+        assertThat(d.source.starts.get()).as("the restart did start the source again").isEqualTo(2);
+        assertThat(d.source.isRunning()).as("a released source is never left started").isFalse();
+    }
+
     /** Part 3's "done when", second half: a replayed video of the person just blinking never passes. */
     @Test
     void replayedVideoOfNaturalBlinkingNeverPasses() {

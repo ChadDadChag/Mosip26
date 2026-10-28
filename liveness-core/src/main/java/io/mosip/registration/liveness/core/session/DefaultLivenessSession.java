@@ -329,6 +329,10 @@ public final class DefaultLivenessSession implements LivenessSession {
                     if (!sourceReleased.get()) { // device recovery inside a live session only
                         stopSource();
                         startSource();
+                        // A cancel on another thread may have released the source between the check and this start:
+                        // its stop came first, and the release happens once. Stop the restarted source too. (The
+                        // release sets the flag before it stops, so a release after this check stops this start.)
+                        if (sourceReleased.get()) stopSource();
                     }
                     break;
                 case TRIP_COOLDOWN:

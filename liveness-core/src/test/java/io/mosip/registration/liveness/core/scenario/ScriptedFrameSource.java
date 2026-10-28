@@ -15,6 +15,8 @@ public final class ScriptedFrameSource implements FrameSource {
 
     public final AtomicInteger starts = new AtomicInteger();
     public final AtomicInteger stops = new AtomicInteger();
+    /** Runs at the end of each stop(), for tests that need something to happen at exactly that point. */
+    public volatile Runnable onStop;
     private volatile Listener listener;
     private volatile boolean running;
 
@@ -34,6 +36,8 @@ public final class ScriptedFrameSource implements FrameSource {
     public void stop() {
         running = false;
         stops.incrementAndGet();
+        Runnable hook = onStop;
+        if (hook != null) hook.run();
     }
 
     @Override
