@@ -194,9 +194,11 @@ retake at real-face size, recorded in the F5 working copy, is takes 9–16 in th
   one subject per photographed person.
 - **The F9 re-evaluation, one command:**
 
-      scripts\f9-reeval.ps1 -Subjects s01,s02,s03 -SubjectMap s02=pXX,s03=pYY -LabelsConfirmed
+      scripts\f9-reeval.ps1 -Subjects s01,s02,s03 -SubjectMap "s02=pXX,s03=pYY" -LabelsConfirmed
 
   - The codes are the ones from step 27. Pass `-LabelsConfirmed` only if the labels were confirmed before the day.
+  - Keep the quotes around the subject map. Without them, PowerShell reads the list as an array, and the script
+    refuses it before running anything ("Cannot process argument transformation on parameter 'SubjectMap'").
   - It runs, in order, and stops at the first step that fails:
     - the inventory and the consent check (a subject without consent is refused);
     - `PadEvaluation` (the prints and the many-identity attacks are evaluated too);

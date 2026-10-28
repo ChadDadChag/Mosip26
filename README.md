@@ -341,7 +341,7 @@ Recordings of people go only to `eval-data/`, which is gitignored, and only with
 **Documentation:**
 - [docs/part2-model-selection.md](docs/part2-model-selection.md): candidates, evidence and the choice for each model; why ONNX Runtime; rejected options
 - [docs/part2-pad-architecture.md](docs/part2-pad-architecture.md): pipeline, Part 3 integration, conventions, padDetails, the model bundle and keys, config keys, performance, Android notes, limitations
-- [docs/part2-iso30107-evaluation.md](docs/part2-iso30107-evaluation.md): ISO/IEC 30107-3 method and results (single subject, provisional), thresholds, next steps
+- [docs/part2-iso30107-evaluation.md](docs/part2-iso30107-evaluation.md): ISO/IEC 30107-3 method and results (four bona fide subjects since F9, provisional), thresholds, next steps
 - [docs/part2-findings-for-other-parts.md](docs/part2-findings-for-other-parts.md): changes made in Part 3 and recommendations for Parts 1, 4 and 5
 - [models/README.md](models/README.md): model provenance, conversion checks and the reference pipeline
 
