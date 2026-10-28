@@ -1,7 +1,7 @@
 From 368641e8e1c2ed9ada3ba6d1c14ea75800ffc584 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 21:53:41 +0530
-Subject: [PATCH 20/56] Remove ONNX Runtime's telemetry provider
+Subject: [PATCH 20/57] Remove ONNX Runtime's telemetry provider
 
 The onnxruntime-android 1.31.0 AAR registers ai.onnxruntime.TelemetryInitializer,
 a ContentProvider that starts a telemetry HTTP client at app start (device

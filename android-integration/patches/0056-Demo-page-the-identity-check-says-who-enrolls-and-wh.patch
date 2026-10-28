@@ -1,7 +1,7 @@
 From feb6e23bf9b38be3d4dbdc33f41032bf963ac993 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 13:29:36 +0530
-Subject: [PATCH 56/56] Demo page: the identity check says who enrolls and who
+Subject: [PATCH 56/57] Demo page: the identity check says who enrolls and who
  checks, when the test face was enrolled, and its verdict in a result panel;
  the shorter subtitle (task 22)
 MIME-Version: 1.0

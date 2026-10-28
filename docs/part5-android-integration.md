@@ -27,7 +27,7 @@ one or two **challenges** (blink, smile, turn the head).
 
 | part of the work | where it comes from | what runs on Android |
 |---|---|---|
-| Part 1: frames | `android-liveness-frame-source/` (Mosip26) | `CameraXFrameSource`: CameraX analysis stream, YUV to RGB, rotation, frame pacing (15 frames/s), dim-face exposure assist |
+| Part 1: frames | `android-liveness-frame-source/` (Mosip26) | `CameraXFrameSource`: CameraX analysis stream, YUV to RGB, rotation (bound at the app window's rotation, F19), frame pacing (15 frames/s), dim-face exposure assist |
 | Part 2: per-frame analysis | `liveness-analyzer/`, `models/` (Mosip26) | `OnnxFaceAnalyzerFactory`: YuNet face detection, FaceMesh V2 landmarks and pose, quality checks, MiniFASNet presentation attack detection (PAD), on ONNX Runtime; signed model bundle |
 | Part 3: the session | `liveness-core/`, `liveness-fake/` (Mosip26) | `DefaultLivenessService`: passive decision, challenges, retries, timeouts, cooldown, policy, audit; `FakeLivenessService` for testing |
 | Part 5: the integration | `android-integration/` patches against the client v1.1.1 | the native module, the Flutter bridge, the screen, the gate, the five hooks, audit, config, metrics, diagnostics |
@@ -745,7 +745,7 @@ short:
 | step | what |
 |---|---|
 | toolchain | git; JDK 11 + Maven 3.9.9 (engine); JDK 21, Android SDK 34 (build-tools 34.0.0), Flutter 3.10.4 (app) |
-| apply | clone `v1.1.1`, then `git am` the 56 patches (or `git apply` the one diff) |
+| apply | clone `v1.1.1`, then `git am` the 57 patches (or `git apply` the one diff) |
 | sync | `android-integration/scripts/sync-engine.ps1 -Clone <client>`: engine jars, signed models, camera source, and `engine-sync.txt` with commit and SHA-256 |
 | generate | `pigeon.sh` (Git Bash), then restore `ios/Runner/pigeon.h/.m` |
 | build | `flutter build apk --debug` (diagnostics); `--profile --split-per-abi` (timings, one APK per ABI; not debuggable); `--release` (no diagnostics; add `--split-per-abi` to distribute) |
@@ -840,7 +840,7 @@ Counts as of 2026-10-28.
 
 | suite | tests | covers |
 |---|---|---|
-| `android/liveness` module (JVM) | **115**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped and the frame dropped, the failed-login rule, both switches in every spelling, a frame held for another workflow or session refused and dropped (9); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
+| `android/liveness` module (JVM) | **121**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7), the target rotation with Robolectric (F19: the app window's, not the display's nor CameraX's default, at bind, after a display change and after the Activity's configuration change, for the analysis and the preview; analysis only without a preview; unregistered once on stop; never registered by a bind that ends after stop; an Activity's rotation and its DisplayListener) (6); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped and the frame dropped, the failed-login rule, both switches in every spelling, a frame held for another workflow or session refused and dropped (9); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
 | Flutter `test/liveness` | **302**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with the bundled Noto fonts (task 21; Roboto before): no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines (the English device-error text: at most 3 below about 380 dp, measured), one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47); the demo page (15): no overflow at 360×640 and 412×915 dp at a 1.0 and a 1.3 text scale (also with a failed result, a refused identity check and the replace question), the header at the gutter, the app bar shows the title only once the header has scrolled away, each check card runs the gate with its workflow, no image in the result panel, each simulated row runs its scenario on the fake engine and none is the random one, the overrides, F15 enroll, check and delete with the new labels and the enrolled time, the replace question (only when a test face exists; Cancel does not enroll), every outcome in the verdict panel at 360×640 and a 1.3 text scale (sentence, icon, colour, the numbers line or none, no image), the panel scrolled into view after a check, the metrics tiles and Reset, Developer tools opens the debug page and the return refreshes the shown state. Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
 | clientmanager `SessionManagerTest` | **14**, all passing | upstream's tests, and the login token's user name stored as the user id that onboarding uses, removed at logout (task 19) |
@@ -924,6 +924,19 @@ provisional.
   shared with Desktop, so neither changes.
   Screens with less than 420 dp for the content use the scrolling layout. Arabic, Hindi, Kannada and Tamil were not
   measured with their own fonts.
+- **F19: the camera took the physical display's rotation, not the app window's (fixed, task 23).** Found live on
+  2026-10-28 with APK 3. A landscape video in picture-in-picture kept the display at 90 while the launcher, then the
+  app, were portrait under a fixed-rotation transform. All three sessions of that app process logged `analysis
+  640x480 rotation 0 -> frames 640x480`: the face arrived sideways (no face in 48 of 200 and 35 of 78 frames; NO_FACE,
+  POOR_QUALITY, CHALLENGE_FAILED, then Cancel), while the light (luma about 118) and the camera (30 fps) were fine.
+  After an app restart: `rotation 270 -> frames 480x640`, PASSED in 2.1 s, and F15 MATCH at 0.81. Cause: no target
+  rotation was set, so CameraX 1.3.4 used its default, the display's rotation (90), not the window's (0), read at each
+  bind. Fix (Part 1, Mosip26 56bf83b; patch 0057): the analysis and the preview are bound at the window's rotation
+  (`Activity.getDisplay()` on API 30+, which includes the fixed-rotation adjustments), logged as `target rotation
+  <window> (display <physical>)`; during a session a DisplayListener and the Activity's configuration changes
+  re-apply it, and `stop()` unregisters the listener. Unit tests (6). adb alone cannot set this up (the app has no fixed
+  orientation, so a display locked to landscape turns its window too); the live check on the phone, with a video in
+  picture-in-picture, is pending.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
@@ -942,6 +955,7 @@ provisional.
   masks are not tested yet.
 - **Signing key.** The model bundle is signed with a development key; replace it before release.
 - **Review findings (F-items) handled for Android.**
-  - Done: F8 (dim faces, exposure assist) and F12 (permanently refused permission).
+  - Done: F8 (dim faces, exposure assist), F12 (permanently refused permission) and F19 (the camera's rotation,
+    found on the phone, above).
   - Backlog: F10 (ONNX Runtime size).
   - The other F-items are in the fix phase that follows Person 5.

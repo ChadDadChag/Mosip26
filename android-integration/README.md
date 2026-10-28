@@ -20,7 +20,7 @@ phone: [`docs/part5-android-benchmark.md`](../docs/part5-android-benchmark.md).
 
 | path | what it is |
 |---|---|
-| `patches/0001-*.patch` … `0056-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
+| `patches/0001-*.patch` … `0057-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
 | `person5-liveness.diff` | the same changes as one diff, for `git apply` |
 | `scripts/sync-engine.ps1` | builds the engine here and copies it into the client: the four engine jars, the signed model bundle and Part 1's `CameraXFrameSource.java`; writes `android/liveness/engine-sync.txt` |
 | `scripts/apply-integration.ps1` | clones the tag, applies the patches, runs the sync and, with `-BuildApk`, builds the app |
@@ -192,7 +192,7 @@ bundled version.
    For a byte-identical result, use `sync-engine.ps1 -SkipBuild` with the jars that were synced
    into the branch.
 2. **Tests** (counts as of 2026-10-28):
-   - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 115 tests, all passing. The face
+   - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 121 tests, all passing. The face
      binding and identity binding tests run the real matcher: the module's unit-test classpath swaps in the desktop
      ONNX Runtime (`android/liveness/build.gradle`).
    - `flutter test test/liveness`: 302 tests, all passing (the 20 screenshot tests are skipped unless
