@@ -845,6 +845,8 @@ off, and the screens get a synced client's state with placeholder names.
 - **Known, not changed:** the approval search field's floating label ("Search by Application ID") is cut on a
   360 dp phone, in English at 1.0 too. The field shares its row with the submit button, so fixing it is a layout
   change.
+  - It is pre-existing upstream. With v1.1.1's own theme and font (Roboto), rendered the same way, it is cut too:
+    173 dp of text in about 135 dp; Noto Sans needs 183 dp.
 
 **Third-party: fonts.** The Noto fonts are Copyright 2022 The Noto Project Authors, under the SIL Open Font License
 1.1, which allows bundling them with software. They are unmodified. The app ships the licence as
