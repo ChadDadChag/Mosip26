@@ -1,7 +1,7 @@
 From 94f1f06f99ebf83cd11650266b6f54a814906116 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 17:49:31 +0530
-Subject: [PATCH 03/51] Add liveness native module: engine, models, camera,
+Subject: [PATCH 03/53] Add liveness native module: engine, models, camera,
  bridge
 
 New Android library module android/liveness

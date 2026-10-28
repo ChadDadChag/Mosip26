@@ -358,8 +358,9 @@ All three end in the same `ModelStore.install(staged, bundled)`.
 - **Checks and audit.** `LivenessServiceHolder` checks the role and the key again before acting (fail closed), and
   audits REG-EVT-019 with `trigger=offline` or `trigger=rollback` (section 6).
 - **Without a backend (debug and profile builds).** A development phone has no MOSIP backend, so nobody can log in as a
-  supervisor and the home page never shows the task. The debug page (Login page, **Liveness test**) has
-  **Face liveness models (production page)**. It opens the same page with the same production Pigeon methods: the
+  supervisor and the home page never shows the task. The demo page's **Manage models** and the debug page's
+  **Face liveness models (production page)** (Login page, **Face liveness demo**, **Developer tools**) open the same
+  page with the same production Pigeon methods: the
   file picker, `installZip`, the reload and the audit.
   - While that page is open, a diagnostics-only override stands in for the supervisor role
     (`setDiagnosticModelBundleOverride`). The holder honours it only when it was built with diagnostics
@@ -705,7 +706,7 @@ derived values; the debug page shows them and has a Reset button.
   - The best frame goes back to the calling screen in memory. It is never logged, and no screen
     renders it: the debug page shows only its size.
 - **Diagnostics only in debug and profile builds.** `BuildConfig.LIVENESS_DIAGNOSTICS` is false in
-  release. That switches off the debug page and its login-page button, config overrides,
+  release. That switches off the demo and debug pages and the login page's button to them, config overrides,
   detailed logs, the benchmark, and model install and rollback. The native methods refuse those
   calls.
 - **No telemetry.**
@@ -742,7 +743,7 @@ short:
 | step | what |
 |---|---|
 | toolchain | git; JDK 11 + Maven 3.9.9 (engine); JDK 21, Android SDK 34 (build-tools 34.0.0), Flutter 3.10.4 (app) |
-| apply | clone `v1.1.1`, then `git am` the 35 patches (or `git apply` the one diff) |
+| apply | clone `v1.1.1`, then `git am` the 53 patches (or `git apply` the one diff) |
 | sync | `android-integration/scripts/sync-engine.ps1 -Clone <client>`: engine jars, signed models, camera source, and `engine-sync.txt` with commit and SHA-256 |
 | generate | `pigeon.sh` (Git Bash), then restore `ios/Runner/pigeon.h/.m` |
 | build | `flutter build apk --debug` (diagnostics); `--profile --split-per-abi` (timings, one APK per ABI; not debuggable); `--release` (no diagnostics; add `--split-per-abi` to distribute) |
@@ -769,8 +770,31 @@ short:
 3. USB debugging must be allowed again after changing security settings.
 4. Install with `adb install -r --user 0`.
 
-**Debug page (debug and profile builds).** Open it from the Login page: **Liveness test**, top
-right. It offers:
+**Demo page (debug and profile builds, task 21).** The Login page's **Face liveness demo** button (top right)
+opens it. English only, and always left to right: its language menu changes the app, and so the face check, not
+this page. It offers:
+- **Run a check**: Resident face capture, Operator sign-in and Supervisor approval, each through
+  `LivenessGate.run` with the real engine, as the screens call it. A result panel shows a sentence ("Passed – no
+  action needed", "Passed after N actions", "Not verified"), the engine's message, and the time and attempts; never
+  an image. Under it: "Always ask for actions" (the debug page's passive threshold override, 0.9999), the app
+  language, and the front or back camera (the camera override of all three workflows);
+- **Identity check (F15)**: enroll a test face, check, delete, with the debug page's calls (below);
+- **Models**: the loaded version and **Manage models**, the production page (section 3 (i));
+- **Diagnostics**: the persisted metrics (section 7) as tiles with their units, Refresh, and Reset after a
+  confirmation;
+- **Simulated screens**: the fake engine's 13 scenarios in plain words, each on the face check screen with the
+  placeholder preview;
+- **Developer tools**: the debug page.
+
+The native side keeps config overrides in memory and cannot list them. `LivenessDevOverrides` records the ones
+the app set (the debug page sets them through it too), so the demo page shows the debug page's changes when the
+user comes back.
+
+**Sign-in page (task 21).** Visual only; the login logic and texts are MOSIP's. The login card has no outline: white,
+radius 16, a soft shadow (all builds). The demo button is a white outlined pill (debug and profile builds only).
+
+**Debug page (debug and profile builds).** Open it from the demo page: **Developer tools**, its last row. It
+offers:
 - sessions with the real or fake engine, workflow and camera, force challenges, one challenge
   type only, and the exposure assist switch;
 - the "Hook gates" buttons, which call `LivenessGate.run` exactly as the five screens do;
@@ -793,7 +817,7 @@ Counts as of 2026-10-28.
 | suite | tests | covers |
 |---|---|---|
 | `android/liveness` module (JVM) | **115**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped and the frame dropped, the failed-login rule, both switches in every spelling, a frame held for another workflow or session refused and dropped (9); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
-| Flutter `test/liveness` | **287**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with Roboto: no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines, one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47). Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
+| Flutter `test/liveness` | **298**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with Roboto: no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines, one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47); the demo page (11): no overflow at 360×640 and 412×915 dp at a 1.0 and a 1.3 text scale (also with a failed result), each check card runs the gate with its workflow, no image in the result panel, each simulated row runs its scenario on the fake engine, the overrides, F15 enroll, check and delete, the metrics tiles and Reset, Developer tools opens the debug page and the return refreshes the shown state. Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
 | clientmanager `SessionManagerTest` | **14**, all passing | upstream's tests, and the login token's user name stored as the user id that onboarding uses, removed at logout (task 19) |
 | engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 258, eval 66 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |

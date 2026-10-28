@@ -1,0 +1,92 @@
+From 99348c6c0d4f601b5124f9d5a14289722c366bba Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 11:54:01 +0530
+Subject: [PATCH 53/53] Sign-in page: a "Face liveness demo" pill and a login
+ card without the black outline (task 21, B)
+
+Visual only; the login logic and its texts are unchanged.
+- Debug and profile builds: the corner "Liveness test" text button is a
+  white outlined pill with a face icon, "Face liveness demo"; it opens
+  LivenessDemoPage (the debug page is its "Developer tools"). Release
+  builds still show nothing there.
+- The login card (all builds): no outline; white, radius 16, a soft
+  shadow.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/login_page.dart | 46 +++++++++++++++++++++++++++---------------
+ 1 file changed, 30 insertions(+), 16 deletions(-)
+
+diff --git a/lib/ui/login_page.dart b/lib/ui/login_page.dart
+index 499c8c4..2661ec9 100644
+--- a/lib/ui/login_page.dart
++++ b/lib/ui/login_page.dart
+@@ -22,7 +22,7 @@ import 'package:registration_client/pigeon/user_pigeon.dart';
+ import 'package:registration_client/provider/auth_provider.dart';
+ import 'package:registration_client/provider/sync_provider.dart';
+ import 'package:registration_client/ui/dashboard/dashboard_tablet.dart';
+-import 'package:registration_client/ui/liveness/liveness_debug_page.dart';
++import 'package:registration_client/ui/liveness/liveness_demo_page.dart';
+ import 'package:registration_client/ui/liveness/identity_binding.dart';
+ import 'package:registration_client/ui/liveness/liveness_gate.dart';
+ import 'package:registration_client/ui/liveness/liveness_strings.dart';
+@@ -170,15 +170,28 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
+                     if (kDebugMode || kProfileMode) // never in release
+                       Align(
+                         alignment: Alignment.centerRight,
+-                        child: TextButton(
+-                          onPressed: () => Navigator.push(
+-                            context,
+-                            MaterialPageRoute(
+-                                builder: (_) => const LivenessDebugPage()),
+-                          ),
+-                          child: const Text(
+-                            'Liveness test',
+-                            style: TextStyle(color: appWhite),
++                        child: Padding(
++                          padding: const EdgeInsets.symmetric(horizontal: 16),
++                          child: OutlinedButton.icon(
++                            key: const Key('openLivenessDemo'),
++                            onPressed: () => Navigator.push(
++                              context,
++                              MaterialPageRoute(
++                                  builder: (_) => const LivenessDemoPage()),
++                            ),
++                            style: OutlinedButton.styleFrom(
++                              foregroundColor: appWhite,
++                              side: const BorderSide(color: appWhite),
++                              shape: const StadiumBorder(),
++                              padding: const EdgeInsets.symmetric(
++                                  horizontal: 16, vertical: 10),
++                            ),
++                            icon: const Icon(Icons.face_outlined, size: 20),
++                            label: const Text(
++                              'Face liveness demo',
++                              style: TextStyle(
++                                  fontSize: 14, fontWeight: FontWeight.w500),
++                            ),
+                           ),
+                         ),
+                       ),
+@@ -517,14 +530,15 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
+         horizontal: isMobile && !isMobileSize ? 30.w : 20.w,
+         vertical: isMobile && !isMobileSize ? 30.h : 20.h,
+       ),
+-      decoration: BoxDecoration(
++      decoration: const BoxDecoration(
+         color: appWhite,
+-        border: Border.all(
+-          width: 1.w,
+-        ),
+-        borderRadius: const BorderRadius.all(
+-          Radius.circular(12),
++        borderRadius: BorderRadius.all(
++          Radius.circular(16),
+         ),
++        boxShadow: [
++          BoxShadow(
++              color: Color(0x29000000), blurRadius: 24, offset: Offset(0, 8)),
++        ],
+       ),
+       child: Column(
+         crossAxisAlignment: CrossAxisAlignment.start,

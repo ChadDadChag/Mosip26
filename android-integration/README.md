@@ -20,7 +20,7 @@ phone: [`docs/part5-android-benchmark.md`](../docs/part5-android-benchmark.md).
 
 | path | what it is |
 |---|---|
-| `patches/0001-*.patch` … `0051-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
+| `patches/0001-*.patch` … `0053-*.patch` | one patch per commit of the integration branch, in order, for `git am` |
 | `person5-liveness.diff` | the same changes as one diff, for `git apply` |
 | `scripts/sync-engine.ps1` | builds the engine here and copies it into the client: the four engine jars, the signed model bundle and Part 1's `CameraXFrameSource.java`; writes `android/liveness/engine-sync.txt` |
 | `scripts/apply-integration.ps1` | clones the tag, applies the patches, runs the sync and, with `-BuildApk`, builds the app |
@@ -142,7 +142,9 @@ On a Samsung phone:
 4. If the phone has a Secure Folder, keep `--user 0` in the install command.
 
 Without a MOSIP backend the app stops at the Login page. In debug and profile builds that page
-has a **Liveness test** button (top right), which opens the debug page. From there you can:
+has a **Face liveness demo** button (top right). It opens the demo page: the three real checks, the F15
+identity check, the models, the diagnostics and the simulated screens (`docs/part5-android-integration.md`,
+section 9). Its last row, **Developer tools**, opens the debug page. From the debug page you can:
 - run sessions with the real or the fake engine;
 - run every hook through `LivenessGate` (the "Hook gates" buttons);
 - run the analyzer benchmark;
@@ -193,9 +195,9 @@ bundled version.
    - `cd android; .\gradlew.bat :liveness:testDebugUnitTest`: 115 tests, all passing. The face
      binding and identity binding tests run the real matcher: the module's unit-test classpath swaps in the desktop
      ONNX Runtime (`android/liveness/build.gradle`).
-   - `flutter test test/liveness`: 287 tests, all passing (the 20 screenshot tests are skipped unless
+   - `flutter test test/liveness`: 298 tests, all passing (the 20 screenshot tests are skipped unless
      `LIVENESS_SCREENSHOTS` names a folder).
-3. **On a phone:** open the debug page and run:
+3. **On a phone:** open the debug page (**Face liveness demo**, then **Developer tools**) and run:
    - one "Resident face" hook gate with the fake engine, which needs no camera;
    - one "Resident face" hook gate with the real engine, looking at the camera;
    - the face binding test: "1. Binding gate", then "2. Capture still and bind" with the same
