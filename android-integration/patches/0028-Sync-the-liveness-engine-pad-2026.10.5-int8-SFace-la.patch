@@ -1,7 +1,7 @@
 From cce5f8f51f5114f25ec15fc4793e120caf50e2b1 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sun, 25 Oct 2026 14:34:06 +0530
-Subject: [PATCH 28/57] Sync the liveness engine: pad-2026.10.5 (int8 SFace),
+Subject: [PATCH 28/58] Sync the liveness engine: pad-2026.10.5 (int8 SFace),
  lazy matcher, store base
 
 Engine jars and models from Mosip26 3eea3dc (fix round 2):

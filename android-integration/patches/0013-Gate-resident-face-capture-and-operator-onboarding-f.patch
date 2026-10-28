@@ -1,7 +1,7 @@
 From eb78ee1668b0b3a97beabe21902c0b285d4c9d0c Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 19:32:58 +0530
-Subject: [PATCH 13/57] Gate resident face capture and operator onboarding face
+Subject: [PATCH 13/58] Gate resident face capture and operator onboarding face
  with liveness
 
 Before the SBI face capture, only for the Face tile:

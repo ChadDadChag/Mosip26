@@ -1,7 +1,7 @@
 From 1ec61a9f1d532091fa378cdddd4c07410fa7bb85 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 19:32:57 +0530
-Subject: [PATCH 12/57] Add LivenessGate
+Subject: [PATCH 12/58] Add LivenessGate
 
 lib/ui/liveness/liveness_gate.dart: the one function the registration
 screens call, LivenessGate.run(context, workflow: ...) -> GateResult:

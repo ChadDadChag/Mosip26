@@ -55271,7 +55271,7 @@ index 0012c53..0828ee9 100644
 +  "liveness_model_confirm_rollback": "Roll back to the previous face liveness models? New liveness checks will use them."
  }
 diff --git a/assets/l10n/app_fr.arb b/assets/l10n/app_fr.arb
-index 4935d25..1fc424e 100644
+index 4935d25..c6cc8af 100644
 --- a/assets/l10n/app_fr.arb
 +++ b/assets/l10n/app_fr.arb
 @@ -368,6 +368,67 @@
@@ -55280,14 +55280,14 @@ index 4935d25..1fc424e 100644
    "id": "IDENTIFIANT",
 -  "name": "Nom"
 +  "name": "Nom",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
-+  "liveness_title_resident": "Test de vivacité du visage",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "liveness_title_resident": "Détection du vivant (visage)",
 +  "liveness_title_operator": "Vérification faciale de l'opérateur",
 +  "liveness_title_supervisor": "Vérification faciale du superviseur",
-+  "liveness_status_starting": "Démarrage du test de vivacité du visage…",
-+  "liveness_status_checking": "Vérification de la vivacité du visage…",
++  "liveness_status_starting": "Démarrage de la détection du vivant…",
++  "liveness_status_checking": "Détection du vivant en cours…",
 +  "liveness_status_passed": "Parfait, visage capturé avec succès",
-+  "liveness_status_cancelled": "Test de vivacité du visage annulé.",
++  "liveness_status_cancelled": "Détection du vivant annulée.",
 +  "liveness_challenge_blink": "Veuillez cligner des yeux",
 +  "liveness_challenge_smile": "Veuillez sourire",
 +  "liveness_challenge_turn_left": "Veuillez tourner la tête vers la gauche",
@@ -55305,7 +55305,7 @@ index 4935d25..1fc424e 100644
 +  "liveness_guidance_improve_lighting": "Veuillez améliorer l'éclairage.",
 +  "liveness_guidance_hold_steady": "Veuillez rester immobile.",
 +  "liveness_guidance_look_at_camera": "Veuillez regarder la caméra.",
-+  "liveness_error_liveness_not_verified": "Nous n'avons pas pu vérifier la vivacité du visage. Veuillez réessayer.",
++  "liveness_error_liveness_not_verified": "Nous n'avons pas pu effectuer la détection du vivant. Veuillez réessayer.",
 +  "liveness_error_verification_not_completed": "La vérification faciale n'a pas pu être effectuée. Veuillez réessayer.",
 +  "liveness_error_max_attempts_reached": "La vérification faciale n'a pas pu être effectuée.",
 +  "liveness_error_device_problem": "Caméra ou appareil indisponible. Vérifiez la connexion et réessayez.",
@@ -55326,22 +55326,22 @@ index 4935d25..1fc424e 100644
 +  "liveness_button_cancel": "Annuler",
 +  "liveness_button_close": "Fermer",
 +  "liveness_button_open_settings": "Ouvrir les paramètres",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
-+  "liveness_model_title": "Modèles de vivacité du visage",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "liveness_model_title": "Modèles de détection du vivant (visage)",
 +  "liveness_model_current": "Modèles en service : {version}",
 +  "liveness_model_install": "Installer un lot de modèles",
 +  "liveness_model_rollback": "Restaurer le lot de modèles précédent",
 +  "liveness_model_select_file": "Sélectionner un lot de modèles (.zip)",
 +  "liveness_model_working": "Traitement du lot de modèles… veuillez patienter.",
-+  "liveness_model_installed": "Lot de modèles {version} installé. Les nouvelles vérifications de vivacité l'utilisent.",
-+  "liveness_model_rolled_back": "Modèles restaurés à la version {version}. Les nouvelles vérifications de vivacité les utilisent.",
++  "liveness_model_installed": "Lot de modèles {version} installé. Les nouvelles vérifications du vivant l'utilisent.",
++  "liveness_model_rolled_back": "Modèles restaurés à la version {version}. Les nouvelles vérifications du vivant les utilisent.",
 +  "liveness_model_not_newer": "Ce lot de modèles n'est pas plus récent que les modèles en service. Rien n'a été modifié.",
-+  "liveness_model_invalid": "Ce fichier n'est pas un lot de modèles signé valide. Rien n'a été modifié.",
++  "liveness_model_invalid": "Ce fichier n'est pas un lot de modèles signé et valide. Rien n'a été modifié.",
 +  "liveness_model_nothing_to_roll_back": "Aucun lot de modèles antérieur n'est disponible pour la restauration.",
 +  "liveness_model_failed": "Le lot de modèles n'a pas pu être installé. Rien n'a été modifié. Veuillez réessayer.",
 +  "liveness_model_rollback_failed": "Les modèles n'ont pas pu être restaurés. Rien n'a été modifié.",
-+  "liveness_model_not_allowed": "Seul un superviseur ou un administrateur peut modifier les modèles de vivacité du visage.",
-+  "liveness_model_confirm_rollback": "Restaurer les modèles de vivacité du visage précédents ? Les nouvelles vérifications de vivacité les utiliseront."
++  "liveness_model_not_allowed": "Seul un superviseur ou un administrateur peut modifier les modèles de détection du vivant.",
++  "liveness_model_confirm_rollback": "Restaurer les modèles de détection du vivant précédents ? Les nouvelles vérifications du vivant les utiliseront."
  }
 -
 diff --git a/assets/l10n/app_hi.arb b/assets/l10n/app_hi.arb
@@ -55491,7 +55491,7 @@ index 29bc909..24556a8 100644
 +  "liveness_model_confirm_rollback": "ಹಿಂದಿನ ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳಿಗೆ ಹಿಂತಿರುಗಬೇಕೇ? ಹೊಸ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಳು ಅವುಗಳನ್ನು ಬಳಸುತ್ತವೆ."
  }
 diff --git a/assets/l10n/app_ta.arb b/assets/l10n/app_ta.arb
-index 12ecdf7..08281b0 100644
+index 12ecdf7..a01e319 100644
 --- a/assets/l10n/app_ta.arb
 +++ b/assets/l10n/app_ta.arb
 @@ -377,5 +377,67 @@
@@ -55500,7 +55500,7 @@ index 12ecdf7..08281b0 100644
    "id": "ஐடி",
 -  "name": "பெயர்"
 +  "name": "பெயர்",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: no changes",
 +  "liveness_title_resident": "முக உயிர்ப்புச் சரிபார்ப்பு",
 +  "liveness_title_operator": "ஆபரேட்டர் முக சரிபார்ப்பு",
 +  "liveness_title_supervisor": "மேற்பார்வையாளர் முக சரிபார்ப்பு",
@@ -55546,7 +55546,7 @@ index 12ecdf7..08281b0 100644
 +  "liveness_button_cancel": "ரத்துசெய்",
 +  "liveness_button_close": "மூடு",
 +  "liveness_button_open_settings": "அமைப்புகளைத் திற",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: no changes",
 +  "liveness_model_title": "முக உயிர்ப்பு மாதிரிகள்",
 +  "liveness_model_current": "பயன்பாட்டில் உள்ள மாதிரிகள்: {version}",
 +  "liveness_model_install": "மாதிரித் தொகுப்பை நிறுவு",
@@ -62900,10 +62900,10 @@ index 0000000..c8cc535
 +}
 diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
 new file mode 100644
-index 0000000..d4b04ef
+index 0000000..ad263c7
 --- /dev/null
 +++ b/test/liveness/liveness_l10n_test.dart
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,85 @@
 +import 'dart:convert';
 +import 'dart:io';
 +
@@ -62913,9 +62913,17 @@ index 0000000..d4b04ef
 +import 'package:registration_client/ui/liveness/liveness_strings.dart';
 +
 +/// The liveness strings in every ARB: all 45 keys, the English placeholders, and the
-+/// machine-translation note in each translated file.
++/// translation note in each translated file (machine-translated, and its review).
 +void main() {
 +  const languages = ['ar', 'fr', 'hi', 'kn', 'ta'];
++  // The native-speaker review (2026-10-28): Tamil had no changes, French was corrected; the others are pending.
++  const review = {
++    'ar': 'machine-translated; needs native-speaker review',
++    'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++    'hi': 'machine-translated; needs native-speaker review',
++    'kn': 'machine-translated; needs native-speaker review',
++    'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
++  };
 +  // A placeholder {n}, or the argument of an ICU plural {n, plural, ...}.
 +  final placeholder = RegExp(r'\{(\w+)(?:\}|,\s*plural)');
 +
@@ -62946,8 +62954,8 @@ index 0000000..d4b04ef
 +      expect(a.keys.where((k) => k.startsWith('liveness_') && !k.startsWith('liveness_model_')), hasLength(45), reason: 'no extra keys');
 +    });
 +
-+    test('$lang: marked as machine-translated', () {
-+      expect(arb(lang)['@@x-liveness-translation'], 'machine-translated; needs native-speaker review');
++    test('$lang: marked as machine-translated, with its review', () {
++      expect(arb(lang)['@@x-liveness-translation'], review[lang]);
 +    });
 +  }
 +
@@ -63844,10 +63852,10 @@ index 0000000..62dcff9
 +    );
 diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
 new file mode 100644
-index 0000000..c7fcc59
+index 0000000..177ec52
 --- /dev/null
 +++ b/test/liveness/model_bundle_test.dart
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,186 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -64002,7 +64010,7 @@ index 0000000..c7fcc59
 +    await tester.pumpAndSettle();
 +    await tester.tap(find.byKey(const Key('installModelBundle')));
 +    await tester.pumpAndSettle();
-+    expect(find.text("Lot de modèles pad-2026.10.6 installé. Les nouvelles vérifications de vivacité l'utilisent."),
++    expect(find.text("Lot de modèles pad-2026.10.6 installé. Les nouvelles vérifications du vivant l'utilisent."),
 +        findsOneWidget);
 +  });
 +
@@ -64013,6 +64021,14 @@ index 0000000..c7fcc59
 +    final keys = en.keys.where((k) => k.startsWith('liveness_model_')).toList();
 +    expect(keys, hasLength(15));
 +    final placeholder = RegExp(r'\{(\w+)\}');
++    // The native-speaker review (2026-10-28): Tamil had no changes, French was corrected; the others are pending.
++    const review = {
++      'ar': 'machine-translated; needs native-speaker review',
++      'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++      'hi': 'machine-translated; needs native-speaker review',
++      'kn': 'machine-translated; needs native-speaker review',
++      'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
++    };
 +    for (final lang in ['ar', 'fr', 'hi', 'kn', 'ta']) {
 +      final a = arb(lang);
 +      for (final k in keys) {
@@ -64022,7 +64038,7 @@ index 0000000..c7fcc59
 +            reason: '$lang $k');
 +        expect(a[k], isNot(en[k]), reason: '$lang $k is translated');
 +      }
-+      expect(a['@@x-liveness-model-translation'], 'machine-translated; needs native-speaker review');
++      expect(a['@@x-liveness-model-translation'], review[lang]);
 +    }
 +  });
 +}
