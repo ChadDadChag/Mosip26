@@ -54,7 +54,7 @@ class SessionDemoTest {
         assertThat(SessionDemo.scripted('m').instruction).contains("YOUR FACE", "30 cm");
         assertThat(SessionDemo.scripted('n').instruction).contains("TWO CUT-OUTS", "your face out of view");
         assertThat(SessionDemo.scripted('o').instruction).contains("GROUP PHOTO print");
-        assertThatThrownBy(() -> SessionDemo.scripted('z')).hasMessageContaining("m, n, o");
+        assertThatThrownBy(() -> SessionDemo.scripted('z')).hasMessageContaining("m, n, o").hasMessageContaining("z, zf");
     }
 
     @Test
@@ -123,5 +123,26 @@ class SessionDemoTest {
         }
         assertThat(SessionDemo.scripted("k").instruction).contains("APPROACHING", "SLOWLY");
         assertThatThrownBy(() -> SessionDemo.scripted("w")).hasMessageContaining("w3");
+    }
+
+    @Test
+    void theF5RetakeCasesAreASecondScreenAtRealFaceSizeWithTheReadout() {
+        SessionDemo.Case z = SessionDemo.scripted("z");
+        assertThat(z.id).isEqualTo("z");
+        assertThat(z.forceActive).isFalse();
+        assertThat(z.workflow).isEqualTo(io.mosip.registration.liveness.api.WorkflowType.RESIDENT);
+        assertThat(z.sizeReadout).isTrue();
+        assertThat(z.instruction).startsWith("SECOND SCREEN / TABLET playing your VIDEO")
+                .contains("AS BIG AS A REAL FACE (face size 20-35%)", "your face out of view", "until FINISHED");
+        SessionDemo.Case zf = SessionDemo.scripted(" ZF ");
+        assertThat(zf.id).isEqualTo("zf");
+        assertThat(zf.forceActive).isTrue();
+        assertThat(zf.sizeReadout).isTrue();
+        assertThat(zf.instruction).isEqualTo(z.instruction);
+        assertThat(zf.types).isNull();
+        assertThat(SessionDemo.scripted("f").sizeReadout).as("the old phone-video case is unchanged").isFalse();
+        assertThat(SessionDemo.scripted("y4").sizeReadout).isFalse();
+        assertThatThrownBy(() -> SessionDemo.scripted("z3")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> SessionDemo.scripted("zg")).isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -1,13 +1,19 @@
 package io.mosip.registration.liveness.eval;
 
+import io.mosip.registration.liveness.api.FrameAnalysis;
+
 import org.junit.jupiter.api.Test;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 class DatasetSessionTest {
 
@@ -18,7 +24,7 @@ class DatasetSessionTest {
     @Test
     void theProtocolStepsAreUnchangedAndTheExtraStepsRunOnlyWhenNamed() {
         List<DatasetSession.Step> all = select();
-        assertThat(all).hasSize(12 + 6 + 12 + 6 + 4 + 12);
+        assertThat(all).hasSize(12 + 6 + 12 + 6 + 8 + 12);
         assertThat(all).allSatisfy(s -> {
             assertThat(s.group).isNull();
             assertThat(s.seconds).isEqualTo(6);
@@ -29,6 +35,19 @@ class DatasetSessionTest {
         assertThat(select("bona_fide")).hasSize(12).allSatisfy(s -> assertThat(s.group).isNull());
         assertThat(select("print_flat", "print_curved")).hasSize(12);
         assertThat(DatasetSession.cameraFps(all)).isEqualTo(15.0);
+    }
+
+    @Test
+    void theF5RetakeHoldsTheSecondScreenAtRealFaceSizeUnderTheSameBlockName() {
+        List<DatasetSession.Step> replay = select("screen_replay_monitor");
+        assertThat(replay).extracting(st -> st.take).containsExactly(1, 2, 3, 4, 5, 6, 7, 8);
+        assertThat(replay.subList(0, 4)).allSatisfy(st -> assertThat(st.condition).isEqualTo("selfie_video"));
+        assertThat(replay.subList(4, 8)).allSatisfy(st -> {
+            assertThat(st.condition).isEqualTo("video_realsize");
+            assertThat(st.prompt).contains("AS BIG AS A REAL FACE", "face size 20-35%", "OUT of view", "S = skip");
+            assertThat(st.take("s01", new File("eval-data")).dir())
+                    .isEqualTo(new File("eval-data", "attack/screen_replay_monitor/s01/" + st.take));
+        });
     }
 
     @Test
@@ -90,5 +109,77 @@ class DatasetSessionTest {
         });
         assertThat(each.get(0).take("s01", root).dir()).isEqualTo(new File(root, "streams/s01/curved_01"));
         assertThat(each.get(11).prompt).startsWith("CUT-OUT 12 of 12, CURVED");
+    }
+
+    @Test
+    void theFaceSizeIsTheBoxShareOfThePictureForExactlyOneFace() {
+        float[] box = {100, 80, 160, 192}; // 160 x 192 of 640 x 480: 10%
+        assertThat(DatasetSession.Readout.areaOf(analysis(1, box), 640, 480)).isCloseTo(0.10f, within(1e-6f));
+        assertThat(DatasetSession.Readout.areaOf(analysis(0, null), 640, 480)).isEqualTo(-1f);
+        // Two faces: the analyzer still reports a box, but no single face's size.
+        assertThat(DatasetSession.Readout.areaOf(analysis(2, box), 640, 480)).isEqualTo(-1f);
+    }
+
+    @Test
+    void theFaceSizeLabelReadsNormallyOnTheMirroredPreviewAtTheTopLeft() {
+        // The preview panel flips image coordinates when mirrored, overlay included. The label is drawn flipped back,
+        // so after the panel's flip it is the plain label.
+        BufferedImage plain = render(0.25f, false);
+        BufferedImage shown = flip(render(0.25f, true));
+        int label = 0;
+        int differing = 0;
+        for (int y = 0; y < plain.getHeight(); y++) {
+            for (int x = 0; x < plain.getWidth(); x++) {
+                if (plain.getRGB(x, y) != WHITE) label++;
+                if (plain.getRGB(x, y) != shown.getRGB(x, y)) differing++;
+            }
+        }
+        assertThat(label).isGreaterThan(5000);
+        assertThat(differing).as("pixels that differ (glyph edges may round differently)").isLessThan(label / 50);
+        // At the video's top-left, not mirrored to its right.
+        assertThat(shown.getRGB(14, 14)).isNotEqualTo(WHITE);
+        assertThat(shown.getRGB(625, 14)).isEqualTo(WHITE);
+        // Green inside the 20-35% target, orange outside.
+        assertThat(count(plain, new Color(80, 220, 80))).isGreaterThan(100);
+        assertThat(count(render(0.12f, false), new Color(255, 160, 0))).isGreaterThan(100);
+        assertThat(count(render(0.12f, false), new Color(80, 220, 80))).isZero();
+    }
+
+    private static final int WHITE = Color.WHITE.getRGB();
+
+    private static FrameAnalysis analysis(int faces, float[] box) {
+        return new FrameAnalysis(null, faces, box, null, 0, 0, 0, null, 0.9f, null, 1);
+    }
+
+    /** The overlay on a white 640 x 480 picture, without a box: the label alone. */
+    private static BufferedImage render(float area, boolean mirrored) {
+        BufferedImage img = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 640, 480);
+        DatasetSession.Readout.sizeOverlay(null, area, 640, mirrored).paint(g);
+        g.dispose();
+        return img;
+    }
+
+    /** What the mirrored preview shows: the picture flipped left to right. */
+    private static BufferedImage flip(BufferedImage img) {
+        BufferedImage out = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < img.getHeight(); y++) {
+            for (int x = 0; x < img.getWidth(); x++) {
+                out.setRGB(img.getWidth() - 1 - x, y, img.getRGB(x, y));
+            }
+        }
+        return out;
+    }
+
+    private static int count(BufferedImage img, Color c) {
+        int n = 0;
+        for (int y = 0; y < img.getHeight(); y++) {
+            for (int x = 0; x < img.getWidth(); x++) {
+                if (img.getRGB(x, y) == c.getRGB()) n++;
+            }
+        }
+        return n;
     }
 }
