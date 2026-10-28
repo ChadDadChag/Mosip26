@@ -49,7 +49,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *   LiveAnalyzerDemo --mode series     --plan a,b,c,...   scripted session runs with prompts (see {@link SessionDemo})
  *                                      [--challenge-types ...] [--config key=value ...] [--set name=value ...]
  *   LiveAnalyzerDemo --mode traces     --consent [--labels ...] [--takes 2]   guided Part 3 TraceRecorder takes
- *   LiveAnalyzerDemo --mode dataset    --consent [--subject s01] [--only species,...]   guided PAD dataset takes
+ *   LiveAnalyzerDemo --mode dataset    --consent --subject s01 [--only species,...]     guided PAD dataset takes
  * </pre>
  * Every mode takes {@code --capture opencv|sarxos} (default opencv, see {@link WebcamFrameSource}).
  */

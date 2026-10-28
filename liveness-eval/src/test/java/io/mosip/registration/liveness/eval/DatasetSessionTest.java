@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 class DatasetSessionTest {
@@ -162,6 +163,23 @@ class DatasetSessionTest {
         assertThat(count(render(0.50f, false, target("selfie_fill")), GREEN)).as("20% or more").isGreaterThan(100);
         BufferedImage none = render(0.30f, false, null);
         assertThat(count(none, GREEN) + count(none, ORANGE)).as("no target, no judgement").isZero();
+    }
+
+    @Test
+    void theSubjectCodeIsRequiredAndIsACodeNotAName() {
+        // E8 (task 29): there is no default s01 any more; a teammate recorded without --subject filled s01's gaps.
+        assertThatThrownBy(() -> DatasetSession.subjectOf(args()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("--subject <code> is required");
+        assertThat(DatasetSession.subjectOf(args("--subject", "s02"))).isEqualTo("s02");
+        assertThat(DatasetSession.subjectOf(args("--subject", "p05"))).isEqualTo("p05");
+        assertThatThrownBy(() -> DatasetSession.subjectOf(args("--subject", "Alice")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("never a name");
+        assertThatThrownBy(() -> DatasetSession.subjectOf(args("--subject", "s1")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static ModelBundleTool.Args args(String... a) {
+        return ModelBundleTool.Args.parse(a, 0);
     }
 
     /** The size target of the first protocol step with this condition. */

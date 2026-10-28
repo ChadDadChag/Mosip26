@@ -1,22 +1,28 @@
 # Starts the guided PAD dataset session (LiveAnalyzerDemo --mode dataset) from this repository's liveness-eval build
 # (Windows; development only).
 #
-#   scripts\dataset-session.ps1 -Consent [-Subject s01] [-Only print_flat,print_curved] [-Root eval-data] [-Camera 0]
+#   scripts\dataset-session.ps1 -Consent -Subject s01 [-Only print_flat,print_curved] [-Root eval-data] [-Camera 0]
 #                               [-Capture opencv|sarxos]
 #
 # Pass -Consent only after the participant has agreed to the consent text (docs/part2-dataset-protocol.md section 2);
-# without it the session refuses before the camera opens. -Only selects a block: print_flat,print_curved (prints),
+# without it the session refuses before the camera opens. -Subject is required: the takes are filed and evaluated
+# under that code (s01, s02, ...; never a name). -Only selects a block: print_flat,print_curved (prints),
 # f16 (regression clips, no person in view), f2_banding (lossless 30 fps), bona_fide (a new subject),
 # screen_replay_monitor (a second screen). Frames stay under eval-data\ (gitignored).
 param(
     [switch]$Consent,
-    [string]$Subject = "s01",
+    [string]$Subject = "",
     [string[]]$Only = @(),
     [string]$Root = "eval-data",
     [int]$Camera = 0,
     [ValidateSet("opencv", "sarxos")][string]$Capture = "opencv"
 )
 $ErrorActionPreference = "Stop"
+if (-not $Subject) {
+    # No default: a teammate recorded under s01 would fill s01's gaps and count as s01 (task 29, E8).
+    Write-Error "REFUSED: -Subject <code> is required (s01, s02, ...). Nothing was recorded."
+    exit 1
+}
 $repo = Split-Path -Parent $PSScriptRoot
 $eval = Join-Path $repo "liveness-eval"
 $classes = Join-Path $eval "target\classes"

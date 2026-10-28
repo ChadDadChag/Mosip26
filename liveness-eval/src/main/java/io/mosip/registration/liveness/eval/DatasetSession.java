@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
  * walks through the protocol's takes with one-line prompts and a countdown beep, records each with
  * {@link DatasetRecorder} while the camera stays open, and prints the takes per species at the end.
  * <pre>
- *   LiveAnalyzerDemo --mode dataset --consent [--subject s01] [--only species-or-condition,...] [--root eval-data]
+ *   LiveAnalyzerDemo --mode dataset --consent --subject s01 [--only species-or-condition,...] [--root eval-data]
  * </pre>
  * Takes already on disk are skipped, so an interrupted session can simply be run again. A live readout (face size as a
  * share of the picture, whether the whole face is visible) comes from the analyzer on preview frames, in memory only.
@@ -216,12 +216,38 @@ final class DatasetSession {
 
     private DatasetSession() { }
 
+    private static final Pattern SUBJECT_CODE = Pattern.compile("[a-z][0-9]{2,3}");
+
+    /**
+     * The --subject code, which is required: a take recorded under the wrong code counts as that person (a teammate in
+     * s01's folder fills s01's gaps and becomes s01 in F15 and BPCER). Codes only (s01, s02, p05, ...), never a name.
+     */
+    static String subjectOf(ModelBundleTool.Args a) {
+        if (!a.has("--subject")) {
+            throw new IllegalArgumentException("--subject <code> is required (s01, s02, ...): the takes are filed and"
+                    + " evaluated under it. Nothing was recorded.");
+        }
+        String subject = a.single("--subject").trim();
+        if (!SUBJECT_CODE.matcher(subject).matches()) {
+            throw new IllegalArgumentException("--subject takes a code such as s02, never a name: \"" + subject
+                    + "\" is not one. Nothing was recorded.");
+        }
+        return subject;
+    }
+
     static void run(ModelBundleTool.Args a, int camera) throws Exception {
         if (!a.has("--consent")) {
             System.err.println("REFUSED: recording a person requires their consent; pass --consent once they have agreed.");
             System.exit(1);
         }
-        String subject = a.has("--subject") ? a.single("--subject") : "s01";
+        String subject;
+        try {
+            subject = subjectOf(a);
+        } catch (IllegalArgumentException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
         File root = new File(a.has("--root") ? a.single("--root") : "eval-data");
         List<String> only = a.has("--only") ? Arrays.asList(a.single("--only").split(",")) : null;
         List<Step> steps = select(plan(), only);
