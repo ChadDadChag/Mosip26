@@ -743,7 +743,7 @@ short:
 | step | what |
 |---|---|
 | toolchain | git; JDK 11 + Maven 3.9.9 (engine); JDK 21, Android SDK 34 (build-tools 34.0.0), Flutter 3.10.4 (app) |
-| apply | clone `v1.1.1`, then `git am` the 53 patches (or `git apply` the one diff) |
+| apply | clone `v1.1.1`, then `git am` the 55 patches (or `git apply` the one diff) |
 | sync | `android-integration/scripts/sync-engine.ps1 -Clone <client>`: engine jars, signed models, camera source, and `engine-sync.txt` with commit and SHA-256 |
 | generate | `pigeon.sh` (Git Bash), then restore `ios/Runner/pigeon.h/.m` |
 | build | `flutter build apk --debug` (diagnostics); `--profile --split-per-abi` (timings, one APK per ABI; not debuggable); `--release` (no diagnostics; add `--split-per-abi` to distribute) |
@@ -778,20 +778,35 @@ this page. It offers:
   action needed", "Passed after N actions", "Not verified"), the engine's message, and the time and attempts; never
   an image. Under it: "Always ask for actions" (the debug page's passive threshold override, 0.9999), the app
   language, and the front or back camera (the camera override of all three workflows);
-- **Identity check (F15)**: enroll a test face, check, delete, with the debug page's calls (below);
+- **Identity check** (F15; the page shows no F-codes): enroll a test face, check, delete, with the debug page's
+  calls (below);
 - **Models**: the loaded version and **Manage models**, the production page (section 3 (i));
 - **Diagnostics**: the persisted metrics (section 7) as tiles with their units, Refresh, and Reset after a
   confirmation;
-- **Simulated screens**: the fake engine's 13 scenarios in plain words, each on the face check screen with the
-  placeholder preview;
+- **Simulated screens**: 12 of the fake engine's scenarios in plain words, each on the face check screen with the
+  placeholder preview. RANDOM stays on the debug page: a demo shows a known screen;
 - **Developer tools**: the debug page.
 
 The native side keeps config overrides in memory and cannot list them. `LivenessDevOverrides` records the ones
 the app set (the debug page sets them through it too), so the demo page shows the debug page's changes when the
-user comes back.
+user comes back. The blue header carries the title; once it has scrolled away, the title fades into the app bar.
 
 **Sign-in page (task 21).** Visual only; the login logic and texts are MOSIP's. The login card has no outline: white,
 radius 16, a soft shadow (all builds). The demo button is a white outlined pill (debug and profile builds only).
+
+**Font (task 21).** One typeface for the six app languages: Noto Sans (400, 500, 600, 700), with Noto Sans Arabic,
+Devanagari, Kannada and Tamil (400 and 600) as fallbacks, bundled in the APK: 2.7 MB of TTFs, 1.45 MB compressed in
+the APK. `main.dart`'s theme sets the family and the fallbacks, so every screen uses them; MOSIP's own text sizes
+stay. The type scale (headline 28/600, title 20/600, body 16/400, label 14/500, caption 13/400) is `AppTypeScale`, a
+theme extension: MOSIP's screens use the Material text slots (its theme sets titleLarge 24 and bodyLarge 18), so the
+scale does not overwrite them; new screens, such as the demo page, read it. The face check screen keeps its layout
+and `LivenessStyle` sizes. With Noto Sans the English device-error text takes 3 lines on phones narrower than about
+380 dp (spec §9). Files, source commit and SHA-256: [`android-integration/README.md`](../android-integration/README.md),
+"Fonts".
+
+**Third-party: fonts.** The Noto fonts are Copyright 2022 The Noto Project Authors, under the SIL Open Font License
+1.1, which allows bundling them with software. They are unmodified. The app ships the licence as
+`assets/fonts/OFL.txt` and lists it on Flutter's licence page (`LicenseRegistry`).
 
 **Debug page (debug and profile builds).** Open it from the demo page: **Developer tools**, its last row. It
 offers:
@@ -817,7 +832,7 @@ Counts as of 2026-10-28.
 | suite | tests | covers |
 |---|---|---|
 | `android/liveness` module (JVM) | **115**, all passing | audit sink (11, with REG-EVT-019), config provider (4), asset bundle source (6), event and result maps (9), holder config, reload, Android defaults, exposure key, bundle install refusal, model update refusal and audit (13), swappable factory (3), timing (2), metrics store (5), benchmark bookkeeping (6), CameraX YUV conversion and rotation (4), frame pacing (5), exposure assist (7); face binding on the real matcher with the golden PNGs (10), the BitmapFactory decoder with Robolectric (4), matcher benchmark (2); model update settings, scheduling without WorkManager and the outcomes kept while the engine is down (4); F17 offline install with a bundle signed by a throwaway key: install and reload, tampered (also when it claims an older version), older, zip-slip, rollback, role gate, the debug builds' role override (ignored by release builds), config switch (10); F15 identity binding on the real matcher with the golden PNGs: a match uses the frame once, another person, the best of several with unreadable ones counted, not bound and required, every failure fails closed, skipped and the frame dropped, the failed-login rule, both switches in every spelling, a frame held for another workflow or session refused and dropped (9); only a debug build reads the F15 test template, audited templateSource=diagnostics-test (1) |
-| Flutter `test/liveness` | **298**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with Roboto: no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines, one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47); the demo page (11): no overflow at 360×640 and 412×915 dp at a 1.0 and a 1.3 text scale (also with a failed result), each check card runs the gate with its workflow, no image in the result panel, each simulated row runs its scenario on the fake engine, the overrides, F15 enroll, check and delete, the metrics tiles and Reset, Developer tools opens the debug page and the return refreshes the shown state. Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
+| Flutter `test/liveness` | **299**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with the bundled Noto fonts (task 21; Roboto before): no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines (the English device-error text: at most 3 below about 380 dp, measured), one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47); the demo page (12): no overflow at 360×640 and 412×915 dp at a 1.0 and a 1.3 text scale (also with a failed result), the app bar shows the title only once the header has scrolled away, each check card runs the gate with its workflow, no image in the result panel, each simulated row runs its scenario on the fake engine and none is the random one, the overrides, F15 enroll, check and delete, the metrics tiles and Reset, Developer tools opens the debug page and the return refreshes the shown state. Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
 | clientmanager `SessionManagerTest` | **14**, all passing | upstream's tests, and the login token's user name stored as the user id that onboarding uses, removed at logout (task 19) |
 | engine (Mosip26) | api 5, core 227, fake 44, tools 12, analyzer 258, eval 66 | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
@@ -889,10 +904,15 @@ provisional.
 - **One invalid analyzer setting resets them all (task 20).** If any analyzer value (the identity threshold included)
   is invalid, every analyzer setting uses the Android defaults, not only that one. The log has a WARN line that names
   the key.
-- **The hint line on a phone screen (task 20).** Measured with the test fonts at 412×915 dp and at the S23 FE's
+- **The hint line on a phone screen (task 20).** Measured with the test fonts of then (Roboto) at 412×915 dp and at the S23 FE's
   411×891 dp (with no system bars, and with a 32 dp status bar and a 48 dp button navigation bar): in English and
   French the camera card stays at its 45% cap, so a hint never moves it. At text scale 1.0 every guidance hint takes
   one line; at 1.3 the "No face detected" hint takes two, and the progress row below it moves down by one line.
+- **The device-error status on narrow phones (task 21).** With Noto Sans, the English text "Camera/device not
+  available. Check the connection and try again." is 511 dp on one line in SemiBold at the 16 sp minimum, against
+  264 dp available on a 360 dp phone (Roboto: 471 dp), so it takes 3 lines below about 380 dp; the status card grows
+  by 20 dp and nothing overflows. The text is word for word from the problem statement and the status tokens are
+  shared with Desktop, so neither changes.
   Screens with less than 420 dp for the content use the scrolling layout. Arabic, Hindi, Kannada and Tamil were not
   measured with their own fonts.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the

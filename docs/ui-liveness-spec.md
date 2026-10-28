@@ -554,7 +554,7 @@ The content is centred and at most 560 dp/px wide. A phone at 360×640 or 412×9
 |---|---|
 | Camera card | 3:4 on the phone, 4:3 on Desktop; radius 16. At most 45% of the screen height; it takes what is left, so it is smaller when the tips need the room. The face oval has a 4 dp stroke in the state colour, with a 40% black scrim outside the oval |
 | State badge | a 28 dp circle in the state colour, with a 1.5 dp white ring and an 18 dp icon. It sits on the oval's top centre, inside the card; the same badge starts the status card |
-| Status card | the badge and one message, centred as one group: the text is only as wide as its longest line, so a wrapped status keeps the badge next to it (10 dp apart). 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
+| Status card | the badge and one message, centred as one group: the text is only as wide as its longest line, so a wrapped status keeps the badge next to it (10 dp apart). 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). With Noto Sans (Android, task 21), the English device-error text takes 3 lines below ~380 dp: 511 dp in SemiBold at 16 sp against 264 dp available on a 360 dp phone (Roboto was 471 dp, 2 lines). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
 | Hint line | 15 sp/px regular, grey-700 (#616161), centred, with the warning icon (#B26A00) beside guidance. While guidance can still arrive (the session runs and has not failed), the line keeps 20 dp even when it is empty |
 | Progress row | During challenges: "Step i of n" at the start, a segmented bar, "Attempt a of m" at the end. Captions are 13 sp/px grey-700, each at most 35% of the row. One segment per challenge, 6 dp high, 4 dp apart, grey #E0E0E0: done steps are filled with the primary colour, the current one is half filled and fills further with the challenge's progress. Otherwise "Attempt a of m" alone, centred, while the session runs. After a failed attempt only the attempts left, e.g. "3 attempts left" (15 sp/px). No bar outside challenges |
 | Tips | failure only (LIVENESS_NOT_VERIFIED). A light-grey card (#F5F5F5), radius 12, 14 sp/px, bullets with a hanging indent: the bullet, 8 dp, then the text, so a wrapped tip continues under its text. On the phone at most 40% of the content height; beyond that it scrolls |
@@ -574,7 +574,7 @@ Text is #212121 (16.1:1 on white, at least 13.6:1 on every 10% status tint) or #
 tips card). The outlined buttons' #1C43A1 on white is 8.9:1. The warning icon is 4.2:1, where non-text needs 3:1. A
 colour always comes with an icon and a text (§7).
 
-**Type.** Each client's own family: Roboto on Android; Segoe UI on Windows, with its Semibold face for 600. Status
+**Type.** Each client's own family: Noto Sans on Android (bundled, with the Arabic, Devanagari, Kannada and Tamil Noto families as fallbacks; task 21); Segoe UI on Windows, with its Semibold face for 600. Status
 20/600, body 15/400, tips 14/400, caption 13/400. No ALL CAPS.
 
 **Motion.** A 200 ms cross-fade when the status changes, and nothing else; the Desktop challenge-icon pulse is gone.
@@ -591,12 +591,12 @@ It is off when the system's reduce-motion setting is on (Android) or with `deskt
 
 **Tests.**
 - Android, `test/liveness/liveness_page_layout_test.dart`: every state at 360×640 and 412×915 dp, in English, in
-  Arabic and at a 1.3 text scale, with Roboto loaded. It checks:
+  Arabic and at a 1.3 text scale, with the app's bundled Noto fonts loaded. It checks:
   - no overflow, and nothing scrolls but the tips;
   - the buttons are on screen and 48 high;
   - the camera card is 3:4 and at least 30% of the height (15% with the tips);
   - the badge is on the oval's top centre;
-  - the English status takes at most 2 lines;
+  - the English status takes at most 2 lines (the device-error text: 3 below about 380 dp, see the status card);
   - a failed attempt shows one attempts line;
   - the right-to-left order.
 - Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window), 720×688 (the window

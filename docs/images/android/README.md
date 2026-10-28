@@ -4,7 +4,7 @@ The Android Registration Client's `LivenessPage` (Person 5, P5-3) in each state 
 [`docs/ui-liveness-spec.md`](../../ui-liveness-spec.md) §3, drawn to the visual design of §9. Rendered on 2026-10-28
 by the client's `test/liveness/liveness_screenshots_test.dart` from the **fake engine's events**, with the grey
 **placeholder** instead of a camera picture, so no face or personal data can appear. 360×740 dp at 1.5× (540×1110 px),
-the size of the earlier phone screenshots, with Roboto; no system bars.
+the size of the earlier phone screenshots, with the app's Noto Sans (task 21); no system bars.
 
     LIVENESS_SCREENSHOTS=<dir> flutter test test/liveness/liveness_screenshots_test.dart
 
@@ -34,5 +34,5 @@ the size of the earlier phone screenshots, with Roboto; no system bars.
 The oval colour always comes with the state badge, an icon. The debug-only model chip is off. The screenshots are in
 English. The app has the liveness texts in all six of its languages (English, Arabic, French, Hindi, Kannada and
 Tamil), added in fix round 4; the five non-English ones are machine-translated and need a native speaker's review
-(see [`docs/ui-liveness-spec.md`](../../ui-liveness-spec.md) Appendix A). On the phone itself the screen is the same;
-the test renders the semibold status in Roboto's bold face, which the SDK ships.
+(see [`docs/ui-liveness-spec.md`](../../ui-liveness-spec.md) Appendix A). On the phone itself the screen is the same:
+the test loads the app's bundled fonts. In `15` and `16` the English device text takes 3 lines at 360 dp (spec §9, status card).

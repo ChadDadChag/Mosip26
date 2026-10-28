@@ -1,0 +1,468 @@
+From 92c6267bafbc2b2c71f398ad1e687e29b216cfbd Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 12:07:56 +0530
+Subject: [PATCH 55/55] Demo page: the type scale, the title in the app bar
+ once the header has scrolled away, "Identity check", no random scenario (task
+ 21, C and review)
+
+- Text styles from AppTypeScale (the theme's type scale) in LivenessStyle's
+  colours, instead of the page's own sizes.
+- The app bar is empty while the blue header (which carries the title) is
+  in view; once the header has scrolled under it, "Face liveness demo"
+  fades in (150 ms). The header's height is kept after the list drops it.
+- The section "Identity check (F15)" is "Identity check": the F-codes stay
+  in code and docs.
+- Simulated screens: 12 rows; RANDOM stays on the debug page (a demo shows
+  a known screen).
+
+Tests: the app bar title (hidden at the top, shown below the header, also
+once the list has dropped the header, hidden again at the top); no random
+row; the other 11 as before. flutter test test/liveness: 299 passing, 20
+skipped.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/liveness/liveness_demo_page.dart    | 180 +++++++++++++--------
+ test/liveness/liveness_demo_page_test.dart |  20 ++-
+ 2 files changed, 128 insertions(+), 72 deletions(-)
+
+diff --git a/lib/ui/liveness/liveness_demo_page.dart b/lib/ui/liveness/liveness_demo_page.dart
+index b7ca90c..375ee37 100644
+--- a/lib/ui/liveness/liveness_demo_page.dart
++++ b/lib/ui/liveness/liveness_demo_page.dart
+@@ -22,6 +22,7 @@ import 'package:registration_client/ui/liveness/liveness_page.dart';
+ import 'package:registration_client/ui/liveness/liveness_strings.dart';
+ import 'package:registration_client/ui/liveness/liveness_style.dart';
+ import 'package:registration_client/ui/liveness/model_bundle_page.dart';
++import 'package:registration_client/utils/app_fonts.dart';
+ 
+ /// Debug and profile builds only (never release): the face liveness demo the sign-in page opens. It runs the real
+ /// engine through [LivenessGate.run] as the registration flows do, the F15 identity test, the model page, the
+@@ -65,7 +66,8 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+     _Run('Operator sign-in', 'After the operator\'s password', Icons.login, LivenessGate.operator),
+     _Run('Supervisor approval', 'Before packets are approved', Icons.verified_user_outlined, LivenessGate.supervisor),
+   ];
+-  // The fake engine's scenarios (FakeScenario), in plain words.
++  // The fake engine's scenarios (FakeScenario), in plain words; RANDOM only on the debug page (a demo shows a
++  // known screen).
+   static const List<List<String>> _scenarios = [
+     ['PASS_PASSIVE', 'Passed with no action'],
+     ['PASS_ACTIVE', 'Passed after actions'],
+@@ -79,12 +81,17 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+     ['DEVICE_DISCONNECT', 'Camera disconnected, then passed'],
+     ['DEVICE_FAILURE', 'Camera keeps failing'],
+     ['ENGINE_ERROR', 'Engine error'],
+-    ['RANDOM', 'A random scenario'],
+   ];
+ 
+   late final LivenessService _service = widget.service ?? LivenessService();
+   late final LivenessApi _api = widget.api ?? LivenessApi();
+   StreamSubscription<LivenessMessage>? _subscription;
++  final ScrollController _scroll = ScrollController();
++  final GlobalKey _headerKey = GlobalKey();
++  double? _headerHeight;
++  // The app bar shows the title once the header, which carries it, has scrolled away.
++  bool _titleShown = false;
++  late _DemoText _t;
+   // The passing attempt's challenge count of each session, from its result message.
+   final Map<String, int> _actions = {};
+ 
+@@ -108,15 +115,26 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+       final session = m.sessionId;
+       if (m.isComplete && session != null) _actions[session] = m.challengesIssued.length;
+     });
++    _scroll.addListener(_onScroll);
++    WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());
+     _refreshAll();
+   }
+ 
+   @override
+   void dispose() {
+     _subscription?.cancel();
++    _scroll.dispose();
+     super.dispose();
+   }
+ 
++  void _onScroll() {
++    // The list drops the header once it is far out of view: keep its last height.
++    _headerHeight = _headerKey.currentContext?.size?.height ?? _headerHeight;
++    final header = _headerHeight;
++    final shown = header != null && _scroll.hasClients && _scroll.offset >= header - 24;
++    if (shown != _titleShown && mounted) setState(() => _titleShown = shown);
++  }
++
+   /// The shown state: the models, the overrides (also after the debug page changed them), the test face, the metrics.
+   Future<void> _refreshAll() async {
+     String version = _modelVersion;
+@@ -390,6 +408,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   @override
+   Widget build(BuildContext context) {
+     if (!kDebugMode && !kProfileMode) return const Scaffold(body: SizedBox.shrink());
++    _t = _DemoText(AppTypeScale.of(context));
+     return Directionality(
+       textDirection: TextDirection.ltr,
+       child: Scaffold(
+@@ -397,10 +416,17 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+         appBar: AppBar(
+           backgroundColor: LivenessStyle.primary,
+           foregroundColor: Colors.white,
+-          elevation: 0,
++          elevation: _titleShown ? 2 : 0,
++          title: AnimatedOpacity(
++            key: const Key('demo.appBarTitle'),
++            opacity: _titleShown ? 1 : 0,
++            duration: const Duration(milliseconds: 150),
++            child: Text('Face liveness demo', style: _t.title.copyWith(color: Colors.white)),
++          ),
+         ),
+         body: ListView(
+           key: const Key('demo.list'),
++          controller: _scroll,
+           padding: const EdgeInsets.only(bottom: 32),
+           children: [
+             _header(),
+@@ -410,7 +436,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+               const SizedBox(height: 12),
+               _settings(context),
+             ]),
+-            _section('Identity check (F15)', null, [_identityCard()]),
++            _section('Identity check', null, [_identityCard()]),
+             _section('Models', null, [_modelsCard()]),
+             _section('Diagnostics', 'Real checks on this phone, stored without images or names', [_diagnostics()]),
+             _section('Simulated screens', 'Fake engine – shows every message without a real check',
+@@ -433,14 +459,15 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+       );
+ 
+   Widget _header() => Container(
++        key: _headerKey,
+         color: LivenessStyle.primary,
+         padding: const EdgeInsets.only(bottom: 24),
+         child: _width(Column(
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+-            const Text('Face liveness demo', style: _Demo.headline),
++            Text('Face liveness demo', style: _t.headline),
+             const SizedBox(height: 8),
+-            const Text('Developer build · works offline · no MOSIP server needed', style: _Demo.onPrimary),
++            Text('Developer build · works offline · no MOSIP server needed', style: _t.onPrimary),
+             const SizedBox(height: 16),
+             Container(
+               key: const Key('demo.modelChip'),
+@@ -458,7 +485,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                     child: Text(
+                       // A version is shown only once its signed bundle has been verified and loaded.
+                       _modelVersion.isEmpty ? 'Models loading…' : 'Models $_modelVersion · signed',
+-                      style: _Demo.chip,
++                      style: _t.chip,
+                     ),
+                   ),
+                 ],
+@@ -473,10 +500,10 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+         children: [
+           const SizedBox(height: 28),
+           if (title != null) ...[
+-            Text(title, style: _Demo.title),
++            Text(title, style: _t.title),
+             if (caption != null) ...[
+               const SizedBox(height: 4),
+-              Text(caption, style: _Demo.caption),
++              Text(caption, style: _t.caption),
+             ],
+             const SizedBox(height: 12),
+           ],
+@@ -496,9 +523,9 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+-                  Text(run.title, style: _Demo.cardTitle),
++                  Text(run.title, style: _t.cardTitle),
+                   const SizedBox(height: 2),
+-                  Text(run.line, style: _Demo.secondary),
++                  Text(run.line, style: _t.secondary),
+                 ],
+               ),
+             ),
+@@ -593,7 +620,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+             key: const Key('demo.forceActions'),
+             contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+             secondary: const Icon(Icons.gesture, color: LivenessStyle.primary),
+-            title: const Text('Always ask for actions (blink, turn, smile)', style: _Demo.body),
++            title: Text('Always ask for actions (blink, turn, smile)', style: _t.body),
+             value: _forceActions,
+             activeColor: LivenessStyle.primary,
+             onChanged: _busy ? null : _setForceActions,
+@@ -607,7 +634,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+               value: language,
+               underline: const SizedBox.shrink(),
+               items: _uiLanguages.entries
+-                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: _Demo.body)))
++                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: _t.body)))
+                   .toList(),
+               onChanged: _busy ? null : (code) => context.read<GlobalProvider>().toggleLocale(code!),
+             ),
+@@ -651,7 +678,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                 alignment: WrapAlignment.spaceBetween,
+                 crossAxisAlignment: WrapCrossAlignment.center,
+                 runSpacing: 4,
+-                children: [Text(label, style: _Demo.body), control],
++                children: [Text(label, style: _t.body), control],
+               ),
+             ),
+           ],
+@@ -671,7 +698,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                     _identityTemplate
+                         ? 'A test face is enrolled on this phone. A new face check is compared with it.'
+                         : 'Enroll a test face (kept only on this phone), then compare a new face check with it.',
+-                    style: _Demo.secondary,
++                    style: _t.secondary,
+                   ),
+                 ),
+               ],
+@@ -687,10 +714,10 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                 _busy || !_identityTemplate ? null : _identityDelete),
+             const SizedBox(height: 16),
+             Text(_identityLine ?? (_identityTemplate ? 'Test face enrolled' : 'No test face enrolled'),
+-                key: const Key('demo.identity.result'), style: _Demo.cardTitle),
++                key: const Key('demo.identity.result'), style: _t.cardTitle),
+             if (_identityDetail != null) ...[
+               const SizedBox(height: 2),
+-              Text(_identityDetail!, style: _Demo.caption),
++              Text(_identityDetail!, style: _t.caption),
+             ],
+           ],
+         ),
+@@ -709,7 +736,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(LivenessStyle.buttonRadius)),
+         ),
+-        child: Text(label, style: _Demo.label),
++        child: Text(label, style: _t.label),
+       );
+ 
+   Widget _modelsCard() => _DemoCard(
+@@ -724,12 +751,12 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                   child: Column(
+                     crossAxisAlignment: CrossAxisAlignment.start,
+                     children: [
+-                      const Text('Models in use', style: _Demo.caption),
++                      Text('Models in use', style: _t.caption),
+                       const SizedBox(height: 2),
+                       Text(_modelVersion.isEmpty ? 'Loading…' : _modelVersion,
+-                          key: const Key('demo.modelVersion'), style: _Demo.cardTitle),
++                          key: const Key('demo.modelVersion'), style: _t.cardTitle),
+                       const SizedBox(height: 2),
+-                      const Text('Signed bundle, verified when loaded', style: _Demo.caption),
++                      Text('Signed bundle, verified when loaded', style: _t.caption),
+                     ],
+                   ),
+                 ),
+@@ -781,9 +808,9 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                       child: Column(
+                         crossAxisAlignment: CrossAxisAlignment.start,
+                         children: [
+-                          Text(_metricsLoaded ? t[1] : '–', style: _Demo.stat),
++                          Text(_metricsLoaded ? t[1] : '–', style: _t.title),
+                           const SizedBox(height: 4),
+-                          Text(t[2], style: _Demo.caption),
++                          Text(t[2], style: _t.caption),
+                         ],
+                       ),
+                     ),
+@@ -801,13 +828,13 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+               key: const Key('demo.metrics.refresh'),
+               onPressed: _refreshMetrics,
+               icon: const Icon(Icons.refresh),
+-              label: const Text('Refresh', style: _Demo.label),
++              label: Text('Refresh', style: _t.label),
+             ),
+             TextButton.icon(
+               key: const Key('demo.metrics.reset'),
+               onPressed: _busy ? null : _resetMetrics,
+               icon: const Icon(Icons.restart_alt),
+-              label: const Text('Reset', style: _Demo.label),
++              label: Text('Reset', style: _t.label),
+             ),
+           ],
+         ),
+@@ -830,7 +857,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                     children: [
+                       const Icon(Icons.play_circle_outline, color: LivenessStyle.primary),
+                       const SizedBox(width: 16),
+-                      Expanded(child: Text(_scenarios[i][1], style: _Demo.body)),
++                      Expanded(child: Text(_scenarios[i][1], style: _t.body)),
+                       const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
+                     ],
+                   ),
+@@ -844,28 +871,28 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   Widget _developerToolsCard() => _DemoCard(
+         key: const Key('demo.developerTools'),
+         onTap: _busy ? null : _openDeveloperTools,
+-        child: const Row(
++        child: Row(
+           children: [
+-            _IconBadge(Icons.build_outlined, tone: LivenessStyle.neutral),
+-            SizedBox(width: 16),
++            const _IconBadge(Icons.build_outlined, tone: LivenessStyle.neutral),
++            const SizedBox(width: 16),
+             Expanded(
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+-                  Text('Developer tools', style: _Demo.cardTitle),
+-                  SizedBox(height: 2),
+-                  Text('Raw events, benchmarks, model files and every setting', style: _Demo.secondary),
++                  Text('Developer tools', style: _t.cardTitle),
++                  const SizedBox(height: 2),
++                  Text('Raw events, benchmarks, model files and every setting', style: _t.secondary),
+                 ],
+               ),
+             ),
+-            SizedBox(width: 8),
+-            Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
++            const SizedBox(width: 8),
++            const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
+           ],
+         ),
+       );
+ }
+ 
+-/// The demo page's look: [LivenessStyle]'s colours, the app's type scale (the family comes from the theme).
++/// The demo page's look: [LivenessStyle]'s colours and the cards' shadow.
+ class _Demo {
+   _Demo._();
+ 
+@@ -874,23 +901,31 @@ class _Demo {
+     BoxShadow(color: Color(0x14000000), blurRadius: 12, offset: Offset(0, 4)),
+     BoxShadow(color: Color(0x0A000000), blurRadius: 2, offset: Offset(0, 1)),
+   ];
+-  static const TextStyle headline =
+-      TextStyle(fontSize: 28, fontWeight: FontWeight.w600, height: 1.2, color: Colors.white);
+-  static const TextStyle onPrimary = TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: Color(0xE6FFFFFF));
+-  static const TextStyle chip = TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white);
+-  static const TextStyle title =
+-      TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
+-  static const TextStyle cardTitle =
+-      TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
+-  static const TextStyle body = TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: LivenessStyle.textPrimary);
+-  static const TextStyle secondary =
+-      TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: LivenessStyle.textSecondary);
+-  static const TextStyle label = TextStyle(fontSize: 14, fontWeight: FontWeight.w500);
+-  static const TextStyle caption =
+-      TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: LivenessStyle.textSecondary);
+-  static const TextStyle stat = TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
+-  static const TextStyle sentence =
+-      TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary);
++}
++
++/// The demo page's text: the app's type scale ([AppTypeScale]; the family comes from the theme) in [LivenessStyle]'s
++/// colours.
++class _DemoText {
++  _DemoText(AppTypeScale s)
++      : headline = s.headline.copyWith(color: Colors.white),
++        onPrimary = s.body.copyWith(color: const Color(0xE6FFFFFF)),
++        chip = s.caption.copyWith(fontWeight: FontWeight.w500, color: Colors.white),
++        title = s.title.copyWith(color: LivenessStyle.textPrimary),
++        cardTitle = s.body.copyWith(fontWeight: FontWeight.w600, color: LivenessStyle.textPrimary),
++        body = s.body.copyWith(color: LivenessStyle.textPrimary),
++        secondary = s.label.copyWith(fontWeight: FontWeight.w400, color: LivenessStyle.textSecondary),
++        label = s.label,
++        caption = s.caption.copyWith(color: LivenessStyle.textSecondary);
++
++  final TextStyle headline;
++  final TextStyle onPrimary;
++  final TextStyle chip;
++  final TextStyle title;
++  final TextStyle cardTitle;
++  final TextStyle body;
++  final TextStyle secondary;
++  final TextStyle label;
++  final TextStyle caption;
+ }
+ 
+ /// A real check: what it is called on this page, its line, its icon and the workflow the hook passes.
+@@ -954,25 +989,28 @@ class _ResultRow extends StatelessWidget {
+   final String? detail;
+ 
+   @override
+-  Widget build(BuildContext context) => Row(
+-        crossAxisAlignment: CrossAxisAlignment.start,
+-        children: [
+-          Icon(icon, size: 48, color: tone),
+-          const SizedBox(width: 16),
+-          Expanded(
+-            child: Column(
+-              crossAxisAlignment: CrossAxisAlignment.start,
+-              children: [
+-                Text(sentence, key: const Key('demo.result.sentence'), style: _Demo.sentence),
+-                const SizedBox(height: 4),
+-                Text(message, style: _Demo.secondary),
+-                if (detail != null) ...[
+-                  const SizedBox(height: 8),
+-                  Text(detail!, style: _Demo.caption),
+-                ],
++  Widget build(BuildContext context) {
++    final t = _DemoText(AppTypeScale.of(context));
++    return Row(
++      crossAxisAlignment: CrossAxisAlignment.start,
++      children: [
++        Icon(icon, size: 48, color: tone),
++        const SizedBox(width: 16),
++        Expanded(
++          child: Column(
++            crossAxisAlignment: CrossAxisAlignment.start,
++            children: [
++              Text(sentence, key: const Key('demo.result.sentence'), style: t.title),
++              const SizedBox(height: 4),
++              Text(message, style: t.secondary),
++              if (detail != null) ...[
++                const SizedBox(height: 8),
++                Text(detail!, style: t.caption),
+               ],
+-            ),
++            ],
+           ),
+-        ],
+-      );
++        ),
++      ],
++    );
++  }
+ }
+diff --git a/test/liveness/liveness_demo_page_test.dart b/test/liveness/liveness_demo_page_test.dart
+index 886455e..0809610 100644
+--- a/test/liveness/liveness_demo_page_test.dart
++++ b/test/liveness/liveness_demo_page_test.dart
+@@ -241,7 +241,6 @@ void main() {
+       'DEVICE_DISCONNECT',
+       'DEVICE_FAILURE',
+       'ENGINE_ERROR',
+-      'RANDOM',
+     ]) {
+       await tapKey(tester, 'demo.fake.$key');
+       expect(service.overrides['mosip.registration.liveness.fake.scenario'], key);
+@@ -250,6 +249,25 @@ void main() {
+       await tester.pump();
+       await tester.pump(const Duration(milliseconds: 400));
+     }
++    // A demo shows a known screen: the random scenario stays on the debug page.
++    await reveal(tester, find.byKey(const Key('demo.developerTools')));
++    expect(find.byKey(const Key('demo.fake.RANDOM'), skipOffstage: false), findsNothing);
++    expect(find.text('A random scenario', skipOffstage: false), findsNothing);
++  });
++
++  testWidgets('the app bar shows the title only once the header has scrolled away', (tester) async {
++    await pumpDemo(tester);
++    double opacity() => tester.widget<AnimatedOpacity>(find.byKey(const Key('demo.appBarTitle'))).opacity;
++    expect(opacity(), 0, reason: 'the header carries the title');
++    listPosition(tester).jumpTo(400);
++    await tester.pump();
++    expect(opacity(), 1);
++    listPosition(tester).jumpTo(listPosition(tester).maxScrollExtent); // the list has dropped the header
++    await tester.pump();
++    expect(opacity(), 1);
++    listPosition(tester).jumpTo(0);
++    await tester.pump();
++    expect(opacity(), 0);
+   });
+ 
+   testWidgets('the settings set the debug page\'s overrides', (tester) async {

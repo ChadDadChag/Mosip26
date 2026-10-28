@@ -1,7 +1,7 @@
 From c53156d6822ca6e19992cbc1c04b02069a73ac50 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 01:35:26 +0530
-Subject: [PATCH 44/53] Liveness screen: the badge beside a wrapped status,
+Subject: [PATCH 44/55] Liveness screen: the badge beside a wrapped status,
  hanging tips, plural attempts left (task 16b)
 
 - Status card: the status text is as wide as its longest line (TextWidthBasis.longestLine). The badge and the text
