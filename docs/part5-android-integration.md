@@ -371,8 +371,8 @@ All three end in the same `ModelStore.install(staged, bundled)`.
 - **Test bundle.** The F17 phone check uses `pad-2026.10.8`: the 10.5 model files re-signed with the development key
   under a new version (kept outside the repository, like the key). It runs on the debug build through the route
   above. After the check it is rolled back, so the phone returns to the bundled 10.5. The next real bundle must be
-  `pad-2026.10.9` or later (F2b, the candidate expected then, was not adopted on 2026-10-28). A device still on the test bundle refuses anything not newer than 10.8, and two
-  different bundles must never share a version.
+  `pad-2026.10.9` or later (F2b, the candidate expected then, was not adopted on 2026-10-28). A device still on the
+  test bundle refuses anything not newer than 10.8, and two different bundles must never share a version.
 
 ```mermaid
 sequenceDiagram
