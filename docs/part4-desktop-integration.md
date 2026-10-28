@@ -72,7 +72,7 @@ flowchart LR
 | `ModelBundleTexts` | client | F17: the `liveness.model.*` message key for each install or rollback outcome; the version is filled in literally (the translations contain apostrophes). |
 | `FaceBinding` | services | F1: the next face capture of the workflow must match the PASSED session's best frame. |
 | `DesktopLivenessConfig` | services | `ConfigProvider` over `ApplicationContext.map()` (synced global config + local preferences) with bundled Desktop defaults. |
-| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..012`. |
+| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..013`. |
 | `ConfigSyncedEvent`, `SwappableAnalyzerFactory` | services | Told after a successful config sync (starts the online model update); the analyzer factory that a model update replaces while running sessions keep theirs. |
 | `DeferredFrameSource`, `IdleFrameSource`, `CapturedFaceDecoder` | services | Device opened on start (unplugged device = recoverable error with Retry); no-op source for the scripted engine; ISO 19794-5 → RGB frame for binding. |
 
@@ -650,7 +650,21 @@ From `registration-client/registration` (JDK 11; first build online):
 
 (`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 
-**Results (as of 2026-10-26, with the follow-ups):** `registration-services` 105 liveness tests pass: Part 1's 72 and
+**Results on `main` (57b4c95, 2026-10-28):** `registration-services` 175 tests pass: 133 liveness tests (Part 1's 78,
+that is 72 and F13b's 6 `WebcamGrabbersTest`; Part 4's 51, that is 33 and F17's 7 and F15's 11; and the four F16 clips
+of `RecordedVideoE2ETest`) and the existing audit (4), login (26) and config sync (12) suites. `registration-client` 40
+tests pass, the visual design's `LivenessViewLayoutTest` among them (spec §9; the 14 screens in `docs/images/part4/`
+are rendered from the production classes). `RecordedVideoE2ETest` 5/5. Live, with the laptop webcam on 2026-10-28
+(the screen demo, `--live webcam --workflow operator --identity verify`, on a client built from the ui-polish overlay):
+- F15 against the operator's test template: a second person was refused (passive PASSED, then NO_MATCH, similarity
+  0.07 against the 0.40 threshold); the operator was accepted (passive PASSED, then MATCH, similarity 0.64; 0.815 on
+  2026-10-27). The template was deleted afterwards.
+- F13b: both runs and the delete exited cleanly, with no hang. The grabber in use (OpenCV, or the sarxos fallback) was
+  not captured.
+
+The paragraphs below record how the counts grew.
+
+**Results on 2026-10-26, with the follow-ups:** `registration-services` 105 liveness tests pass: Part 1's 72 and
 Part 4's 33. `registration-client` 28 tests pass. The command also runs the existing audit (4), login (26) and config
 sync (`GlobalParamServiceTest`, 12) suites, which pass too. No failures, nothing skipped.
 
@@ -724,7 +738,8 @@ when its window closed: sarxos' JVM shutdown hook waited for its own processor t
   after 5 s. It waits up to 2 s until the frame source's worker has released the camera (stopping only signals the
   worker, which finishes its current grab first), then stops sarxos' discovery if sarxos was used.
 
-`LivenessScreenDemoTest` checks that order without a camera. The live re-check with the webcam is on 2026-10-28.
+`LivenessScreenDemoTest` checks that order without a camera. On 2026-10-28 two live webcam runs (`--identity verify`)
+and the template delete each exited cleanly, with no hang; the grabber in use was not captured.
 
 ## 11. Limitations and open points
 
@@ -744,6 +759,7 @@ when its window closed: sarxos' JVM shutdown hook waited for its own processor t
   - `IdentityBindingTest` and `RealIdentityBindingTest` prove the service with real ISO records and the signed model.
   - `LivenessGateTest` proves the retry rule.
   - The screen demo runs the same `IdentityBinding` on a live webcam session against a test template (section 10).
+    On 2026-10-28 it refused a second person (NO_MATCH, 0.07) and accepted the operator (MATCH, 0.64).
   - The login hook, the retry dialog and the failed-login count were checked by compilation and code review only.
   - Whether a real bio-SDK's stored template decodes was not checked. If it does not, the outcome is
     NOT_BOUND_UNREADABLE (section 2.5).
