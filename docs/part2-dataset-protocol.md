@@ -245,3 +245,16 @@ PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-<yyyyMMdd>] [
   - `report.md` contains aggregates only.
   - `scores.csv` (per take), `frames.csv` (per frame: features only, no pixels or landmarks) and `scatter.csv` stay
     local under `eval-data/`.
+
+**The F9 re-evaluation (several subjects).** `scripts\f9-reeval.ps1 -Subjects s01,s02,... [-SubjectMap s02=pXX,...]`
+runs the steps in order and writes `eval-data/reports/f9-<yyyyMMdd-HHmmss>/summary.md` (an `-Out` folder must be
+empty). The steps:
+- the inventory and the consent check;
+- this evaluation;
+- `BindingEvaluation --identity`;
+- `models/tools/session_guard_replay.py` over the recorded takes (from `frames.csv`) and the live logs, at volatility
+  0.85 and 0.80.
+
+The summary applies decision rules R0–R5, which were fixed on 2026-10-28 before the teammates' data. They are in
+`models/tools/f9_reeval.py` and in the script's header; `f9_reeval.py --self-test` checks the rules on synthetic
+inputs and that the two copies are the same.
