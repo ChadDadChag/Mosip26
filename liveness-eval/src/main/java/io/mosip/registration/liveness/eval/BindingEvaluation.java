@@ -93,17 +93,18 @@ public final class BindingEvaluation {
             return a;
         }
 
-        /** Genuine: share below the threshold (false non-match). Impostor: share at or above it (false match). */
+        /**
+         * Genuine: share below the threshold (false non-match). Impostor: share at or above it (false match). As in
+         * {@code FaceMatcher.identify}, a value that is not finite is a non-match: a false non-match, never a false match.
+         */
         double errorRate(double threshold) {
             if (values.isEmpty()) return Double.NaN;
-            int n = 0;
-            for (double v : values) if (genuine ? v < threshold : v >= threshold) n++;
-            return (double) n / values.size();
+            return (double) errors(threshold) / values.size();
         }
 
         int errors(double threshold) {
             int n = 0;
-            for (double v : values) if (genuine ? v < threshold : v >= threshold) n++;
+            for (double v : values) if (genuine ? !(v >= threshold) : v >= threshold) n++;
             return n;
         }
     }
@@ -244,6 +245,7 @@ public final class BindingEvaluation {
 
                 Map<String, List<float[]>> labelled = new TreeMap<String, List<float[]>>();
                 Map<String, List<String>> photoQuality = new TreeMap<String, List<String>>();
+                Map<String, List<PhotoRef>> photoRefs = new TreeMap<String, List<PhotoRef>>();
                 if (a.has("--labelled")) {
                     Labelled l = Labelled.load(new File(a.single("--labelled")), matcher,
                             a.has("--identity") ? factory : null);
@@ -253,12 +255,13 @@ public final class BindingEvaluation {
                     labelledSets(sets, l.byPerson, recorded, nasa, subjectMap);
                     labelled = l.byPerson;
                     photoQuality = l.quality;
+                    photoRefs = l.refs;
                     notes.put("labelled photos", l.summary(a.has("--labels-confirmed")));
                 }
                 if (!subjectMap.isEmpty()) notes.put("subject map (codes only)", subjectMap.toString());
                 if (a.has("--identity")) {
                     rule = IdentityRule.apply(identitySets(sets, recorded, labelled, subjectMap));
-                    breakdown = identityBreakdown(recorded, labelled, photoQuality, subjectMap);
+                    breakdown = identityBreakdown(recorded, labelled, photoQuality, photoRefs, subjectMap);
                     notes.put("F15 enrollment takes", recorded.enrollmentSummary());
                 }
 
@@ -398,19 +401,25 @@ public final class BindingEvaluation {
         final Map<String, List<float[]>> byPerson = new TreeMap<String, List<float[]>>();
         /** Per photo, in the order of byPerson: the analyzer's view of it ({@link #photoQuality}), for the F15 breakdown. */
         final Map<String, List<String>> quality = new TreeMap<String, List<String>>();
+        /** Per photo, in the order of byPerson: its row among the person's and whether identify can read it. */
+        final Map<String, List<PhotoRef>> refs = new TreeMap<String, List<PhotoRef>>();
         int photos, groupPhotos, noFace;
 
         /** factory: when not null, each photo also gets its {@link #photoQuality} line. */
         static Labelled load(File labels, FaceMatcher matcher, OnnxFaceAnalyzerFactory factory) throws Exception {
             Labelled l = new Labelled();
             File dir = labels.getAbsoluteFile().getParentFile();
-            for (Map.Entry<String, String> e : SlideshowSegmenter.readLabels(labels).entrySet()) {
+            Map<String, String> rows = SlideshowSegmenter.readLabels(labels);
+            Map<String, Integer> faces = new LinkedHashMap<String, Integer>();
+            for (Map.Entry<String, String> e : rows.entrySet()) {
                 Frame f = PadEvaluation.load(new File(dir, e.getKey()), 0, 0, "photo");
                 FaceMatcher.PrimaryFeature p = matcher.featureOfPrimaryFace(f.rgb(), f.width(), f.height());
                 if (p == null) {
                     l.noFace++;
+                    faces.put(e.getKey(), 0);
                     continue;
                 }
+                faces.put(e.getKey(), p.faceCount);
                 l.photos++;
                 if (p.faceCount > 1) l.groupPhotos++;
                 List<float[]> list = l.byPerson.get(e.getValue());
@@ -421,7 +430,31 @@ public final class BindingEvaluation {
                 if (q == null) l.quality.put(e.getValue(), q = new ArrayList<String>());
                 q.add(photoQuality(factory, f));
             }
+            l.refs.putAll(photoRefs(rows, faces));
             return l;
+        }
+
+        /**
+         * Per person, for each photo with a face (the photos of {@link #byPerson}, in labels.csv order): its row among
+         * all of the person's rows in labels.csv, photos without a face included, and whether {@code identify} can read
+         * it (exactly one face). rows: file to person_id, in labels.csv order; faces: file to its face count.
+         */
+        static Map<String, List<PhotoRef>> photoRefs(Map<String, String> rows, Map<String, Integer> faces) {
+            Map<String, Integer> of = new TreeMap<String, Integer>();
+            for (String person : rows.values()) of.put(person, of.containsKey(person) ? of.get(person) + 1 : 1);
+            Map<String, Integer> seen = new TreeMap<String, Integer>();
+            Map<String, List<PhotoRef>> out = new TreeMap<String, List<PhotoRef>>();
+            for (Map.Entry<String, String> e : rows.entrySet()) {
+                String person = e.getValue();
+                int row = seen.containsKey(person) ? seen.get(person) + 1 : 1;
+                seen.put(person, row);
+                Integer n = faces.get(e.getKey());
+                if (n == null || n == 0) continue;
+                List<PhotoRef> list = out.get(person);
+                if (list == null) out.put(person, list = new ArrayList<PhotoRef>());
+                list.add(new PhotoRef(row, of.get(person), n == 1));
+            }
+            return out;
         }
 
         /**
@@ -449,6 +482,21 @@ public final class BindingEvaluation {
                     + groupPhotos + " group photos (largest face used), " + noFace + " without a face; labels "
                     + (confirmed ? "confirmed by the owner of the photos"
                     : "PROPOSED by face clustering, PROVISIONAL until the owner of the photos confirms them");
+        }
+    }
+
+    /**
+     * A labelled photo: its row among the person's rows in labels.csv ("photo row of of"), and whether
+     * {@code FaceMatcher.identify} can read it as a template (exactly one face; a group photo is unreadable there).
+     */
+    static final class PhotoRef {
+        final int row, of;
+        final boolean readable;
+
+        PhotoRef(int row, int of, boolean readable) {
+            this.row = row;
+            this.of = of;
+            this.readable = readable;
         }
     }
 
@@ -585,12 +633,19 @@ public final class BindingEvaluation {
     /**
      * Context for the F15 result, not part of the rule ({@link IdentityRule}): the pairs of {@link #identitySets} split
      * by pair type, by the live take's condition, by subject and by labelled photo, and the onboarding-like pairs
-     * scored against the best of the person's photos (several templates, one value per live take). A person's photos
-     * are numbered in labels.csv order, with the analyzer's view of each ({@link Labelled#photoQuality}). Codes and
-     * aggregates only.
+     * scored against the best of the person's photos (several templates, one value per live take, as
+     * {@code FaceMatcher.identify} decides: the best finite similarity over the photos it can read). A person's photos
+     * are numbered by their rows in labels.csv, with the analyzer's view of each ({@link Labelled#photoQuality}).
+     * Codes and aggregates only. refs: per person, aligned with labelled ({@link Labelled#refs}); without them, a
+     * person's photos are numbered 1 to n and all readable.
      */
     static String identityBreakdown(Recorded r, Map<String, List<float[]>> labelled, Map<String, List<String>> photoQuality,
                                     Map<String, String> subjectMap) {
+        return identityBreakdown(r, labelled, photoQuality, null, subjectMap);
+    }
+
+    static String identityBreakdown(Recorded r, Map<String, List<float[]>> labelled, Map<String, List<String>> photoQuality,
+                                    Map<String, List<PhotoRef>> refs, Map<String, String> subjectMap) {
         Scores sameDay = new Scores("genuine, same day: each subject's enrollment take (normal#1) vs their other takes", true);
         Map<String, Scores> sameDayByCondition = new TreeMap<String, Scores>(BY_CONDITION);
         Map<String, Scores> sameDayBySubject = new TreeMap<String, Scores>();
@@ -602,6 +657,7 @@ public final class BindingEvaluation {
         Scores photoImpostors = new Scores("impostor: labelled photos of different people", false);
         Scores photoVsLive = new Scores("impostor: a labelled photo vs other people's live takes", false);
         Scores enrollmentImpostors = new Scores("impostor: each subject's enrollment take vs other subjects' takes", false);
+        int noReadablePhoto = 0;
         List<String> ids = new ArrayList<String>(labelled.keySet());
         for (int i = 0; i < ids.size(); i++) {
             for (int j = i + 1; j < ids.size(); j++) cross(labelled.get(ids.get(i)), labelled.get(ids.get(j)), photoImpostors);
@@ -615,19 +671,30 @@ public final class BindingEvaluation {
             }
             List<float[]> photos = labelled.get(person);
             List<String> quality = photoQuality.get(person);
+            List<PhotoRef> ref = refs == null ? null : refs.get(person);
             if (photos != null && !photos.isEmpty()) {
                 for (Map.Entry<Integer, float[]> t : s.getValue().entrySet()) {
-                    double best = Double.NEGATIVE_INFINITY;
+                    // As identify: the best finite similarity over the readable photos (NaN when none is finite).
+                    double best = Double.NaN;
+                    boolean readable = false;
                     for (int i = 0; i < photos.size(); i++) {
                         double v = SFaceEmbedder.cosine(photos.get(i), t.getValue());
-                        best = Math.max(best, v);
+                        PhotoRef p = ref != null && i < ref.size() ? ref.get(i) : new PhotoRef(i + 1, photos.size(), true);
+                        if (p.readable) {
+                            readable = true;
+                            if (!Double.isNaN(v) && (Double.isNaN(best) || v > best)) best = v;
+                        }
                         onboarding.values.add(v);
                         row(onboardingByCondition, condition.get(t.getKey())).values.add(v);
                         row(onboardingBySubject, subject).values.add(v);
-                        row(byPhoto, subject + " photo " + (i + 1) + " of " + photos.size()
+                        row(byPhoto, subject + " photo " + p.row + " of " + p.of
                                 + (quality != null && i < quality.size() ? " (" + quality.get(i) + ")" : "")).values.add(v);
                     }
-                    bestPhoto.values.add(best);
+                    if (readable) {
+                        bestPhoto.values.add(best);
+                    } else {
+                        noReadablePhoto++; // identify: NOT_BOUND_UNREADABLE, neither a match nor a non-match
+                    }
                 }
             }
             Integer e = r.enrollment.get(subject);
@@ -649,8 +716,9 @@ public final class BindingEvaluation {
         sb.append("The rule's pairs, split. Genuine rows: FNMR, the share below the threshold; impostor rows: FMR, the ")
                 .append("share at or above it. 0.40 is production, 0.36 the rule's lowest candidate. Same day: both sides ")
                 .append("are live takes of one session on one camera. Onboarding-like: a labelled photo (another day and ")
-                .append("camera) against live takes. A person's photos are numbered in labels.csv order; in brackets, ")
-                .append("how the live analyzer sees the photo.\n\n")
+                .append("camera) against live takes. A person's photos are numbered by their rows in labels.csv; in ")
+                .append("brackets, how the live analyzer sees the photo. The best-of row decides as `identify` does: ")
+                .append("the best finite similarity over the photos it can read (not group photos).\n\n")
                 .append("| pairs | n | FNMR or FMR at 0.40 | at 0.36 | min | median | max |\n|---|---|---|---|---|---|---|\n");
         breakdownRow(sb, "**" + sameDay.name + "**", sameDay);
         for (Map.Entry<String, Scores> c : sameDayByCondition.entrySet()) breakdownRow(sb, "condition " + c.getKey(), c.getValue());
@@ -667,6 +735,11 @@ public final class BindingEvaluation {
         allLabelled.values.addAll(photoVsLive.values);
         for (Scores s : new Scores[] {photoImpostors, photoVsLive, allLabelled, enrollmentImpostors}) {
             breakdownRow(sb, "**" + s.name + "**", s);
+        }
+        if (noReadablePhoto > 0) {
+            sb.append(String.format(Locale.ROOT, "%n- The best-of row leaves out %d live take%s whose person has only "
+                    + "group photos: `identify` reads none of them (NOT_BOUND_UNREADABLE), neither a match nor a "
+                    + "non-match.%n", noReadablePhoto, noReadablePhoto == 1 ? "" : "s"));
         }
         return sb.toString();
     }

@@ -431,16 +431,24 @@ public final class PadEvaluation {
             List<PadMetrics.Presentation> prodPs = presentations(prod);
             Map<String, Integer> counts = EvalDataset.counts(refs());
             int subjects = subjects().size(), bonaFide = bonaFideSubjects();
-            b.append("# Part 2 PAD evaluation: PROVISIONAL, ").append(bonaFide == 1 ? "SINGLE SUBJECT" : bonaFide + " bona fide subjects")
-                    .append("\n\n");
+            b.append("# Part 2 PAD evaluation: PROVISIONAL, ").append(bonaFide == 0 ? "NO BONA FIDE TAKES"
+                    : bonaFide == 1 ? "SINGLE SUBJECT" : bonaFide + " bona fide subjects").append("\n\n");
             b.append(String.format(Locale.ROOT, "Generated %s by `liveness-eval` `PadEvaluation` over `%s` (model bundle %s). "
                     + "Aggregates only: no images, no landmarks, no per-take rows.%n%n", date, dataPath, modelVersion));
             b.append("## Limitations (read first)\n\n");
-            b.append(String.format(Locale.ROOT, "- **%s.** Every number below comes from %s, one webcam, one room "
-                            + "and one phone as the attack instrument. It shows tendencies and failure modes; it is not an "
-                            + "estimate of field error rates.%n", bonaFideLabel(bonaFide),
-                    bonaFide == 1 ? "one person" : bonaFide + " people"));
-            if (subjects != bonaFide) {
+            if (bonaFide == 0) {
+                // An attack-only run, such as the F5 retake on its own (P2 eval section 4.6).
+                b.append(String.format(Locale.ROOT, "- **No bona fide takes.** The numbers below come from attack takes "
+                        + "alone (%d subject code%s), one webcam and one room: there is no BPCER, and no threshold here "
+                        + "rests on real faces. It shows tendencies and failure modes; it is not an estimate of field "
+                        + "error rates.%n", subjects, subjects == 1 ? "" : "s"));
+            } else {
+                b.append(String.format(Locale.ROOT, "- **%s.** Every number below comes from %s, one webcam, one room "
+                                + "and one phone as the attack instrument. It shows tendencies and failure modes; it is not "
+                                + "an estimate of field error rates.%n", bonaFideLabel(bonaFide),
+                        bonaFide == 1 ? "one person" : bonaFide + " people"));
+            }
+            if (bonaFide > 0 && subjects != bonaFide) {
                 b.append(String.format(Locale.ROOT, "- **%d subject codes in all**, attack takes included. A photographed "
                         + "person has a code of their own, and one person can have two (a teammate who is also in the "
                         + "photos), so the codes are not a count of people. The dataset table gives the subjects per "
@@ -780,7 +788,7 @@ public final class PadEvaluation {
         }
 
         private static String bonaFideLabel(int n) {
-            return n == 1 ? "1 bona fide subject" : n + " bona fide subjects";
+            return n == 0 ? "no bona fide takes" : n == 1 ? "1 bona fide subject" : n + " bona fide subjects";
         }
     }
 

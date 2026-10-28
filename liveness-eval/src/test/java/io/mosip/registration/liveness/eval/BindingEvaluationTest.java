@@ -225,6 +225,68 @@ class BindingEvaluationTest {
     }
 
     @Test
+    void aNonFiniteSimilarityIsANonMatchAsInIdentify() {
+        // identify: a readable template without a finite similarity gives NO_MATCH, never a match, and the best
+        // similarity is taken over the finite ones.
+        BindingEvaluation.Scores genuine = new BindingEvaluation.Scores("g", true);
+        genuine.values.add(Double.NaN);
+        genuine.values.add(0.70);
+        assertThat(genuine.errors(0.40)).isEqualTo(1);
+        assertThat(genuine.errorRate(0.40)).isEqualTo(0.5);
+        BindingEvaluation.Scores impostor = new BindingEvaluation.Scores("i", false);
+        impostor.values.add(Double.NaN);
+        assertThat(impostor.errors(0.40)).as("NaN is never a false match").isZero();
+
+        float[] x = {1, 0, 0}, y = {0, 1, 0}, zero = {0, 0, 0};
+        BindingEvaluation.Recorded r = new BindingEvaluation.Recorded();
+        r.addTake("s02", 1, "normal", x);
+        Map<String, java.util.List<float[]>> labelled = new java.util.TreeMap<String, java.util.List<float[]>>();
+        labelled.put("p05", java.util.Arrays.asList(y, zero));
+        String s = BindingEvaluation.identityBreakdown(r, labelled, new java.util.TreeMap<String, java.util.List<String>>(),
+                BindingEvaluation.subjectMap("s02=p05"));
+        assertThat(s).contains("| **genuine, onboarding-like: a labelled photo vs the same person's live takes** | 2 "
+                        + "| 2/2 (100.0%) |")
+                .as("the best finite similarity, 0, is below 0.40")
+                .contains("| best of the person's photos, one value per live take | 1 | 1/1 (100.0%) |");
+    }
+
+    @Test
+    void theBestOfRowSkipsGroupPhotosAsIdentifyDoesAndPhotosKeepTheirLabelsCsvRows() {
+        // labels.csv: p05 has a (one face), b (no face) and c (a group photo); p07 has d, a group photo only.
+        Map<String, String> rows = new LinkedHashMap<String, String>();
+        rows.put("a.jpg", "p05");
+        rows.put("b.jpg", "p05");
+        rows.put("c.jpg", "p05");
+        rows.put("d.jpg", "p07");
+        Map<String, Integer> faces = new LinkedHashMap<String, Integer>();
+        faces.put("a.jpg", 1);
+        faces.put("b.jpg", 0);
+        faces.put("c.jpg", 3);
+        faces.put("d.jpg", 2);
+        Map<String, java.util.List<BindingEvaluation.PhotoRef>> refs = BindingEvaluation.Labelled.photoRefs(rows, faces);
+        assertThat(refs.get("p05")).extracting(p -> p.row + " of " + p.of + (p.readable ? "" : ", unreadable"))
+                .as("b has no face, so it is not a photo of byPerson, but it keeps its row")
+                .containsExactly("1 of 3", "3 of 3, unreadable");
+        assertThat(refs.get("p07")).extracting(p -> p.row + " of " + p.of + (p.readable ? "" : ", unreadable"))
+                .containsExactly("1 of 1, unreadable");
+
+        float[] x = {1, 0, 0}, y = {0, 1, 0};
+        BindingEvaluation.Recorded r = new BindingEvaluation.Recorded();
+        r.addTake("s02", 1, "normal", x);
+        r.addTake("s03", 1, "normal", x);
+        Map<String, java.util.List<float[]>> labelled = new java.util.TreeMap<String, java.util.List<float[]>>();
+        labelled.put("p05", java.util.Arrays.asList(y, x)); // a, and c's largest face
+        labelled.put("p07", java.util.Arrays.asList(x));
+        String s = BindingEvaluation.identityBreakdown(r, labelled, new java.util.TreeMap<String, java.util.List<String>>(),
+                refs, BindingEvaluation.subjectMap("s02=p05,s03=p07"));
+        assertThat(s).contains("| s02 photo 1 of 3 | 1 | 1/1 (100.0%) |").contains("| s02 photo 3 of 3 | 1 | 0/1 (0.0%) |")
+                .as("the group photo would match, but identify cannot read it: the best readable photo, a, misses")
+                .contains("| best of the person's photos, one value per live take | 1 | 1/1 (100.0%) |")
+                .as("s03's person has only a group photo: not bound, so not in the best-of row")
+                .contains("leaves out 1 live take whose person has only group photos");
+    }
+
+    @Test
     void theIdentityRulePicksTheLowestFmrWithFnmrAtMostFivePercent() {
         BindingEvaluation.Scores onboarding = new BindingEvaluation.Scores("F15 genuine, onboarding-like", true);
         BindingEvaluation.Scores impostors = new BindingEvaluation.Scores("F15 impostor, labelled", false);

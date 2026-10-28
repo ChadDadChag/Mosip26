@@ -172,6 +172,22 @@ class PadEvaluationTest {
     }
 
     @Test
+    void anAttackOnlyReportSaysItHasNoBonaFideTakes() {
+        // As in P2 eval section 4.6: PadEvaluation over the F5 retake's attack takes on their own.
+        List<PadEvaluation.TakeData> runs = new ArrayList<PadEvaluation.TakeData>();
+        for (int i = 1; i <= 2; i++) {
+            runs.add(new PadEvaluation.TakeData(new EvalDataset.TakeRef("screen_replay_monitor", "s01", i,
+                    "video_realsize", 10, new File("x")), frames(20, 0.10f, 0.20f, 1.2f, 0.10f), null));
+        }
+        String md = PadEvaluation.Evaluation.of(runs, new LivenessPolicy(), EngineTuning.defaults())
+                .report("pad-test", "20261028", "eval-data");
+        assertThat(md).startsWith("# Part 2 PAD evaluation: PROVISIONAL, NO BONA FIDE TAKES\n")
+                .contains("- **No bona fide takes.** The numbers below come from attack takes alone")
+                .contains("## Recommended thresholds (provisional, no bona fide takes)")
+                .doesNotContain("0 bona fide subjects").doesNotContain("0 people").doesNotContain("1 subject codes");
+    }
+
+    @Test
     void scansTheDatasetLayout(@TempDir File root) throws Exception {
         meta(new File(root, "bona_fide/s01/1"), "{\"label\": \"bona_fide\", \"condition\": \"normal\", \"fps\": 10.0,"
                 + " \"device\": {\"deviceId\": \"webcam:0\"}}");
