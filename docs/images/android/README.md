@@ -33,6 +33,6 @@ the size of the earlier phone screenshots, with the app's Noto Sans (task 21); n
 
 The oval colour always comes with the state badge, an icon. The debug-only model chip is off. The screenshots are in
 English. The app has the liveness texts in all six of its languages (English, Arabic, French, Hindi, Kannada and
-Tamil), added in fix round 4; the five non-English ones are machine-translated and need a native speaker's review
-(see [`docs/ui-liveness-spec.md`](../../ui-liveness-spec.md) Appendix A). On the phone itself the screen is the same:
+Tamil), added in fix round 4; the five non-English ones were machine-translated, then reviewed and corrected by
+native speakers on 2026-10-28 (see [`docs/ui-liveness-spec.md`](../../ui-liveness-spec.md) Appendix A). On the phone itself the screen is the same:
 the test loads the app's bundled fonts. In `15` and `16` the English device text takes 3 lines at 360 dp (spec §9, status card).

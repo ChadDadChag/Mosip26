@@ -55120,7 +55120,7 @@ index 0000000..f241a9d
 +FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 +OTHER DEALINGS IN THE FONT SOFTWARE.
 diff --git a/assets/l10n/app_ar.arb b/assets/l10n/app_ar.arb
-index c3b216a..e5abd91 100644
+index c3b216a..ad2c559 100644
 --- a/assets/l10n/app_ar.arb
 +++ b/assets/l10n/app_ar.arb
 @@ -368,6 +368,67 @@
@@ -55129,15 +55129,15 @@ index c3b216a..e5abd91 100644
    "id": "بطاقة تعريف",
 -  "name": "اسم"
 +  "name": "اسم",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
 +  "liveness_title_resident": "التحقق من حيوية الوجه",
 +  "liveness_title_operator": "التحقق من وجه المشغل",
 +  "liveness_title_supervisor": "التحقق من وجه المشرف",
 +  "liveness_status_starting": "جارٍ بدء التحقق من حيوية الوجه…",
 +  "liveness_status_checking": "جارٍ التحقق من حيوية الوجه…",
-+  "liveness_status_passed": "جيد، تم التقاط الوجه بنجاح",
++  "liveness_status_passed": "جيد، تم التقاط صورة وجهك بنجاح",
 +  "liveness_status_cancelled": "تم إلغاء التحقق من حيوية الوجه.",
-+  "liveness_challenge_blink": "يرجى رمش عينيك",
++  "liveness_challenge_blink": "يرجى الرمش بعينيك",
 +  "liveness_challenge_smile": "يرجى الابتسام",
 +  "liveness_challenge_turn_left": "يرجى إدارة رأسك إلى اليسار",
 +  "liveness_challenge_turn_right": "يرجى إدارة رأسك إلى اليمين",
@@ -55145,7 +55145,7 @@ index c3b216a..e5abd91 100644
 +  "liveness_challenge_look_down": "يرجى النظر إلى الأسفل",
 +  "liveness_feedback_continue": "يرجى المتابعة",
 +  "liveness_feedback_action_detected": "تم اكتشاف الحركة",
-+  "liveness_feedback_hold_still": "لا تتحرك",
++  "liveness_feedback_hold_still": "يرجى عدم الحركة",
 +  "liveness_guidance_no_face": "لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.",
 +  "liveness_guidance_multiple_faces": "يجب أن يظهر شخص واحد فقط.",
 +  "liveness_guidance_move_closer": "يرجى الاقتراب أكثر.",
@@ -55157,14 +55157,14 @@ index c3b216a..e5abd91 100644
 +  "liveness_error_liveness_not_verified": "تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.",
 +  "liveness_error_verification_not_completed": "تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.",
 +  "liveness_error_max_attempts_reached": "تعذّر إكمال التحقق من الوجه.",
-+  "liveness_error_device_problem": "الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.",
++  "liveness_error_device_problem": "الكاميرا أو الجهاز غير متاح. يرجى التحقق من الاتصال والمحاولة مرة أخرى.",
 +  "liveness_error_identity_not_verified": "تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.",
 +  "liveness_tips_title": "نصائح:",
-+  "liveness_tips_look_at_camera": "انظر مباشرة إلى الكاميرا.",
-+  "liveness_tips_face_visible": "تأكد من أن وجهك ظاهر بوضوح.",
-+  "liveness_tips_lighting": "حسّن الإضاءة.",
-+  "liveness_tips_capture_area": "أبقِ وجهك داخل منطقة الالتقاط.",
-+  "liveness_tips_follow_prompt": "نفّذ الحركة المطلوبة.",
++  "liveness_tips_look_at_camera": "يرجى النظر مباشرة إلى الكاميرا.",
++  "liveness_tips_face_visible": "يرجى التأكد من ظهور وجهك بوضوح.",
++  "liveness_tips_lighting": "يرجى تحسين الإضاءة.",
++  "liveness_tips_capture_area": "يرجى إبقاء وجهك داخل الإطار الظاهر على الشاشة.",
++  "liveness_tips_follow_prompt": "يرجى تنفيذ الحركة المطلوبة.",
 +  "liveness_retry_attempts_left": "المحاولات المتبقية: {n}",
 +  "liveness_progress_step": "الخطوة {i} من {n}",
 +  "liveness_progress_attempt": "المحاولة {a} من {m}",
@@ -55175,15 +55175,15 @@ index c3b216a..e5abd91 100644
 +  "liveness_button_cancel": "إلغاء",
 +  "liveness_button_close": "إغلاق",
 +  "liveness_button_open_settings": "فتح الإعدادات",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
 +  "liveness_model_title": "نماذج حيوية الوجه",
 +  "liveness_model_current": "النماذج المستخدمة: {version}",
 +  "liveness_model_install": "تثبيت حزمة النماذج",
 +  "liveness_model_rollback": "استعادة حزمة النماذج السابقة",
-+  "liveness_model_select_file": "اختر حزمة نماذج (.zip)",
++  "liveness_model_select_file": "اختيار حزمة نماذج (.zip)",
 +  "liveness_model_working": "جارٍ معالجة حزمة النماذج… يرجى الانتظار.",
-+  "liveness_model_installed": "تم تثبيت حزمة النماذج {version}. تستخدمها عمليات التحقق الجديدة من الحيوية.",
-+  "liveness_model_rolled_back": "تمت استعادة النماذج إلى الإصدار {version}. تستخدمها عمليات التحقق الجديدة من الحيوية.",
++  "liveness_model_installed": "تم تثبيت حزمة النماذج {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
++  "liveness_model_rolled_back": "تمت استعادة النماذج إلى الإصدار {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
 +  "liveness_model_not_newer": "حزمة النماذج هذه ليست أحدث من النماذج المستخدمة. لم يتم تغيير أي شيء.",
 +  "liveness_model_invalid": "هذا الملف ليس حزمة نماذج موقّعة صالحة. لم يتم تغيير أي شيء.",
 +  "liveness_model_nothing_to_roll_back": "لا توجد حزمة نماذج سابقة للاستعادة.",
@@ -55271,7 +55271,7 @@ index 0012c53..0828ee9 100644
 +  "liveness_model_confirm_rollback": "Roll back to the previous face liveness models? New liveness checks will use them."
  }
 diff --git a/assets/l10n/app_fr.arb b/assets/l10n/app_fr.arb
-index 4935d25..1fc424e 100644
+index 4935d25..c6cc8af 100644
 --- a/assets/l10n/app_fr.arb
 +++ b/assets/l10n/app_fr.arb
 @@ -368,6 +368,67 @@
@@ -55280,14 +55280,14 @@ index 4935d25..1fc424e 100644
    "id": "IDENTIFIANT",
 -  "name": "Nom"
 +  "name": "Nom",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
-+  "liveness_title_resident": "Test de vivacité du visage",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "liveness_title_resident": "Détection du vivant (visage)",
 +  "liveness_title_operator": "Vérification faciale de l'opérateur",
 +  "liveness_title_supervisor": "Vérification faciale du superviseur",
-+  "liveness_status_starting": "Démarrage du test de vivacité du visage…",
-+  "liveness_status_checking": "Vérification de la vivacité du visage…",
++  "liveness_status_starting": "Démarrage de la détection du vivant…",
++  "liveness_status_checking": "Détection du vivant en cours…",
 +  "liveness_status_passed": "Parfait, visage capturé avec succès",
-+  "liveness_status_cancelled": "Test de vivacité du visage annulé.",
++  "liveness_status_cancelled": "Détection du vivant annulée.",
 +  "liveness_challenge_blink": "Veuillez cligner des yeux",
 +  "liveness_challenge_smile": "Veuillez sourire",
 +  "liveness_challenge_turn_left": "Veuillez tourner la tête vers la gauche",
@@ -55305,7 +55305,7 @@ index 4935d25..1fc424e 100644
 +  "liveness_guidance_improve_lighting": "Veuillez améliorer l'éclairage.",
 +  "liveness_guidance_hold_steady": "Veuillez rester immobile.",
 +  "liveness_guidance_look_at_camera": "Veuillez regarder la caméra.",
-+  "liveness_error_liveness_not_verified": "Nous n'avons pas pu vérifier la vivacité du visage. Veuillez réessayer.",
++  "liveness_error_liveness_not_verified": "Nous n'avons pas pu effectuer la détection du vivant. Veuillez réessayer.",
 +  "liveness_error_verification_not_completed": "La vérification faciale n'a pas pu être effectuée. Veuillez réessayer.",
 +  "liveness_error_max_attempts_reached": "La vérification faciale n'a pas pu être effectuée.",
 +  "liveness_error_device_problem": "Caméra ou appareil indisponible. Vérifiez la connexion et réessayez.",
@@ -55326,26 +55326,26 @@ index 4935d25..1fc424e 100644
 +  "liveness_button_cancel": "Annuler",
 +  "liveness_button_close": "Fermer",
 +  "liveness_button_open_settings": "Ouvrir les paramètres",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
-+  "liveness_model_title": "Modèles de vivacité du visage",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "liveness_model_title": "Modèles de détection du vivant (visage)",
 +  "liveness_model_current": "Modèles en service : {version}",
 +  "liveness_model_install": "Installer un lot de modèles",
 +  "liveness_model_rollback": "Restaurer le lot de modèles précédent",
 +  "liveness_model_select_file": "Sélectionner un lot de modèles (.zip)",
 +  "liveness_model_working": "Traitement du lot de modèles… veuillez patienter.",
-+  "liveness_model_installed": "Lot de modèles {version} installé. Les nouvelles vérifications de vivacité l'utilisent.",
-+  "liveness_model_rolled_back": "Modèles restaurés à la version {version}. Les nouvelles vérifications de vivacité les utilisent.",
++  "liveness_model_installed": "Lot de modèles {version} installé. Les nouvelles vérifications du vivant l'utilisent.",
++  "liveness_model_rolled_back": "Modèles restaurés à la version {version}. Les nouvelles vérifications du vivant les utilisent.",
 +  "liveness_model_not_newer": "Ce lot de modèles n'est pas plus récent que les modèles en service. Rien n'a été modifié.",
-+  "liveness_model_invalid": "Ce fichier n'est pas un lot de modèles signé valide. Rien n'a été modifié.",
++  "liveness_model_invalid": "Ce fichier n'est pas un lot de modèles signé et valide. Rien n'a été modifié.",
 +  "liveness_model_nothing_to_roll_back": "Aucun lot de modèles antérieur n'est disponible pour la restauration.",
 +  "liveness_model_failed": "Le lot de modèles n'a pas pu être installé. Rien n'a été modifié. Veuillez réessayer.",
 +  "liveness_model_rollback_failed": "Les modèles n'ont pas pu être restaurés. Rien n'a été modifié.",
-+  "liveness_model_not_allowed": "Seul un superviseur ou un administrateur peut modifier les modèles de vivacité du visage.",
-+  "liveness_model_confirm_rollback": "Restaurer les modèles de vivacité du visage précédents ? Les nouvelles vérifications de vivacité les utiliseront."
++  "liveness_model_not_allowed": "Seul un superviseur ou un administrateur peut modifier les modèles de détection du vivant.",
++  "liveness_model_confirm_rollback": "Restaurer les modèles de détection du vivant précédents ? Les nouvelles vérifications du vivant les utiliseront."
  }
 -
 diff --git a/assets/l10n/app_hi.arb b/assets/l10n/app_hi.arb
-index fc09a47..9e5ba7b 100644
+index fc09a47..408904c 100644
 --- a/assets/l10n/app_hi.arb
 +++ b/assets/l10n/app_hi.arb
 @@ -368,5 +368,67 @@
@@ -55354,14 +55354,14 @@ index fc09a47..9e5ba7b 100644
    "id": "आईडी",
 -  "name": "नाम"
 +  "name": "नाम",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
-+  "liveness_title_resident": "चेहरे की जीवंतता जाँच",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "liveness_title_resident": "चेहरे की सजीवता जाँच",
 +  "liveness_title_operator": "ऑपरेटर का चेहरा सत्यापन",
 +  "liveness_title_supervisor": "पर्यवेक्षक का चेहरा सत्यापन",
-+  "liveness_status_starting": "चेहरे की जीवंतता जाँच शुरू हो रही है…",
-+  "liveness_status_checking": "चेहरे की जीवंतता जाँची जा रही है…",
-+  "liveness_status_passed": "बढ़िया, चेहरा सफलतापूर्वक कैप्चर हो गया",
-+  "liveness_status_cancelled": "चेहरे की जीवंतता जाँच रद्द कर दी गई।",
++  "liveness_status_starting": "चेहरे की सजीवता जाँच शुरू हो रही है…",
++  "liveness_status_checking": "चेहरे की सजीवता जाँच हो रही है…",
++  "liveness_status_passed": "बढ़िया, आपके चेहरे की फ़ोटो ले ली गई है",
++  "liveness_status_cancelled": "चेहरे की सजीवता जाँच रद्द कर दी गई।",
 +  "liveness_challenge_blink": "कृपया पलकें झपकाएँ",
 +  "liveness_challenge_smile": "कृपया मुस्कुराएँ",
 +  "liveness_challenge_turn_left": "कृपया अपना सिर बाईं ओर घुमाएँ",
@@ -55369,17 +55369,17 @@ index fc09a47..9e5ba7b 100644
 +  "liveness_challenge_look_up": "कृपया ऊपर देखें",
 +  "liveness_challenge_look_down": "कृपया नीचे देखें",
 +  "liveness_feedback_continue": "कृपया जारी रखें",
-+  "liveness_feedback_action_detected": "क्रिया पहचानी गई",
++  "liveness_feedback_action_detected": "हो गया",
 +  "liveness_feedback_hold_still": "हिलें नहीं",
-+  "liveness_guidance_no_face": "कोई चेहरा नहीं पहचाना गया। कृपया कैमरे की ओर देखें।",
++  "liveness_guidance_no_face": "चेहरा दिखाई नहीं दे रहा है। कृपया कैमरे की ओर देखें।",
 +  "liveness_guidance_multiple_faces": "केवल एक व्यक्ति दिखाई देना चाहिए।",
 +  "liveness_guidance_move_closer": "कृपया थोड़ा पास आएँ।",
 +  "liveness_guidance_move_back": "कृपया थोड़ा पीछे हटें।",
 +  "liveness_guidance_center_face": "कृपया अपना चेहरा अंडाकार के बीच में रखें।",
-+  "liveness_guidance_improve_lighting": "कृपया रोशनी बेहतर करें।",
++  "liveness_guidance_improve_lighting": "कृपया रोशनी बढ़ाएँ।",
 +  "liveness_guidance_hold_steady": "कृपया स्थिर रहें।",
 +  "liveness_guidance_look_at_camera": "कृपया कैमरे की ओर देखें।",
-+  "liveness_error_liveness_not_verified": "हम चेहरे की जीवंतता सत्यापित नहीं कर सके। कृपया पुनः प्रयास करें।",
++  "liveness_error_liveness_not_verified": "चेहरे की सजीवता की पुष्टि नहीं हो सकी। कृपया पुनः प्रयास करें।",
 +  "liveness_error_verification_not_completed": "चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।",
 +  "liveness_error_max_attempts_reached": "चेहरा सत्यापन पूरा नहीं हो सका।",
 +  "liveness_error_device_problem": "कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।",
@@ -55388,7 +55388,7 @@ index fc09a47..9e5ba7b 100644
 +  "liveness_tips_look_at_camera": "सीधे कैमरे की ओर देखें।",
 +  "liveness_tips_face_visible": "सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।",
 +  "liveness_tips_lighting": "रोशनी बेहतर करें।",
-+  "liveness_tips_capture_area": "अपना चेहरा कैप्चर क्षेत्र के भीतर रखें।",
++  "liveness_tips_capture_area": "अपना चेहरा स्क्रीन पर तय जगह के अंदर रखें।",
 +  "liveness_tips_follow_prompt": "बताई गई क्रिया करें।",
 +  "liveness_retry_attempts_left": "शेष प्रयास: {n}",
 +  "liveness_progress_step": "चरण {i} / {n}",
@@ -55396,29 +55396,29 @@ index fc09a47..9e5ba7b 100644
 +  "liveness_recovery_resident": "कृपया पर्यवेक्षक से संपर्क करें। निवासी का पंजीकरण बायोमेट्रिक अपवाद प्रक्रिया से किया जा सकता है।",
 +  "liveness_recovery_operator": "कृपया अपने व्यवस्थापक से संपर्क करें या बाद में पुनः प्रयास करें।",
 +  "liveness_recovery_supervisor": "कृपया अपने व्यवस्थापक से संपर्क करें।",
-+  "liveness_button_retry": "पुनः प्रयास करें",
++  "liveness_button_retry": "दोबारा करें",
 +  "liveness_button_cancel": "रद्द करें",
 +  "liveness_button_close": "बंद करें",
 +  "liveness_button_open_settings": "सेटिंग्स खोलें",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
-+  "liveness_model_title": "चेहरे की जीवंतता के मॉडल",
-+  "liveness_model_current": "उपयोग में मॉडल: {version}",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "liveness_model_title": "चेहरे की सजीवता जाँच के मॉडल",
++  "liveness_model_current": "उपयोग में मौजूद मॉडल: {version}",
 +  "liveness_model_install": "मॉडल बंडल इंस्टॉल करें",
 +  "liveness_model_rollback": "पिछले मॉडल बंडल पर वापस जाएँ",
 +  "liveness_model_select_file": "मॉडल बंडल (.zip) चुनें",
 +  "liveness_model_working": "मॉडल बंडल पर काम हो रहा है… कृपया प्रतीक्षा करें।",
-+  "liveness_model_installed": "मॉडल बंडल {version} इंस्टॉल हो गया। नई जीवंतता जाँचें इसका उपयोग करती हैं।",
-+  "liveness_model_rolled_back": "मॉडल {version} पर वापस कर दिए गए। नई जीवंतता जाँचें इनका उपयोग करती हैं।",
++  "liveness_model_installed": "मॉडल बंडल {version} इंस्टॉल हो गया। नई सजीवता जाँचें अब इसका उपयोग करेंगी।",
++  "liveness_model_rolled_back": "मॉडल {version} पर वापस कर दिए गए। नई सजीवता जाँचें अब इनका उपयोग करेंगी।",
 +  "liveness_model_not_newer": "यह मॉडल बंडल उपयोग में मौजूद मॉडलों से नया नहीं है। कुछ भी नहीं बदला गया।",
 +  "liveness_model_invalid": "यह फ़ाइल एक मान्य हस्ताक्षरित मॉडल बंडल नहीं है। कुछ भी नहीं बदला गया।",
 +  "liveness_model_nothing_to_roll_back": "वापस जाने के लिए कोई पिछला मॉडल बंडल नहीं है।",
 +  "liveness_model_failed": "मॉडल बंडल इंस्टॉल नहीं हो सका। कुछ भी नहीं बदला गया। कृपया पुनः प्रयास करें।",
 +  "liveness_model_rollback_failed": "मॉडलों को वापस नहीं किया जा सका। कुछ भी नहीं बदला गया।",
-+  "liveness_model_not_allowed": "केवल पर्यवेक्षक या व्यवस्थापक ही चेहरे की जीवंतता के मॉडल बदल सकते हैं।",
-+  "liveness_model_confirm_rollback": "चेहरे की जीवंतता के पिछले मॉडलों पर वापस जाएँ? नई जीवंतता जाँचें इनका उपयोग करेंगी।"
++  "liveness_model_not_allowed": "केवल पर्यवेक्षक या व्यवस्थापक ही चेहरे की सजीवता जाँच के मॉडल बदल सकते हैं।",
++  "liveness_model_confirm_rollback": "चेहरे की सजीवता जाँच के पिछले मॉडलों पर वापस जाएँ? नई सजीवता जाँचें इनका उपयोग करेंगी।"
  }
 diff --git a/assets/l10n/app_kn.arb b/assets/l10n/app_kn.arb
-index 29bc909..24556a8 100644
+index 29bc909..e03f682 100644
 --- a/assets/l10n/app_kn.arb
 +++ b/assets/l10n/app_kn.arb
 @@ -368,5 +368,67 @@
@@ -55427,13 +55427,13 @@ index 29bc909..24556a8 100644
    "id": "ID",
 -  "name": "ಹೆಸರು"
 +  "name": "ಹೆಸರು",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
 +  "liveness_title_resident": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ",
 +  "liveness_title_operator": "ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ",
 +  "liveness_title_supervisor": "ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ",
 +  "liveness_status_starting": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…",
 +  "liveness_status_checking": "ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…",
-+  "liveness_status_passed": "ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ",
++  "liveness_status_passed": "ಒಳ್ಳೆಯದು, ನಿಮ್ಮ ಮುಖದ ಫೋಟೋ ತೆಗೆಯಲಾಗಿದೆ",
 +  "liveness_status_cancelled": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.",
 +  "liveness_challenge_blink": "ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ",
 +  "liveness_challenge_smile": "ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ",
@@ -55442,7 +55442,7 @@ index 29bc909..24556a8 100644
 +  "liveness_challenge_look_up": "ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ",
 +  "liveness_challenge_look_down": "ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ",
 +  "liveness_feedback_continue": "ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ",
-+  "liveness_feedback_action_detected": "ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ",
++  "liveness_feedback_action_detected": "ಸರಿ, ಆಯಿತು",
 +  "liveness_feedback_hold_still": "ಅಲುಗಾಡಬೇಡಿ",
 +  "liveness_guidance_no_face": "ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
 +  "liveness_guidance_multiple_faces": "ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.",
@@ -55461,7 +55461,7 @@ index 29bc909..24556a8 100644
 +  "liveness_tips_look_at_camera": "ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
 +  "liveness_tips_face_visible": "ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.",
 +  "liveness_tips_lighting": "ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.",
-+  "liveness_tips_capture_area": "ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.",
++  "liveness_tips_capture_area": "ನಿಮ್ಮ ಮುಖವನ್ನು ಪರದೆಯ ಮೇಲೆ ತೋರಿಸಿರುವ ಜಾಗದೊಳಗೆ ಇರಿಸಿ.",
 +  "liveness_tips_follow_prompt": "ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.",
 +  "liveness_retry_attempts_left": "ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {n}",
 +  "liveness_progress_step": "ಹಂತ {i} / {n}",
@@ -55473,7 +55473,7 @@ index 29bc909..24556a8 100644
 +  "liveness_button_cancel": "ರದ್ದುಮಾಡಿ",
 +  "liveness_button_close": "ಮುಚ್ಚಿ",
 +  "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
 +  "liveness_model_title": "ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳು",
 +  "liveness_model_current": "ಬಳಕೆಯಲ್ಲಿರುವ ಮಾದರಿಗಳು: {version}",
 +  "liveness_model_install": "ಮಾದರಿ ಬಂಡಲ್ ಅನ್ನು ಸ್ಥಾಪಿಸಿ",
@@ -55491,7 +55491,7 @@ index 29bc909..24556a8 100644
 +  "liveness_model_confirm_rollback": "ಹಿಂದಿನ ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳಿಗೆ ಹಿಂತಿರುಗಬೇಕೇ? ಹೊಸ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಗಳು ಅವುಗಳನ್ನು ಬಳಸುತ್ತವೆ."
  }
 diff --git a/assets/l10n/app_ta.arb b/assets/l10n/app_ta.arb
-index 12ecdf7..08281b0 100644
+index 12ecdf7..a01e319 100644
 --- a/assets/l10n/app_ta.arb
 +++ b/assets/l10n/app_ta.arb
 @@ -377,5 +377,67 @@
@@ -55500,7 +55500,7 @@ index 12ecdf7..08281b0 100644
    "id": "ஐடி",
 -  "name": "பெயர்"
 +  "name": "பெயர்",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: no changes",
 +  "liveness_title_resident": "முக உயிர்ப்புச் சரிபார்ப்பு",
 +  "liveness_title_operator": "ஆபரேட்டர் முக சரிபார்ப்பு",
 +  "liveness_title_supervisor": "மேற்பார்வையாளர் முக சரிபார்ப்பு",
@@ -55546,7 +55546,7 @@ index 12ecdf7..08281b0 100644
 +  "liveness_button_cancel": "ரத்துசெய்",
 +  "liveness_button_close": "மூடு",
 +  "liveness_button_open_settings": "அமைப்புகளைத் திற",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: no changes",
 +  "liveness_model_title": "முக உயிர்ப்பு மாதிரிகள்",
 +  "liveness_model_current": "பயன்பாட்டில் உள்ள மாதிரிகள்: {version}",
 +  "liveness_model_install": "மாதிரித் தொகுப்பை நிறுவு",
@@ -62900,10 +62900,10 @@ index 0000000..c8cc535
 +}
 diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
 new file mode 100644
-index 0000000..d4b04ef
+index 0000000..a5196aa
 --- /dev/null
 +++ b/test/liveness/liveness_l10n_test.dart
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,85 @@
 +import 'dart:convert';
 +import 'dart:io';
 +
@@ -62913,9 +62913,17 @@ index 0000000..d4b04ef
 +import 'package:registration_client/ui/liveness/liveness_strings.dart';
 +
 +/// The liveness strings in every ARB: all 45 keys, the English placeholders, and the
-+/// machine-translation note in each translated file.
++/// translation note in each translated file (machine-translated, and its review).
 +void main() {
 +  const languages = ['ar', 'fr', 'hi', 'kn', 'ta'];
++  // The native-speaker review (2026-10-28): Tamil had no changes; Arabic, French, Hindi and Kannada were corrected.
++  const review = {
++    'ar': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++    'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++    'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++    'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++    'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
++  };
 +  // A placeholder {n}, or the argument of an ICU plural {n, plural, ...}.
 +  final placeholder = RegExp(r'\{(\w+)(?:\}|,\s*plural)');
 +
@@ -62946,8 +62954,8 @@ index 0000000..d4b04ef
 +      expect(a.keys.where((k) => k.startsWith('liveness_') && !k.startsWith('liveness_model_')), hasLength(45), reason: 'no extra keys');
 +    });
 +
-+    test('$lang: marked as machine-translated', () {
-+      expect(arb(lang)['@@x-liveness-translation'], 'machine-translated; needs native-speaker review');
++    test('$lang: marked as machine-translated, with its review', () {
++      expect(arb(lang)['@@x-liveness-translation'], review[lang]);
 +    });
 +  }
 +
@@ -62983,10 +62991,10 @@ index 0000000..d4b04ef
 +}
 diff --git a/test/liveness/liveness_page_layout_test.dart b/test/liveness/liveness_page_layout_test.dart
 new file mode 100644
-index 0000000..3b5166f
+index 0000000..5a0e5fc
 --- /dev/null
 +++ b/test/liveness/liveness_page_layout_test.dart
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,247 @@
 +import 'dart:math' as math;
 +
 +import 'package:flutter/material.dart';
@@ -63035,12 +63043,13 @@ index 0000000..3b5166f
 +/// docs/ui-liveness-spec.md §9 on phones: every state fits 360x640 and 412x915
 +/// (logical) without scrolling, the buttons are always on screen, a failed attempt
 +/// shows one attempts line, and the state badge sits on the oval's top centre;
-+/// also in Arabic (right to left) and at 1.3x text, where only the tips may scroll.
++/// also in Arabic (right to left) and at 1.3x text, where only the tips may scroll,
++/// and in Hindi at 360 dp (the reviewed texts, task 27).
 +void main() {
 +  setUpAll(loadLivenessTestFonts);
 +
 +  const sizes = [Size(360, 640), Size(412, 915)];
-+  const variants = [_Variant('en', 1.0), _Variant('ar', 1.0), _Variant('en', 1.3)];
++  const variants = [_Variant('en', 1.0), _Variant('ar', 1.0), _Variant('en', 1.3), _Variant('hi', 1.0)];
 +  final status = find.byKey(const Key('liveness.status'));
 +  final tips = find.byKey(const Key('liveness.tips'));
 +  final buttons = find.byWidgetPredicate((w) => w is ElevatedButton || w is OutlinedButton);
@@ -63050,6 +63059,8 @@ index 0000000..3b5166f
 +  for (final screen in [...livenessScreens, ...livenessExtraScreens]) {
 +    for (final size in sizes) {
 +      for (final v in variants) {
++        // Hindi (task 27): the narrow phone, where the reviewed texts and the two-word Retry are tightest.
++        if (v.lang == 'hi' && size.width > 360) continue;
 +        testWidgets('${screen.name} at ${size.width.toInt()}x${size.height.toInt()}, $v', (tester) async {
 +          await showLivenessScreen(tester, screen, size, lang: v.lang, textScale: v.textScale);
 +          expect(tester.takeException(), isNull, reason: 'no overflow');
@@ -63082,6 +63093,13 @@ index 0000000..3b5166f
 +          // on one line in SemiBold at the 16 sp minimum, against 264 dp available on a 360 dp screen (Roboto was
 +          // 471 dp: 2 lines). Below about 380 dp it takes at most 3 lines of 16 sp; every other check still applies.
 +          final statusText = find.descendant(of: status, matching: find.byType(Text));
++          if (v.lang == 'hi') {
++            // Hindi at 1x: the status takes at most 2 lines too, counted in lines. A line of Noto Sans Devanagari at 20 sp
++            // is 27 dp high (Latin: 25), so the height bound below is Latin's (task 27: at 360 dp the reviewed texts
++            // take 1 or 2 lines at 20 sp, none shrinks).
++            final lines = textLines(tester, find.descendant(of: statusText, matching: find.byType(RichText)));
++            expect(lines, hasLength(lessThanOrEqualTo(2)), reason: tester.widget<Text>(statusText).data);
++          }
 +          if (v.lang == 'en' && v.textScale == 1.0) {
 +            final deviceProblem = tester.widget<Text>(statusText).data == l.liveness_error_device_problem;
 +            expect(
@@ -63089,6 +63107,15 @@ index 0000000..3b5166f
 +                lessThanOrEqualTo(deviceProblem && size.width < 380
 +                    ? 3 * LivenessStyle.statusMinSize * 1.25 + 0.5
 +                    : 2 * 20 * 1.25 + 0.5));
++          }
++
++          // Hindi: every button label stays on one line (Retry is two words since the review, task 27).
++          if (v.lang == 'hi') {
++            for (var i = 0; i < buttons.evaluate().length; i++) {
++              final label = find.descendant(of: buttons.at(i), matching: find.byType(RichText)).first;
++              expect(textLines(tester, label), hasLength(1),
++                  reason: 'button "${tester.renderObject<RenderParagraph>(label).text.toPlainText()}"');
++            }
 +          }
 +
 +          // A wrapped status: the badge stays next to the longest line, and the two are centred in the card.
@@ -63217,7 +63244,7 @@ index 0000000..3b5166f
 +}
 diff --git a/test/liveness/liveness_page_locale_test.dart b/test/liveness/liveness_page_locale_test.dart
 new file mode 100644
-index 0000000..928e120
+index 0000000..9fd7acb
 --- /dev/null
 +++ b/test/liveness/liveness_page_locale_test.dart
 @@ -0,0 +1,124 @@
@@ -63297,7 +63324,7 @@ index 0000000..928e120
 +    expect(find.text('نصائح:'), findsOneWidget);
 +    // The tips start at the right edge of their card with the bullet, the text left of it;
 +    // Retry (first) is right of Cancel.
-+    final tip = find.textContaining('انظر مباشرة إلى الكاميرا.');
++    final tip = find.textContaining('يرجى النظر مباشرة إلى الكاميرا.');
 +    await tester.ensureVisible(tip);
 +    await tester.pump();
 +    final tips = find.byKey(const Key('liveness.tips'));
@@ -63309,7 +63336,7 @@ index 0000000..928e120
 +
 +  testWidgets('Hindi: the strings, left to right', (tester) async {
 +    await open(tester, 'hi');
-+    expect(find.text('चेहरे की जीवंतता जाँच'), findsOneWidget);
++    expect(find.text('चेहरे की सजीवता जाँच'), findsOneWidget);
 +    await send(tester, ev('STARTED'));
 +    await send(tester, ev('CHALLENGE_PROMPT', challenge: 'BLINK', index: 1, count: 2));
 +    final prompt = find.text('कृपया पलकें झपकाएँ');
@@ -63324,7 +63351,7 @@ index 0000000..928e120
 +    expect(find.text('चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।'), findsOneWidget);
 +    expect(find.text('शेष प्रयास: 2'), findsOneWidget);
 +    expect(find.text('सुझाव:'), findsNothing, reason: 'no tips after a generic failure');
-+    expect(find.text('पुनः प्रयास करें'), findsOneWidget);
++    expect(find.text('दोबारा करें'), findsOneWidget);
 +  });
 +
 +  for (final lang in ['en', 'ar', 'fr', 'hi', 'kn', 'ta']) {
@@ -63844,10 +63871,10 @@ index 0000000..62dcff9
 +    );
 diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
 new file mode 100644
-index 0000000..c7fcc59
+index 0000000..0e90bb6
 --- /dev/null
 +++ b/test/liveness/model_bundle_test.dart
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,187 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -64002,7 +64029,7 @@ index 0000000..c7fcc59
 +    await tester.pumpAndSettle();
 +    await tester.tap(find.byKey(const Key('installModelBundle')));
 +    await tester.pumpAndSettle();
-+    expect(find.text("Lot de modèles pad-2026.10.6 installé. Les nouvelles vérifications de vivacité l'utilisent."),
++    expect(find.text("Lot de modèles pad-2026.10.6 installé. Les nouvelles vérifications du vivant l'utilisent."),
 +        findsOneWidget);
 +  });
 +
@@ -64013,6 +64040,15 @@ index 0000000..c7fcc59
 +    final keys = en.keys.where((k) => k.startsWith('liveness_model_')).toList();
 +    expect(keys, hasLength(15));
 +    final placeholder = RegExp(r'\{(\w+)\}');
++    // The native-speaker review (2026-10-28): Tamil had no changes; Arabic, French, Hindi and Kannada were
++    // corrected.
++    const review = {
++      'ar': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++      'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++      'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++      'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++      'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
++    };
 +    for (final lang in ['ar', 'fr', 'hi', 'kn', 'ta']) {
 +      final a = arb(lang);
 +      for (final k in keys) {
@@ -64022,7 +64058,7 @@ index 0000000..c7fcc59
 +            reason: '$lang $k');
 +        expect(a[k], isNot(en[k]), reason: '$lang $k is translated');
 +      }
-+      expect(a['@@x-liveness-model-translation'], 'machine-translated; needs native-speaker review');
++      expect(a['@@x-liveness-model-translation'], review[lang]);
 +    }
 +  });
 +}

@@ -215,8 +215,8 @@ file name or an exception message.
 | `liveness.model.confirm_rollback` | Roll back to the previous face liveness models? New liveness checks will use them. | rollback confirmation |
 
 **Translations.** The Arabic and French texts are in the Desktop `messages_ar` / `messages_fr` bundles, and all five
-languages are in the Android ARB files. They are machine-translated and need native-speaker review (the second batch
-of the translation review sheet).
+languages are in the Android ARB files. They are machine-translated. A native speaker reviewed all five on 2026-10-28:
+Tamil without changes; Arabic, French, Hindi and Kannada corrected.
 
 ## 5. Message keys and ready-to-paste catalogues
 
@@ -348,8 +348,9 @@ liveness.button.open_settings=Open settings
 ```
 
 **Other languages.**
-- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated and
-  need a native speaker's review. Appendix A has the same texts for the Desktop client.
+- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated, and a
+  native speaker reviewed all five on 2026-10-28 (Tamil without changes).
+  Appendix A has the same texts for the Desktop client.
 - A language without them falls back to English: on the Desktop through the ResourceBundle parent, on Android
   through gen-l10n's handling of missing keys.
 - Arabic is right to left. The turn arrows still point to the user's physical left and right, so they are never
@@ -612,8 +613,9 @@ It is off when the system's reduce-motion setting is on (Android) or with `deskt
 
 The Android client has the 45 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
 `app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
-paste. **All five languages are machine-translated and need a review by a native speaker before release.** The ARB
-files carry the same note, as `"@@x-liveness-translation"`.
+paste. **All five languages are machine-translated. A native speaker reviewed all five on 2026-10-28: Tamil without
+changes; Arabic, French, Hindi and Kannada corrected.** The ARB files carry the
+same status, as `"@@x-liveness-translation"`.
 
 How the translations were made:
 - **Existing terms.** Each language reuses the client's existing terms where they are correct: face, operator,
@@ -622,8 +624,9 @@ How the translations were made:
     ("attempts of the left side").
   - The fix round 4 report lists each of these.
 - **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
-- **Liveness** is حيوية الوجه (Arabic), vivacité du visage (French), जीवंतता (Hindi), ಜೀವಂತಿಕೆ (Kannada) and
-  உயிர்ப்பு (Tamil).
+- **Liveness** is حيوية الوجه (Arabic; confirmed by the reviewer), détection du vivant (French; the reviewer's term: « vivacité » means
+  liveliness), सजीवता (Hindi; the reviewer's term: जीवंतता means liveliness), ಜೀವಂತಿಕೆ (Kannada; confirmed by the
+  reviewer) and உயிர்ப்பு (Tamil).
 - **Plural forms.** French has them like English: "1 tentative restante" / "{n} tentatives restantes", where "one"
   covers 0 and 1 (§5).
   - In Arabic, Hindi, Kannada and Tamil, "attempts left" becomes "attempts left: {n}", with no plural.
@@ -653,15 +656,15 @@ For the Desktop client (Person 4):
 **Desktop, `messages_ar.properties`** (Arabic):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 liveness.title.resident=التحقق من حيوية الوجه
 liveness.title.operator=التحقق من وجه المشغل
 liveness.title.supervisor=التحقق من وجه المشرف
 liveness.status.starting=جارٍ بدء التحقق من حيوية الوجه…
 liveness.status.checking=جارٍ التحقق من حيوية الوجه…
-liveness.status.passed=جيد، تم التقاط الوجه بنجاح
+liveness.status.passed=جيد، تم التقاط صورة وجهك بنجاح
 liveness.status.cancelled=تم إلغاء التحقق من حيوية الوجه.
-liveness.challenge.blink=يرجى رمش عينيك
+liveness.challenge.blink=يرجى الرمش بعينيك
 liveness.challenge.smile=يرجى الابتسام
 liveness.challenge.turn_left=يرجى إدارة رأسك إلى اليسار
 liveness.challenge.turn_right=يرجى إدارة رأسك إلى اليمين
@@ -669,7 +672,7 @@ liveness.challenge.look_up=يرجى النظر إلى الأعلى
 liveness.challenge.look_down=يرجى النظر إلى الأسفل
 liveness.feedback.continue=يرجى المتابعة
 liveness.feedback.action_detected=تم اكتشاف الحركة
-liveness.feedback.hold_still=لا تتحرك
+liveness.feedback.hold_still=يرجى عدم الحركة
 liveness.guidance.no_face=لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.
 liveness.guidance.multiple_faces=يجب أن يظهر شخص واحد فقط.
 liveness.guidance.move_closer=يرجى الاقتراب أكثر.
@@ -681,14 +684,14 @@ liveness.guidance.look_at_camera=يرجى النظر إلى الكاميرا.
 liveness.error.liveness_not_verified=تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.
 liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
 liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
-liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
+liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. يرجى التحقق من الاتصال والمحاولة مرة أخرى.
 liveness.error.identity_not_verified=تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.
 liveness.tips.title=نصائح:
-liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
-liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
-liveness.tips.lighting=حسّن الإضاءة.
-liveness.tips.capture_area=أبقِ وجهك داخل منطقة الالتقاط.
-liveness.tips.follow_prompt=نفّذ الحركة المطلوبة.
+liveness.tips.look_at_camera=يرجى النظر مباشرة إلى الكاميرا.
+liveness.tips.face_visible=يرجى التأكد من ظهور وجهك بوضوح.
+liveness.tips.lighting=يرجى تحسين الإضاءة.
+liveness.tips.capture_area=يرجى إبقاء وجهك داخل الإطار الظاهر على الشاشة.
+liveness.tips.follow_prompt=يرجى تنفيذ الحركة المطلوبة.
 liveness.retry.attempts_left=المحاولات المتبقية: {0}
 liveness.progress.step=الخطوة {0} من {1}
 liveness.progress.attempt=المحاولة {0} من {1}
@@ -704,14 +707,14 @@ liveness.button.open_settings=فتح الإعدادات
 **Desktop, `messages_fr.properties`** (French, non-ASCII as `\u` escapes because the v1.2.0.2 file is ISO-8859-1):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
-liveness.title.resident=Test de vivacit\u00e9 du visage
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
+liveness.title.resident=D\u00e9tection du vivant (visage)
 liveness.title.operator=V\u00e9rification faciale de l'op\u00e9rateur
 liveness.title.supervisor=V\u00e9rification faciale du superviseur
-liveness.status.starting=D\u00e9marrage du test de vivacit\u00e9 du visage\u2026
-liveness.status.checking=V\u00e9rification de la vivacit\u00e9 du visage\u2026
+liveness.status.starting=D\u00e9marrage de la d\u00e9tection du vivant\u2026
+liveness.status.checking=D\u00e9tection du vivant en cours\u2026
 liveness.status.passed=Parfait, visage captur\u00e9 avec succ\u00e8s
-liveness.status.cancelled=Test de vivacit\u00e9 du visage annul\u00e9.
+liveness.status.cancelled=D\u00e9tection du vivant annul\u00e9e.
 liveness.challenge.blink=Veuillez cligner des yeux
 liveness.challenge.smile=Veuillez sourire
 liveness.challenge.turn_left=Veuillez tourner la t\u00eate vers la gauche
@@ -729,7 +732,7 @@ liveness.guidance.center_face=Veuillez centrer votre visage dans l'ovale.
 liveness.guidance.improve_lighting=Veuillez am\u00e9liorer l'\u00e9clairage.
 liveness.guidance.hold_steady=Veuillez rester immobile.
 liveness.guidance.look_at_camera=Veuillez regarder la cam\u00e9ra.
-liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00e9rifier la vivacit\u00e9 du visage. Veuillez r\u00e9essayer.
+liveness.error.liveness_not_verified=Nous n'avons pas pu effectuer la d\u00e9tection du vivant. Veuillez r\u00e9essayer.
 liveness.error.verification_not_completed=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e. Veuillez r\u00e9essayer.
 liveness.error.max_attempts_reached=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e.
 liveness.error.device_problem=Cam\u00e9ra ou appareil indisponible. V\u00e9rifiez la connexion et r\u00e9essayez.
@@ -755,14 +758,14 @@ liveness.button.open_settings=Ouvrir les param\u00e8tres
 **Desktop, `messages_hi.properties`** (Hindi):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
-liveness.title.resident=चेहरे की जीवंतता जाँच
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
+liveness.title.resident=चेहरे की सजीवता जाँच
 liveness.title.operator=ऑपरेटर का चेहरा सत्यापन
 liveness.title.supervisor=पर्यवेक्षक का चेहरा सत्यापन
-liveness.status.starting=चेहरे की जीवंतता जाँच शुरू हो रही है…
-liveness.status.checking=चेहरे की जीवंतता जाँची जा रही है…
-liveness.status.passed=बढ़िया, चेहरा सफलतापूर्वक कैप्चर हो गया
-liveness.status.cancelled=चेहरे की जीवंतता जाँच रद्द कर दी गई।
+liveness.status.starting=चेहरे की सजीवता जाँच शुरू हो रही है…
+liveness.status.checking=चेहरे की सजीवता जाँच हो रही है…
+liveness.status.passed=बढ़िया, आपके चेहरे की फ़ोटो ले ली गई है
+liveness.status.cancelled=चेहरे की सजीवता जाँच रद्द कर दी गई।
 liveness.challenge.blink=कृपया पलकें झपकाएँ
 liveness.challenge.smile=कृपया मुस्कुराएँ
 liveness.challenge.turn_left=कृपया अपना सिर बाईं ओर घुमाएँ
@@ -770,17 +773,17 @@ liveness.challenge.turn_right=कृपया अपना सिर दाई�
 liveness.challenge.look_up=कृपया ऊपर देखें
 liveness.challenge.look_down=कृपया नीचे देखें
 liveness.feedback.continue=कृपया जारी रखें
-liveness.feedback.action_detected=क्रिया पहचानी गई
+liveness.feedback.action_detected=हो गया
 liveness.feedback.hold_still=हिलें नहीं
-liveness.guidance.no_face=कोई चेहरा नहीं पहचाना गया। कृपया कैमरे की ओर देखें।
+liveness.guidance.no_face=चेहरा दिखाई नहीं दे रहा है। कृपया कैमरे की ओर देखें।
 liveness.guidance.multiple_faces=केवल एक व्यक्ति दिखाई देना चाहिए।
 liveness.guidance.move_closer=कृपया थोड़ा पास आएँ।
 liveness.guidance.move_back=कृपया थोड़ा पीछे हटें।
 liveness.guidance.center_face=कृपया अपना चेहरा अंडाकार के बीच में रखें।
-liveness.guidance.improve_lighting=कृपया रोशनी बेहतर करें।
+liveness.guidance.improve_lighting=कृपया रोशनी बढ़ाएँ।
 liveness.guidance.hold_steady=कृपया स्थिर रहें।
 liveness.guidance.look_at_camera=कृपया कैमरे की ओर देखें।
-liveness.error.liveness_not_verified=हम चेहरे की जीवंतता सत्यापित नहीं कर सके। कृपया पुनः प्रयास करें।
+liveness.error.liveness_not_verified=चेहरे की सजीवता की पुष्टि नहीं हो सकी। कृपया पुनः प्रयास करें।
 liveness.error.verification_not_completed=चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
 liveness.error.max_attempts_reached=चेहरा सत्यापन पूरा नहीं हो सका।
 liveness.error.device_problem=कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।
@@ -789,7 +792,7 @@ liveness.tips.title=सुझाव:
 liveness.tips.look_at_camera=सीधे कैमरे की ओर देखें।
 liveness.tips.face_visible=सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।
 liveness.tips.lighting=रोशनी बेहतर करें।
-liveness.tips.capture_area=अपना चेहरा कैप्चर क्षेत्र के भीतर रखें।
+liveness.tips.capture_area=अपना चेहरा स्क्रीन पर तय जगह के अंदर रखें।
 liveness.tips.follow_prompt=बताई गई क्रिया करें।
 liveness.retry.attempts_left=शेष प्रयास: {0}
 liveness.progress.step=चरण {0} / {1}
@@ -797,7 +800,7 @@ liveness.progress.attempt=प्रयास {0} / {1}
 liveness.recovery.resident=कृपया पर्यवेक्षक से संपर्क करें। निवासी का पंजीकरण बायोमेट्रिक अपवाद प्रक्रिया से किया जा सकता है।
 liveness.recovery.operator=कृपया अपने व्यवस्थापक से संपर्क करें या बाद में पुनः प्रयास करें।
 liveness.recovery.supervisor=कृपया अपने व्यवस्थापक से संपर्क करें।
-liveness.button.retry=पुनः प्रयास करें
+liveness.button.retry=दोबारा करें
 liveness.button.cancel=रद्द करें
 liveness.button.close=बंद करें
 liveness.button.open_settings=सेटिंग्स खोलें
@@ -806,13 +809,13 @@ liveness.button.open_settings=सेटिंग्स खोलें
 **Desktop, `messages_kn.properties`** (Kannada):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 liveness.title.resident=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ
 liveness.title.operator=ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ
 liveness.title.supervisor=ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ
 liveness.status.starting=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…
 liveness.status.checking=ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…
-liveness.status.passed=ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ
+liveness.status.passed=ಒಳ್ಳೆಯದು, ನಿಮ್ಮ ಮುಖದ ಫೋಟೋ ತೆಗೆಯಲಾಗಿದೆ
 liveness.status.cancelled=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.
 liveness.challenge.blink=ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ
 liveness.challenge.smile=ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ
@@ -821,7 +824,7 @@ liveness.challenge.turn_right=ದಯವಿಟ್ಟು ನಿಮ್ಮ ತಲೆ
 liveness.challenge.look_up=ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ
 liveness.challenge.look_down=ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ
 liveness.feedback.continue=ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ
-liveness.feedback.action_detected=ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ
+liveness.feedback.action_detected=ಸರಿ, ಆಯಿತು
 liveness.feedback.hold_still=ಅಲುಗಾಡಬೇಡಿ
 liveness.guidance.no_face=ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
 liveness.guidance.multiple_faces=ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.
@@ -840,7 +843,7 @@ liveness.tips.title=ಸಲಹೆಗಳು:
 liveness.tips.look_at_camera=ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
 liveness.tips.face_visible=ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.
 liveness.tips.lighting=ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.
-liveness.tips.capture_area=ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.
+liveness.tips.capture_area=ನಿಮ್ಮ ಮುಖವನ್ನು ಪರದೆಯ ಮೇಲೆ ತೋರಿಸಿರುವ ಜಾಗದೊಳಗೆ ಇರಿಸಿ.
 liveness.tips.follow_prompt=ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.
 liveness.retry.attempts_left=ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {0}
 liveness.progress.step=ಹಂತ {0} / {1}
@@ -857,7 +860,7 @@ liveness.button.open_settings=ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು �
 **Desktop, `messages_ta.properties`** (Tamil):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28, no changes.
 liveness.title.resident=முக உயிர்ப்புச் சரிபார்ப்பு
 liveness.title.operator=ஆபரேட்டர் முக சரிபார்ப்பு
 liveness.title.supervisor=மேற்பார்வையாளர் முக சரிபார்ப்பு

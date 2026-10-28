@@ -39,7 +39,7 @@ diff --git a/README.md b/README.md
 +| Path | What |
 +|---|---|
 +| `registration-client/.../controller/liveness/` | `LivenessGate` (the one call each flow makes), `LivenessScreenModel` (spec state table), `LivenessView` + `fxml/LivenessCheck.fxml` + `liveness.css` (the screen), `LivenessMessages`; in the test sources, `LivenessScreenDemo` (screens as PNG, interactive demo; not in the client jar) |
-+| `registration-services/.../liveness/desktop/` | `DesktopLivenessService` (engine, device, preload, config reload, metrics), `FaceBinding`, `DesktopLivenessConfig` (synced global config), `DesktopAuditSink` (audit module, `REG-LIV-001..011`) |
++| `registration-services/.../liveness/desktop/` | `DesktopLivenessService` (engine, device, preload, config reload, metrics), `FaceBinding`, `DesktopLivenessConfig` (synced global config), `DesktopAuditSink` (audit module, `REG-LIV-001..013`) |
 +| hooks | `GenericBiometricsController`, `BiometricsController`, `LoginController`, `AuthenticationController`, `EODAuthenticationController`, `BaseController.captureAndValidateFace`, `SessionContext.validateFace`, `ClientApplication` (preload) |
 +| `docs/part4-registration-default.properties` | the liveness block for the server's `registration-default.properties` |
 +| `docs/images/part4/` | the Desktop UI screens |
@@ -47,9 +47,9 @@ diff --git a/README.md b/README.md
 +Build and test (JDK 11, from `registration-client/registration`):
 +
 +    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip
-+    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip
++    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip
 +
-+Result: registration-services 129 tests, registration-client 27 tests, all passing (outside a git checkout add `-Dmaven.gitcommitid.skip=true`).
++Result measured on `main` at 57b4c95 (2026-10-28), all passing: registration-services 137 liveness tests (Part 1's 81, Part 4's 52, the four F16 clips) and registration-client 43. The command also runs the existing audit (`AuditFactoryTest`, 4), login (`LoginServiceTest`, 26) and config sync (`GlobalParamServiceTest`, 12) suites, which pass too. Outside a git checkout add `-Dmaven.gitcommitid.skip=true`.
 +
 +**Documentation:**
 +- [docs/part4-desktop-integration.md](docs/part4-desktop-integration.md): architecture, the hooks, face binding, sequence diagrams (resident, operator login, packet authentication, supervisor approval, failure, device, config sync), UI screens, configuration, audit and diagnostic logging, metrics, online/offline, security and privacy, testing, limitations
@@ -83,7 +83,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,785 @@
+@@ -0,0 +1,806 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -158,7 +158,7 @@ new file mode 100644
 +| `ModelBundleTexts` | client | F17: the `liveness.model.*` message key for each install or rollback outcome; the version is filled in literally (the translations contain apostrophes). |
 +| `FaceBinding` | services | F1: the next face capture of the workflow must match the PASSED session's best frame. |
 +| `DesktopLivenessConfig` | services | `ConfigProvider` over `ApplicationContext.map()` (synced global config + local preferences) with bundled Desktop defaults. |
-+| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..012`. |
++| `DesktopAuditSink` | services | Engine audit records → the client's audit module, events `REG-LIV-001..013`. |
 +| `ConfigSyncedEvent`, `SwappableAnalyzerFactory` | services | Told after a successful config sync (starts the online model update); the analyzer factory that a model update replaces while running sessions keep theirs. |
 +| `DeferredFrameSource`, `IdleFrameSource`, `CapturedFaceDecoder` | services | Device opened on start (unplugged device = recoverable error with Retry); no-op source for the scripted engine; ISO 19794-5 → RGB frame for binding. |
 +
@@ -736,7 +736,23 @@ new file mode 100644
 +
 +(`-Dmaven.gitcommitid.skip=true` is needed only when building outside a git checkout.)
 +
-+**Results (as of 2026-10-26, with the follow-ups):** `registration-services` 105 liveness tests pass: Part 1's 72 and
++**Results on `main` (57b4c95, measured 2026-10-28 with the command above on that commit):** `registration-services`
++179 tests pass: 137 liveness tests (Part 1's 81, that is 72 and F13b's 9 `WebcamGrabbersTest`; Part 4's 52, that is 33
++and F17's 7 and F15's 12; and the four F16 clips of `RecordedVideoE2ETest`) and the existing audit (4), login (26) and
++config sync (12) suites. `registration-client` 43 tests pass, the visual design's 7 `LivenessViewLayoutTest` tests
++among them (spec §9; the 14 screens in `docs/images/part4/` are rendered from the production classes).
++`RecordedVideoE2ETest` 5/5. No failures, nothing skipped. Live, with the laptop webcam on 2026-10-28
++(the screen demo, `--live webcam --workflow operator --identity verify`, on a client built from the ui-polish overlay):
++- F15 against the operator's test template: a second person was refused (passive PASSED, then NO_MATCH, similarity
++  0.07 against the 0.40 threshold); the operator was accepted (passive PASSED, then MATCH, similarity 0.64; 0.815 on
++  2026-10-27). The template was deleted afterwards.
++- F13b: both runs and the delete exited cleanly, with no hang. The grabber in use (OpenCV, or the sarxos fallback) was
++  not captured.
++
++The paragraphs below record how the counts grew. They stop at task 16b (175 and 40): the review fixes after it added
++3 `WebcamGrabbersTest` and 3 `LivenessViewLayoutTest` tests (task 19) and 1 `IdentityBindingTest` test (task 20).
++
++**Results on 2026-10-26, with the follow-ups:** `registration-services` 105 liveness tests pass: Part 1's 72 and
 +Part 4's 33. `registration-client` 28 tests pass. The command also runs the existing audit (4), login (26) and config
 +sync (`GlobalParamServiceTest`, 12) suites, which pass too. No failures, nothing skipped.
 +
@@ -810,7 +826,8 @@ new file mode 100644
 +  after 5 s. It waits up to 2 s until the frame source's worker has released the camera (stopping only signals the
 +  worker, which finishes its current grab first), then stops sarxos' discovery if sarxos was used.
 +
-+`LivenessScreenDemoTest` checks that order without a camera. The live re-check with the webcam is on 2026-10-28.
++`LivenessScreenDemoTest` checks that order without a camera. On 2026-10-28 two live webcam runs (`--identity verify`)
++and the template delete each exited cleanly, with no hang; the grabber in use was not captured.
 +
 +## 11. Limitations and open points
 +
@@ -830,6 +847,7 @@ new file mode 100644
 +  - `IdentityBindingTest` and `RealIdentityBindingTest` prove the service with real ISO records and the signed model.
 +  - `LivenessGateTest` proves the retry rule.
 +  - The screen demo runs the same `IdentityBinding` on a live webcam session against a test template (section 10).
++    On 2026-10-28 it refused a second person (NO_MATCH, 0.07) and accepted the operator (MATCH, 0.64).
 +  - The login hook, the retry dialog and the failed-login count were checked by compilation and code review only.
 +  - Whether a real bio-SDK's stored template decodes was not checked. If it does not, the outcome is
 +    NOT_BOUND_UNREADABLE (section 2.5).
@@ -839,8 +857,11 @@ new file mode 100644
 +  not tried with Narrator/NVDA.
 +- **Translations:** the liveness keys are in `messages_en`, `messages_ar` and `messages_fr.properties`, the three
 +  languages Registration Client v1.2.0.2 ships.
-+  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated and need a native
-+    speaker's review.
++  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated. A native speaker
++    reviewed French on 2026-10-28: « vivacité » means liveliness, so the liveness texts now say « détection du vivant »
++    (11 texts, the same as Android). Arabic was reviewed on 2026-10-28 too: polite, gender-neutral instructions
++    instead of direct masculine commands (12 texts, the same as Android); the word for "resident" stays, as in the
++    client's own Arabic texts.
 +  - The overlay copies are the upstream files with the block appended, byte for byte (`.gitattributes` `-text`). The
 +    block is `\u`-escaped: the French file is ISO-8859-1, and the Arabic file is all escapes too.
 +  - Hindi, Kannada and Tamil are not added. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its other screens, so
@@ -1083,8 +1104,8 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +| `liveness.model.confirm_rollback` | Roll back to the previous face liveness models? New liveness checks will use them. | rollback confirmation |
 +
 +**Translations.** The Arabic and French texts are in the Desktop `messages_ar` / `messages_fr` bundles, and all five
-+languages are in the Android ARB files. They are machine-translated and need native-speaker review (the second batch
-+of the translation review sheet).
++languages are in the Android ARB files. They are machine-translated. A native speaker reviewed all five on 2026-10-28:
++Tamil without changes; Arabic, French, Hindi and Kannada corrected.
 +
  ## 5. Message keys and ready-to-paste catalogues
  
@@ -1139,7 +1160,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  "@liveness_retry_attempts_left": {"placeholders": {"n": {"type": "int"}}},
  "liveness_progress_step": "Step {i} of {n}",
  "@liveness_progress_step": {"placeholders": {"i": {"type": "int"}, "n": {"type": "int"}}},
-@@ -289,9 +347,13 @@ liveness.button.open_settings=Open settings
+@@ -289,9 +347,14 @@ liveness.button.open_settings=Open settings
  "liveness_button_open_settings": "Open settings"
  ```
  
@@ -1147,8 +1168,9 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 -English: Desktop through the ResourceBundle parent, Android through gen-l10n's handling of missing keys (Person 5
 -checks this, see the P5-1 report).
 +**Other languages.**
-+- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated and
-+  need a native speaker's review. Appendix A has the same texts for the Desktop client.
++- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated, and a
++  native speaker reviewed all five on 2026-10-28 (Tamil without changes).
++  Appendix A has the same texts for the Desktop client.
 +- A language without them falls back to English: on the Desktop through the ResourceBundle parent, on Android
 +  through gen-l10n's handling of missing keys.
 +- Arabic is right to left. The turn arrows still point to the user's physical left and right, so they are never
@@ -1156,7 +1178,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  
  **Key lookup from events:**
  
-@@ -362,6 +424,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
+@@ -362,6 +425,10 @@ also works from a dialog. It uses the workflow's camera, `mosip.registration.liv
    also opens the app's settings. No session is started without the permission.
  - **Config after a sync**: the client re-reads the liveness config after every global-param refresh (sync). New
    sessions use it; a running session keeps its policy and analyzer.
@@ -1167,7 +1189,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
  - **Fake engine** (debug builds only): it never opens the camera; the screen shows a placeholder instead of a preview,
    and there is no best frame.
  
-@@ -423,20 +489,418 @@ The best frame is dropped after the comparison, when a new session starts, when
+@@ -423,20 +490,420 @@ The best frame is dropped after the comparison, when a new session starts, when
  (unless an armed SBI capture is under way: the SBI app itself pauses the client) and after 5 minutes. An armed capture
  whose best frame was dropped meanwhile fails closed.
  
@@ -1239,7 +1261,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +|---|---|
 +| Camera card | 3:4 on the phone, 4:3 on Desktop; radius 16. At most 45% of the screen height; it takes what is left, so it is smaller when the tips need the room. The face oval has a 4 dp stroke in the state colour, with a 40% black scrim outside the oval |
 +| State badge | a 28 dp circle in the state colour, with a 1.5 dp white ring and an 18 dp icon. It sits on the oval's top centre, inside the card; the same badge starts the status card |
-+| Status card | the badge and one message, centred as one group: the text is only as wide as its longest line, so a wrapped status keeps the badge next to it (10 dp apart). 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
++| Status card | the badge and one message, centred as one group: the text is only as wide as its longest line, so a wrapped status keeps the badge next to it (10 dp apart). 20 sp/px semibold (600), at most 2 lines: a long message steps down towards 16 where 20 would need a third line (the device text on a 360 dp phone). With Noto Sans (Android, task 21), the English device-error text takes 3 lines below ~380 dp: 511 dp in SemiBold at 16 sp against 264 dp available on a 360 dp phone (Roboto was 471 dp, 2 lines). The state colour at 10% behind, a 1 dp border in the state colour, radius 12, padding 12, minimum height 80 so that it never jumps |
 +| Hint line | 15 sp/px regular, grey-700 (#616161), centred, with the warning icon (#B26A00) beside guidance. While guidance can still arrive (the session runs and has not failed), the line keeps 20 dp even when it is empty |
 +| Progress row | During challenges: "Step i of n" at the start, a segmented bar, "Attempt a of m" at the end. Captions are 13 sp/px grey-700, each at most 35% of the row. One segment per challenge, 6 dp high, 4 dp apart, grey #E0E0E0: done steps are filled with the primary colour, the current one is half filled and fills further with the challenge's progress. Otherwise "Attempt a of m" alone, centred, while the session runs. After a failed attempt only the attempts left, e.g. "3 attempts left" (15 sp/px). No bar outside challenges |
 +| Tips | failure only (LIVENESS_NOT_VERIFIED). A light-grey card (#F5F5F5), radius 12, 14 sp/px, bullets with a hanging indent: the bullet, 8 dp, then the text, so a wrapped tip continues under its text. On the phone at most 40% of the content height; beyond that it scrolls |
@@ -1259,7 +1281,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +tips card). The outlined buttons' #1C43A1 on white is 8.9:1. The warning icon is 4.2:1, where non-text needs 3:1. A
 +colour always comes with an icon and a text (§7).
 +
-+**Type.** Each client's own family: Roboto on Android; Segoe UI on Windows, with its Semibold face for 600. Status
++**Type.** Each client's own family: Noto Sans on Android (bundled, with the Arabic, Devanagari, Kannada and Tamil Noto families as fallbacks; task 21); Segoe UI on Windows, with its Semibold face for 600. Status
 +20/600, body 15/400, tips 14/400, caption 13/400. No ALL CAPS.
 +
 +**Motion.** A 200 ms cross-fade when the status changes, and nothing else; the Desktop challenge-icon pulse is gone.
@@ -1276,12 +1298,12 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +
 +**Tests.**
 +- Android, `test/liveness/liveness_page_layout_test.dart`: every state at 360×640 and 412×915 dp, in English, in
-+  Arabic and at a 1.3 text scale, with Roboto loaded. It checks:
++  Arabic and at a 1.3 text scale, with the app's bundled Noto fonts loaded. It checks:
 +  - no overflow, and nothing scrolls but the tips;
 +  - the buttons are on screen and 48 high;
 +  - the camera card is 3:4 and at least 30% of the height (15% with the tips);
 +  - the badge is on the oval's top centre;
-+  - the English status takes at most 2 lines;
++  - the English status takes at most 2 lines (the device-error text: 3 below about 380 dp, see the status card);
 +  - a failed attempt shows one attempts line;
 +  - the right-to-left order.
 +- Desktop, `LivenessViewLayoutTest`: the 14 documented states at 720×820 (the client's window), 720×688 (the window
@@ -1297,8 +1319,9 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +
 +The Android client has the 45 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
 +`app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
-+paste. **All five languages are machine-translated and need a review by a native speaker before release.** The ARB
-+files carry the same note, as `"@@x-liveness-translation"`.
++paste. **All five languages are machine-translated. A native speaker reviewed all five on 2026-10-28: Tamil without
++changes; Arabic, French, Hindi and Kannada corrected.** The ARB files carry the
++same status, as `"@@x-liveness-translation"`.
 +
 +How the translations were made:
 +- **Existing terms.** Each language reuses the client's existing terms where they are correct: face, operator,
@@ -1307,8 +1330,9 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +    ("attempts of the left side").
 +  - The fix round 4 report lists each of these.
 +- **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
-+- **Liveness** is حيوية الوجه (Arabic), vivacité du visage (French), जीवंतता (Hindi), ಜೀವಂತಿಕೆ (Kannada) and
-+  உயிர்ப்பு (Tamil).
++- **Liveness** is حيوية الوجه (Arabic; confirmed by the reviewer), détection du vivant (French; the reviewer's term: « vivacité » means
++  liveliness), सजीवता (Hindi; the reviewer's term: जीवंतता means liveliness), ಜೀವಂತಿಕೆ (Kannada; confirmed by the
++  reviewer) and உயிர்ப்பு (Tamil).
 +- **Plural forms.** French has them like English: "1 tentative restante" / "{n} tentatives restantes", where "one"
 +  covers 0 and 1 (§5).
 +  - In Arabic, Hindi, Kannada and Tamil, "attempts left" becomes "attempts left: {n}", with no plural.
@@ -1338,15 +1362,15 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +**Desktop, `messages_ar.properties`** (Arabic):
 +
 +```properties
-+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 +liveness.title.resident=التحقق من حيوية الوجه
 +liveness.title.operator=التحقق من وجه المشغل
 +liveness.title.supervisor=التحقق من وجه المشرف
 +liveness.status.starting=جارٍ بدء التحقق من حيوية الوجه…
 +liveness.status.checking=جارٍ التحقق من حيوية الوجه…
-+liveness.status.passed=جيد، تم التقاط الوجه بنجاح
++liveness.status.passed=جيد، تم التقاط صورة وجهك بنجاح
 +liveness.status.cancelled=تم إلغاء التحقق من حيوية الوجه.
-+liveness.challenge.blink=يرجى رمش عينيك
++liveness.challenge.blink=يرجى الرمش بعينيك
 +liveness.challenge.smile=يرجى الابتسام
 +liveness.challenge.turn_left=يرجى إدارة رأسك إلى اليسار
 +liveness.challenge.turn_right=يرجى إدارة رأسك إلى اليمين
@@ -1354,7 +1378,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.challenge.look_down=يرجى النظر إلى الأسفل
 +liveness.feedback.continue=يرجى المتابعة
 +liveness.feedback.action_detected=تم اكتشاف الحركة
-+liveness.feedback.hold_still=لا تتحرك
++liveness.feedback.hold_still=يرجى عدم الحركة
 +liveness.guidance.no_face=لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.
 +liveness.guidance.multiple_faces=يجب أن يظهر شخص واحد فقط.
 +liveness.guidance.move_closer=يرجى الاقتراب أكثر.
@@ -1366,14 +1390,14 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.error.liveness_not_verified=تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.
 +liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
 +liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
-+liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
++liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. يرجى التحقق من الاتصال والمحاولة مرة أخرى.
 +liveness.error.identity_not_verified=تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.
 +liveness.tips.title=نصائح:
-+liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
-+liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
-+liveness.tips.lighting=حسّن الإضاءة.
-+liveness.tips.capture_area=أبقِ وجهك داخل منطقة الالتقاط.
-+liveness.tips.follow_prompt=نفّذ الحركة المطلوبة.
++liveness.tips.look_at_camera=يرجى النظر مباشرة إلى الكاميرا.
++liveness.tips.face_visible=يرجى التأكد من ظهور وجهك بوضوح.
++liveness.tips.lighting=يرجى تحسين الإضاءة.
++liveness.tips.capture_area=يرجى إبقاء وجهك داخل الإطار الظاهر على الشاشة.
++liveness.tips.follow_prompt=يرجى تنفيذ الحركة المطلوبة.
 +liveness.retry.attempts_left=المحاولات المتبقية: {0}
 +liveness.progress.step=الخطوة {0} من {1}
 +liveness.progress.attempt=المحاولة {0} من {1}
@@ -1389,14 +1413,14 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +**Desktop, `messages_fr.properties`** (French, non-ASCII as `\u` escapes because the v1.2.0.2 file is ISO-8859-1):
 +
 +```properties
-+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
-+liveness.title.resident=Test de vivacit\u00e9 du visage
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
++liveness.title.resident=D\u00e9tection du vivant (visage)
 +liveness.title.operator=V\u00e9rification faciale de l'op\u00e9rateur
 +liveness.title.supervisor=V\u00e9rification faciale du superviseur
-+liveness.status.starting=D\u00e9marrage du test de vivacit\u00e9 du visage\u2026
-+liveness.status.checking=V\u00e9rification de la vivacit\u00e9 du visage\u2026
++liveness.status.starting=D\u00e9marrage de la d\u00e9tection du vivant\u2026
++liveness.status.checking=D\u00e9tection du vivant en cours\u2026
 +liveness.status.passed=Parfait, visage captur\u00e9 avec succ\u00e8s
-+liveness.status.cancelled=Test de vivacit\u00e9 du visage annul\u00e9.
++liveness.status.cancelled=D\u00e9tection du vivant annul\u00e9e.
 +liveness.challenge.blink=Veuillez cligner des yeux
 +liveness.challenge.smile=Veuillez sourire
 +liveness.challenge.turn_left=Veuillez tourner la t\u00eate vers la gauche
@@ -1414,7 +1438,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.guidance.improve_lighting=Veuillez am\u00e9liorer l'\u00e9clairage.
 +liveness.guidance.hold_steady=Veuillez rester immobile.
 +liveness.guidance.look_at_camera=Veuillez regarder la cam\u00e9ra.
-+liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00e9rifier la vivacit\u00e9 du visage. Veuillez r\u00e9essayer.
++liveness.error.liveness_not_verified=Nous n'avons pas pu effectuer la d\u00e9tection du vivant. Veuillez r\u00e9essayer.
 +liveness.error.verification_not_completed=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e. Veuillez r\u00e9essayer.
 +liveness.error.max_attempts_reached=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e.
 +liveness.error.device_problem=Cam\u00e9ra ou appareil indisponible. V\u00e9rifiez la connexion et r\u00e9essayez.
@@ -1440,14 +1464,14 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +**Desktop, `messages_hi.properties`** (Hindi):
 +
 +```properties
-+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
-+liveness.title.resident=चेहरे की जीवंतता जाँच
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
++liveness.title.resident=चेहरे की सजीवता जाँच
 +liveness.title.operator=ऑपरेटर का चेहरा सत्यापन
 +liveness.title.supervisor=पर्यवेक्षक का चेहरा सत्यापन
-+liveness.status.starting=चेहरे की जीवंतता जाँच शुरू हो रही है…
-+liveness.status.checking=चेहरे की जीवंतता जाँची जा रही है…
-+liveness.status.passed=बढ़िया, चेहरा सफलतापूर्वक कैप्चर हो गया
-+liveness.status.cancelled=चेहरे की जीवंतता जाँच रद्द कर दी गई।
++liveness.status.starting=चेहरे की सजीवता जाँच शुरू हो रही है…
++liveness.status.checking=चेहरे की सजीवता जाँच हो रही है…
++liveness.status.passed=बढ़िया, आपके चेहरे की फ़ोटो ले ली गई है
++liveness.status.cancelled=चेहरे की सजीवता जाँच रद्द कर दी गई।
 +liveness.challenge.blink=कृपया पलकें झपकाएँ
 +liveness.challenge.smile=कृपया मुस्कुराएँ
 +liveness.challenge.turn_left=कृपया अपना सिर बाईं ओर घुमाएँ
@@ -1455,17 +1479,17 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.challenge.look_up=कृपया ऊपर देखें
 +liveness.challenge.look_down=कृपया नीचे देखें
 +liveness.feedback.continue=कृपया जारी रखें
-+liveness.feedback.action_detected=क्रिया पहचानी गई
++liveness.feedback.action_detected=हो गया
 +liveness.feedback.hold_still=हिलें नहीं
-+liveness.guidance.no_face=कोई चेहरा नहीं पहचाना गया। कृपया कैमरे की ओर देखें।
++liveness.guidance.no_face=चेहरा दिखाई नहीं दे रहा है। कृपया कैमरे की ओर देखें।
 +liveness.guidance.multiple_faces=केवल एक व्यक्ति दिखाई देना चाहिए।
 +liveness.guidance.move_closer=कृपया थोड़ा पास आएँ।
 +liveness.guidance.move_back=कृपया थोड़ा पीछे हटें।
 +liveness.guidance.center_face=कृपया अपना चेहरा अंडाकार के बीच में रखें।
-+liveness.guidance.improve_lighting=कृपया रोशनी बेहतर करें।
++liveness.guidance.improve_lighting=कृपया रोशनी बढ़ाएँ।
 +liveness.guidance.hold_steady=कृपया स्थिर रहें।
 +liveness.guidance.look_at_camera=कृपया कैमरे की ओर देखें।
-+liveness.error.liveness_not_verified=हम चेहरे की जीवंतता सत्यापित नहीं कर सके। कृपया पुनः प्रयास करें।
++liveness.error.liveness_not_verified=चेहरे की सजीवता की पुष्टि नहीं हो सकी। कृपया पुनः प्रयास करें।
 +liveness.error.verification_not_completed=चेहरा सत्यापन पूरा नहीं हो सका। कृपया पुनः प्रयास करें।
 +liveness.error.max_attempts_reached=चेहरा सत्यापन पूरा नहीं हो सका।
 +liveness.error.device_problem=कैमरा/डिवाइस उपलब्ध नहीं है। कनेक्शन जाँचें और पुनः प्रयास करें।
@@ -1474,7 +1498,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.tips.look_at_camera=सीधे कैमरे की ओर देखें।
 +liveness.tips.face_visible=सुनिश्चित करें कि आपका चेहरा साफ़ दिखाई दे रहा है।
 +liveness.tips.lighting=रोशनी बेहतर करें।
-+liveness.tips.capture_area=अपना चेहरा कैप्चर क्षेत्र के भीतर रखें।
++liveness.tips.capture_area=अपना चेहरा स्क्रीन पर तय जगह के अंदर रखें।
 +liveness.tips.follow_prompt=बताई गई क्रिया करें।
 +liveness.retry.attempts_left=शेष प्रयास: {0}
 +liveness.progress.step=चरण {0} / {1}
@@ -1482,7 +1506,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.recovery.resident=कृपया पर्यवेक्षक से संपर्क करें। निवासी का पंजीकरण बायोमेट्रिक अपवाद प्रक्रिया से किया जा सकता है।
 +liveness.recovery.operator=कृपया अपने व्यवस्थापक से संपर्क करें या बाद में पुनः प्रयास करें।
 +liveness.recovery.supervisor=कृपया अपने व्यवस्थापक से संपर्क करें।
-+liveness.button.retry=पुनः प्रयास करें
++liveness.button.retry=दोबारा करें
 +liveness.button.cancel=रद्द करें
 +liveness.button.close=बंद करें
 +liveness.button.open_settings=सेटिंग्स खोलें
@@ -1491,13 +1515,13 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +**Desktop, `messages_kn.properties`** (Kannada):
 +
 +```properties
-+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 +liveness.title.resident=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ
 +liveness.title.operator=ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ
 +liveness.title.supervisor=ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ
 +liveness.status.starting=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…
 +liveness.status.checking=ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…
-+liveness.status.passed=ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ
++liveness.status.passed=ಒಳ್ಳೆಯದು, ನಿಮ್ಮ ಮುಖದ ಫೋಟೋ ತೆಗೆಯಲಾಗಿದೆ
 +liveness.status.cancelled=ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.
 +liveness.challenge.blink=ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ
 +liveness.challenge.smile=ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ
@@ -1506,7 +1530,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.challenge.look_up=ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ
 +liveness.challenge.look_down=ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ
 +liveness.feedback.continue=ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ
-+liveness.feedback.action_detected=ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ
++liveness.feedback.action_detected=ಸರಿ, ಆಯಿತು
 +liveness.feedback.hold_still=ಅಲುಗಾಡಬೇಡಿ
 +liveness.guidance.no_face=ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
 +liveness.guidance.multiple_faces=ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.
@@ -1525,7 +1549,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.tips.look_at_camera=ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.
 +liveness.tips.face_visible=ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.
 +liveness.tips.lighting=ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.
-+liveness.tips.capture_area=ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.
++liveness.tips.capture_area=ನಿಮ್ಮ ಮುಖವನ್ನು ಪರದೆಯ ಮೇಲೆ ತೋರಿಸಿರುವ ಜಾಗದೊಳಗೆ ಇರಿಸಿ.
 +liveness.tips.follow_prompt=ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.
 +liveness.retry.attempts_left=ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {0}
 +liveness.progress.step=ಹಂತ {0} / {1}
@@ -1542,7 +1566,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +**Desktop, `messages_ta.properties`** (Tamil):
 +
 +```properties
-+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28, no changes.
 +liveness.title.resident=முக உயிர்ப்புச் சரிபார்ப்பு
 +liveness.title.operator=ஆபரேட்டர் முக சரிபார்ப்பு
 +liveness.title.supervisor=மேற்பார்வையாளர் முக சரிபார்ப்பு
@@ -4173,15 +4197,15 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 \ No newline at end of file
 +TOKEN_SAVE_FAILED=\u0641\u0634\u0644 \u062d\u0641\u0638 \u0631\u0645\u0632 \u0627\u0644\u0645\u0635\u0627\u062f\u0642\u0629 \u060c \u0627\u0644\u0631\u0645\u0632 \u002f \u0627\u0644\u0631\u0645\u0632 \u0627\u0644\u0645\u0645\u064a\u0632 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d \u0643\u0628\u064a\u0631 \u062c\u062f\u064b\u0627#TYPE#ERROR
 +
-+# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; needs native-speaker review.
++# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 +liveness.title.resident=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647
 +liveness.title.operator=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0648\u062C\u0647 \u0627\u0644\u0645\u0634\u063A\u0644
 +liveness.title.supervisor=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0648\u062C\u0647 \u0627\u0644\u0645\u0634\u0631\u0641
 +liveness.status.starting=\u062C\u0627\u0631\u064D \u0628\u062F\u0621 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647\u2026
 +liveness.status.checking=\u062C\u0627\u0631\u064D \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647\u2026
-+liveness.status.passed=\u062C\u064A\u062F\u060C \u062A\u0645 \u0627\u0644\u062A\u0642\u0627\u0637 \u0627\u0644\u0648\u062C\u0647 \u0628\u0646\u062C\u0627\u062D
++liveness.status.passed=\u062C\u064A\u062F\u060C \u062A\u0645 \u0627\u0644\u062A\u0642\u0627\u0637 \u0635\u0648\u0631\u0629 \u0648\u062C\u0647\u0643 \u0628\u0646\u062C\u0627\u062D
 +liveness.status.cancelled=\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647.
-+liveness.challenge.blink=\u064A\u0631\u062C\u0649 \u0631\u0645\u0634 \u0639\u064A\u0646\u064A\u0643
++liveness.challenge.blink=\u064A\u0631\u062C\u0649 \u0627\u0644\u0631\u0645\u0634 \u0628\u0639\u064A\u0646\u064A\u0643
 +liveness.challenge.smile=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u0628\u062A\u0633\u0627\u0645
 +liveness.challenge.turn_left=\u064A\u0631\u062C\u0649 \u0625\u062F\u0627\u0631\u0629 \u0631\u0623\u0633\u0643 \u0625\u0644\u0649 \u0627\u0644\u064A\u0633\u0627\u0631
 +liveness.challenge.turn_right=\u064A\u0631\u062C\u0649 \u0625\u062F\u0627\u0631\u0629 \u0631\u0623\u0633\u0643 \u0625\u0644\u0649 \u0627\u0644\u064A\u0645\u064A\u0646
@@ -4189,7 +4213,7 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.challenge.look_down=\u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0623\u0633\u0641\u0644
 +liveness.feedback.continue=\u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629
 +liveness.feedback.action_detected=\u062A\u0645 \u0627\u0643\u062A\u0634\u0627\u0641 \u0627\u0644\u062D\u0631\u0643\u0629
-+liveness.feedback.hold_still=\u0644\u0627 \u062A\u062A\u062D\u0631\u0643
++liveness.feedback.hold_still=\u064A\u0631\u062C\u0649 \u0639\u062F\u0645 \u0627\u0644\u062D\u0631\u0643\u0629
 +liveness.guidance.no_face=\u0644\u0645 \u064A\u062A\u0645 \u0627\u0643\u062A\u0634\u0627\u0641 \u0623\u064A \u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
 +liveness.guidance.multiple_faces=\u064A\u062C\u0628 \u0623\u0646 \u064A\u0638\u0647\u0631 \u0634\u062E\u0635 \u0648\u0627\u062D\u062F \u0641\u0642\u0637.
 +liveness.guidance.move_closer=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u0642\u062A\u0631\u0627\u0628 \u0623\u0643\u062B\u0631.
@@ -4201,14 +4225,14 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.error.liveness_not_verified=\u062A\u0639\u0630\u0651\u0631 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
 +liveness.error.verification_not_completed=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
 +liveness.error.max_attempts_reached=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647.
-+liveness.error.device_problem=\u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0623\u0648 \u0627\u0644\u062C\u0647\u0627\u0632 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D. \u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0648\u062D\u0627\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
++liveness.error.device_problem=\u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0623\u0648 \u0627\u0644\u062C\u0647\u0627\u0632 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D. \u064A\u0631\u062C\u0649 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0648\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
 +liveness.error.identity_not_verified=\u062a\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062a\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062c\u0647 \u0644\u0647\u0630\u0627 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645. \u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062e\u0631\u0649.
 +liveness.tips.title=\u0646\u0635\u0627\u0626\u062D:
-+liveness.tips.look_at_camera=\u0627\u0646\u0638\u0631 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
-+liveness.tips.face_visible=\u062A\u0623\u0643\u062F \u0645\u0646 \u0623\u0646 \u0648\u062C\u0647\u0643 \u0638\u0627\u0647\u0631 \u0628\u0648\u0636\u0648\u062D.
-+liveness.tips.lighting=\u062D\u0633\u0651\u0646 \u0627\u0644\u0625\u0636\u0627\u0621\u0629.
-+liveness.tips.capture_area=\u0623\u0628\u0642\u0650 \u0648\u062C\u0647\u0643 \u062F\u0627\u062E\u0644 \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u0627\u0644\u062A\u0642\u0627\u0637.
-+liveness.tips.follow_prompt=\u0646\u0641\u0651\u0630 \u0627\u0644\u062D\u0631\u0643\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.
++liveness.tips.look_at_camera=\u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
++liveness.tips.face_visible=\u064A\u0631\u062C\u0649 \u0627\u0644\u062A\u0623\u0643\u062F \u0645\u0646 \u0638\u0647\u0648\u0631 \u0648\u062C\u0647\u0643 \u0628\u0648\u0636\u0648\u062D.
++liveness.tips.lighting=\u064A\u0631\u062C\u0649 \u062A\u062D\u0633\u064A\u0646 \u0627\u0644\u0625\u0636\u0627\u0621\u0629.
++liveness.tips.capture_area=\u064A\u0631\u062C\u0649 \u0625\u0628\u0642\u0627\u0621 \u0648\u062C\u0647\u0643 \u062F\u0627\u062E\u0644 \u0627\u0644\u0625\u0637\u0627\u0631 \u0627\u0644\u0638\u0627\u0647\u0631 \u0639\u0644\u0649 \u0627\u0644\u0634\u0627\u0634\u0629.
++liveness.tips.follow_prompt=\u064A\u0631\u062C\u0649 \u062A\u0646\u0641\u064A\u0630 \u0627\u0644\u062D\u0631\u0643\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.
 +liveness.retry.attempts_left=\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0627\u062A \u0627\u0644\u0645\u062A\u0628\u0642\u064A\u0629: {0}
 +liveness.progress.step=\u0627\u0644\u062E\u0637\u0648\u0629 {0} \u0645\u0646 {1}
 +liveness.progress.attempt=\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 {0} \u0645\u0646 {1}
@@ -4220,15 +4244,15 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.button.close=\u0625\u063A\u0644\u0627\u0642
 +liveness.button.open_settings=\u0641\u062A\u062D \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A
 +
-+# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; needs native-speaker review.
++# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 +liveness.model.title=\u0646\u0645\u0627\u0630\u062c \u062d\u064a\u0648\u064a\u0629 \u0627\u0644\u0648\u062c\u0647
 +liveness.model.current=\u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u0629: {0}
 +liveness.model.install=\u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c
 +liveness.model.rollback=\u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0633\u0627\u0628\u0642\u0629
-+liveness.model.select_file=\u0627\u062e\u062a\u0631 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c (.zip)
++liveness.model.select_file=\u0627\u062e\u062a\u064a\u0627\u0631 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c (.zip)
 +liveness.model.working=\u062c\u0627\u0631\u064d \u0645\u0639\u0627\u0644\u062c\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c\u2026 \u064a\u0631\u062c\u0649 \u0627\u0644\u0627\u0646\u062a\u0638\u0627\u0631.
-+liveness.model.installed=\u062a\u0645 \u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c {0}. \u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
-+liveness.model.rolled_back=\u062a\u0645\u062a \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0625\u0644\u0649 \u0627\u0644\u0625\u0635\u062f\u0627\u0631 {0}. \u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
++liveness.model.installed=\u062a\u0645 \u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c {0}. \u0633\u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
++liveness.model.rolled_back=\u062a\u0645\u062a \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0625\u0644\u0649 \u0627\u0644\u0625\u0635\u062f\u0627\u0631 {0}. \u0633\u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
 +liveness.model.not_newer=\u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0647\u0630\u0647 \u0644\u064a\u0633\u062a \u0623\u062d\u062f\u062b \u0645\u0646 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u0629. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621.
 +liveness.model.invalid=\u0647\u0630\u0627 \u0627\u0644\u0645\u0644\u0641 \u0644\u064a\u0633 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c \u0645\u0648\u0642\u0651\u0639\u0629 \u0635\u0627\u0644\u062d\u0629. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621.
 +liveness.model.nothing_to_roll_back=\u0644\u0627 \u062a\u0648\u062c\u062f \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c \u0633\u0627\u0628\u0642\u0629 \u0644\u0644\u0627\u0633\u062a\u0639\u0627\u062f\u0629.
@@ -4321,14 +4345,14 @@ diff --git a/registration-client/src/main/resources/messages_fr.properties b/reg
 \ No newline at end of file
 +TOKEN_SAVE_FAILED=�chec de l'enregistrement du jeton d'authentification, jeton invalide / jeton trop volumineux.#TYPE#ERROR
 +
-+# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; needs native-speaker review.
-+liveness.title.resident=Test de vivacit\u00E9 du visage
++# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
++liveness.title.resident=D\u00E9tection du vivant (visage)
 +liveness.title.operator=V\u00E9rification faciale de l'op\u00E9rateur
 +liveness.title.supervisor=V\u00E9rification faciale du superviseur
-+liveness.status.starting=D\u00E9marrage du test de vivacit\u00E9 du visage\u2026
-+liveness.status.checking=V\u00E9rification de la vivacit\u00E9 du visage\u2026
++liveness.status.starting=D\u00E9marrage de la d\u00E9tection du vivant\u2026
++liveness.status.checking=D\u00E9tection du vivant en cours\u2026
 +liveness.status.passed=Parfait, visage captur\u00E9 avec succ\u00E8s
-+liveness.status.cancelled=Test de vivacit\u00E9 du visage annul\u00E9.
++liveness.status.cancelled=D\u00E9tection du vivant annul\u00E9e.
 +liveness.challenge.blink=Veuillez cligner des yeux
 +liveness.challenge.smile=Veuillez sourire
 +liveness.challenge.turn_left=Veuillez tourner la t\u00EAte vers la gauche
@@ -4346,7 +4370,7 @@ diff --git a/registration-client/src/main/resources/messages_fr.properties b/reg
 +liveness.guidance.improve_lighting=Veuillez am\u00E9liorer l'\u00E9clairage.
 +liveness.guidance.hold_steady=Veuillez rester immobile.
 +liveness.guidance.look_at_camera=Veuillez regarder la cam\u00E9ra.
-+liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00E9rifier la vivacit\u00E9 du visage. Veuillez r\u00E9essayer.
++liveness.error.liveness_not_verified=Nous n'avons pas pu effectuer la d\u00E9tection du vivant. Veuillez r\u00E9essayer.
 +liveness.error.verification_not_completed=La v\u00E9rification faciale n'a pas pu \u00EAtre effectu\u00E9e. Veuillez r\u00E9essayer.
 +liveness.error.max_attempts_reached=La v\u00E9rification faciale n'a pas pu \u00EAtre effectu\u00E9e.
 +liveness.error.device_problem=Cam\u00E9ra ou appareil indisponible. V\u00E9rifiez la connexion et r\u00E9essayez.
@@ -4368,22 +4392,22 @@ diff --git a/registration-client/src/main/resources/messages_fr.properties b/reg
 +liveness.button.close=Fermer
 +liveness.button.open_settings=Ouvrir les param\u00E8tres
 +
-+# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; needs native-speaker review.
-+liveness.model.title=Mod\u00e8les de vivacit\u00e9 du visage
++# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
++liveness.model.title=Mod\u00e8les de d\u00e9tection du vivant (visage)
 +liveness.model.current=Mod\u00e8les en service : {0}
 +liveness.model.install=Installer un lot de mod\u00e8les
 +liveness.model.rollback=Restaurer le lot de mod\u00e8les pr\u00e9c\u00e9dent
 +liveness.model.select_file=S\u00e9lectionner un lot de mod\u00e8les (.zip)
 +liveness.model.working=Traitement du lot de mod\u00e8les\u2026 veuillez patienter.
-+liveness.model.installed=Lot de mod\u00e8les {0} install\u00e9. Les nouvelles v\u00e9rifications de vivacit\u00e9 l'utilisent.
-+liveness.model.rolled_back=Mod\u00e8les restaur\u00e9s \u00e0 la version {0}. Les nouvelles v\u00e9rifications de vivacit\u00e9 les utilisent.
++liveness.model.installed=Lot de mod\u00e8les {0} install\u00e9. Les nouvelles v\u00e9rifications du vivant l'utilisent.
++liveness.model.rolled_back=Mod\u00e8les restaur\u00e9s \u00e0 la version {0}. Les nouvelles v\u00e9rifications du vivant les utilisent.
 +liveness.model.not_newer=Ce lot de mod\u00e8les n'est pas plus r\u00e9cent que les mod\u00e8les en service. Rien n'a \u00e9t\u00e9 modifi\u00e9.
-+liveness.model.invalid=Ce fichier n'est pas un lot de mod\u00e8les sign\u00e9 valide. Rien n'a \u00e9t\u00e9 modifi\u00e9.
++liveness.model.invalid=Ce fichier n'est pas un lot de mod\u00e8les sign\u00e9 et valide. Rien n'a \u00e9t\u00e9 modifi\u00e9.
 +liveness.model.nothing_to_roll_back=Aucun lot de mod\u00e8les ant\u00e9rieur n'est disponible pour la restauration.
 +liveness.model.failed=Le lot de mod\u00e8les n'a pas pu \u00eatre install\u00e9. Rien n'a \u00e9t\u00e9 modifi\u00e9. Veuillez r\u00e9essayer.
 +liveness.model.rollback_failed=Les mod\u00e8les n'ont pas pu \u00eatre restaur\u00e9s. Rien n'a \u00e9t\u00e9 modifi\u00e9.
-+liveness.model.not_allowed=Seul un superviseur ou un administrateur peut modifier les mod\u00e8les de vivacit\u00e9 du visage.
-+liveness.model.confirm_rollback=Restaurer les mod\u00e8les de vivacit\u00e9 du visage pr\u00e9c\u00e9dents ? Les nouvelles v\u00e9rifications de vivacit\u00e9 les utiliseront.
++liveness.model.not_allowed=Seul un superviseur ou un administrateur peut modifier les mod\u00e8les de d\u00e9tection du vivant.
++liveness.model.confirm_rollback=Restaurer les mod\u00e8les de d\u00e9tection du vivant pr\u00e9c\u00e9dents ? Les nouvelles v\u00e9rifications du vivant les utiliseront.
 \ No newline at end of file
 diff --git a/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java b/registration-client/src/test/java/io/mosip/registration/controller/liveness/LivenessGateTest.java
 new file mode 100644

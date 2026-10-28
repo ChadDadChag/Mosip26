@@ -1,7 +1,7 @@
 From 2e0869a4bae32538ccd66b3a62f7f1c952316efc Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 17:48:31 +0530
-Subject: [PATCH 02/57] Add CAMERA permission and liveness audit events
+Subject: [PATCH 02/61] Add CAMERA permission and liveness audit events
 
 - AndroidManifest: android.permission.CAMERA (asked for at runtime before a
   liveness session) and android.hardware.camera.any with required=false, so

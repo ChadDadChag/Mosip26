@@ -1,7 +1,7 @@
 From a4cc3281ac1ceaa3ff5501163731e366dd4897f7 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 14:28:38 +0530
-Subject: [PATCH 57/57] The camera follows the app window's rotation, not the
+Subject: [PATCH 57/61] The camera follows the app window's rotation, not the
  physical display's: sync CameraXFrameSource (F19, task 23)
 
 F19, found live on the phone (APK 3, 2026-10-28): with the display at 90

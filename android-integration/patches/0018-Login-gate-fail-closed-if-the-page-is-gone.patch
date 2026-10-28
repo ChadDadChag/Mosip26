@@ -1,7 +1,7 @@
 From d1aa693620518d044b89d5ff93fd881a1050cf69 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 19:57:11 +0530
-Subject: [PATCH 18/57] Login gate: fail closed if the page is gone
+Subject: [PATCH 18/61] Login gate: fail closed if the page is gone
 
 login_page.dart: if the login page is no longer mounted when the liveness
 step would start, the operator is logged out again (logoutUser(),
