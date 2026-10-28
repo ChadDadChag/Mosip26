@@ -215,8 +215,8 @@ file name or an exception message.
 | `liveness.model.confirm_rollback` | Roll back to the previous face liveness models? New liveness checks will use them. | rollback confirmation |
 
 **Translations.** The Arabic and French texts are in the Desktop `messages_ar` / `messages_fr` bundles, and all five
-languages are in the Android ARB files. They are machine-translated and need native-speaker review (the second batch
-of the translation review sheet).
+languages are in the Android ARB files. They are machine-translated. A native speaker reviewed Tamil (no changes) and
+French (corrected) on 2026-10-28; Arabic, Hindi and Kannada are pending.
 
 ## 5. Message keys and ready-to-paste catalogues
 
@@ -348,8 +348,9 @@ liveness.button.open_settings=Open settings
 ```
 
 **Other languages.**
-- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated and
-  need a native speaker's review. Appendix A has the same texts for the Desktop client.
+- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated; Tamil
+  and French were reviewed by a native speaker on 2026-10-28, and Arabic, Hindi and Kannada still need a review.
+  Appendix A has the same texts for the Desktop client.
 - A language without them falls back to English: on the Desktop through the ResourceBundle parent, on Android
   through gen-l10n's handling of missing keys.
 - Arabic is right to left. The turn arrows still point to the user's physical left and right, so they are never
@@ -612,8 +613,9 @@ It is off when the system's reduce-motion setting is on (Android) or with `deskt
 
 The Android client has the 45 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
 `app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
-paste. **All five languages are machine-translated and need a review by a native speaker before release.** The ARB
-files carry the same note, as `"@@x-liveness-translation"`.
+paste. **All five languages are machine-translated. A native speaker reviewed Tamil (no changes) and French
+(corrected) on 2026-10-28; Arabic, Hindi and Kannada still need a review before release.** The ARB files carry the
+same status, as `"@@x-liveness-translation"`.
 
 How the translations were made:
 - **Existing terms.** Each language reuses the client's existing terms where they are correct: face, operator,
@@ -622,8 +624,8 @@ How the translations were made:
     ("attempts of the left side").
   - The fix round 4 report lists each of these.
 - **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
-- **Liveness** is حيوية الوجه (Arabic), vivacité du visage (French), जीवंतता (Hindi), ಜೀವಂತಿಕೆ (Kannada) and
-  உயிர்ப்பு (Tamil).
+- **Liveness** is حيوية الوجه (Arabic), détection du vivant (French; the reviewer's term: « vivacité » means
+  liveliness), जीवंतता (Hindi), ಜೀವಂತಿಕೆ (Kannada) and உயிர்ப்பு (Tamil).
 - **Plural forms.** French has them like English: "1 tentative restante" / "{n} tentatives restantes", where "one"
   covers 0 and 1 (§5).
   - In Arabic, Hindi, Kannada and Tamil, "attempts left" becomes "attempts left: {n}", with no plural.
@@ -704,14 +706,14 @@ liveness.button.open_settings=فتح الإعدادات
 **Desktop, `messages_fr.properties`** (French, non-ASCII as `\u` escapes because the v1.2.0.2 file is ISO-8859-1):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
-liveness.title.resident=Test de vivacit\u00e9 du visage
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
+liveness.title.resident=D\u00e9tection du vivant (visage)
 liveness.title.operator=V\u00e9rification faciale de l'op\u00e9rateur
 liveness.title.supervisor=V\u00e9rification faciale du superviseur
-liveness.status.starting=D\u00e9marrage du test de vivacit\u00e9 du visage\u2026
-liveness.status.checking=V\u00e9rification de la vivacit\u00e9 du visage\u2026
+liveness.status.starting=D\u00e9marrage de la d\u00e9tection du vivant\u2026
+liveness.status.checking=D\u00e9tection du vivant en cours\u2026
 liveness.status.passed=Parfait, visage captur\u00e9 avec succ\u00e8s
-liveness.status.cancelled=Test de vivacit\u00e9 du visage annul\u00e9.
+liveness.status.cancelled=D\u00e9tection du vivant annul\u00e9e.
 liveness.challenge.blink=Veuillez cligner des yeux
 liveness.challenge.smile=Veuillez sourire
 liveness.challenge.turn_left=Veuillez tourner la t\u00eate vers la gauche
@@ -729,7 +731,7 @@ liveness.guidance.center_face=Veuillez centrer votre visage dans l'ovale.
 liveness.guidance.improve_lighting=Veuillez am\u00e9liorer l'\u00e9clairage.
 liveness.guidance.hold_steady=Veuillez rester immobile.
 liveness.guidance.look_at_camera=Veuillez regarder la cam\u00e9ra.
-liveness.error.liveness_not_verified=Nous n'avons pas pu v\u00e9rifier la vivacit\u00e9 du visage. Veuillez r\u00e9essayer.
+liveness.error.liveness_not_verified=Nous n'avons pas pu effectuer la d\u00e9tection du vivant. Veuillez r\u00e9essayer.
 liveness.error.verification_not_completed=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e. Veuillez r\u00e9essayer.
 liveness.error.max_attempts_reached=La v\u00e9rification faciale n'a pas pu \u00eatre effectu\u00e9e.
 liveness.error.device_problem=Cam\u00e9ra ou appareil indisponible. V\u00e9rifiez la connexion et r\u00e9essayez.
@@ -857,7 +859,7 @@ liveness.button.open_settings=ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು �
 **Desktop, `messages_ta.properties`** (Tamil):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28, no changes.
 liveness.title.resident=முக உயிர்ப்புச் சரிபார்ப்பு
 liveness.title.operator=ஆபரேட்டர் முக சரிபார்ப்பு
 liveness.title.supervisor=மேற்பார்வையாளர் முக சரிபார்ப்பு

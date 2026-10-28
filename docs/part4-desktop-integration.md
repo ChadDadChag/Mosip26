@@ -753,8 +753,9 @@ when its window closed: sarxos' JVM shutdown hook waited for its own processor t
   not tried with Narrator/NVDA.
 - **Translations:** the liveness keys are in `messages_en`, `messages_ar` and `messages_fr.properties`, the three
   languages Registration Client v1.2.0.2 ships.
-  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated and need a native
-    speaker's review.
+  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated. A native speaker
+    reviewed French on 2026-10-28: « vivacité » means liveliness, so the liveness texts now say « détection du vivant »
+    (11 texts, the same as Android). Arabic still needs a review.
   - The overlay copies are the upstream files with the block appended, byte for byte (`.gitattributes` `-text`). The
     block is `\u`-escaped: the French file is ISO-8859-1, and the Arabic file is all escapes too.
   - Hindi, Kannada and Tamil are not added. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its other screens, so

@@ -947,8 +947,10 @@ provisional.
   yet. It was tested against a laptop server (section 10).
 - **Translations.**
   - The 45 liveness strings are in all six of the client's languages.
-  - Arabic, French, Hindi, Kannada and Tamil are machine-translated and need a native speaker's review. Each file
-    carries `"@@x-liveness-translation"`.
+  - Arabic, French, Hindi, Kannada and Tamil are machine-translated. Native-speaker review, 2026-10-28: Tamil
+    reviewed, no changes; French reviewed and corrected (« vivacité » means liveliness; the 11 liveness texts now say
+    « détection du vivant », the same on the Desktop). Arabic, Hindi and Kannada are pending (due 2026-10-29). Each
+    file's `"@@x-liveness-translation"` records its status.
   - Arabic is laid out right to left. The turn arrows keep pointing to the user's physical left and right.
 - **APK size.** Distribute per ABI (split APKs or an App Bundle; section 9). A reduced ONNX Runtime
   build with only the needed operators is in the backlog.
