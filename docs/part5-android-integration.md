@@ -745,7 +745,7 @@ short:
 | step | what |
 |---|---|
 | toolchain | git; JDK 11 + Maven 3.9.9 (engine); JDK 21, Android SDK 34 (build-tools 34.0.0), Flutter 3.10.4 (app) |
-| apply | clone `v1.1.1`, then `git am` the 60 patches (or `git apply` the one diff) |
+| apply | clone `v1.1.1`, then `git am` the 61 patches (or `git apply` the one diff) |
 | sync | `android-integration/scripts/sync-engine.ps1 -Clone <client>`: engine jars, signed models, camera source, and `engine-sync.txt` with commit and SHA-256 |
 | generate | `pigeon.sh` (Git Bash), then restore `ios/Runner/pigeon.h/.m` |
 | build | `flutter build apk --debug` (diagnostics); `--profile --split-per-abi` (timings, one APK per ABI; not debuggable); `--release` (no diagnostics; add `--split-per-abi` to distribute) |
@@ -954,7 +954,10 @@ provisional.
     « détection du vivant », the same on the Desktop). Hindi reviewed and corrected: the reviewer's term for liveness
     (the machine translation's meant liveliness) and plainer words for residents, 14 corrections and 3 of the
     reviewer's suggestions; the Retry button is now two words, checked at 360 dp. Kannada reviewed: its liveness term
-    confirmed, 2 corrections and 1 suggestion (task 27). Arabic is pending (due 2026-10-29). Each file's
+    confirmed, 2 corrections and 1 suggestion (task 27). Arabic reviewed and corrected: polite, gender-neutral
+    instructions (the "please + noun" form) instead of direct masculine commands, 9 corrections, 2 suggestions and 1
+    consistency change, the same on the Desktop; its liveness term confirmed; the word for "resident" kept, because
+    MOSIP's own Arabic texts use it (task 27). All five translated languages are reviewed. Each file's
     `"@@x-liveness-translation"` records its status.
   - Arabic is laid out right to left. The turn arrows keep pointing to the user's physical left and right.
 - **APK size.** Distribute per ABI (split APKs or an App Bundle; section 9). A reduced ONNX Runtime

@@ -1,7 +1,7 @@
 From 4853515502c543fbc18f7d1b45e6188c951dcb96 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 19:32:58 +0530
-Subject: [PATCH 14/60] Gate operator login with liveness
+Subject: [PATCH 14/61] Gate operator login with liveness
 
 login_page.dart _getLoginAction: after a successful password and the
 centre/machine checks, before the first-sync or home branch,

@@ -1,7 +1,7 @@
 From 092946ca252b58aa1d5803abf609034c5cd58a06 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 04:25:25 +0530
-Subject: [PATCH 51/60] F15: the debug page's test enrolment takes an Operator
+Subject: [PATCH 51/61] F15: the debug page's test enrolment takes an Operator
  frame (fixes the app build after A5)
 
 The previous commit gave FaceBinding.take a workflow argument, and the app

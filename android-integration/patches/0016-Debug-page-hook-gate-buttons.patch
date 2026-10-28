@@ -1,7 +1,7 @@
 From f060c7cccba8d92b082b895bc2205cf875d9f8ec Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 19:32:59 +0530
-Subject: [PATCH 16/60] Debug page: hook gate buttons
+Subject: [PATCH 16/61] Debug page: hook gate buttons
 
 "Hook gates" on the liveness debug page (debug builds only): Resident
 face, Operator login, Operator onboarding, Packet auth and Supervisor

@@ -215,8 +215,8 @@ file name or an exception message.
 | `liveness.model.confirm_rollback` | Roll back to the previous face liveness models? New liveness checks will use them. | rollback confirmation |
 
 **Translations.** The Arabic and French texts are in the Desktop `messages_ar` / `messages_fr` bundles, and all five
-languages are in the Android ARB files. They are machine-translated. A native speaker reviewed them on 2026-10-28:
-Tamil (no changes), and French, Hindi and Kannada (corrected); Arabic is pending.
+languages are in the Android ARB files. They are machine-translated. A native speaker reviewed all five on 2026-10-28:
+Tamil without changes; Arabic, French, Hindi and Kannada corrected.
 
 ## 5. Message keys and ready-to-paste catalogues
 
@@ -348,8 +348,8 @@ liveness.button.open_settings=Open settings
 ```
 
 **Other languages.**
-- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated; Tamil,
-  French, Hindi and Kannada were reviewed by a native speaker on 2026-10-28, and Arabic still needs a review.
+- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated, and a
+  native speaker reviewed all five on 2026-10-28 (Tamil without changes).
   Appendix A has the same texts for the Desktop client.
 - A language without them falls back to English: on the Desktop through the ResourceBundle parent, on Android
   through gen-l10n's handling of missing keys.
@@ -613,8 +613,8 @@ It is off when the system's reduce-motion setting is on (Android) or with `deskt
 
 The Android client has the 45 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
 `app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
-paste. **All five languages are machine-translated. A native speaker reviewed Tamil (no changes), and French, Hindi and
-Kannada (corrected), on 2026-10-28; Arabic still needs a review before release.** The ARB files carry the
+paste. **All five languages are machine-translated. A native speaker reviewed all five on 2026-10-28: Tamil without
+changes; Arabic, French, Hindi and Kannada corrected.** The ARB files carry the
 same status, as `"@@x-liveness-translation"`.
 
 How the translations were made:
@@ -624,7 +624,7 @@ How the translations were made:
     ("attempts of the left side").
   - The fix round 4 report lists each of these.
 - **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
-- **Liveness** is حيوية الوجه (Arabic), détection du vivant (French; the reviewer's term: « vivacité » means
+- **Liveness** is حيوية الوجه (Arabic; confirmed by the reviewer), détection du vivant (French; the reviewer's term: « vivacité » means
   liveliness), सजीवता (Hindi; the reviewer's term: जीवंतता means liveliness), ಜೀವಂತಿಕೆ (Kannada; confirmed by the
   reviewer) and உயிர்ப்பு (Tamil).
 - **Plural forms.** French has them like English: "1 tentative restante" / "{n} tentatives restantes", where "one"
@@ -656,15 +656,15 @@ For the Desktop client (Person 4):
 **Desktop, `messages_ar.properties`** (Arabic):
 
 ```properties
-# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 liveness.title.resident=التحقق من حيوية الوجه
 liveness.title.operator=التحقق من وجه المشغل
 liveness.title.supervisor=التحقق من وجه المشرف
 liveness.status.starting=جارٍ بدء التحقق من حيوية الوجه…
 liveness.status.checking=جارٍ التحقق من حيوية الوجه…
-liveness.status.passed=جيد، تم التقاط الوجه بنجاح
+liveness.status.passed=جيد، تم التقاط صورة وجهك بنجاح
 liveness.status.cancelled=تم إلغاء التحقق من حيوية الوجه.
-liveness.challenge.blink=يرجى رمش عينيك
+liveness.challenge.blink=يرجى الرمش بعينيك
 liveness.challenge.smile=يرجى الابتسام
 liveness.challenge.turn_left=يرجى إدارة رأسك إلى اليسار
 liveness.challenge.turn_right=يرجى إدارة رأسك إلى اليمين
@@ -672,7 +672,7 @@ liveness.challenge.look_up=يرجى النظر إلى الأعلى
 liveness.challenge.look_down=يرجى النظر إلى الأسفل
 liveness.feedback.continue=يرجى المتابعة
 liveness.feedback.action_detected=تم اكتشاف الحركة
-liveness.feedback.hold_still=لا تتحرك
+liveness.feedback.hold_still=يرجى عدم الحركة
 liveness.guidance.no_face=لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.
 liveness.guidance.multiple_faces=يجب أن يظهر شخص واحد فقط.
 liveness.guidance.move_closer=يرجى الاقتراب أكثر.
@@ -684,14 +684,14 @@ liveness.guidance.look_at_camera=يرجى النظر إلى الكاميرا.
 liveness.error.liveness_not_verified=تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.
 liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
 liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
-liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
+liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. يرجى التحقق من الاتصال والمحاولة مرة أخرى.
 liveness.error.identity_not_verified=تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.
 liveness.tips.title=نصائح:
-liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
-liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
-liveness.tips.lighting=حسّن الإضاءة.
-liveness.tips.capture_area=أبقِ وجهك داخل منطقة الالتقاط.
-liveness.tips.follow_prompt=نفّذ الحركة المطلوبة.
+liveness.tips.look_at_camera=يرجى النظر مباشرة إلى الكاميرا.
+liveness.tips.face_visible=يرجى التأكد من ظهور وجهك بوضوح.
+liveness.tips.lighting=يرجى تحسين الإضاءة.
+liveness.tips.capture_area=يرجى إبقاء وجهك داخل الإطار الظاهر على الشاشة.
+liveness.tips.follow_prompt=يرجى تنفيذ الحركة المطلوبة.
 liveness.retry.attempts_left=المحاولات المتبقية: {0}
 liveness.progress.step=الخطوة {0} من {1}
 liveness.progress.attempt=المحاولة {0} من {1}

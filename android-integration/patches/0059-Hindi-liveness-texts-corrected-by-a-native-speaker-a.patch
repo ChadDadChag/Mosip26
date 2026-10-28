@@ -1,7 +1,7 @@
 From 6eeb6e016cb6c3769148f1c7d075b8496a624e9f Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 17:58:35 +0530
-Subject: [PATCH 59/60] Hindi liveness texts corrected by a native speaker, and
+Subject: [PATCH 59/61] Hindi liveness texts corrected by a native speaker, and
  the Hindi layout at 360 dp checked (task 27)
 
 The Hindi review of 2026-10-28 (both batches): the reviewer's term for liveness replaces the machine

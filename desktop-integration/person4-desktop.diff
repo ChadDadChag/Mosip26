@@ -83,7 +83,7 @@ diff --git a/docs/part4-desktop-integration.md b/docs/part4-desktop-integration.
 new file mode 100644
 --- /dev/null
 +++ b/docs/part4-desktop-integration.md
-@@ -0,0 +1,804 @@
+@@ -0,0 +1,806 @@
 +# Part 4: face liveness in the Desktop Registration Client
 +
 +Part 4 puts Parts 1 to 3 into the MOSIP Desktop Registration Client (JavaFX, v1.2.0.2). Before any face is accepted
@@ -859,7 +859,9 @@ new file mode 100644
 +  languages Registration Client v1.2.0.2 ships.
 +  - Arabic and French come from `docs/ui-liveness-spec.md` Appendix A. They are machine-translated. A native speaker
 +    reviewed French on 2026-10-28: « vivacité » means liveliness, so the liveness texts now say « détection du vivant »
-+    (11 texts, the same as Android). Arabic still needs a review.
++    (11 texts, the same as Android). Arabic was reviewed on 2026-10-28 too: polite, gender-neutral instructions
++    instead of direct masculine commands (12 texts, the same as Android); the word for "resident" stays, as in the
++    client's own Arabic texts.
 +  - The overlay copies are the upstream files with the block appended, byte for byte (`.gitattributes` `-text`). The
 +    block is `\u`-escaped: the French file is ISO-8859-1, and the Arabic file is all escapes too.
 +  - Hindi, Kannada and Tamil are not added. v1.2.0.2 has no `messages_hi`, `_kn` or `_ta` for its other screens, so
@@ -1102,8 +1104,8 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +| `liveness.model.confirm_rollback` | Roll back to the previous face liveness models? New liveness checks will use them. | rollback confirmation |
 +
 +**Translations.** The Arabic and French texts are in the Desktop `messages_ar` / `messages_fr` bundles, and all five
-+languages are in the Android ARB files. They are machine-translated. A native speaker reviewed them on 2026-10-28:
-+Tamil (no changes), and French, Hindi and Kannada (corrected); Arabic is pending.
++languages are in the Android ARB files. They are machine-translated. A native speaker reviewed all five on 2026-10-28:
++Tamil without changes; Arabic, French, Hindi and Kannada corrected.
 +
  ## 5. Message keys and ready-to-paste catalogues
  
@@ -1166,8 +1168,8 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 -English: Desktop through the ResourceBundle parent, Android through gen-l10n's handling of missing keys (Person 5
 -checks this, see the P5-1 report).
 +**Other languages.**
-+- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated; Tamil,
-+  French, Hindi and Kannada were reviewed by a native speaker on 2026-10-28, and Arabic still needs a review.
++- The Android client has these texts in Arabic, French, Hindi, Kannada and Tamil. They are machine-translated, and a
++  native speaker reviewed all five on 2026-10-28 (Tamil without changes).
 +  Appendix A has the same texts for the Desktop client.
 +- A language without them falls back to English: on the Desktop through the ResourceBundle parent, on Android
 +  through gen-l10n's handling of missing keys.
@@ -1317,8 +1319,8 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +
 +The Android client has the 45 liveness texts in all six of its languages: `assets/l10n/app_ar.arb`, `app_fr.arb`,
 +`app_hi.arb`, `app_kn.arb` and `app_ta.arb` (fix round 4). The same texts for the Desktop client follow, ready to
-+paste. **All five languages are machine-translated. A native speaker reviewed Tamil (no changes), and French, Hindi and
-+Kannada (corrected), on 2026-10-28; Arabic still needs a review before release.** The ARB files carry the
++paste. **All five languages are machine-translated. A native speaker reviewed all five on 2026-10-28: Tamil without
++changes; Arabic, French, Hindi and Kannada corrected.** The ARB files carry the
 +same status, as `"@@x-liveness-translation"`.
 +
 +How the translations were made:
@@ -1328,7 +1330,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +    ("attempts of the left side").
 +  - The fix round 4 report lists each of these.
 +- **Generic failures.** The failure texts stay generic, as in English. No text mentions an attack.
-+- **Liveness** is حيوية الوجه (Arabic), détection du vivant (French; the reviewer's term: « vivacité » means
++- **Liveness** is حيوية الوجه (Arabic; confirmed by the reviewer), détection du vivant (French; the reviewer's term: « vivacité » means
 +  liveliness), सजीवता (Hindi; the reviewer's term: जीवंतता means liveliness), ಜೀವಂತಿಕೆ (Kannada; confirmed by the
 +  reviewer) and உயிர்ப்பு (Tamil).
 +- **Plural forms.** French has them like English: "1 tentative restante" / "{n} tentatives restantes", where "one"
@@ -1360,15 +1362,15 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +**Desktop, `messages_ar.properties`** (Arabic):
 +
 +```properties
-+# Face liveness (docs/ui-liveness-spec.md). Machine-translated; needs native-speaker review.
++# Face liveness (docs/ui-liveness-spec.md). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 +liveness.title.resident=التحقق من حيوية الوجه
 +liveness.title.operator=التحقق من وجه المشغل
 +liveness.title.supervisor=التحقق من وجه المشرف
 +liveness.status.starting=جارٍ بدء التحقق من حيوية الوجه…
 +liveness.status.checking=جارٍ التحقق من حيوية الوجه…
-+liveness.status.passed=جيد، تم التقاط الوجه بنجاح
++liveness.status.passed=جيد، تم التقاط صورة وجهك بنجاح
 +liveness.status.cancelled=تم إلغاء التحقق من حيوية الوجه.
-+liveness.challenge.blink=يرجى رمش عينيك
++liveness.challenge.blink=يرجى الرمش بعينيك
 +liveness.challenge.smile=يرجى الابتسام
 +liveness.challenge.turn_left=يرجى إدارة رأسك إلى اليسار
 +liveness.challenge.turn_right=يرجى إدارة رأسك إلى اليمين
@@ -1376,7 +1378,7 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.challenge.look_down=يرجى النظر إلى الأسفل
 +liveness.feedback.continue=يرجى المتابعة
 +liveness.feedback.action_detected=تم اكتشاف الحركة
-+liveness.feedback.hold_still=لا تتحرك
++liveness.feedback.hold_still=يرجى عدم الحركة
 +liveness.guidance.no_face=لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.
 +liveness.guidance.multiple_faces=يجب أن يظهر شخص واحد فقط.
 +liveness.guidance.move_closer=يرجى الاقتراب أكثر.
@@ -1388,14 +1390,14 @@ diff --git a/docs/ui-liveness-spec.md b/docs/ui-liveness-spec.md
 +liveness.error.liveness_not_verified=تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.
 +liveness.error.verification_not_completed=تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.
 +liveness.error.max_attempts_reached=تعذّر إكمال التحقق من الوجه.
-+liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.
++liveness.error.device_problem=الكاميرا أو الجهاز غير متاح. يرجى التحقق من الاتصال والمحاولة مرة أخرى.
 +liveness.error.identity_not_verified=تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.
 +liveness.tips.title=نصائح:
-+liveness.tips.look_at_camera=انظر مباشرة إلى الكاميرا.
-+liveness.tips.face_visible=تأكد من أن وجهك ظاهر بوضوح.
-+liveness.tips.lighting=حسّن الإضاءة.
-+liveness.tips.capture_area=أبقِ وجهك داخل منطقة الالتقاط.
-+liveness.tips.follow_prompt=نفّذ الحركة المطلوبة.
++liveness.tips.look_at_camera=يرجى النظر مباشرة إلى الكاميرا.
++liveness.tips.face_visible=يرجى التأكد من ظهور وجهك بوضوح.
++liveness.tips.lighting=يرجى تحسين الإضاءة.
++liveness.tips.capture_area=يرجى إبقاء وجهك داخل الإطار الظاهر على الشاشة.
++liveness.tips.follow_prompt=يرجى تنفيذ الحركة المطلوبة.
 +liveness.retry.attempts_left=المحاولات المتبقية: {0}
 +liveness.progress.step=الخطوة {0} من {1}
 +liveness.progress.attempt=المحاولة {0} من {1}
@@ -4195,15 +4197,15 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 \ No newline at end of file
 +TOKEN_SAVE_FAILED=\u0641\u0634\u0644 \u062d\u0641\u0638 \u0631\u0645\u0632 \u0627\u0644\u0645\u0635\u0627\u062f\u0642\u0629 \u060c \u0627\u0644\u0631\u0645\u0632 \u002f \u0627\u0644\u0631\u0645\u0632 \u0627\u0644\u0645\u0645\u064a\u0632 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d \u0643\u0628\u064a\u0631 \u062c\u062f\u064b\u0627#TYPE#ERROR
 +
-+# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; needs native-speaker review.
++# Face liveness (docs/ui-liveness-spec.md Appendix A). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 +liveness.title.resident=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647
 +liveness.title.operator=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0648\u062C\u0647 \u0627\u0644\u0645\u0634\u063A\u0644
 +liveness.title.supervisor=\u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0648\u062C\u0647 \u0627\u0644\u0645\u0634\u0631\u0641
 +liveness.status.starting=\u062C\u0627\u0631\u064D \u0628\u062F\u0621 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647\u2026
 +liveness.status.checking=\u062C\u0627\u0631\u064D \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647\u2026
-+liveness.status.passed=\u062C\u064A\u062F\u060C \u062A\u0645 \u0627\u0644\u062A\u0642\u0627\u0637 \u0627\u0644\u0648\u062C\u0647 \u0628\u0646\u062C\u0627\u062D
++liveness.status.passed=\u062C\u064A\u062F\u060C \u062A\u0645 \u0627\u0644\u062A\u0642\u0627\u0637 \u0635\u0648\u0631\u0629 \u0648\u062C\u0647\u0643 \u0628\u0646\u062C\u0627\u062D
 +liveness.status.cancelled=\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647.
-+liveness.challenge.blink=\u064A\u0631\u062C\u0649 \u0631\u0645\u0634 \u0639\u064A\u0646\u064A\u0643
++liveness.challenge.blink=\u064A\u0631\u062C\u0649 \u0627\u0644\u0631\u0645\u0634 \u0628\u0639\u064A\u0646\u064A\u0643
 +liveness.challenge.smile=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u0628\u062A\u0633\u0627\u0645
 +liveness.challenge.turn_left=\u064A\u0631\u062C\u0649 \u0625\u062F\u0627\u0631\u0629 \u0631\u0623\u0633\u0643 \u0625\u0644\u0649 \u0627\u0644\u064A\u0633\u0627\u0631
 +liveness.challenge.turn_right=\u064A\u0631\u062C\u0649 \u0625\u062F\u0627\u0631\u0629 \u0631\u0623\u0633\u0643 \u0625\u0644\u0649 \u0627\u0644\u064A\u0645\u064A\u0646
@@ -4211,7 +4213,7 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.challenge.look_down=\u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0623\u0633\u0641\u0644
 +liveness.feedback.continue=\u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629
 +liveness.feedback.action_detected=\u062A\u0645 \u0627\u0643\u062A\u0634\u0627\u0641 \u0627\u0644\u062D\u0631\u0643\u0629
-+liveness.feedback.hold_still=\u0644\u0627 \u062A\u062A\u062D\u0631\u0643
++liveness.feedback.hold_still=\u064A\u0631\u062C\u0649 \u0639\u062F\u0645 \u0627\u0644\u062D\u0631\u0643\u0629
 +liveness.guidance.no_face=\u0644\u0645 \u064A\u062A\u0645 \u0627\u0643\u062A\u0634\u0627\u0641 \u0623\u064A \u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
 +liveness.guidance.multiple_faces=\u064A\u062C\u0628 \u0623\u0646 \u064A\u0638\u0647\u0631 \u0634\u062E\u0635 \u0648\u0627\u062D\u062F \u0641\u0642\u0637.
 +liveness.guidance.move_closer=\u064A\u0631\u062C\u0649 \u0627\u0644\u0627\u0642\u062A\u0631\u0627\u0628 \u0623\u0643\u062B\u0631.
@@ -4223,14 +4225,14 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.error.liveness_not_verified=\u062A\u0639\u0630\u0651\u0631 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u062D\u064A\u0648\u064A\u0629 \u0627\u0644\u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
 +liveness.error.verification_not_completed=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647. \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
 +liveness.error.max_attempts_reached=\u062A\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062C\u0647.
-+liveness.error.device_problem=\u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0623\u0648 \u0627\u0644\u062C\u0647\u0627\u0632 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D. \u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0648\u062D\u0627\u0648\u0644 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
++liveness.error.device_problem=\u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627 \u0623\u0648 \u0627\u0644\u062C\u0647\u0627\u0632 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D. \u064A\u0631\u062C\u0649 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0648\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062E\u0631\u0649.
 +liveness.error.identity_not_verified=\u062a\u0639\u0630\u0651\u0631 \u0625\u0643\u0645\u0627\u0644 \u0627\u0644\u062a\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0648\u062c\u0647 \u0644\u0647\u0630\u0627 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645. \u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 \u0645\u0631\u0629 \u0623\u062e\u0631\u0649.
 +liveness.tips.title=\u0646\u0635\u0627\u0626\u062D:
-+liveness.tips.look_at_camera=\u0627\u0646\u0638\u0631 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
-+liveness.tips.face_visible=\u062A\u0623\u0643\u062F \u0645\u0646 \u0623\u0646 \u0648\u062C\u0647\u0643 \u0638\u0627\u0647\u0631 \u0628\u0648\u0636\u0648\u062D.
-+liveness.tips.lighting=\u062D\u0633\u0651\u0646 \u0627\u0644\u0625\u0636\u0627\u0621\u0629.
-+liveness.tips.capture_area=\u0623\u0628\u0642\u0650 \u0648\u062C\u0647\u0643 \u062F\u0627\u062E\u0644 \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u0627\u0644\u062A\u0642\u0627\u0637.
-+liveness.tips.follow_prompt=\u0646\u0641\u0651\u0630 \u0627\u0644\u062D\u0631\u0643\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.
++liveness.tips.look_at_camera=\u064A\u0631\u062C\u0649 \u0627\u0644\u0646\u0638\u0631 \u0645\u0628\u0627\u0634\u0631\u0629 \u0625\u0644\u0649 \u0627\u0644\u0643\u0627\u0645\u064A\u0631\u0627.
++liveness.tips.face_visible=\u064A\u0631\u062C\u0649 \u0627\u0644\u062A\u0623\u0643\u062F \u0645\u0646 \u0638\u0647\u0648\u0631 \u0648\u062C\u0647\u0643 \u0628\u0648\u0636\u0648\u062D.
++liveness.tips.lighting=\u064A\u0631\u062C\u0649 \u062A\u062D\u0633\u064A\u0646 \u0627\u0644\u0625\u0636\u0627\u0621\u0629.
++liveness.tips.capture_area=\u064A\u0631\u062C\u0649 \u0625\u0628\u0642\u0627\u0621 \u0648\u062C\u0647\u0643 \u062F\u0627\u062E\u0644 \u0627\u0644\u0625\u0637\u0627\u0631 \u0627\u0644\u0638\u0627\u0647\u0631 \u0639\u0644\u0649 \u0627\u0644\u0634\u0627\u0634\u0629.
++liveness.tips.follow_prompt=\u064A\u0631\u062C\u0649 \u062A\u0646\u0641\u064A\u0630 \u0627\u0644\u062D\u0631\u0643\u0629 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629.
 +liveness.retry.attempts_left=\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0627\u062A \u0627\u0644\u0645\u062A\u0628\u0642\u064A\u0629: {0}
 +liveness.progress.step=\u0627\u0644\u062E\u0637\u0648\u0629 {0} \u0645\u0646 {1}
 +liveness.progress.attempt=\u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 {0} \u0645\u0646 {1}
@@ -4242,15 +4244,15 @@ diff --git a/registration-client/src/main/resources/messages_ar.properties b/reg
 +liveness.button.close=\u0625\u063A\u0644\u0627\u0642
 +liveness.button.open_settings=\u0641\u062A\u062D \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A
 +
-+# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; needs native-speaker review.
++# Face liveness model bundles (F17; docs/ui-liveness-spec.md section 4.5). Machine-translated; reviewed by a native speaker on 2026-10-28 and corrected.
 +liveness.model.title=\u0646\u0645\u0627\u0630\u062c \u062d\u064a\u0648\u064a\u0629 \u0627\u0644\u0648\u062c\u0647
 +liveness.model.current=\u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u0629: {0}
 +liveness.model.install=\u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c
 +liveness.model.rollback=\u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0633\u0627\u0628\u0642\u0629
-+liveness.model.select_file=\u0627\u062e\u062a\u0631 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c (.zip)
++liveness.model.select_file=\u0627\u062e\u062a\u064a\u0627\u0631 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c (.zip)
 +liveness.model.working=\u062c\u0627\u0631\u064d \u0645\u0639\u0627\u0644\u062c\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c\u2026 \u064a\u0631\u062c\u0649 \u0627\u0644\u0627\u0646\u062a\u0638\u0627\u0631.
-+liveness.model.installed=\u062a\u0645 \u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c {0}. \u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
-+liveness.model.rolled_back=\u062a\u0645\u062a \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0625\u0644\u0649 \u0627\u0644\u0625\u0635\u062f\u0627\u0631 {0}. \u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
++liveness.model.installed=\u062a\u0645 \u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c {0}. \u0633\u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
++liveness.model.rolled_back=\u062a\u0645\u062a \u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0625\u0644\u0649 \u0627\u0644\u0625\u0635\u062f\u0627\u0631 {0}. \u0633\u062a\u0633\u062a\u062e\u062f\u0645\u0647\u0627 \u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u062d\u0642\u0642 \u0627\u0644\u062c\u062f\u064a\u062f\u0629 \u0645\u0646 \u0627\u0644\u062d\u064a\u0648\u064a\u0629.
 +liveness.model.not_newer=\u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0647\u0630\u0647 \u0644\u064a\u0633\u062a \u0623\u062d\u062f\u062b \u0645\u0646 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u0629. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621.
 +liveness.model.invalid=\u0647\u0630\u0627 \u0627\u0644\u0645\u0644\u0641 \u0644\u064a\u0633 \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c \u0645\u0648\u0642\u0651\u0639\u0629 \u0635\u0627\u0644\u062d\u0629. \u0644\u0645 \u064a\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0623\u064a \u0634\u064a\u0621.
 +liveness.model.nothing_to_roll_back=\u0644\u0627 \u062a\u0648\u062c\u062f \u062d\u0632\u0645\u0629 \u0646\u0645\u0627\u0630\u062c \u0633\u0627\u0628\u0642\u0629 \u0644\u0644\u0627\u0633\u062a\u0639\u0627\u062f\u0629.

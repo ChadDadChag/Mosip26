@@ -55120,7 +55120,7 @@ index 0000000..f241a9d
 +FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 +OTHER DEALINGS IN THE FONT SOFTWARE.
 diff --git a/assets/l10n/app_ar.arb b/assets/l10n/app_ar.arb
-index c3b216a..e5abd91 100644
+index c3b216a..ad2c559 100644
 --- a/assets/l10n/app_ar.arb
 +++ b/assets/l10n/app_ar.arb
 @@ -368,6 +368,67 @@
@@ -55129,15 +55129,15 @@ index c3b216a..e5abd91 100644
    "id": "بطاقة تعريف",
 -  "name": "اسم"
 +  "name": "اسم",
-+  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
 +  "liveness_title_resident": "التحقق من حيوية الوجه",
 +  "liveness_title_operator": "التحقق من وجه المشغل",
 +  "liveness_title_supervisor": "التحقق من وجه المشرف",
 +  "liveness_status_starting": "جارٍ بدء التحقق من حيوية الوجه…",
 +  "liveness_status_checking": "جارٍ التحقق من حيوية الوجه…",
-+  "liveness_status_passed": "جيد، تم التقاط الوجه بنجاح",
++  "liveness_status_passed": "جيد، تم التقاط صورة وجهك بنجاح",
 +  "liveness_status_cancelled": "تم إلغاء التحقق من حيوية الوجه.",
-+  "liveness_challenge_blink": "يرجى رمش عينيك",
++  "liveness_challenge_blink": "يرجى الرمش بعينيك",
 +  "liveness_challenge_smile": "يرجى الابتسام",
 +  "liveness_challenge_turn_left": "يرجى إدارة رأسك إلى اليسار",
 +  "liveness_challenge_turn_right": "يرجى إدارة رأسك إلى اليمين",
@@ -55145,7 +55145,7 @@ index c3b216a..e5abd91 100644
 +  "liveness_challenge_look_down": "يرجى النظر إلى الأسفل",
 +  "liveness_feedback_continue": "يرجى المتابعة",
 +  "liveness_feedback_action_detected": "تم اكتشاف الحركة",
-+  "liveness_feedback_hold_still": "لا تتحرك",
++  "liveness_feedback_hold_still": "يرجى عدم الحركة",
 +  "liveness_guidance_no_face": "لم يتم اكتشاف أي وجه. يرجى النظر إلى الكاميرا.",
 +  "liveness_guidance_multiple_faces": "يجب أن يظهر شخص واحد فقط.",
 +  "liveness_guidance_move_closer": "يرجى الاقتراب أكثر.",
@@ -55157,14 +55157,14 @@ index c3b216a..e5abd91 100644
 +  "liveness_error_liveness_not_verified": "تعذّر التحقق من حيوية الوجه. يرجى المحاولة مرة أخرى.",
 +  "liveness_error_verification_not_completed": "تعذّر إكمال التحقق من الوجه. يرجى المحاولة مرة أخرى.",
 +  "liveness_error_max_attempts_reached": "تعذّر إكمال التحقق من الوجه.",
-+  "liveness_error_device_problem": "الكاميرا أو الجهاز غير متاح. تحقق من الاتصال وحاول مرة أخرى.",
++  "liveness_error_device_problem": "الكاميرا أو الجهاز غير متاح. يرجى التحقق من الاتصال والمحاولة مرة أخرى.",
 +  "liveness_error_identity_not_verified": "تعذّر إكمال التحقق من الوجه لهذا المستخدم. يرجى المحاولة مرة أخرى.",
 +  "liveness_tips_title": "نصائح:",
-+  "liveness_tips_look_at_camera": "انظر مباشرة إلى الكاميرا.",
-+  "liveness_tips_face_visible": "تأكد من أن وجهك ظاهر بوضوح.",
-+  "liveness_tips_lighting": "حسّن الإضاءة.",
-+  "liveness_tips_capture_area": "أبقِ وجهك داخل منطقة الالتقاط.",
-+  "liveness_tips_follow_prompt": "نفّذ الحركة المطلوبة.",
++  "liveness_tips_look_at_camera": "يرجى النظر مباشرة إلى الكاميرا.",
++  "liveness_tips_face_visible": "يرجى التأكد من ظهور وجهك بوضوح.",
++  "liveness_tips_lighting": "يرجى تحسين الإضاءة.",
++  "liveness_tips_capture_area": "يرجى إبقاء وجهك داخل الإطار الظاهر على الشاشة.",
++  "liveness_tips_follow_prompt": "يرجى تنفيذ الحركة المطلوبة.",
 +  "liveness_retry_attempts_left": "المحاولات المتبقية: {n}",
 +  "liveness_progress_step": "الخطوة {i} من {n}",
 +  "liveness_progress_attempt": "المحاولة {a} من {m}",
@@ -55175,15 +55175,15 @@ index c3b216a..e5abd91 100644
 +  "liveness_button_cancel": "إلغاء",
 +  "liveness_button_close": "إغلاق",
 +  "liveness_button_open_settings": "فتح الإعدادات",
-+  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
 +  "liveness_model_title": "نماذج حيوية الوجه",
 +  "liveness_model_current": "النماذج المستخدمة: {version}",
 +  "liveness_model_install": "تثبيت حزمة النماذج",
 +  "liveness_model_rollback": "استعادة حزمة النماذج السابقة",
-+  "liveness_model_select_file": "اختر حزمة نماذج (.zip)",
++  "liveness_model_select_file": "اختيار حزمة نماذج (.zip)",
 +  "liveness_model_working": "جارٍ معالجة حزمة النماذج… يرجى الانتظار.",
-+  "liveness_model_installed": "تم تثبيت حزمة النماذج {version}. تستخدمها عمليات التحقق الجديدة من الحيوية.",
-+  "liveness_model_rolled_back": "تمت استعادة النماذج إلى الإصدار {version}. تستخدمها عمليات التحقق الجديدة من الحيوية.",
++  "liveness_model_installed": "تم تثبيت حزمة النماذج {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
++  "liveness_model_rolled_back": "تمت استعادة النماذج إلى الإصدار {version}. ستستخدمها عمليات التحقق الجديدة من الحيوية.",
 +  "liveness_model_not_newer": "حزمة النماذج هذه ليست أحدث من النماذج المستخدمة. لم يتم تغيير أي شيء.",
 +  "liveness_model_invalid": "هذا الملف ليس حزمة نماذج موقّعة صالحة. لم يتم تغيير أي شيء.",
 +  "liveness_model_nothing_to_roll_back": "لا توجد حزمة نماذج سابقة للاستعادة.",
@@ -62900,10 +62900,10 @@ index 0000000..c8cc535
 +}
 diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
 new file mode 100644
-index 0000000..70ebdeb
+index 0000000..a5196aa
 --- /dev/null
 +++ b/test/liveness/liveness_l10n_test.dart
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,85 @@
 +import 'dart:convert';
 +import 'dart:io';
 +
@@ -62916,10 +62916,9 @@ index 0000000..70ebdeb
 +/// translation note in each translated file (machine-translated, and its review).
 +void main() {
 +  const languages = ['ar', 'fr', 'hi', 'kn', 'ta'];
-+  // The native-speaker review (2026-10-28): Tamil had no changes; French, Hindi and Kannada were corrected; Arabic
-+  // is pending.
++  // The native-speaker review (2026-10-28): Tamil had no changes; Arabic, French, Hindi and Kannada were corrected.
 +  const review = {
-+    'ar': 'machine-translated; needs native-speaker review',
++    'ar': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +    'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +    'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +    'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
@@ -63245,7 +63244,7 @@ index 0000000..5a0e5fc
 +}
 diff --git a/test/liveness/liveness_page_locale_test.dart b/test/liveness/liveness_page_locale_test.dart
 new file mode 100644
-index 0000000..ff96b16
+index 0000000..9fd7acb
 --- /dev/null
 +++ b/test/liveness/liveness_page_locale_test.dart
 @@ -0,0 +1,124 @@
@@ -63325,7 +63324,7 @@ index 0000000..ff96b16
 +    expect(find.text('نصائح:'), findsOneWidget);
 +    // The tips start at the right edge of their card with the bullet, the text left of it;
 +    // Retry (first) is right of Cancel.
-+    final tip = find.textContaining('انظر مباشرة إلى الكاميرا.');
++    final tip = find.textContaining('يرجى النظر مباشرة إلى الكاميرا.');
 +    await tester.ensureVisible(tip);
 +    await tester.pump();
 +    final tips = find.byKey(const Key('liveness.tips'));
@@ -63872,7 +63871,7 @@ index 0000000..62dcff9
 +    );
 diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
 new file mode 100644
-index 0000000..4683ae6
+index 0000000..0e90bb6
 --- /dev/null
 +++ b/test/liveness/model_bundle_test.dart
 @@ -0,0 +1,187 @@
@@ -64041,10 +64040,10 @@ index 0000000..4683ae6
 +    final keys = en.keys.where((k) => k.startsWith('liveness_model_')).toList();
 +    expect(keys, hasLength(15));
 +    final placeholder = RegExp(r'\{(\w+)\}');
-+    // The native-speaker review (2026-10-28): Tamil had no changes; French, Hindi and Kannada were corrected; Arabic
-+    // is pending.
++    // The native-speaker review (2026-10-28): Tamil had no changes; Arabic, French, Hindi and Kannada were
++    // corrected.
 +    const review = {
-+      'ar': 'machine-translated; needs native-speaker review',
++      'ar': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +      'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +      'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +      'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
