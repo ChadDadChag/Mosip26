@@ -107,7 +107,11 @@ $tool = Join-Path $repo "models\tools\f9_reeval.py"
 
 Step "a. inventory (R0)" {
     $global:LASTEXITCODE = -1
-    & $Python $tool inventory --data $Data --subjects $subjectList --out $outFull
+    # The subject map's codes are checked against the data here, before any step uses them (a typo stops the run).
+    $iargs = @($tool, "inventory", "--data", $Data, "--subjects", $subjectList, "--out", $outFull)
+    if ($SubjectMap) { $iargs += @("--subject-map", $SubjectMap) }
+    if (-not $NoLabelled) { $iargs += @("--labelled", $Labelled) }
+    & $Python @iargs
     if ($LASTEXITCODE -ne 0) { throw "STOPPED at 'a. inventory': see the REFUSED line above" }
 }
 

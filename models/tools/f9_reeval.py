@@ -3,12 +3,13 @@
 scripts/f9-reeval.ps1 runs it around PadEvaluation and BindingEvaluation:
 
     python f9_reeval.py inventory --data eval-data --subjects s01,s02 --out <dir>
+                                  [--subject-map s02=p05,...] [--labelled "test images/labels.csv"]
     python f9_reeval.py analyze --data eval-data --subjects s01,s02 --pad <dir>/pad --binding <dir>/binding
                                 --sessions eval-data/sessions --out <dir>
     python f9_reeval.py --self-test
 
 inventory refuses (exit 2) a listed subject without bona fide takes or without the consent marker in every take,
-and a bona fide subject in the data that is not listed. analyze replays the session guards over the recorded takes
+a bona fide subject in the data that is not listed, and a subject map entry whose codes are not in the data. analyze replays the session guards over the recorded takes
 (PadEvaluation's frames.csv) and the live logs, applies RULES, and writes summary.md: aggregates and codes only, no
 frame path and no name. The rules below are the only copy; f9-reeval.ps1 carries them verbatim (checked by the
 self-test) and summary.md prints them.
@@ -125,6 +126,39 @@ def inventory(data, subjects):
                           % (s, ", ".join(unconsented)))
         inv[s] = dict(conditions)
     return inv
+
+
+MAPPED = re.compile(r"^(s\d\d)=(p\d\d)$")
+
+
+def check_subject_map(data, subjects, spec, labels=None):
+    """The -SubjectMap entries (sNN=pNN, as BindingEvaluation takes them), each code checked against the data:
+    sNN a listed subject, pNN a photographed person (attack takes in the data, or a person_id of the labelled
+    photos). A typo (s02=p50) would silently turn the teammate's genuine pairs into impostors; it stops the run.
+    Returns {sNN: pNN}; raises Refused."""
+    attack = Path(data) / "attack"
+    people = {p.name for sp in attack.iterdir() if sp.is_dir() for p in sp.iterdir() if p.is_dir()} \
+        if attack.is_dir() else set()
+    if labels:
+        with open(labels, encoding="utf-8-sig", newline="") as f:
+            people |= {(r.get("person_id") or "").strip() for r in csv.DictReader(f)}
+    out = collections.OrderedDict()
+    for part in (x.strip() for x in (spec or "").split(",")):
+        if not part:
+            continue
+        m = MAPPED.match(part)
+        if not m:
+            raise Refused("subject map: expected sNN=pNN entries (codes only), got '%s'" % part)
+        s, p = m.groups()
+        if s in out or p in out.values():
+            raise Refused("subject map: %s repeats a subject or a person" % part)
+        if s not in subjects:
+            raise Refused("subject map: %s maps %s, which is not a listed subject" % (part, s))
+        if p not in people:
+            raise Refused("subject map: %s maps %s, which is not in the data (no attack takes, no labelled photo): "
+                          "a typo would make that person's genuine pairs impostors" % (part, p))
+        out[s] = p
+    return out
 
 
 def protocol_gaps(conditions):
@@ -431,6 +465,8 @@ def main(argv=None):
     ap.add_argument("--binding")
     ap.add_argument("--sessions")
     ap.add_argument("--out")
+    ap.add_argument("--subject-map", default="")
+    ap.add_argument("--labelled")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args(argv)
     if args.self_test:
@@ -442,6 +478,9 @@ def main(argv=None):
             raise Refused("no subjects: pass --subjects s01,s02,...")
         if args.command == "inventory":
             inv = inventory(args.data, subjects)
+            mapped = check_subject_map(args.data, subjects, args.subject_map, args.labelled)
+            if mapped:
+                print("subject map: %s, every code in the data" % ", ".join("%s=%s" % kv for kv in mapped.items()))
             if args.out:
                 Path(args.out).mkdir(parents=True, exist_ok=True)
                 (Path(args.out) / "inventory.json").write_text(json.dumps(inv, indent=1), encoding="utf-8")
@@ -593,6 +632,26 @@ class SelfTest(unittest.TestCase):
             inv = inventory(d, ["s01", "s02"])
             self.assertEqual({"normal": 1}, inv["s01"])
             self.assertEqual(2, protocol_gaps(inv["s01"])["normal"])
+
+    def test_r0_a_subject_map_code_not_in_the_data_stops_the_run(self):
+        # Task 30: s02=p50 (a typo of p05) would turn s02's genuine pairs into impostors without a word.
+        with tempfile.TemporaryDirectory() as d:
+            self._take(d, "s01", 1)
+            self._take(d, "s02", 1)
+            (Path(d) / "attack" / "screen_photo_multi" / "p05" / "1").mkdir(parents=True)
+            labels = Path(d) / "labels.csv"
+            labels.write_text("file,person_id\na.jpg,p06\n", encoding="utf-8")
+            self.assertEqual({"s02": "p05"}, dict(check_subject_map(d, ["s01", "s02"], "s02=p05")))
+            self.assertEqual({"s02": "p06"}, dict(check_subject_map(d, ["s01", "s02"], "s02=p06", labels)))
+            with self.assertRaisesRegex(Refused, "p50, which is not in the data"):
+                check_subject_map(d, ["s01", "s02"], "s02=p50", labels)
+            with self.assertRaisesRegex(Refused, "s03, which is not a listed subject"):
+                check_subject_map(d, ["s01", "s02"], "s03=p05")
+            with self.assertRaisesRegex(Refused, "codes only"):
+                check_subject_map(d, ["s01", "s02"], "s02=Alice")
+            with self.assertRaisesRegex(Refused, "repeats"):
+                check_subject_map(d, ["s01", "s02"], "s02=p05,s01=p05")
+            self.assertEqual({}, dict(check_subject_map(d, ["s01"], "")))
 
     def test_sections_and_summary_carry_no_paths(self):
         pad = ("# x\n## Three zones with today's settings (passive 0.85)\n\n| a |\n## Per-species APCER over "
