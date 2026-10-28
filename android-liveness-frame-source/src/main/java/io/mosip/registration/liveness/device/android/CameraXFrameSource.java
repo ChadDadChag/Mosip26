@@ -314,7 +314,11 @@ public final class CameraXFrameSource implements FrameSource {
         }, ContextCompat.getMainExecutor(context));
     }
 
-    private void bindUseCases(ProcessCameraProvider provider) {
+    /**
+     * Binds the use cases to the camera, then follows the window's rotation until {@link #stop()}. Main thread.
+     * Package-private: the rotation test runs this bind with a mock provider. Returns the use cases it bound.
+     */
+    UseCases bindUseCases(ProcessCameraProvider provider) {
         UseCases useCases = buildUseCases();
         ImageAnalysis analysis = useCases.analysis;
         Preview preview = useCases.preview;
@@ -340,10 +344,11 @@ public final class CameraXFrameSource implements FrameSource {
             this.imageAnalysis = null;
             this.boundPreview = null;
             this.boundCamera = null;
-            return;
+            return useCases;
         }
         exposure.attach(cameraXExposure(camera));
         followRotation();
+        return useCases;
     }
 
     /** The use cases of one bind. */
@@ -359,9 +364,9 @@ public final class CameraXFrameSource implements FrameSource {
 
     /**
      * The analysis and, with a preview surface, the preview, both at the window's rotation (F19: not CameraX's default,
-     * the physical display's). Package-private for the rotation test.
+     * the physical display's).
      */
-    UseCases buildUseCases() {
+    private UseCases buildUseCases() {
         int aspectRatio = aspectRatioOf(targetResolution);
         ImageAnalysis.Builder analysisBuilder = new ImageAnalysis.Builder()
                 .setResolutionSelector(new ResolutionSelector.Builder()
@@ -414,15 +419,6 @@ public final class CameraXFrameSource implements FrameSource {
             }
             stopWatchingRotation = rotation.watch(this::refreshTargetRotation);
         }
-    }
-
-    /** Test seam: what a bind does, without a camera: the use cases at the window's rotation, then following it. */
-    UseCases bindForTest() {
-        UseCases useCases = buildUseCases();
-        imageAnalysis = useCases.analysis;
-        boundPreview = useCases.preview;
-        followRotation();
-        return useCases;
     }
 
     private static ExposureAssist.Control cameraXExposure(final Camera camera) {
