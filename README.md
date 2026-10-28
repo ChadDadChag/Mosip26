@@ -360,7 +360,7 @@ The engine is the same Java code as on the Desktop. It runs on the phone's camer
 
 | Path | What | Ships in the app |
 |---|---|---|
-| `android-integration/patches/` | 61 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, face binding of the SBI face capture (F1), the liveness texts in all six languages (five machine-translated; Arabic right to left), the online model update (`ModelUpdateWorker`, off by default), audit events REG-EVT-009..019, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), per-ABI APKs, tests | yes |
+| `android-integration/patches/` | 61 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, face binding of the SBI face capture (F1), the liveness texts in all six languages (five machine-translated, then reviewed and corrected by native speakers on 2026-10-28; Arabic right to left), the online model update (`ModelUpdateWorker`, off by default), audit events REG-EVT-009..020, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), per-ABI APKs, tests | yes |
 | `android-integration/person5-liveness.diff` | the same changes as one diff | yes |
 | `android-integration/scripts/` | `sync-engine.ps1` (engine jars, signed models and the camera source into the client), `apply-integration.ps1` (clone, apply, sync, build), `export-patches.ps1` (regenerate the patches) | no |
 | `android-liveness-frame-source/` | Part 1's `CameraXFrameSource`, copied into the client by the sync | yes |

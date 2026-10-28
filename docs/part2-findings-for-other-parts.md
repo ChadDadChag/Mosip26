@@ -89,7 +89,8 @@ LivenessService liveness = DefaultLivenessService.builder()
     `.enabled`, off by default ([part2-pad-architecture.md](part2-pad-architecture.md) §7).
   - Expose `rollback()` as an operator action only.
 - **Translations.** [ui-liveness-spec.md](ui-liveness-spec.md) Appendix A has the liveness texts in Arabic, French,
-  Hindi, Kannada and Tamil, as `messages_<code>.properties` blocks. They are machine-translated and need review. The
+  Hindi, Kannada and Tamil, as `messages_<code>.properties` blocks. They were machine-translated; native speakers
+  reviewed and corrected all five on 2026-10-28 (Appendix A records what changed). The
   French block is `\u`-escaped for v1.2.0.2's ISO-8859-1 `messages_fr.properties`.
 - **Errors.** A model integrity failure is `MODEL_INTEGRITY_FAILED` and is final: there is no fallback to unverified
   models. Show the contract's `userMessage()`.
