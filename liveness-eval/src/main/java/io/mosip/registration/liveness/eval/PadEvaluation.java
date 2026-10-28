@@ -430,16 +430,22 @@ public final class PadEvaluation {
             Candidate prod = candidates.get(0);
             List<PadMetrics.Presentation> prodPs = presentations(prod);
             Map<String, Integer> counts = EvalDataset.counts(refs());
-            int subjects = subjects().size();
-            b.append("# Part 2 PAD evaluation: PROVISIONAL, ").append(subjects == 1 ? "SINGLE SUBJECT" : subjects + " subjects")
+            int subjects = subjects().size(), bonaFide = bonaFideSubjects();
+            b.append("# Part 2 PAD evaluation: PROVISIONAL, ").append(bonaFide == 1 ? "SINGLE SUBJECT" : bonaFide + " bona fide subjects")
                     .append("\n\n");
             b.append(String.format(Locale.ROOT, "Generated %s by `liveness-eval` `PadEvaluation` over `%s` (model bundle %s). "
                     + "Aggregates only: no images, no landmarks, no per-take rows.%n%n", date, dataPath, modelVersion));
             b.append("## Limitations (read first)\n\n");
-            b.append(String.format(Locale.ROOT, "- **%d subject%s.** Every number below comes from %s, one webcam, one room "
+            b.append(String.format(Locale.ROOT, "- **%s.** Every number below comes from %s, one webcam, one room "
                             + "and one phone as the attack instrument. It shows tendencies and failure modes; it is not an "
-                            + "estimate of field error rates.%n", subjects, subjects == 1 ? "" : "s",
-                    subjects == 1 ? "one person" : subjects + " people"));
+                            + "estimate of field error rates.%n", bonaFideLabel(bonaFide),
+                    bonaFide == 1 ? "one person" : bonaFide + " people"));
+            if (subjects != bonaFide) {
+                b.append(String.format(Locale.ROOT, "- **%d subject codes in all**, attack takes included. A photographed "
+                        + "person has a code of their own, and one person can have two (a teammate who is also in the "
+                        + "photos), so the codes are not a count of people. The dataset table gives the subjects per "
+                        + "class.%n", subjects));
+            }
             b.append("- Small N: a 0/N result is reported with its one-sided 95% Clopper-Pearson upper bound in brackets "
                     + "(about 3/N, the rule of three). 0/6 means \"at most about 39%\", not \"0%\".\n");
             List<String> missing = new ArrayList<String>();
@@ -530,7 +536,7 @@ public final class PadEvaluation {
             b.append("\n## Close-up analysis\n\n").append(closeUpTable());
             b.append("\n").append(closeUpCandidates());
 
-            b.append("\n## Recommended thresholds (provisional, ").append(subjects == 1 ? "1 subject" : subjects + " subjects").append(")\n\n");
+            b.append("\n## Recommended thresholds (provisional, ").append(bonaFideLabel(bonaFide)).append(")\n\n");
             b.append("passiveThreshold = smallest grid tau with APCER = 0 for every species, + 0.02, capped at 0.99. "
                     + "padRejectThreshold = largest grid tau with no bona fide score below it, - 0.05, and below passiveThreshold.\n\n");
             for (Candidate c : new Candidate[] {prod, top}) {
@@ -762,6 +768,19 @@ public final class PadEvaluation {
             List<String> s = new ArrayList<String>();
             for (TakeData t : runs) if (!s.contains(t.ref.subject)) s.add(t.ref.subject);
             return s;
+        }
+
+        /** The subjects with bona fide takes: the people the BPCER and the reject threshold come from. */
+        private int bonaFideSubjects() {
+            List<String> s = new ArrayList<String>();
+            for (TakeData t : runs) {
+                if (EvalDataset.BONA_FIDE.equals(t.ref.species) && !s.contains(t.ref.subject)) s.add(t.ref.subject);
+            }
+            return s.size();
+        }
+
+        private static String bonaFideLabel(int n) {
+            return n == 1 ? "1 bona fide subject" : n + " bona fide subjects";
         }
     }
 

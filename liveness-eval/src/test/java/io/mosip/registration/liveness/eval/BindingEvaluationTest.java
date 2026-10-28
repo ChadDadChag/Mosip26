@@ -179,6 +179,52 @@ class BindingEvaluationTest {
     }
 
     @Test
+    void theF15BreakdownSplitsTheRulesPairsByTypeConditionSubjectAndPhoto() {
+        float[] x = {1, 0, 0}, y = {0, 1, 0}, z = {0, 0, 1};
+        BindingEvaluation.Recorded r = new BindingEvaluation.Recorded();
+        r.addTake("s02", 6, "far", y);
+        r.addTake("s02", 4, "close", x);
+        r.addTake("s02", 3, "normal", x);
+        r.addTake("s02", 1, "normal", x);
+        r.addTake("s03", 1, "normal", z);
+        r.addTake("s04", 1, "close", z);
+        Map<String, java.util.List<float[]>> labelled = new java.util.TreeMap<String, java.util.List<float[]>>();
+        labelled.put("p05", java.util.Arrays.asList(x, y));
+        labelled.put("p07", java.util.Arrays.asList(y));
+        Map<String, java.util.List<String>> quality = new java.util.TreeMap<String, java.util.List<String>>();
+        quality.put("p05", java.util.Arrays.asList("q1", "q2"));
+        Map<String, String> map = BindingEvaluation.subjectMap("s02=p05");
+        BindingEvaluation.IdentitySets rule = BindingEvaluation.identitySets(
+                new LinkedHashMap<String, BindingEvaluation.Scores>(), r, labelled, map);
+        String s = BindingEvaluation.identityBreakdown(r, labelled, quality, map);
+
+        assertThat(s).contains("## F15 breakdown (context, not part of the rule)")
+                // the rule's sets, with the same sizes: 3 same-day, 8 onboarding-like, 7 enrollment impostor pairs
+                .contains("| **genuine, same day: each subject's enrollment take (normal#1) vs their other takes** | 3 "
+                        + "| 1/3 (33.3%) | 1/3 (33.3%) | 0.000 | 1.000 | 1.000 |")
+                .contains("| condition far | 1 | 1/1 (100.0%) | 1/1 (100.0%) | 0.000 | 0.000 | 0.000 |")
+                .contains("| **genuine, onboarding-like: a labelled photo vs the same person's live takes** | 8 "
+                        + "| 4/8 (50.0%) | 4/8 (50.0%) |")
+                .contains("| condition normal | 4 | 2/4 (50.0%) |")
+                .contains("| s02 photo 1 of 2 (q1) | 4 | 1/4 (25.0%) |").contains("| s02 photo 2 of 2 (q2) | 4 | 3/4 (75.0%) |")
+                .as("several templates: each take matches its best photo")
+                .contains("| best of the person's photos, one value per live take | 4 | 0/4 (0.0%) |")
+                .contains("| **impostor: labelled photos of different people** | 2 | 1/2 (50.0%) |")
+                // p07 vs s02's 4 takes; p05 and p07 vs s03 and s04
+                .contains("| **impostor: a labelled photo vs other people's live takes** | 10 | 1/10 (10.0%) |")
+                .contains("| **impostor: each subject's enrollment take vs other subjects' takes** | 7 | 1/7 (14.3%) |");
+        assertThat(s).contains(String.format(java.util.Locale.ROOT,
+                "| **impostor: the rule's labelled impostors (the two rows above)** | %d |", rule.labelledImpostors.values.size()));
+        assertThat(rule.onboarding.values).hasSize(8);
+        assertThat(rule.sameDay.values).hasSize(3);
+        assertThat(rule.enrollmentImpostors.values).hasSize(7);
+        int same = s.indexOf("same day"), onboarding = s.indexOf("**genuine, onboarding-like");
+        assertThat(s.indexOf("| condition normal", same)).as("run sheet order")
+                .isLessThan(s.indexOf("| condition close", same)).isLessThan(s.indexOf("| condition far", same));
+        assertThat(s.indexOf("| condition normal", onboarding)).isLessThan(s.indexOf("| condition far", onboarding));
+    }
+
+    @Test
     void theIdentityRulePicksTheLowestFmrWithFnmrAtMostFivePercent() {
         BindingEvaluation.Scores onboarding = new BindingEvaluation.Scores("F15 genuine, onboarding-like", true);
         BindingEvaluation.Scores impostors = new BindingEvaluation.Scores("F15 impostor, labelled", false);

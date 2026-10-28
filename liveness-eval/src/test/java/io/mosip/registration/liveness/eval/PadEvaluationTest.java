@@ -139,6 +139,7 @@ class PadEvaluationTest {
         assertThat(e.bestVeto).isEqualTo(1.4f); // 1.3 vetoes the bona fide close-up; 1.4 and up separate, ties keep the first
 
         String md = e.report("pad-test", "20261024", "eval-data");
+        assertThat(md).doesNotContain("subject codes in all").contains("(provisional, 1 bona fide subject)");
         assertThat(md).contains("SINGLE SUBJECT", "Not yet evaluated", "`print_flat`", "`screen_replay`", "non-normative",
                 "| 4 | MIN(v2, v1se) |", "Before the moire cap (candidate 1a)", "Moire cap effect", "Close-up analysis", "bona_fide (close)", "screen_photo_close (selfie)", "Recommended thresholds");
         assertThat(md).doesNotContain("s01"); // aggregates only: no per-take rows
@@ -148,6 +149,26 @@ class PadEvaluationTest {
                 + "\"1a MEAN, no moire cap (before)\"");
         assertThat(e.framesCsv().split("\n")).hasSize(81);
         assertThat(e.scatterCsv()).contains("s01,screen_photo_close,1,selfie,0.9700,0.3200,1.9000");
+    }
+
+    @Test
+    void theReportCountsBonaFideSubjectsApartFromAttackSubjectCodes() {
+        List<PadEvaluation.TakeData> runs = new ArrayList<PadEvaluation.TakeData>();
+        String[][] takes = {{"bona_fide", "s01"}, {"bona_fide", "s02"}, {"screen_photo_close", "s01"},
+                {"screen_photo_multi", "p05"}, {"print_multi", "p07"}};
+        for (int i = 0; i < takes.length; i++) {
+            boolean bonaFide = "bona_fide".equals(takes[i][0]);
+            runs.add(new PadEvaluation.TakeData(new EvalDataset.TakeRef(takes[i][0], takes[i][1], i + 1, "normal", 10,
+                    new File("x")), frames(20, bonaFide ? 0.98f : 0.10f, bonaFide ? 0.96f : 0.20f, 1.2f, 0.10f), null));
+        }
+        String md = PadEvaluation.Evaluation.of(runs, new LivenessPolicy(), EngineTuning.defaults())
+                .report("pad-test", "20261028", "eval-data");
+        assertThat(md).startsWith("# Part 2 PAD evaluation: PROVISIONAL, 2 bona fide subjects\n")
+                .contains("- **2 bona fide subjects.** Every number below comes from 2 people")
+                .contains("- **4 subject codes in all**, attack takes included")
+                .contains("## Recommended thresholds (provisional, 2 bona fide subjects)")
+                .doesNotContain("SINGLE SUBJECT").doesNotContain("4 subjects")
+                .doesNotContain("s01").doesNotContain("p05"); // aggregates only
     }
 
     @Test
