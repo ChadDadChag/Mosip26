@@ -3983,7 +3983,7 @@ diff --git a/registration-client/src/main/resources/labels_ar.properties b/regis
 \ No newline at end of file
 +reject_word=\u0631\u0641\u0636
 +
-+# Face liveness model bundles (F17, Part 4). Machine-translated; needs native-speaker review.
++# Face liveness model bundles (F17, Part 4). Machine-translated; reviewed by a native speaker on 2026-10-28: no changes (the same texts as liveness.model.install and liveness.model.rollback in messages).
 +installModelBundle=\u062a\u062b\u0628\u064a\u062a \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c
 +rollbackModelBundle=\u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u062d\u0632\u0645\u0629 \u0627\u0644\u0646\u0645\u0627\u0630\u062c \u0627\u0644\u0633\u0627\u0628\u0642\u0629
 \ No newline at end of file
@@ -4013,7 +4013,7 @@ diff --git a/registration-client/src/main/resources/labels_fr.properties b/regis
 \ No newline at end of file
 +reject_word=Rejeter
 +
-+# Face liveness model bundles (F17, Part 4). Machine-translated; needs native-speaker review.
++# Face liveness model bundles (F17, Part 4). Machine-translated; reviewed by a native speaker on 2026-10-28: no changes (the same texts as liveness.model.install and liveness.model.rollback in messages).
 +installModelBundle=Installer un lot de mod\u00e8les
 +rollbackModelBundle=Restaurer le lot de mod\u00e8les pr\u00e9c\u00e9dent
 \ No newline at end of file
