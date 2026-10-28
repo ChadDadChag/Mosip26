@@ -1,0 +1,63 @@
+From 4b0a4c2932d2578e96627636c18ba42fc89986ed Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 22:38:36 +0530
+Subject: [PATCH 63/65] The fake engine only in debug and profile builds, in
+ the native holder too (task 29)
+
+W6 (defence in depth): LivenessServiceHolder.service(true) handed out the fake engine, which passes gates with no
+camera, in every build; only Dart kept release builds from asking for it (kDebugMode || kProfileMode). The holder
+now refuses it unless diagnostics (BuildConfig.LIVENESS_DIAGNOSTICS, debug and profile builds): startSession then
+returns the error, so a release build can no longer pass a gate on the fake engine by any caller.
+
+LivenessServiceHolderTest.onlyADiagnosticsBuildHandsOutTheFakeEngine failed on the old holder.
+:liveness:testDebugUnitTest: 122 passing (121 + 1).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../liveness/android/LivenessServiceHolder.java   |  7 +++++++
+ .../android/LivenessServiceHolderTest.java        | 15 +++++++++++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+index 932f9ac..8371fec 100644
+--- a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
++++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
+@@ -249,7 +249,14 @@ public final class LivenessServiceHolder {
+         audit.record(AuditSink.Event.MODEL_INTEGRITY_FAILED, null, null, d);
+     }
+ 
++    /**
++     * The real engine, or the fake one, which passes gates with no camera: debug and profile builds only
++     * ({@code diagnostics}). A release build refuses it here as well as in Dart, so the session start fails.
++     */
+     public LivenessService service(boolean useFake) {
++        if (useFake && !diagnostics) {
++            throw new IllegalStateException("the fake engine is for debug and profile builds only");
++        }
+         return useFake ? fake : real;
+     }
+ 
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+index f8425e6..203ece4 100644
+--- a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
+@@ -272,4 +272,19 @@ public class LivenessServiceHolderTest {
+         verify(auditManager, timeout(2000)).audit(eq(AuditEvent.LIVENESS_IDENTITY_BINDING),
+                 eq(Components.REG_PACKET_LIST), contains("gate=supervisor_approval;attempt=1;userId=sup1;templates=0"));
+     }
++
++    @Test
++    public void onlyADiagnosticsBuildHandsOutTheFakeEngine() {
++        // A release build: asking for the fake engine (it passes gates with no camera) fails, so the session start does.
++        try {
++            holder.service(true);
++            fail("a release build handed out the fake engine");
++        } catch (IllegalStateException expected) {
++            assertTrue(expected.getMessage().contains("debug and profile builds"));
++        }
++        assertTrue(holder.service(false) == holder.service(false));
++
++        LivenessServiceHolder debug = new LivenessServiceHolder(context, globalParams, auditManager, true);
++        assertTrue("debug and profile builds keep it", debug.service(true) != debug.service(false));
++    }
+ }

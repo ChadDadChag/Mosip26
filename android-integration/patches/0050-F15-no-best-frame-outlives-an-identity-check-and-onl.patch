@@ -1,7 +1,7 @@
 From 997842aee8c515730af3516e80e02147021c564e Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 03:57:08 +0530
-Subject: [PATCH 50/61] F15: no best frame outlives an identity check, and only
+Subject: [PATCH 50/65] F15: no best frame outlives an identity check, and only
  the gate's workflow is compared (task 20, A5)
 
 Planner's triage of A5 (task 19 review):

@@ -1,7 +1,7 @@
 From ac35fededb710b607f863844d8774cb6b57078d3 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Tue, 27 Oct 2026 19:29:11 +0530
-Subject: [PATCH 40/61] F17: the debug page opens the production model page (no
+Subject: [PATCH 40/65] F17: the debug page opens the production model page (no
  backend)
 
 The development phone has no MOSIP backend, so nobody can log in as a

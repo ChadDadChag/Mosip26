@@ -1873,12 +1873,12 @@ index 0000000..686d49a
 +-keep class ai.onnxruntime.** { *; }
 diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
 new file mode 100644
-index 0000000..2254bf1
+index 0000000..7f31c49
 --- /dev/null
 +++ b/android/liveness/engine-sync.txt
 @@ -0,0 +1,14 @@
 +# Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
-+engine commit 56bf83b
++engine commit c0e8f6a
 +libs/liveness-api-1.2.0.2.jar 8afcd23e6b2835629216d5d7ee02e627f4e94b04e9714bf1e8c643a6ee67af8b
 +libs/liveness-core-1.2.0.2.jar 542ac4ab9cfad3f990fcbba83ed42672f6d7ded8aa23dd2739bb20738c3a1672
 +libs/liveness-fake-1.2.0.2.jar 7a60dba0fb88d1c2afc8cb903083140cb64eef50a89936c56bcc081551068ca8
@@ -1890,7 +1890,7 @@ index 0000000..2254bf1
 +assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
 +assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
 +assets/liveness/models/face_recognition_sface_2021dec_int8.onnx 2b0e941e6f16cc048c20aee0c8e31f569118f65d702914540f7bfdc14048d78a
-+src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java 14288f1a84f6cc94f4bf3d4269083c5a9ada04d7b61b6bdf5796a8b52d40a771
++src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java eacb9253371dc9540e9fa846b081feb7c0b8104c6fb681fac772c5cef13cd27a
 diff --git a/android/liveness/src/main/AndroidManifest.xml b/android/liveness/src/main/AndroidManifest.xml
 new file mode 100644
 index 0000000..b1e4144
@@ -3485,10 +3485,10 @@ index 0000000..085dbae
 +}
 diff --git a/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
 new file mode 100644
-index 0000000..932f9ac
+index 0000000..8371fec
 --- /dev/null
 +++ b/android/liveness/src/main/java/io/mosip/registration/liveness/android/LivenessServiceHolder.java
-@@ -0,0 +1,746 @@
+@@ -0,0 +1,753 @@
 +package io.mosip.registration.liveness.android;
 +
 +import android.content.Context;
@@ -3740,7 +3740,14 @@ index 0000000..932f9ac
 +        audit.record(AuditSink.Event.MODEL_INTEGRITY_FAILED, null, null, d);
 +    }
 +
++    /**
++     * The real engine, or the fake one, which passes gates with no camera: debug and profile builds only
++     * ({@code diagnostics}). A release build refuses it here as well as in Dart, so the session start fails.
++     */
 +    public LivenessService service(boolean useFake) {
++        if (useFake && !diagnostics) {
++            throw new IllegalStateException("the fake engine is for debug and profile builds only");
++        }
 +        return useFake ? fake : real;
 +    }
 +
@@ -6646,10 +6653,10 @@ index 0000000..b55f54d
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
 new file mode 100644
-index 0000000..f8425e6
+index 0000000..203ece4
 --- /dev/null
 +++ b/android/liveness/src/test/java/io/mosip/registration/liveness/android/LivenessServiceHolderTest.java
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,290 @@
 +package io.mosip.registration.liveness.android;
 +
 +import static org.junit.Assert.assertEquals;
@@ -6923,6 +6930,21 @@ index 0000000..f8425e6
 +        assertEquals("NOT_BOUND_NO_TEMPLATE", fresh.verifyIdentity("s4", "sup1", "supervisor_approval", 1).outcome);
 +        verify(auditManager, timeout(2000)).audit(eq(AuditEvent.LIVENESS_IDENTITY_BINDING),
 +                eq(Components.REG_PACKET_LIST), contains("gate=supervisor_approval;attempt=1;userId=sup1;templates=0"));
++    }
++
++    @Test
++    public void onlyADiagnosticsBuildHandsOutTheFakeEngine() {
++        // A release build: asking for the fake engine (it passes gates with no camera) fails, so the session start does.
++        try {
++            holder.service(true);
++            fail("a release build handed out the fake engine");
++        } catch (IllegalStateException expected) {
++            assertTrue(expected.getMessage().contains("debug and profile builds"));
++        }
++        assertTrue(holder.service(false) == holder.service(false));
++
++        LivenessServiceHolder debug = new LivenessServiceHolder(context, globalParams, auditManager, true);
++        assertTrue("debug and profile builds keep it", debug.service(true) != debug.service(false));
 +    }
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/android/MatcherBenchmarkTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/android/MatcherBenchmarkTest.java
@@ -7568,16 +7590,19 @@ index 0000000..e6ac1a4
 +}
 diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceRotationTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceRotationTest.java
 new file mode 100644
-index 0000000..3c62883
+index 0000000..ff62037
 --- /dev/null
 +++ b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceRotationTest.java
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,214 @@
 +package io.mosip.registration.liveness.device.android;
 +
 +import static org.junit.Assert.assertEquals;
 +import static org.junit.Assert.assertNotNull;
 +import static org.junit.Assert.assertTrue;
 +import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.times;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
 +import static org.robolectric.Shadows.shadowOf;
 +
 +import android.app.Activity;
@@ -7588,6 +7613,7 @@ index 0000000..3c62883
 +
 +import androidx.camera.core.CameraSelector;
 +import androidx.camera.core.Preview;
++import androidx.camera.lifecycle.ProcessCameraProvider;
 +import androidx.lifecycle.LifecycleOwner;
 +
 +import org.junit.Test;
@@ -7615,7 +7641,7 @@ index 0000000..3c62883
 +    public void bindUsesTheWindowsRotationNotTheDisplays() {
 +        // The window at 270, the display at 90: neither the display's rotation nor CameraX's unset default (0) passes.
 +        FakeRotation rotation = new FakeRotation(Surface.ROTATION_270, Surface.ROTATION_90);
-+        CameraXFrameSource.UseCases useCases = running(rotation, true).bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(running(rotation, true));
 +        assertEquals(Surface.ROTATION_270, useCases.analysis.getTargetRotation());
 +        assertNotNull(useCases.preview);
 +        assertEquals(Surface.ROTATION_270, useCases.preview.getTargetRotation());
@@ -7627,7 +7653,7 @@ index 0000000..3c62883
 +        // As on the phone: the display at 90 under another app's fixed-rotation transform, the app portrait.
 +        FakeRotation rotation = new FakeRotation(Surface.ROTATION_0, Surface.ROTATION_90);
 +        CameraXFrameSource source = running(rotation, true);
-+        CameraXFrameSource.UseCases useCases = source.bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(source);
 +
 +        // The transform ends: the display turns to 0, the window stays at 0.
 +        rotation.display = Surface.ROTATION_0;
@@ -7651,7 +7677,7 @@ index 0000000..3c62883
 +    @Test
 +    public void withoutAPreviewOnlyTheAnalysisFollows() {
 +        FakeRotation rotation = new FakeRotation(Surface.ROTATION_90, Surface.ROTATION_0);
-+        CameraXFrameSource.UseCases useCases = running(rotation, false).bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(running(rotation, false));
 +        assertEquals(null, useCases.preview);
 +        assertEquals(Surface.ROTATION_90, useCases.analysis.getTargetRotation());
 +        rotation.window = Surface.ROTATION_0;
@@ -7663,7 +7689,7 @@ index 0000000..3c62883
 +    public void stopUnregistersTheWatch() {
 +        FakeRotation rotation = new FakeRotation(Surface.ROTATION_0, Surface.ROTATION_90);
 +        CameraXFrameSource source = running(rotation, true);
-+        CameraXFrameSource.UseCases useCases = source.bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(source);
 +        source.stop();
 +        assertEquals(1, rotation.unwatched);
 +
@@ -7681,15 +7707,34 @@ index 0000000..3c62883
 +        FakeRotation rotation = new FakeRotation(Surface.ROTATION_0, Surface.ROTATION_90);
 +        CameraXFrameSource source = running(rotation, true);
 +        source.stop(); // on another thread, while the provider was still binding
-+        source.bindForTest();
++        ProcessCameraProvider provider = mock(ProcessCameraProvider.class);
++        source.bindUseCases(provider);
 +        assertEquals(0, rotation.watches);
++        // The bind's own clean-up: before binding, and again because stop() found nothing bound to release.
++        verify(provider, times(2)).unbindAll();
++    }
++
++    @Test
++    public void anActivitysWindowIsItsOwnDisplaysRotationNotTheDefaultDisplays() {
++        // F19 on the phone: under another app's fixed-rotation transform, the default display is at 90 while the
++        // Activity's own display (API 30+) reports its window at 0. The source must read the Activity's.
++        shadowOf(ShadowDisplay.getDefaultDisplay()).setRotation(Surface.ROTATION_90);
++        Display own = mock(Display.class);
++        when(own.getRotation()).thenReturn(Surface.ROTATION_0);
++        Activity activity = mock(Activity.class);
++        when(activity.getApplicationContext()).thenReturn(RuntimeEnvironment.getApplication());
++        when(activity.getDisplay()).thenReturn(own);
++
++        CameraXFrameSource.WindowRotation rotation = CameraXFrameSource.windowRotationOf(activity);
++        assertEquals("the window", Surface.ROTATION_0, rotation.window());
++        assertEquals("the physical display, for the log", Surface.ROTATION_90, rotation.display());
 +    }
 +
 +    @Test
 +    public void anActivitysWindowRotationAndItsDisplayListener() {
 +        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
 +        // Robolectric's Activity is not a UI context (getDisplay() throws), so this reads the WindowManager's display:
-+        // the fallback path. The phone reads Activity.getDisplay().
++        // the fallback path. The phone reads Activity.getDisplay(): see the test above.
 +        shadowOf(ShadowDisplay.getDefaultDisplay()).setRotation(Surface.ROTATION_90);
 +        CameraXFrameSource.WindowRotation rotation = CameraXFrameSource.windowRotationOf(activity);
 +        assertEquals(Surface.ROTATION_90, rotation.window());
@@ -7706,6 +7751,11 @@ index 0000000..3c62883
 +        ShadowDisplayManager.changeDisplay(Display.DEFAULT_DISPLAY, "+port");
 +        shadowOf(Looper.getMainLooper()).idle();
 +        assertEquals("nothing after the watch is stopped", before, changes[0]);
++    }
++
++    /** The source's real bind, with a provider that binds no camera: the use cases it built and bound. */
++    private static CameraXFrameSource.UseCases bind(CameraXFrameSource source) {
++        return source.bindUseCases(mock(ProcessCameraProvider.class));
 +    }
 +
 +    /** A source that is running, without a camera, with {@code rotation} and optionally a preview surface. */
@@ -55418,7 +55468,7 @@ index fc09a47..408904c 100644
 +  "liveness_model_confirm_rollback": "चेहरे की सजीवता जाँच के पिछले मॉडलों पर वापस जाएँ? नई सजीवता जाँचें इनका उपयोग करेंगी।"
  }
 diff --git a/assets/l10n/app_kn.arb b/assets/l10n/app_kn.arb
-index 29bc909..e03f682 100644
+index 29bc909..402fec7 100644
 --- a/assets/l10n/app_kn.arb
 +++ b/assets/l10n/app_kn.arb
 @@ -368,5 +368,67 @@
@@ -55473,7 +55523,7 @@ index 29bc909..e03f682 100644
 +  "liveness_button_cancel": "ರದ್ದುಮಾಡಿ",
 +  "liveness_button_close": "ಮುಚ್ಚಿ",
 +  "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ",
-+  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: no changes",
 +  "liveness_model_title": "ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳು",
 +  "liveness_model_current": "ಬಳಕೆಯಲ್ಲಿರುವ ಮಾದರಿಗಳು: {version}",
 +  "liveness_model_install": "ಮಾದರಿ ಬಂಡಲ್ ಅನ್ನು ಸ್ಥಾಪಿಸಿ",
@@ -56749,10 +56799,10 @@ index 0000000..0f9f317
 +}
 diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
 new file mode 100644
-index 0000000..876fa3a
+index 0000000..db95ef4
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_debug_page.dart
-@@ -0,0 +1,1105 @@
+@@ -0,0 +1,1125 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -56911,10 +56961,23 @@ index 0000000..876fa3a
 +  @override
 +  void initState() {
 +    super.initState();
++    _readRecordedOverrides();
 +    _subscription = _service.messages.listen(_onMessage);
 +    _refreshPolicy();
 +    _refreshDiagnostics();
 +    _refreshIdentityTemplate();
++  }
++
++  /// The controls start from the overrides this process has set, by this page before or by the demo page (the native
++  /// side keeps them while the process lives), not from the defaults: what they show is what runs.
++  void _readRecordedOverrides() {
++    final scenario = LivenessDevOverrides.valueOf(_fakeScenarioKey);
++    if (scenario != null && _fakeScenarios.contains(scenario)) _fakeScenario = scenario;
++    _forceChallenges = LivenessDevOverrides.valueOf(_passiveThresholdKey) == '0.9999';
++    _exposureAssist = LivenessDevOverrides.valueOf(_exposureAssistKey) != 'false';
++    if (LivenessDevOverrides.valueOf(_fakeTimeScaleKey) == '3') _fakeSpeed = '3';
++    final only = LivenessDevOverrides.valueOf(_challengeTypesKey);
++    if (only != null && _onlyChallenges.contains(only)) _onlyChallenge = only;
 +  }
 +
 +  Future<void> _refreshIdentityTemplate() async {
@@ -56976,8 +57039,15 @@ index 0000000..876fa3a
 +            ', threshold ${info.threshold.toStringAsFixed(2)}';
 +      } on PlatformException catch (e) {
 +        text = 'identity check failed: ${e.message}';
++      } catch (e) {
++        text = 'identity check failed: $e';
 +      } finally {
-+        await _api.setIdentityDiagnosticOverride(false);
++        try {
++          await _api.setIdentityDiagnosticOverride(false);
++        } catch (e) {
++          // The native side may still check every identity, the real sign-in's too, against the test face.
++          text = 'identity override not switched off ($e): restart the app before signing in';
++        }
 +      }
 +    }
 +    if (!mounted) return;
@@ -57860,10 +57930,10 @@ index 0000000..876fa3a
 +}
 diff --git a/lib/ui/liveness/liveness_demo_page.dart b/lib/ui/liveness/liveness_demo_page.dart
 new file mode 100644
-index 0000000..fd97054
+index 0000000..65402e2
 --- /dev/null
 +++ b/lib/ui/liveness/liveness_demo_page.dart
-@@ -0,0 +1,1149 @@
+@@ -0,0 +1,1239 @@
 +/*
 + * Copyright (c) Modular Open Source Identity Platform
 + * This source code is licensed under the MIT license found in the
@@ -57967,6 +58037,11 @@ index 0000000..fd97054
 +  _Run? _lastRun;
 +  GateResult? _lastResult;
 +  String _modelVersion = '';
++  // The models load in the background: while the version reads '', it is read again, for up to 30 s.
++  Timer? _modelPoll;
++  bool _modelsNotLoaded = false;
++  static const Duration _modelPollEvery = Duration(seconds: 2);
++  static const int _modelPolls = 15;
 +  String _camera = 'front';
 +  bool _forceActions = false;
 +  // The test face: when it was enrolled (milliseconds since the epoch), null when there is none.
@@ -57996,6 +58071,7 @@ index 0000000..fd97054
 +  @override
 +  void dispose() {
 +    _subscription?.cancel();
++    _modelPoll?.cancel();
 +    _scroll.dispose();
 +    super.dispose();
 +  }
@@ -58031,9 +58107,44 @@ index 0000000..fd97054
 +      _modelVersion = version;
 +      _camera = camera;
 +      _forceActions = LivenessDevOverrides.valueOf(_passiveThresholdKey) == _forcedThreshold;
++      if (enrolledAt != _identityEnrolledAt) {
++        // The test face changed elsewhere (Developer tools): a verdict or note about the old one no longer holds.
++        _identityNote = null;
++        _identityInfo = null;
++        _identityProblem = null;
++      }
 +      _identityEnrolledAt = enrolledAt;
++      _modelsNotLoaded = false;
 +    });
++    _watchModels();
 +    await _refreshMetrics();
++  }
++
++  /// The models load in the background, at start and again after an install or a rollback, and their version reads
++  /// '' until then. A bundle that fails verification never loads, and nothing else tells this page: the version is
++  /// read again every 2 s, and after 30 s the page says the models did not load.
++  void _watchModels() {
++    _modelPoll?.cancel();
++    _modelPoll = null;
++    if (_modelVersion.isNotEmpty) return;
++    var polls = 0;
++    _modelPoll = Timer.periodic(_modelPollEvery, (timer) async {
++      polls++;
++      final last = polls >= _modelPolls;
++      if (last) timer.cancel();
++      String version = '';
++      try {
++        version = await _service.modelVersion();
++      } on PlatformException catch (e) {
++        debugPrint('liveness demo: model version failed: ${e.message}');
++      }
++      if (!mounted || _modelPoll != timer) return;
++      if (version.isNotEmpty) timer.cancel();
++      setState(() {
++        _modelVersion = version;
++        _modelsNotLoaded = version.isEmpty && last;
++      });
++    });
 +  }
 +
 +  Future<void> _refreshMetrics() async {
@@ -58210,8 +58321,17 @@ index 0000000..fd97054
 +        info = await _service.verifyIdentity(gate.sessionId!, _identityTestUser, 'diagnostics', 1);
 +      } on PlatformException catch (e) {
 +        problem = 'Identity check failed: ${e.message}';
++      } catch (e) {
++        problem = 'Identity check failed: $e';
 +      } finally {
-+        await _api.setIdentityDiagnosticOverride(false);
++        try {
++          await _api.setIdentityDiagnosticOverride(false);
++        } catch (e) {
++          // The native side may still check every identity, the real sign-in's too, against the test face.
++          debugPrint('liveness demo: identity override off failed: $e');
++          info = null;
++          problem = 'The test face could not be switched off – restart the app before signing in';
++        }
 +      }
 +    }
 +    await _identityDone(info: info, problem: problem);
@@ -58410,7 +58530,11 @@ index 0000000..fd97054
 +                    Flexible(
 +                      child: Text(
 +                        // A version is shown only once its signed bundle has been verified and loaded.
-+                        _modelVersion.isEmpty ? 'Models loading…' : 'Models $_modelVersion · signed',
++                        _modelVersion.isNotEmpty
++                            ? 'Models $_modelVersion · signed'
++                            : _modelsNotLoaded
++                                ? 'Models not loaded'
++                                : 'Models loading…',
 +                        style: _t.chip,
 +                      ),
 +                    ),
@@ -58441,6 +58565,7 @@ index 0000000..fd97054
 +  Widget _runCard(_Run run) => _DemoCard(
 +        key: Key('demo.run.${run.workflow}'),
 +        onTap: _busy ? null : () => _runCheck(run),
++        button: true,
 +        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
 +        child: Row(
 +          children: [
@@ -58533,7 +58658,7 @@ index 0000000..fd97054
 +        );
 +      }
 +    }
-+    return _DemoCard(key: const Key('demo.result'), child: content);
++    return _DemoCard(key: const Key('demo.result'), liveRegion: true, child: content);
 +  }
 +
 +  Widget _settings(BuildContext context) {
@@ -58698,17 +58823,22 @@ index 0000000..fd97054
 +    }
 +    return KeyedSubtree(
 +      key: _verdictKey,
-+      child: Container(
-+        key: const Key('demo.identity.verdict'),
-+        padding: const EdgeInsets.all(16),
-+        decoration: BoxDecoration(color: tone.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
-+        child: _ResultRow(
-+          sentenceKey: const Key('demo.identity.verdict.sentence'),
-+          icon: icon,
-+          tone: tone,
-+          sentence: sentence,
-+          message: message,
-+          detail: detail,
++      // TalkBack reads the verdict when the face check closes.
++      child: Semantics(
++        container: true,
++        liveRegion: true,
++        child: Container(
++          key: const Key('demo.identity.verdict'),
++          padding: const EdgeInsets.all(16),
++          decoration: BoxDecoration(color: tone.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
++          child: _ResultRow(
++            sentenceKey: const Key('demo.identity.verdict.sentence'),
++            icon: icon,
++            tone: tone,
++            sentence: sentence,
++            message: message,
++            detail: detail,
++          ),
 +        ),
 +      ),
 +    );
@@ -58744,8 +58874,14 @@ index 0000000..fd97054
 +                    children: [
 +                      Text('Models in use', style: _t.caption),
 +                      const SizedBox(height: 2),
-+                      Text(_modelVersion.isEmpty ? 'Loading…' : _modelVersion,
-+                          key: const Key('demo.modelVersion'), style: _t.cardTitle),
++                      Text(
++                          _modelVersion.isNotEmpty
++                              ? _modelVersion
++                              : _modelsNotLoaded
++                                  ? 'Not loaded'
++                                  : 'Loading…',
++                          key: const Key('demo.modelVersion'),
++                          style: _t.cardTitle),
 +                      const SizedBox(height: 2),
 +                      Text('Signed bundle, verified when loaded', style: _t.caption),
 +                    ],
@@ -58839,18 +58975,23 @@ index 0000000..fd97054
 +          children: [
 +            for (var i = 0; i < _scenarios.length; i++) ...[
 +              if (i > 0) const Divider(height: 1, indent: 56, endIndent: 16),
-+              InkWell(
-+                key: Key('demo.fake.${_scenarios[i][0]}'),
-+                onTap: _busy ? null : () => _runSimulated(_scenarios[i][0]),
-+                child: Padding(
-+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-+                  child: Row(
-+                    children: [
-+                      const Icon(Icons.play_circle_outline, color: LivenessStyle.primary),
-+                      const SizedBox(width: 16),
-+                      Expanded(child: Text(_scenarios[i][1], style: _t.body)),
-+                      const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
-+                    ],
++              Semantics(
++                container: true,
++                button: true,
++                enabled: !_busy,
++                child: InkWell(
++                  key: Key('demo.fake.${_scenarios[i][0]}'),
++                  onTap: _busy ? null : () => _runSimulated(_scenarios[i][0]),
++                  child: Padding(
++                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
++                    child: Row(
++                      children: [
++                        const Icon(Icons.play_circle_outline, color: LivenessStyle.primary),
++                        const SizedBox(width: 16),
++                        Expanded(child: Text(_scenarios[i][1], style: _t.body)),
++                        const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
++                      ],
++                    ),
 +                  ),
 +                ),
 +              ),
@@ -58862,6 +59003,7 @@ index 0000000..fd97054
 +  Widget _developerToolsCard() => _DemoCard(
 +        key: const Key('demo.developerTools'),
 +        onTap: _busy ? null : _openDeveloperTools,
++        button: true,
 +        child: Row(
 +          children: [
 +            const _IconBadge(Icons.build_outlined, tone: LivenessStyle.neutral),
@@ -58931,16 +59073,26 @@ index 0000000..fd97054
 +
 +/// A white card with a soft shadow and no outline; tappable when [onTap] is set.
 +class _DemoCard extends StatelessWidget {
-+  const _DemoCard({super.key, required this.child, this.onTap, this.padding = const EdgeInsets.all(16)});
++  const _DemoCard(
++      {super.key,
++      required this.child,
++      this.onTap,
++      this.button = false,
++      this.liveRegion = false,
++      this.padding = const EdgeInsets.all(16)});
 +
 +  final Widget child;
 +  final VoidCallback? onTap;
++  // A control: TalkBack hears a button, disabled while onTap is null (another check runs).
++  final bool button;
++  // TalkBack reads its new content when it changes.
++  final bool liveRegion;
 +  final EdgeInsetsGeometry padding;
 +
 +  @override
 +  Widget build(BuildContext context) {
 +    final radius = BorderRadius.circular(16);
-+    return DecoratedBox(
++    final card = DecoratedBox(
 +      decoration: BoxDecoration(color: Colors.white, borderRadius: radius, boxShadow: _Demo.shadow),
 +      child: Material(
 +        type: MaterialType.transparency,
@@ -58950,6 +59102,14 @@ index 0000000..fd97054
 +          child: Padding(padding: padding, child: child),
 +        ),
 +      ),
++    );
++    if (!button && !liveRegion) return card;
++    return Semantics(
++      container: true,
++      button: button ? true : null,
++      enabled: button ? onTap != null : null,
++      liveRegion: liveRegion ? true : null,
++      child: card,
 +    );
 +  }
 +}
@@ -62149,10 +62309,10 @@ index 0000000..a9d47bd
 +}
 diff --git a/test/liveness/liveness_demo_page_test.dart b/test/liveness/liveness_demo_page_test.dart
 new file mode 100644
-index 0000000..0e79d43
+index 0000000..6735571
 --- /dev/null
 +++ b/test/liveness/liveness_demo_page_test.dart
-@@ -0,0 +1,546 @@
+@@ -0,0 +1,711 @@
 +import 'dart:math' as math;
 +
 +import 'package:flutter/material.dart';
@@ -62209,8 +62369,14 @@ index 0000000..0e79d43
 +    return had;
 +  }
 +
++  // Thrown when the identity override is switched off (a channel failure).
++  Object? throwOnOverrideOff;
++
 +  @override
-+  Future<void> setIdentityDiagnosticOverride(bool on) async => calls.add('identityOverride $on');
++  Future<void> setIdentityDiagnosticOverride(bool on) async {
++    calls.add('identityOverride $on');
++    if (!on && throwOnOverrideOff != null) throw throwOnOverrideOff!;
++  }
 +
 +  @override
 +  Future<void> setModelBundleDiagnosticOverride(bool on) async => calls.add('modelOverride $on');
@@ -62654,6 +62820,165 @@ index 0000000..0e79d43
 +    expect(await tile('sessions'), '0');
 +    expect(await tile('avgProcessingMs'), '–', reason: 'no data, not a made-up number');
 +    expect(await tile('failureRate'), '–', reason: 'a field the metrics do not have');
++  });
++
++  testWidgets('a failed identity call or override switch-off still ends the check, and says so', (tester) async {
++    api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++    // Not a PlatformException: a reply that fails to decode, for example.
++    service.throwOnIdentity = StateError('bad reply');
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(api.calls, containsAllInOrder(['identityOverride true', 'identityOverride false']));
++    expect(verdict(tester), startsWith('Identity check failed'));
++    expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.enroll'))).onPressed, isNotNull);
++
++    // The override stays on in the native side when switching it off fails: the page says to restart the app.
++    service.throwOnIdentity = null;
++    api.throwOnOverrideOff = PlatformException(code: 'error', message: 'channel closed');
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(verdict(tester), contains('restart the app'));
++    expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.enroll'))).onPressed, isNotNull);
++  });
++
++  testWidgets('models that load late show their version; models that never load say so after 30 s', (tester) async {
++    final messenger = tester.binding.defaultBinaryMessenger;
++    messenger.setMockMethodCallHandler(
++        const MethodChannel('io.mosip.registration_client/liveness/events'), (_) async => null);
++    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (call) async => call.method == 'create' ? 0 : null);
++    addTearDown(() {
++      messenger.setMockMethodCallHandler(const MethodChannel('io.mosip.registration_client/liveness/events'), null);
++      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
++    });
++    // The models load in the background: their version reads '' until then, and stays '' when they fail to load.
++    service.version = '';
++    await pumpDemo(tester);
++    expect(find.text('Models loading…'), findsOneWidget);
++    service.version = 'pad-2026.10.5';
++    await tester.pump(const Duration(seconds: 2));
++    await tester.pump();
++    expect(find.text('Models pad-2026.10.5 · signed'), findsOneWidget);
++
++    // A bundle that fails verification: the preload fails, and nothing else would ever tell the page.
++    service.version = '';
++    listPosition(tester).jumpTo(0);
++    await tapKey(tester, 'demo.developerTools');
++    expect(find.byType(LivenessDebugPage), findsOneWidget);
++    Navigator.of(tester.element(find.byType(LivenessDebugPage))).pop();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    listPosition(tester).jumpTo(0);
++    await tester.pump();
++    expect(find.text('Models loading…'), findsOneWidget);
++    await tester.pump(const Duration(seconds: 20));
++    expect(find.text('Models loading…'), findsOneWidget);
++    await tester.pump(const Duration(seconds: 11));
++    await tester.pump();
++    expect(find.text('Models not loaded'), findsOneWidget);
++  });
++
++  testWidgets('the tappable cards and rows are buttons with an enabled state; the verdict and result are live regions',
++      (tester) async {
++    final semantics = tester.ensureSemantics();
++    await pumpDemo(tester);
++    for (final key in const ['demo.run.RESIDENT', 'demo.fake.PAD_ATTACK', 'demo.developerTools']) {
++      await reveal(tester, find.byKey(Key(key)));
++      expect(tester.getSemantics(find.byKey(Key(key))),
++          containsSemantics(isButton: true, hasEnabledState: true, isEnabled: true, hasTapAction: true),
++          reason: key);
++    }
++    // TalkBack is told the verdict when the face check closes, and the result of each run.
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(tester.getSemantics(find.byKey(const Key('demo.identity.verdict'))), containsSemantics(isLiveRegion: true));
++    await tapKey(tester, 'demo.run.RESIDENT');
++    await passSession(tester);
++    await reveal(tester, find.byKey(const Key('demo.result')));
++    expect(tester.getSemantics(find.byKey(const Key('demo.result'))), containsSemantics(isLiveRegion: true));
++    semantics.dispose();
++  });
++
++  testWidgets('Developer tools shows the overrides the demo set: what it shows is what runs', (tester) async {
++    final messenger = tester.binding.defaultBinaryMessenger;
++    messenger.setMockMethodCallHandler(
++        const MethodChannel('io.mosip.registration_client/liveness/events'), (_) async => null);
++    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (call) async => call.method == 'create' ? 0 : null);
++    addTearDown(() {
++      messenger.setMockMethodCallHandler(const MethodChannel('io.mosip.registration_client/liveness/events'), null);
++      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
++    });
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.fake.ENGINE_ERROR');
++    Navigator.of(tester.element(find.byType(LivenessPage))).pop();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    await tapKey(tester, 'demo.forceActions');
++
++    await tapKey(tester, 'demo.developerTools');
++    expect(find.byType(LivenessDebugPage), findsOneWidget);
++    expect(
++        tester
++            .widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Force challenges (passiveThreshold 0.9999)',
++                skipOffstage: false))
++            .value,
++        isTrue);
++    // The fake engine runs the scenario the demo left set: the scenario list must show it, not its default.
++    tester.widget<DropdownButton<bool>>(find.byType(DropdownButton<bool>, skipOffstage: false)).onChanged!(true);
++    await tester.pump();
++    final scenario = tester.widget<DropdownButton<String>>(find.byWidgetPredicate(
++        (w) => w is DropdownButton<String> && (w.items ?? const []).any((i) => i.value == 'ENGINE_ERROR'),
++        skipOffstage: false));
++    expect(scenario.value, 'ENGINE_ERROR');
++  });
++
++  testWidgets('a test-face change made on Developer tools clears the verdict and the note', (tester) async {
++    final messenger = tester.binding.defaultBinaryMessenger;
++    messenger.setMockMethodCallHandler(
++        const MethodChannel('io.mosip.registration_client/liveness/events'), (_) async => null);
++    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (call) async => call.method == 'create' ? 0 : null);
++    addTearDown(() {
++      messenger.setMockMethodCallHandler(const MethodChannel('io.mosip.registration_client/liveness/events'), null);
++      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
++    });
++    api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++    service.identityResults = [
++      IdentityCheckInfo(outcome: 'MATCH', accepted: true, retryable: false, similarity: 0.82, threshold: 0.40),
++    ];
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(verdict(tester), 'Same person');
++
++    Future<void> developerTools(void Function() change) async {
++      await tapKey(tester, 'demo.developerTools');
++      expect(find.byType(LivenessDebugPage), findsOneWidget);
++      change();
++      Navigator.of(tester.element(find.byType(LivenessDebugPage))).pop();
++      await tester.pump();
++      await tester.pump(const Duration(milliseconds: 400));
++    }
++
++    // The test face is deleted there: the verdict was against it.
++    await developerTools(() => api.templateTime = null);
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(enrolled(tester), 'No test face enrolled');
++    expect(verdict(tester), 'No identity check yet');
++
++    // An enrolment here, then another face enrolled there: the "Enrolled" note no longer holds either.
++    await tapKey(tester, 'demo.identity.enroll');
++    await passSession(tester);
++    expect(find.byKey(const Key('demo.identity.note')), findsOneWidget);
++    await developerTools(() => api.templateTime = DateTime(2025, 10, 28, 7, 30).millisecondsSinceEpoch);
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(find.byKey(const Key('demo.identity.note')), findsNothing);
++    expect(verdict(tester), 'No identity check yet');
++
++    // Coming back with nothing changed keeps a verdict.
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    await developerTools(() {});
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(verdict(tester), 'Same person');
 +  });
 +
 +  testWidgets('Developer tools opens the debug page', (tester) async {
@@ -63871,7 +64196,7 @@ index 0000000..62dcff9
 +    );
 diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
 new file mode 100644
-index 0000000..0e90bb6
+index 0000000..449871b
 --- /dev/null
 +++ b/test/liveness/model_bundle_test.dart
 @@ -0,0 +1,187 @@
@@ -64040,13 +64365,13 @@ index 0000000..0e90bb6
 +    final keys = en.keys.where((k) => k.startsWith('liveness_model_')).toList();
 +    expect(keys, hasLength(15));
 +    final placeholder = RegExp(r'\{(\w+)\}');
-+    // The native-speaker review (2026-10-28): Tamil had no changes; Arabic, French, Hindi and Kannada were
-+    // corrected.
++    // The native-speaker review of the model texts (2026-10-28): Arabic, French and Hindi were corrected; Kannada
++    // (its suggestions there were not adopted) and Tamil had no changes.
 +    const review = {
 +      'ar': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +      'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
 +      'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
-+      'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++      'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
 +      'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
 +    };
 +    for (final lang in ['ar', 'fr', 'hi', 'kn', 'ta']) {

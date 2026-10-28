@@ -1,7 +1,7 @@
 From 3fdb2c377fc380588abfcbd53fc491c0b05f5c77 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Sat, 24 Oct 2026 20:54:38 +0530
-Subject: [PATCH 19/61] Sync CameraXFrameSource exposure assist (F8)
+Subject: [PATCH 19/65] Sync CameraXFrameSource exposure assist (F8)
 
 CameraXFrameSource from Mosip26 1ec4f49 (Part 1: exposure assist for dim
 faces). The engine jars and the model bundle are unchanged (same SHA-256
