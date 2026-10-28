@@ -407,6 +407,7 @@ final class SessionDemo {
         final WebcamFrameSource source = new WebcamFrameSource(camera, 640, 480, 15);
         // Cases z and zf: the face-size readout while the screen is positioned (stopped when the run starts).
         final DatasetSession.Readout readout = new DatasetSession.Readout(w);
+        readout.target = DatasetSession.sizeTarget(SECOND_SCREEN_REALSIZE); // 20-35%, as the prompt says
         final AtomicReference<Boolean> sizing = new AtomicReference<Boolean>(false);
         // During a z/zf run: the session's own analysis gives the face-size label (no second analyzer).
         final AtomicReference<RecordingFactory> runSizing = new AtomicReference<RecordingFactory>();
@@ -416,7 +417,8 @@ final class SessionDemo {
                 if (on) readout.latest.set(f);
                 RecordingFactory run = runSizing.get();
                 DemoWindow.Overlay o = on ? readout.overlay()
-                        : run != null ? DatasetSession.Readout.sizeOverlay(run.lastBox, run.lastArea, run.lastWidth, w.isMirrored())
+                        : run != null ? DatasetSession.Readout.sizeOverlay(run.lastBox, run.lastArea, run.lastWidth,
+                                w.isMirrored(), readout.target)
                         : null;
                 w.video(DemoWindow.image(f), o);
             }

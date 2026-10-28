@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Guided PAD dataset session (development only, WITH the subject's consent; {@code docs/part2-dataset-protocol.md}):
@@ -162,6 +164,22 @@ final class DatasetSession {
         p.add(new Step(label, 1, condition, prompt, group, "streams/<subject>/" + condition, seconds, 10, "jpg"));
     }
 
+    private static final Pattern SIZE_RANGE = Pattern.compile("face size (?:reads )?(\\d+)-(\\d+)%");
+    private static final Pattern SIZE_MIN = Pattern.compile("face size (\\d+)% or more");
+
+    /**
+     * The face-size target a step's prompt states, as {min, max} shares of the picture: "face size 20-35%" or "reads
+     * 25-40%" gives that range, "face size 20% or more" {0.20, 1}; null when the prompt states none. The overlay
+     * judges the live size against it, so the prompt and the colour cannot disagree.
+     */
+    static float[] sizeTarget(String prompt) {
+        Matcher m = SIZE_RANGE.matcher(prompt);
+        if (m.find()) return new float[] {Integer.parseInt(m.group(1)) / 100f, Integer.parseInt(m.group(2)) / 100f};
+        m = SIZE_MIN.matcher(prompt);
+        if (m.find()) return new float[] {Integer.parseInt(m.group(1)) / 100f, 1f};
+        return null;
+    }
+
     private static void add(List<Step> p, String label, int firstTake, int n, String condition, String prompt) {
         for (int i = 0; i < n; i++) p.add(new Step(label, firstTake + i, condition, prompt));
     }
@@ -240,6 +258,7 @@ final class DatasetSession {
                 continue;
             }
             key.set(null);
+            readout.target = sizeTarget(s.prompt);
             w.message("NEXT " + i + "/" + steps.size() + ": " + s.prompt, new Color(200, 100, 0));
             readout.header = (s.group == null ? s.label + " take " + s.take + " (" + s.condition + ")"
                     : s.group + ": " + s.condition) + "\n\n" + wrap(s.prompt) + "\n\nSPACE = start (3 s countdown, then " + s.seconds
@@ -288,6 +307,8 @@ final class DatasetSession {
     static final class Readout {
         final AtomicReference<Frame> latest = new AtomicReference<Frame>();
         volatile String header = "";
+        /** The current step's face-size target ({@link #sizeTarget}); null: none, no colour judgement. */
+        volatile float[] target;
         private final DemoWindow w;
         private volatile float[] box;
         // The last face's share of the picture (-1: not exactly one face) and the frame width, for the overlay.
@@ -343,7 +364,7 @@ final class DatasetSession {
 
         /** The last face box and the face size in large type, drawn on the video. */
         DemoWindow.Overlay overlay() {
-            return sizeOverlay(box, area, frameWidth, w.isMirrored());
+            return sizeOverlay(box, area, frameWidth, w.isMirrored(), target);
         }
 
         /** The face's share of the picture, or -1 when there is not exactly one face. */
@@ -353,12 +374,13 @@ final class DatasetSession {
         }
 
         /**
-         * The face box plus "face size N%" at the video's top-left, readable from a distance: green inside the 20-35%
-         * target of the screen-replay takes, orange outside. Drawn in image coordinates; the label is flipped back
-         * when the preview is mirrored, so it reads normally.
+         * The face box plus "face size N%" at the video's top-left, readable from a distance: green inside the step's
+         * target ({@link #sizeTarget}: the F5 retake's 20-35%, close_whole's 25-40%, the fill takes' 20% or more),
+         * orange outside, white when the step has none. Drawn in image coordinates; the label is flipped back when
+         * the preview is mirrored, so it reads normally.
          */
         static DemoWindow.Overlay sizeOverlay(final float[] b, final float area, final int imageWidth,
-                                              final boolean mirrored) {
+                                              final boolean mirrored, final float[] target) {
             return new DemoWindow.Overlay() {
                 @Override public void paint(Graphics2D g) {
                     if (b != null) {
@@ -367,7 +389,8 @@ final class DatasetSession {
                         g.drawRect(Math.round(b[0]), Math.round(b[1]), Math.round(b[2]), Math.round(b[3]));
                     }
                     String label = area < 0 ? "no single face" : String.format(Locale.ROOT, "face size %.0f%%", 100 * area);
-                    boolean onTarget = area >= 0.20f && area <= 0.35f;
+                    Color tone = target == null ? Color.WHITE
+                            : area >= target[0] && area <= target[1] ? new Color(80, 220, 80) : new Color(255, 160, 0);
                     Graphics2D t = (Graphics2D) g.create();
                     t.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 34));
                     int tw = t.getFontMetrics().stringWidth(label), th = t.getFontMetrics().getHeight();
@@ -379,7 +402,7 @@ final class DatasetSession {
                     }
                     t.setColor(new Color(0, 0, 0, 170));
                     t.fillRoundRect(0, 0, tw + 20, th + 10, 12, 12);
-                    t.setColor(onTarget ? new Color(80, 220, 80) : new Color(255, 160, 0));
+                    t.setColor(tone);
                     t.drawString(label, 10, th - 2);
                     t.dispose();
                 }
