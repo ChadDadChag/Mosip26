@@ -8,6 +8,7 @@ import io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.Toolkit;
 import java.io.File;
@@ -289,6 +290,9 @@ final class DatasetSession {
         volatile String header = "";
         private final DemoWindow w;
         private volatile float[] box;
+        // The last face's share of the picture (-1: not exactly one face) and the frame width, for the overlay.
+        private volatile float area = -1f;
+        private volatile int frameWidth = 640;
         private volatile boolean running;
         private Thread worker;
 
@@ -324,26 +328,60 @@ final class DatasetSession {
             running = false;
             if (worker != null) worker.join(2000);
             box = null;
+            area = -1f;
         }
 
         private String describe(FrameAnalysis a, Frame f) {
             box = a.faceBox;
+            frameWidth = f.width();
+            area = areaOf(a, f.width(), f.height());
             if (a.faceCount == 0) return "no face";
             if (a.faceCount > 1) return a.faceCount + " faces";
-            float area = a.faceBox[2] * a.faceBox[3] / ((float) f.width() * f.height());
             return String.format(Locale.ROOT, "face size %.0f%% of the picture%nwhole face visible: %s",
                     100 * area, a.qualityIssues.contains(QualityIssue.FACE_CUT_OFF) ? "NO (cut off)" : "yes");
         }
 
-        /** The last face box, drawn in image coordinates (so it follows the mirrored preview). */
+        /** The last face box and the face size in large type, drawn on the video. */
         DemoWindow.Overlay overlay() {
-            final float[] b = box;
-            if (b == null) return null;
+            return sizeOverlay(box, area, frameWidth, w.isMirrored());
+        }
+
+        /** The face's share of the picture, or -1 when there is not exactly one face. */
+        static float areaOf(FrameAnalysis a, int width, int height) {
+            if (a.faceCount != 1 || a.faceBox == null) return -1f;
+            return a.faceBox[2] * a.faceBox[3] / ((float) width * height);
+        }
+
+        /**
+         * The face box plus "face size N%" at the video's top-left, readable from a distance: green inside the 20-35%
+         * target of the screen-replay takes, orange outside. Drawn in image coordinates; the label is flipped back
+         * when the preview is mirrored, so it reads normally.
+         */
+        static DemoWindow.Overlay sizeOverlay(final float[] b, final float area, final int imageWidth,
+                                              final boolean mirrored) {
             return new DemoWindow.Overlay() {
                 @Override public void paint(Graphics2D g) {
-                    g.setStroke(new BasicStroke(2f));
-                    g.setColor(Color.CYAN);
-                    g.drawRect(Math.round(b[0]), Math.round(b[1]), Math.round(b[2]), Math.round(b[3]));
+                    if (b != null) {
+                        g.setStroke(new BasicStroke(2f));
+                        g.setColor(Color.CYAN);
+                        g.drawRect(Math.round(b[0]), Math.round(b[1]), Math.round(b[2]), Math.round(b[3]));
+                    }
+                    String label = area < 0 ? "no single face" : String.format(Locale.ROOT, "face size %.0f%%", 100 * area);
+                    boolean onTarget = area >= 0.20f && area <= 0.35f;
+                    Graphics2D t = (Graphics2D) g.create();
+                    t.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 34));
+                    int tw = t.getFontMetrics().stringWidth(label), th = t.getFontMetrics().getHeight();
+                    if (mirrored) {
+                        t.translate(imageWidth - 10, 10);
+                        t.scale(-1, 1);
+                    } else {
+                        t.translate(10, 10);
+                    }
+                    t.setColor(new Color(0, 0, 0, 170));
+                    t.fillRoundRect(0, 0, tw + 20, th + 10, 12, 12);
+                    t.setColor(onTarget ? new Color(80, 220, 80) : new Color(255, 160, 0));
+                    t.drawString(label, 10, th - 2);
+                    t.dispose();
                 }
             };
         }

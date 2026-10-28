@@ -4,8 +4,10 @@ import io.mosip.registration.liveness.analyzer.OnnxFaceAnalyzerFactory;
 import io.mosip.registration.liveness.analyzer.integrity.ClasspathBundleSource;
 import io.mosip.registration.liveness.api.ChallengeType;
 import io.mosip.registration.liveness.api.ConfigProvider;
+import io.mosip.registration.liveness.api.ErrorCode;
 import io.mosip.registration.liveness.api.FaceAnalyzer;
 import io.mosip.registration.liveness.api.Frame;
+import io.mosip.registration.liveness.api.FrameSource;
 import io.mosip.registration.liveness.api.FrameAnalysis;
 import io.mosip.registration.liveness.api.FrameAnalysis.QualityIssue;
 import io.mosip.registration.liveness.api.LivenessEngineException;
@@ -267,6 +269,10 @@ final class SessionDemo {
         private final FaceAnalyzerFactory delegate;
         final List<Sample> samples = Collections.synchronizedList(new ArrayList<Sample>());
         volatile long t0;
+        // The newest analysed frame's face, for the face-size label during cases z and zf.
+        volatile float[] lastBox;
+        volatile float lastArea = -1f;
+        volatile int lastWidth = 640;
 
         RecordingFactory(FaceAnalyzerFactory delegate) {
             this.delegate = delegate;
@@ -279,6 +285,9 @@ final class SessionDemo {
                 @Override public FrameAnalysis analyze(Frame frame) throws LivenessEngineException {
                     FrameAnalysis r = a.analyze(frame);
                     samples.add(new Sample(System.currentTimeMillis() - t0, r));
+                    lastBox = r.faceBox;
+                    lastArea = DatasetSession.Readout.areaOf(r, frame.width(), frame.height());
+                    lastWidth = frame.width();
                     return r;
                 }
 
@@ -399,11 +408,17 @@ final class SessionDemo {
         // Cases z and zf: the face-size readout while the screen is positioned (stopped when the run starts).
         final DatasetSession.Readout readout = new DatasetSession.Readout(w);
         final AtomicReference<Boolean> sizing = new AtomicReference<Boolean>(false);
+        // During a z/zf run: the session's own analysis gives the face-size label (no second analyzer).
+        final AtomicReference<RecordingFactory> runSizing = new AtomicReference<RecordingFactory>();
         source.setPreviewListener(new WebcamFrameSource.PreviewListener() {
             @Override public void onPreview(Frame f) {
                 boolean on = sizing.get();
                 if (on) readout.latest.set(f);
-                w.video(DemoWindow.image(f), on ? readout.overlay() : null);
+                RecordingFactory run = runSizing.get();
+                DemoWindow.Overlay o = on ? readout.overlay()
+                        : run != null ? DatasetSession.Readout.sizeOverlay(run.lastBox, run.lastArea, run.lastWidth, w.isMirrored())
+                        : null;
+                w.video(DemoWindow.image(f), o);
             }
         });
         final AtomicReference<String> key = new AtomicReference<String>();
@@ -439,10 +454,18 @@ final class SessionDemo {
                             + (c.forceActive ? ", forced challenges" : "") + "\nface size target: 20-35%";
                     readout.start();
                     sizing.set(true);
+                    // The session starts the camera only after SPACE: run it now, for the readout's preview frames.
+                    source.start(new FrameSource.Listener() {
+                        @Override public void onFrame(Frame f) { }
+                        @Override public void onError(ErrorCode code, String detail, boolean recoverable) {
+                            if (!recoverable) w.info("camera error while positioning: " + code + " " + detail);
+                        }
+                    });
                 }
                 String k = LiveAnalyzerDemo.awaitKey(key, alive);
                 if (c.sizeReadout) {
                     sizing.set(false);
+                    source.stop(); // released before the session starts it again
                     readout.stop();
                 }
                 if (k == null) break;
@@ -462,6 +485,7 @@ final class SessionDemo {
                 RunLog r = new RunLog(w, autoRetry);
                 current.set(r);
                 rf.t0 = r.t0;
+                if (c.sizeReadout) runSizing.set(rf);
                 r.session = service.newSession(c.workflow);
                 r.session.start(source, r);
                 r.done.await(180, TimeUnit.SECONDS);
@@ -469,6 +493,7 @@ final class SessionDemo {
                     r.session.cancel();
                     r.done.await(5, TimeUnit.SECONDS);
                 }
+                runSizing.set(null);
                 String line = summary(c, n, r, rf);
                 System.out.println(line);
                 log.write(json(c, n, r, rf));

@@ -23,7 +23,9 @@ $classes = Join-Path $eval "target\classes"
 $cpFile = Join-Path $eval "target\classpath.txt"
 $pom = Join-Path $eval "pom.xml"
 if (-not (Test-Path $classes) -or -not (Test-Path $cpFile) -or (Get-Item $pom).LastWriteTime -gt (Get-Item $cpFile).LastWriteTime) {
-    & mvn -q -B -f (Join-Path $eval "pom.xml") compile dependency:build-classpath "-Dmdep.outputFile=$cpFile"
+    # -Dmaven.gitcommitid.skip: git-commit-id-plugin 3.0.1 cannot read a git worktree ("Could not get HEAD Ref"), and
+    # liveness-eval does not use git.properties.
+    & mvn -q -B -f (Join-Path $eval "pom.xml") compile dependency:build-classpath "-Dmdep.outputFile=$cpFile" "-Dmaven.gitcommitid.skip=true"
     if ($LASTEXITCODE -ne 0) { throw "liveness-eval build failed ($LASTEXITCODE)" }
 }
 $cp = $classes + ";" + (Get-Content -Raw $cpFile).Trim()

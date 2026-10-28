@@ -77,6 +77,10 @@ final class DemoWindow {
         video.mirror = mirror;
     }
 
+    boolean isMirrored() {
+        return video.mirror;
+    }
+
     void onClose(final Runnable r) {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override public void windowClosed(java.awt.event.WindowEvent e) {
