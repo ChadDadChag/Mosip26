@@ -1,8 +1,15 @@
 package io.mosip.registration.liveness.device.android;
 
+import android.app.Activity;
 import android.content.Context;
+import android.hardware.display.DisplayManager;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.util.Size;
+import android.view.Display;
+import android.view.Surface;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -64,7 +71,11 @@ import io.mosip.registration.liveness.api.FrameSource;
  *
  * <p><b>Orientation:</b> each frame is rotated by CameraX's
  * {@code getRotationDegrees()} so faces arrive upright, matching the Desktop sources.
- * Frames are not mirrored (the front-camera preview may be; the analysis frames are not).</p>
+ * Frames are not mirrored (the front-camera preview may be; the analysis frames are not).
+ * {@code getRotationDegrees()} is relative to the use cases' target rotation, which is set from the app window's
+ * rotation ({@link WindowRotation}; by default the lifecycle owner's window when it is an Activity) at bind time and
+ * again whenever a display changes. CameraX's own default is the physical display's rotation, which differs from the
+ * window's while another app holds a fixed-rotation transform: then every face arrived sideways (F19).</p>
  *
  * <p><b>Every-Nth-frame:</b> {@code frameStride} skips conversion of unselected frames;
  * {@link Frame#sequence()} stays the raw frame index, so skips show up as gaps,
@@ -110,7 +121,12 @@ public final class CameraXFrameSource implements FrameSource {
 
     private volatile Listener listener;
     private volatile ImageAnalysis imageAnalysis;
+    private volatile Preview boundPreview;
     private volatile Camera boundCamera;
+    // Where the use cases' target rotation comes from (F19); null: CameraX's default, the display's rotation.
+    private volatile WindowRotation windowRotation;
+    private final Object rotationLock = new Object();
+    private Runnable stopWatchingRotation; // guarded by rotationLock
     private volatile DeviceInfo deviceInfo;
     private volatile ProcessCameraProvider cameraProvider;
     private volatile boolean debugTiming;
@@ -121,6 +137,7 @@ public final class CameraXFrameSource implements FrameSource {
     // Analysis-thread only: the pacing state, plane copies reused across frames (the RGB output is not, see
     // onImageAvailable) and the debug timing window.
     private long lastDeliveredNs = NONE;
+    private int lastRotationDegrees = -1;
     private byte[] yBytes = new byte[0];
     private byte[] uBytes = new byte[0];
     private byte[] vBytes = new byte[0];
@@ -132,7 +149,8 @@ public final class CameraXFrameSource implements FrameSource {
 
     /**
      * @param context          application (not Activity) context, to avoid leaking an Activity
-     * @param lifecycleOwner   the Activity/Fragment CameraX binds the camera's lifecycle to
+     * @param lifecycleOwner   the Activity/Fragment CameraX binds the camera's lifecycle to; an Activity's window
+     *                         also gives the target rotation ({@link #setWindowRotation})
      * @param cameraSelector   e.g. {@link CameraSelector#DEFAULT_FRONT_CAMERA} for a face capture flow
      * @param targetResolution requested analysis resolution; CameraX may choose the closest supported one
      */
@@ -184,6 +202,7 @@ public final class CameraXFrameSource implements FrameSource {
         this.targetResolution = targetResolution;
         this.frameStride = frameStride;
         this.previewSurface = previewSurface;
+        this.windowRotation = lifecycleOwner instanceof Activity ? windowRotationOf((Activity) lifecycleOwner) : null;
         this.analysisExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "LIVENESS_CAMERAX_ANALYSIS_THREAD");
             t.setDaemon(true);
@@ -227,6 +246,37 @@ public final class CameraXFrameSource implements FrameSource {
         return lastCentreLuma;
     }
 
+    /**
+     * Where the use cases' target rotation comes from (set before {@link #start}); null leaves CameraX's default, the
+     * physical display's rotation. The constructor sets it from the lifecycle owner when that is an Activity.
+     */
+    public void setWindowRotation(@Nullable WindowRotation windowRotation) {
+        this.windowRotation = windowRotation;
+    }
+
+    /**
+     * Gives the bound use cases the window's current rotation, when it changed. A display change calls it; the
+     * Activity's {@code onConfigurationChanged} should too, as the window's new rotation may arrive after the display's
+     * change. Main thread.
+     */
+    public void refreshTargetRotation() {
+        WindowRotation rotation = windowRotation;
+        ImageAnalysis analysis = imageAnalysis;
+        if (rotation == null || analysis == null || !running.get()) {
+            return;
+        }
+        int window = rotation.window();
+        if (window == analysis.getTargetRotation()) {
+            return;
+        }
+        analysis.setTargetRotation(window);
+        Preview preview = boundPreview;
+        if (preview != null) {
+            preview.setTargetRotation(window);
+        }
+        Log.i(TAG, "target rotation " + degrees(window) + " (display " + degrees(rotation.display()) + "), changed");
+    }
+
     @Override
     public DeviceInfo info() {
         return deviceInfo;
@@ -265,30 +315,9 @@ public final class CameraXFrameSource implements FrameSource {
     }
 
     private void bindUseCases(ProcessCameraProvider provider) {
-        int aspectRatio = aspectRatioOf(targetResolution);
-        ImageAnalysis analysis = new ImageAnalysis.Builder()
-                .setResolutionSelector(new ResolutionSelector.Builder()
-                        .setAspectRatioStrategy(new AspectRatioStrategy(aspectRatio, AspectRatioStrategy.FALLBACK_RULE_AUTO))
-                        // Sizes are matched in the sensor's (landscape) orientation; frames are rotated upright later.
-                        .setResolutionStrategy(new ResolutionStrategy(landscape(targetResolution),
-                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
-                        .build())
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                .build();
-
-        analysis.setAnalyzer(analysisExecutor, this::onImageAvailable);
-
-        Preview preview = null;
-        if (previewSurface != null) {
-            // Same aspect ratio as the analysis, so the user sees what the engine analyses.
-            preview = new Preview.Builder()
-                    .setResolutionSelector(new ResolutionSelector.Builder()
-                            .setAspectRatioStrategy(new AspectRatioStrategy(aspectRatio, AspectRatioStrategy.FALLBACK_RULE_AUTO))
-                            .build())
-                    .build();
-            preview.setSurfaceProvider(previewSurface);
-        }
+        UseCases useCases = buildUseCases();
+        ImageAnalysis analysis = useCases.analysis;
+        Preview preview = useCases.preview;
 
         provider.unbindAll();
         Camera camera = preview == null
@@ -297,6 +326,7 @@ public final class CameraXFrameSource implements FrameSource {
 
         this.cameraProvider = provider;
         this.imageAnalysis = analysis;
+        this.boundPreview = preview;
         this.boundCamera = camera;
         this.deviceInfo = buildDeviceInfo(camera, cameraSelector, targetResolution);
 
@@ -308,10 +338,91 @@ public final class CameraXFrameSource implements FrameSource {
             provider.unbindAll();
             this.cameraProvider = null;
             this.imageAnalysis = null;
+            this.boundPreview = null;
             this.boundCamera = null;
             return;
         }
         exposure.attach(cameraXExposure(camera));
+        followRotation();
+    }
+
+    /** The use cases of one bind. */
+    static final class UseCases {
+        final ImageAnalysis analysis;
+        @Nullable final Preview preview;
+
+        UseCases(ImageAnalysis analysis, @Nullable Preview preview) {
+            this.analysis = analysis;
+            this.preview = preview;
+        }
+    }
+
+    /**
+     * The analysis and, with a preview surface, the preview, both at the window's rotation (F19: not CameraX's default,
+     * the physical display's). Package-private for the rotation test.
+     */
+    UseCases buildUseCases() {
+        int aspectRatio = aspectRatioOf(targetResolution);
+        ImageAnalysis.Builder analysisBuilder = new ImageAnalysis.Builder()
+                .setResolutionSelector(new ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(new AspectRatioStrategy(aspectRatio, AspectRatioStrategy.FALLBACK_RULE_AUTO))
+                        // Sizes are matched in the sensor's (landscape) orientation; frames are rotated upright later.
+                        .setResolutionStrategy(new ResolutionStrategy(landscape(targetResolution),
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                        .build())
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888);
+        // Same aspect ratio as the analysis, so the user sees what the engine analyses.
+        Preview.Builder previewBuilder = previewSurface == null ? null : new Preview.Builder()
+                .setResolutionSelector(new ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(new AspectRatioStrategy(aspectRatio, AspectRatioStrategy.FALLBACK_RULE_AUTO))
+                        .build());
+
+        WindowRotation rotation = windowRotation;
+        if (rotation != null) {
+            int window = rotation.window();
+            analysisBuilder.setTargetRotation(window);
+            if (previewBuilder != null) {
+                previewBuilder.setTargetRotation(window);
+            }
+            // A mismatch between the two shows here: the frames follow the first.
+            Log.i(TAG, "target rotation " + degrees(window) + " (display " + degrees(rotation.display()) + ")");
+        } else {
+            Log.i(TAG, "target rotation: CameraX default (no window known)");
+        }
+
+        ImageAnalysis analysis = analysisBuilder.build();
+        analysis.setAnalyzer(analysisExecutor, this::onImageAvailable);
+        Preview preview = null;
+        if (previewBuilder != null) {
+            preview = previewBuilder.build();
+            preview.setSurfaceProvider(previewSurface);
+        }
+        return new UseCases(analysis, preview);
+    }
+
+    /** Until {@link #stop()}: each display change re-applies the window's rotation. Main thread, after a bind. */
+    private void followRotation() {
+        WindowRotation rotation = windowRotation;
+        if (rotation == null) {
+            return;
+        }
+        synchronized (rotationLock) {
+            // stop() takes the lock after clearing running: either it sees this watch, or this sees it stopped.
+            if (!running.get() || stopWatchingRotation != null) {
+                return;
+            }
+            stopWatchingRotation = rotation.watch(this::refreshTargetRotation);
+        }
+    }
+
+    /** Test seam: what a bind does, without a camera: the use cases at the window's rotation, then following it. */
+    UseCases bindForTest() {
+        UseCases useCases = buildUseCases();
+        imageAnalysis = useCases.analysis;
+        boundPreview = useCases.preview;
+        followRotation();
+        return useCases;
     }
 
     private static ExposureAssist.Control cameraXExposure(final Camera camera) {
@@ -343,6 +454,12 @@ public final class CameraXFrameSource implements FrameSource {
         if (!running.compareAndSet(true, false)) {
             return;
         }
+        synchronized (rotationLock) {
+            if (stopWatchingRotation != null) {
+                stopWatchingRotation.run();
+                stopWatchingRotation = null;
+            }
+        }
         ImageAnalysis analysis = imageAnalysis;
         if (analysis != null) {
             analysis.clearAnalyzer();
@@ -362,6 +479,7 @@ public final class CameraXFrameSource implements FrameSource {
         }
         cameraProvider = null;
         imageAnalysis = null;
+        boundPreview = null;
         boundCamera = null;
         listener = null;
     }
@@ -387,6 +505,7 @@ public final class CameraXFrameSource implements FrameSource {
         try {
             if (frameIndex == 0) {
                 lastDeliveredNs = NONE; // a new start(): pace from its first frame
+                lastRotationDegrees = -1;
             }
             if (frameIndex % frameStride != 0) {
                 return; // skipped: no conversion cost
@@ -408,7 +527,9 @@ public final class CameraXFrameSource implements FrameSource {
                     yPlane.getRowStride(), yPlane.getPixelStride(), rotation);
             lastCentreLuma = luma;
             exposure.onLuma(luma, imageProxy.getImageInfo().getTimestamp());
-            if (frameIndex == 0) {
+            if (rotation != lastRotationDegrees) {
+                // The first frame, or a new target rotation during the session.
+                lastRotationDegrees = rotation;
                 observeResolution(width, height);
                 Log.i(TAG, "analysis " + imageProxy.getWidth() + "x" + imageProxy.getHeight()
                         + " rotation " + rotation + " -> frames " + width + "x" + height);
@@ -678,6 +799,89 @@ public final class CameraXFrameSource implements FrameSource {
                 Log.w(TAG, "could not set exposure compensation " + to + ": " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * The rotation of the window the user and the preview are in, which the use cases are bound with. It can differ from
+     * the physical display's: while another app holds a fixed-rotation transform, the display stayed at 90 while the app
+     * was portrait (F19). Rotations are {@link Surface#ROTATION_0} to {@link Surface#ROTATION_270}.
+     */
+    public interface WindowRotation {
+        /** The window's rotation. */
+        int window();
+
+        /** The physical display's rotation, CameraX's default: logged next to the window's, not used. */
+        int display();
+
+        /** Runs {@code onChange} on the main thread after each display change, until the returned Runnable is run. */
+        Runnable watch(Runnable onChange);
+    }
+
+    /**
+     * {@code activity}'s window: its own display's rotation (API 30+), which includes the fixed-rotation adjustments,
+     * else its WindowManager's; the display's from the DisplayManager; changes from a DisplayListener.
+     */
+    public static WindowRotation windowRotationOf(Activity activity) {
+        return new ActivityWindowRotation(activity);
+    }
+
+    private static final class ActivityWindowRotation implements WindowRotation {
+        private final Activity activity;
+        private final DisplayManager displays;
+
+        ActivityWindowRotation(Activity activity) {
+            this.activity = activity;
+            this.displays = (DisplayManager) activity.getApplicationContext().getSystemService(Context.DISPLAY_SERVICE);
+        }
+
+        @Override
+        public int window() {
+            Display display = null;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    display = activity.getDisplay();
+                } catch (UnsupportedOperationException e) {
+                    display = null; // not attached to a display yet
+                }
+            }
+            if (display == null) {
+                display = activity.getWindowManager().getDefaultDisplay();
+            }
+            return display.getRotation();
+        }
+
+        @Override
+        public int display() {
+            Display display = displays == null ? null : displays.getDisplay(Display.DEFAULT_DISPLAY);
+            return display == null ? window() : display.getRotation();
+        }
+
+        @Override
+        public Runnable watch(Runnable onChange) {
+            if (displays == null) {
+                return () -> { };
+            }
+            DisplayManager.DisplayListener listener = new DisplayManager.DisplayListener() {
+                @Override
+                public void onDisplayAdded(int displayId) {
+                }
+
+                @Override
+                public void onDisplayRemoved(int displayId) {
+                }
+
+                @Override
+                public void onDisplayChanged(int displayId) {
+                    onChange.run();
+                }
+            };
+            displays.registerDisplayListener(listener, new Handler(Looper.getMainLooper()));
+            return () -> displays.unregisterDisplayListener(listener);
+        }
+    }
+
+    private static int degrees(int surfaceRotation) {
+        return 90 * surfaceRotation;
     }
 
     private static byte clampByte(int value) {
