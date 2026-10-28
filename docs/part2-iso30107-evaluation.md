@@ -382,6 +382,13 @@ recording's; F9 renumbered them, see below):
 
 - Each copied `meta.json` has the new `take`, and keeps the original number (`sourceTake`) and the working copy
   (`sourceTree`, `Mosip26-f5`).
+- **Relabelled after the F9 run (2026-10-28, task 30).** Takes 9–12 were held at real-face size under the
+  `selfie_video` prompt, so their `meta.json` now says `video_realsize`. The recorded condition is kept as
+  `conditionAsRecorded`, with a one-line reason, and the four files were backed up first.
+  - Before, PadEvaluation's face-size table put them with the 40–60 cm takes 1–4.
+  - Re-run after the relabel: the `screen_replay_monitor` rows of that table split as recorded (takes 1–4: median
+    face size 3.4%; takes 9–16: 23.5%).
+  - Every species verdict, APCER and BPCER, and every number in this document, is unchanged.
 - Nothing was overwritten. Every frame (60 per take), the three session logs, and the two reports with their logs
   were copied unchanged and checked by SHA-256.
 - In the F9 run, `screen_replay_monitor` has 12 takes: 0/12 passive passes [≤ 22.1%], 5 challenges, 2 PAD rejects,
