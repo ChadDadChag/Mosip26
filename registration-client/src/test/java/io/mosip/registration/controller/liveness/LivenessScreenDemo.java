@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
 import javax.imageio.ImageIO;
 
@@ -44,7 +45,7 @@ import io.mosip.registration.liveness.desktop.DesktopAuditSink;
 import io.mosip.registration.liveness.desktop.DesktopLivenessConfig;
 import io.mosip.registration.liveness.desktop.IdentityBinding;
 import io.mosip.registration.liveness.device.mock.MockFrameSource;
-import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
+import io.mosip.registration.liveness.device.mock.WebcamGrabbers;
 import io.mosip.registration.liveness.device.util.PreviewFrameSource;
 import io.mosip.registration.liveness.fake.FakeLivenessService;
 import io.mosip.registration.liveness.fake.FakeScenario;
@@ -122,6 +123,18 @@ public final class LivenessScreenDemo {
 		});
 	}
 
+	/**
+	 * Ends the demo in an order that leaves nothing for a webcam shutdown hook (F13b; sarxos' hook hung the JVM after a
+	 * verify): the session, then the frame source (which releases the camera), then the window and JavaFX, then the
+	 * JVM through {@link WebcamGrabbers#exit}, whose watchdog halts it if a shutdown hook still hangs.
+	 */
+	static void shutdown(LivenessSession session, FrameSource source, Runnable closeWindow, IntConsumer exit,
+			IntConsumer halt) {
+		session.cancel();
+		WebcamGrabbers.exit(0, WebcamGrabbers.EXIT_GRACE_MS, Arrays.<AutoCloseable>asList(source::stop,
+				closeWindow::run), exit, halt);
+	}
+
 	/** The test template's file; refused outside an eval-data folder, so a face can never land in a tracked path. */
 	static File templateFile(String path) throws IOException {
 		File f = new File(path == null ? DEFAULT_TEMPLATE : path);
@@ -146,7 +159,7 @@ public final class LivenessScreenDemo {
 			service = DefaultLivenessService.builder().config(config).analyzerFactory(analyzers)
 					.auditSink((e, wf, id, d) -> System.out.println("AUDIT " + e + " " + d)).build();
 			device = live.startsWith("video:") ? MockFrameSource.ofVideoFile(Paths.get(live.substring(6)), 15.0, true)
-					: MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), 15.0);
+					: MockFrameSource.ofWebcam(WebcamGrabbers.create(), 15.0); // opencv unless -Dliveness.capture=sarxos
 		} else {
 			service = FakeLivenessService.builder(config)
 					.scenario(scenario == null ? FakeScenario.RANDOM : FakeScenario.valueOf(scenario.toUpperCase()))
@@ -174,12 +187,10 @@ public final class LivenessScreenDemo {
 		view.setOnRetry(session::retry);
 		view.setOnCancel(session::cancel);
 		view.setOnClose(stage::close);
-		stage.setOnHidden(e -> {
-			session.cancel();
+		stage.setOnHidden(e -> shutdown(session, source, () -> {
 			view.dispose();
 			Platform.exit();
-			System.exit(0);
-		});
+		}, System::exit, status -> Runtime.getRuntime().halt(status)));
 		stage.show();
 		final OnnxFaceAnalyzerFactory matchers = analyzers;
 		session.start(source, new LivenessListener() {

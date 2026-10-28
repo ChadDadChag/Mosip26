@@ -17,7 +17,7 @@ import io.mosip.registration.liveness.api.WorkflowType;
 import io.mosip.registration.liveness.core.DefaultLivenessService;
 import io.mosip.registration.liveness.core.session.FaceAnalyzerFactory;
 import io.mosip.registration.liveness.device.mock.MockFrameSource;
-import io.mosip.registration.liveness.device.mock.SarxosWebcamFrameGrabber;
+import io.mosip.registration.liveness.device.mock.WebcamGrabbers;
 import io.mosip.registration.liveness.device.util.PreviewFrameSource;
 
 import javax.swing.BorderFactory;
@@ -66,6 +66,9 @@ import java.util.concurrent.TimeUnit;
  * {@code --headless} (or a headless JVM) runs one session, pressing Retry automatically, prints events and audit
  * records to the console and exits with 0 if it PASSED, 1 if it FAILED, 2 if it was CANCELLED or timed out: handy
  * for scripted demos and CI.
+ *
+ * <p>The webcam is OpenCV's unless {@code -Dliveness.capture=sarxos} ({@link WebcamGrabbers}). On exit the camera is
+ * released first and a watchdog halts a JVM whose shutdown hooks hang (F13b).
  */
 public final class LivenessHarness {
 
@@ -99,7 +102,7 @@ public final class LivenessHarness {
         FrameSource device;
         switch (o.mode) {
             case "webcam":
-                device = MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), o.fps);
+                device = MockFrameSource.ofWebcam(WebcamGrabbers.create(), o.fps); // opencv unless -Dliveness.capture=sarxos
                 break;
             case "video":
                 device = MockFrameSource.ofVideoFile(Paths.get(o.path), o.fps, true);
@@ -113,7 +116,7 @@ public final class LivenessHarness {
         DefaultLivenessService service = service(model, analyzerFactory(o.analyzer), o.diagnostic,
                 o.headless || GraphicsEnvironment.isHeadless());
         if (o.headless || GraphicsEnvironment.isHeadless()) {
-            System.exit(runHeadless(service, source, model, o.workflow));
+            WebcamGrabbers.exit(runHeadless(service, source, model, o.workflow), source::stop);
         } else {
             runWindow(service, source, model, o.workflow);
         }
@@ -267,8 +270,7 @@ public final class LivenessHarness {
         });
         closed.await();
         if (current[0] != null) current[0].cancel();
-        source.stop();
-        System.exit(0);
+        WebcamGrabbers.exit(0, source::stop); // the camera first: nothing left for a webcam shutdown hook (F13b)
     }
 
     static BufferedImage toImage(Frame frame) {

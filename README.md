@@ -22,7 +22,7 @@ It is not part of Part 1 and is documented separately in its own delivery notes.
 | `Frame`: pixels, timestamp, format, device ID, sequence | `liveness-api/.../Frame.java` |
 | `FrameSource` common device abstraction | `liveness-api/.../FrameSource.java`, interface table in docs §2 |
 | SBI adapter: MJPEG `/stream`, decode, continuous or every Nth frame | `SbiStreamFrameSource`, `SbiStreamFrameSourceFactory` |
-| Mock L0/L1 device: webcam relay, recorded video, static images | `MockFrameSource` (+ `asCertificationLevel`), `SarxosWebcamFrameGrabber`, `MjpegRecorder` |
+| Mock L0/L1 device: webcam relay, recorded video, static images | `MockFrameSource` (+ `asCertificationLevel`), `WebcamGrabbers` (`OpenCvWebcamFrameGrabber` by default, `SarxosWebcamFrameGrabber`), `MjpegRecorder` |
 | Device errors: unavailable, connection failure, disconnect/reconnect, corrupt/incomplete frames | `SbiStreamFrameSource`, `MjpegFrameReader`; table in docs §6 |
 | Capability discovery (formats, resolutions, frame rates) | `DeviceCapabilities`, `CapabilityProbe`, per-source table in docs §7 |
 | Android frame source (CameraX; SBI-intent decision explained) | `android-liveness-frame-source/`, docs §5 |
@@ -39,7 +39,7 @@ It is not part of Part 1 and is documented separately in its own delivery notes.
 | `registration/liveness-api/` | The shared contracts (`Frame`, `FrameSource`, `DeviceCapabilities`, `ErrorCode`, ...). New Maven module. |
 | `registration/registration-services/.../liveness/device/sbi/` | `SbiStreamFrameSource` + `SbiStreamFrameSourceFactory`: reads the existing SBI `/stream` MJPEG through `BioService.getStream()`. |
 | `.../liveness/device/util/` | `MjpegFrameReader` (MJPEG parsing), `JpegToRgb888Converter` (JPEG to RGB888), `CapabilityProbe`, `PreviewFrameSource` (sends every frame to a preview as well as to the engine). |
-| `.../liveness/device/mock/` | `MockFrameSource` (3 modes), `SarxosWebcamFrameGrabber`, `MjpegRecorder`. |
+| `.../liveness/device/mock/` | `MockFrameSource` (3 modes), `WebcamGrabbers`, `OpenCvWebcamFrameGrabber`, `SarxosWebcamFrameGrabber`, `MjpegRecorder`. |
 | `.../liveness/device/demo/` | `FramePipelineDemo` (frames only), `LivenessHarness` (the whole pipeline with the real engine), `SbiStreamProbe` (checks any MDS `/stream` the way the client calls it). |
 | `android-liveness-frame-source/` | `CameraXFrameSource` for Android. Not part of the Maven build. |
 | `mock-mds-patch/` | The patch for MOSIP's MockMDS: the `serialNo` fix plus real face frames (images, video, webcam). See its README. |
@@ -150,7 +150,7 @@ Mock device, no hardware or MDS needed:
 
     MockFrameSource.ofVideoFile(Path.of("clip.mjpeg"), 15.0, true);   // replay a recorded MJPEG file
     new MockFrameSource(Path.of("images/"), 10.0);                    // cycle static images (attack tests)
-    MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), 15.0);   // real webcam
+    MockFrameSource.ofWebcam(WebcamGrabbers.create(), 15.0);   // real webcam: OpenCV, or -Dliveness.capture=sarxos
     new MockFrameSource(Path.of("images/"), 10.0).asCertificationLevel("L1");   // pose as an L1 device
 
 Making recordings for `ofVideoFile` (same framing as SBI `/stream`):
@@ -215,8 +215,14 @@ order and byte-identical through `MjpegFrameReader`.
 - **MockMDS.** The patched MockMDS was run as a process. `SbiStreamProbe` and the client's own request got 45 of
   45 frames from a recording. The patch's own `FaceStreamProviderTest` passes (7).
 - **Not run with hardware:**
-  - `SarxosWebcamFrameGrabber` and the MockMDS webcam mode compile against the real `webcam-capture` 0.3.12 jar,
-    but have not been run with a camera here.
+  - The MockMDS webcam mode compiles against the real `webcam-capture` 0.3.12 jar, but has not been run with a
+    camera here.
+  - `SarxosWebcamFrameGrabber` ran with the laptop webcam in Part 4's screen demo on 2026-10-27. Its shutdown hook
+    hung the demo's exit once, which is F13b. Since F13b the development tools default to `OpenCvWebcamFrameGrabber`
+    (the openpnp OpenCV that the evaluation tools already use, F13) and release the camera before they exit, with a
+    watchdog against a hung shutdown (`WebcamGrabbers.exit`). The OpenCV grabber in these tools has not been run with
+    a camera yet. If OpenCV cannot open the camera once (for example, another program holds it), that frame source
+    stays on sarxos, and its shutdown hook, until the tool restarts: close the other program and restart the tool.
   - `CameraXFrameSource` type-checks against stubs of the CameraX/Android types it uses. Its YUV→RGB conversion,
     rotation (0/90/180/270) and stride were run on synthetic frames. It has not been built with the Android SDK or
     run on a device.

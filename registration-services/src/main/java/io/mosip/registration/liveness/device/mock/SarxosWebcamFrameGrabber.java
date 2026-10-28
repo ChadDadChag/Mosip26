@@ -1,6 +1,7 @@
 package io.mosip.registration.liveness.device.mock;
 
 import com.github.sarxos.webcam.Webcam;
+import com.github.sarxos.webcam.WebcamDiscoveryService;
 
 import io.mosip.registration.liveness.api.DeviceCapabilities;
 
@@ -139,6 +140,21 @@ public final class SarxosWebcamFrameGrabber implements MockFrameSource.WebcamFra
     public void close() {
         if (webcam.isOpen()) {
             webcam.close();
+        }
+    }
+
+    /**
+     * F13b: stops sarxos' discovery service if it runs, before the JVM exits, so that sarxos' shutdown hook has less
+     * left to do ({@link WebcamGrabbers#exit}). Never throws.
+     */
+    static void stopDiscovery() {
+        try {
+            WebcamDiscoveryService discovery = Webcam.getDiscoveryServiceRef();
+            if (discovery != null && discovery.isRunning()) {
+                discovery.stop();
+            }
+        } catch (RuntimeException | LinkageError e) {
+            System.err.println("sarxos discovery stop failed: " + e);
         }
     }
 

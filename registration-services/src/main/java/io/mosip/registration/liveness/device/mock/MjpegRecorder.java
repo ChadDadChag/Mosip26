@@ -173,10 +173,11 @@ public final class MjpegRecorder implements Closeable {
         } else if (args.length == 4 && "webcam".equals(args[0])) {
             int frames = Integer.parseInt(args[1]);
             double fps = Double.parseDouble(args[2]);
-            MockFrameSource webcam = MockFrameSource.ofWebcam(new SarxosWebcamFrameGrabber(), fps);
+            MockFrameSource webcam = MockFrameSource.ofWebcam(WebcamGrabbers.create(), fps);
             long timeoutMs = (long) (frames / fps * 1000.0) + 10_000L;
             int n = record(webcam, Paths.get(args[3]), frames, timeoutMs);
             System.out.println("Wrote " + n + " frames to " + args[3]);
+            WebcamGrabbers.exit(0, webcam::stop);
         } else {
             System.err.println("Usage: MjpegRecorder images <imageFileOrDir> <out.mjpeg>");
             System.err.println("       MjpegRecorder webcam <frames> <fps> <out.mjpeg>");
