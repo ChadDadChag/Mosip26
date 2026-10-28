@@ -246,7 +246,7 @@ PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-<yyyyMMdd>] [
   - `scores.csv` (per take), `frames.csv` (per frame: features only, no pixels or landmarks) and `scatter.csv` stay
     local under `eval-data/`.
 
-**The F9 re-evaluation (several subjects).** `scripts\f9-reeval.ps1 -Subjects s01,s02,... [-SubjectMap s02=pXX,...]`
+**The F9 re-evaluation (several subjects).** `scripts\f9-reeval.ps1 -Subjects s01,s02,... [-SubjectMap "s02=pXX,..."]`
 runs the steps in order and writes `eval-data/reports/f9-<yyyyMMdd-HHmmss>/summary.md` (an `-Out` folder must be
 empty). The steps:
 - the inventory and the consent check;

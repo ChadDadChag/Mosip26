@@ -1,7 +1,7 @@
 # F9 re-evaluation of the multi-subject data in one command (Windows; development only). Run it from any folder after
 # dot-sourcing the toolchain (liveness-env.ps1: JDK and Maven):
 #
-#   scripts\f9-reeval.ps1 -Subjects s01,s02,s03 [-SubjectMap s02=p05,s03=p11] [-Out eval-data\reports\f9-...]
+#   scripts\f9-reeval.ps1 -Subjects s01,s02,s03 [-SubjectMap "s02=p05,s03=p11"] [-Out eval-data\reports\f9-...]
 #                         [-Labelled "test images\labels.csv"] [-LabelsConfirmed] [-NoLabelled]
 #                         [-Python <python>] [-PythonPath <site-packages>]
 #

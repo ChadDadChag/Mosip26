@@ -123,8 +123,23 @@ Details:
 - The cost is a challenge, never a rejection: about 1 in 7 real-face passive passes become challenges (below).
 - To re-check on multi-subject data (F9), use `models/tools/session_guard_replay.py` per subject. If more than 25% of
   real-face passive passes become challenges across subjects, 0.80 is the next value to evaluate.
+- **Re-checked on F9 (2026-10-28, four bona fide subjects, rule R2):** 2 of 34 real-face passive passes (5.9%) become
+  challenges at 0.85, so **0.85 stays**.
 
-**Evidence.** Single-subject bona fide, provisional.
+  | Subject | Takes | Passes without the guards | Turned into a challenge at 0.85 | At 0.80 |
+  |---|---|---|---|---|
+  | s01 | 11 | 7 | 1 | 0 |
+  | s02 | 12 | 9 | 1 | 0 |
+  | s03 | 12 | 8 | 0 | 0 |
+  | s04 | 12 | 10 | 0 | 0 |
+  | all | 47 | 34 | 2 (5.9%) | 0 |
+
+  - No bona fide take was PAD-rejected at either value.
+  - Replaying 295 attack attempts (every recorded attack take, and every attack attempt of the live logs) at 0.85 and
+    at 0.80 changed no verdict. None passed.
+  - Full numbers: [part2-iso30107-evaluation.md](part2-iso30107-evaluation.md) section 4.7.
+
+**Evidence before F9.** Single-subject bona fide (s01), provisional.
 
 Recorded takes (`PadEvaluation`, production defaults):
 
@@ -575,6 +590,10 @@ F1's `cosineThreshold` (0.45) is unchanged.
 
       BindingEvaluation --labelled "test images/labels.csv" --labels-confirmed --identity [--subject-map s02=p05,...]
 
+  Since 2026-10-28 it also prints a breakdown of the rule's pairs, as context only. It splits them by pair type, by the
+  live take's condition, by subject and by labelled photo ("photo k of n of sNN", with the analyzer's view of the
+  photo), and adds the best of a person's photos per take.
+
 The pairs:
 - **Enrollment:** each recorded subject's first "normal" bona fide take (the run sheet's take normal#1).
 - **Same day:** the enrollment against the subject's other takes.
@@ -585,7 +604,7 @@ The pairs:
 - **Context only:** labelled photos of the same person, pairwise. Both sides are photos, which makes it the hardest
   genuine case.
 
-**Tonight's run** (2026-10-27; s01 only; 15 labelled people, 42 photos; provisional):
+**The first run** (2026-10-27; s01 only; 15 labelled people, 42 photos; provisional):
 
 | threshold | FNMR onboarding-like (11) | FNMR same day (10) | FMR labelled impostors (1,250) | context: FNMR photo vs photo (62) |
 |---|---|---|---|---|
@@ -598,15 +617,91 @@ The pairs:
 | 0.48 | 0 | 0 | 5 (0.4%) | 20 (32.3%) |
 | 0.50 | 0 | 0 | 2 (0.2%) | 24 (38.7%) |
 
-There are no enrollment impostors yet: s01 is the only recorded subject.
+There were no enrollment impostors: s01 was the only recorded subject.
 
 How to read it:
-- Tonight the rule is **not decidable: 1 person / 11 pairs**. Without the guard it would have picked 0.50 from one
+- That night the rule was **not decidable: 1 person / 11 pairs**. Without the guard it would have picked 0.50 from one
   person, and one more false non-match moves that FNMR by 9.1 points.
 - The photo-against-photo pairs lose 38.7% at 0.50. An onboarding photo taken months earlier on another camera is
   closer to that case than to a same-session take.
-- **The default stays 0.40** until the rule runs on the F9 pairs (the teammates' takes, mapped to their labelled
-  photos).
+- The default stayed 0.40 until the rule could run on the F9 pairs (the teammates' takes, mapped to their labelled
+  photos). It ran on 2026-10-28 (below).
+
+**The F9 run** (2026-10-28, rule R4 of `scripts\f9-reeval.ps1`):
+- **Who:** s01–s04, with the subject map s02=p05, s03=p06, s04=p02.
+- **Photos:** 15 labelled people and 42 photos; their owner confirmed the labels before the day.
+- **Status:** provisional.
+
+| threshold | FNMR onboarding-like (155) | FNMR same day (43) | FMR labelled impostors (2,618) | FMR enrollment impostors (141) | context: FNMR photo vs photo (62) |
+|---|---|---|---|---|---|
+| 0.36 | 20 (12.9%) | 0 | 81 (3.1%) | 8 (5.7%) | 4 (6.5%) |
+| 0.38 | 32 (20.6%) | 1 (2.3%) | 48 (1.8%) | 6 (4.3%) | 6 (9.7%) |
+| **0.40 (stays)** | **42 (27.1%)** | **1 (2.3%)** | **31 (1.2%)** | **5 (3.5%)** | 6 (9.7%) |
+| 0.42 | 48 (31.0%) | 1 (2.3%) | 16 (0.6%) | 5 (3.5%) | 11 (17.7%) |
+| 0.44 | 56 (36.1%) | 1 (2.3%) | 8 (0.3%) | 2 (1.4%) | 15 (24.2%) |
+| 0.46 | 64 (41.3%) | 1 (2.3%) | 5 (0.2%) | 0 | 17 (27.4%) |
+| 0.48 | 72 (46.5%) | 2 (4.7%) | 5 (0.2%) | 0 | 20 (32.3%) |
+| 0.50 | 74 (47.7%) | 2 (4.7%) | 2 (0.1%) | 0 | 24 (38.7%) |
+
+**Result: no value meets the rule, so 0.40 stays.**
+- The rule could decide: 4 people and 155 pairs, above its 3 and 50.
+- But no value from 0.36 to 0.50 keeps the onboarding-like FNMR at 5% or below.
+- At 0.40 the measured FNMR is **27.1%** when a single photo from another day and camera is the template.
+
+**What the FNMR is made of** (the breakdown section of `BindingEvaluation --identity`; codes and aggregates only):
+- **The 155 onboarding-like pairs are all photo templates:** a labelled photo from another day and camera, against
+  the same person's live webcam takes.
+  - At 0.40, FNMR is 42/155 (27.1%); at 0.36, 20/155 (12.9%). Genuine similarity: minimum 0.235, median 0.532.
+  - The FNMR is 20% or more in every condition of the live take except dim (1/12), normal included (8/39, 20.5%).
+    The photo side drives it, not the live take.
+  - Per subject, at 0.40:
+
+    | Subject | FNMR | Photos |
+    |---|---|---|
+    | s01 | 0/11 | 1 |
+    | s02 | 4/24 (16.7%) | 2 |
+    | s03 | 18/36 (50.0%) | 3 |
+    | s04 | 20/84 (23.8%) | 7 |
+
+- **A few poor templates cause most of the misses.** 4 of the 13 photos cause 34 of the 42 false non-matches at
+  0.40. The reasons are the live analyzer's view of each photo; the photos themselves were not looked at for this.
+
+  | Photo | False non-matches | The analyzer's view |
+  |---|---|---|
+  | photo 7 of 7 of s04 | 11/12 | pose: yaw 13°, pitch 18° |
+  | photo 2 of 3 of s03 | 9/12 | a tight crop: FACE_TOO_LARGE and FACE_CUT_OFF |
+  | photo 1 of 3 of s03 | 7/12 | dark (face luma 68) and small (157 px wide) |
+  | photo 1 of 7 of s04 | 7/12 | no issue the analyzer measures |
+
+  Six of the 13 photos had no false non-match.
+- **Same-session webcam templates.** Each subject's first normal take is the template, against their other webcam
+  takes. FNMR is 1/43 (2.3%) at 0.40 and 0/43 at 0.36 (minimum 0.372, median 0.767). The one miss is a far take of
+  s03, at 0.372.
+- **Several templates.** For each live take, the best of the person's photos counts, as `identify` takes the best
+  readable template. FNMR is then 2/47 (4.3%) at 0.40 and 0/47 at 0.36.
+  - **The FMR cost of best-of-N matching is not measured.** A best-of-N match raises the impostor side too.
+
+**The impostor side, at 0.40:**
+- **Labelled impostors:** 31/2,618 (1.2%), maximum similarity 0.503. They split into:
+  - photos of different people: 23/799 (2.9%), maximum 0.503;
+  - a photo against other people's webcam takes: 8/1,819 (0.4%), maximum 0.452.
+- **Webcam enrolment against other people's webcam takes, in the same room: 5/141 (3.5%), maximum 0.447.**
+  - The same camera and room raise impostor similarity.
+  - This is the security-relevant number. F15 stays a second factor after the password: it is a "password stolen
+    and face similar" rate.
+
+**An observation, not a decision.**
+- On the same-session webcam set alone, a threshold near 0.45 would separate this sample: 1 of 43 genuine pairs below
+  it, 0 of 141 impostors above.
+- It would raise the photo-template FNMR, to 38.1% at 0.45.
+- The real template is the device's onboarding capture, and neither set represents it. Calibrate on real onboarding
+  templates before any change.
+- The rule's result stands: 0.40.
+
+**Recommendation:**
+- onboard in the device's own conditions (its camera and light);
+- consider several templates per user, once their FMR cost has been measured;
+- re-onboard old templates.
 
 **Hosts.**
 - Desktop: `IdentityBinding` after the password login's gate; see [part4-desktop-integration.md](part4-desktop-integration.md)
@@ -619,8 +714,8 @@ How to read it:
 
 | Limitation | Effect | What would fix it |
 |---|---|---|
-| Evaluation has a single subject (s01), one webcam and one phone | Error rates are indicative only | More subjects and devices, using the protocol in `docs/part2-dataset-protocol.md` |
-| Printed photos can score live | At real-face size a printed cut-out scored 0.06–0.99 frame to frame and passed passively on a retry, twice live. Recorded prints of s01 and 13 other people: 0 of 57 passed (`docs/part2-iso30107-evaluation.md`) | **Mitigated (F18):** the PAD latch and the volatility cap (section 3.2). Live: 29 attack sessions, none passed. Real faces: 0 rejections, about 1 in 7 passive passes become challenges. To re-check per subject on F9 data |
+| Evaluation has four bona fide subjects (s01–s04, F9), one webcam and one room; the single-species attacks one subject (s01) | Error rates are indicative only. F9: BPCER 0/36 [≤ 8.0%], 4 of 36 responding takes sent to a challenge; the moiré cap fires on 15–18% of the new subjects' frames (flagged, `docs/part2-iso30107-evaluation.md` section 4.7) | More subjects (10 to 20) and devices, using the protocol in `docs/part2-dataset-protocol.md` |
+| Printed photos can score live | At real-face size a printed cut-out scored 0.06–0.99 frame to frame and passed passively on a retry, twice live. Recorded prints of s01 and 13 other people: 0 of 57 passed (`docs/part2-iso30107-evaluation.md`) | **Mitigated (F18):** the PAD latch and the volatility cap (section 3.2). Live: 29 attack sessions, none passed. Real faces: 0 rejections, about 1 in 7 passive passes become challenges (s01). Re-checked per subject on F9: 2 of 34 (5.9%) across s01–s04, so 0.85 stays |
 | Moiré depends on the device | The 1.40 cap was set on one phone and one camera (margin 1.37 vs 1.435) | Re-validate on more screens and cameras before enabling the veto |
 | Second screens are barely covered (F5) | One tablet (Galaxy Tab, about 11 in) replaying the subject's video: 0 of 6 live sessions passed, every attempt ended in PAD_FAILURE; the 4 recorded takes were non-responses (at 40–60 cm the face was too small). Retake at real-face size (20–35%, 2026-10-28): 0 of 2 live sessions and 0 of 7 responding takes passed; the PAD latch and the PAD monitor decided it, not the moiré cap (`docs/part2-iso30107-evaluation.md` section 4.6). No desktop monitor | More screens (monitors, other tablets and phones) on more subjects, and faces over 35% of the picture |
 | A blown-out face used to pass as "usable" | Webcam auto-exposure keeps the mean luma near 110 | **Fixed (Phase 6c):** TOO_BRIGHT also fires when more than 30% of the face crop is clipped |

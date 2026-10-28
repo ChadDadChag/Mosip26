@@ -1,9 +1,11 @@
 # Part 2: ISO/IEC 30107-3 evaluation of the passive PAD
 
-> **Every result here is PROVISIONAL; the bona fide side is a single subject (s01).** The attacks show s01, a NASA
-> portrait and, since F3, photos of 14 and 13 other consented people (section 4.4), all through one laptop webcam,
-> one room, one phone and one printer. It shows tendencies and failure modes; it does not estimate field error
-> rates. The raw recordings and per-take results stay on the recording laptop under the gitignored `eval-data/`,
+> **Every result here is PROVISIONAL.** Since F9 (2026-10-28, section 4.7) the bona fide side is **4 subjects
+> (s01–s04)**; sections 4.1 to 4.6 are the earlier rounds, with s01 alone. The single-species attacks still show one
+> subject (s01) or a NASA portrait, and since F3 the many-identity species add photos of 14 and 13 other consented
+> people (section 4.4). Everything went through one laptop webcam and one room, with one phone, one tablet and one
+> printer as the instruments. It shows tendencies and failure modes; it does not estimate field error rates.
+> The raw recordings and per-take results stay on the recording laptop under the gitignored `eval-data/`,
 > as the participants asked. Only aggregates appear here.
 
 ## 1. Scope and terms
@@ -54,8 +56,8 @@ flowchart LR
 
 ## 3. Dataset (protocol: [part2-dataset-protocol.md](part2-dataset-protocol.md))
 
-Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 4:4:4 chroma. 134 takes, 6,458 frames
-(round 1: 35 takes, 2,100 frames; F3 added the last four rows; F5 the four tablet replays).
+Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 4:4:4 chroma. Before F9: 134 takes, 6,458
+frames (round 1: 35 takes, 2,100 frames; F3 added the last four rows; F5 the four tablet replays).
 
 | Class | Takes | How |
 |---|---|---|
@@ -63,11 +65,23 @@ Webcam `webcam:0` (HP True Vision FHD Camera, 640 × 480). JPEG quality 95 with 
 | `screen_photo` | 6 | phone photo at normal distance with its edges visible: the subject's selfie ×3, a public-domain NASA portrait ×3 |
 | `screen_photo_close` | 12 | phone held close as the subject judged it ×6 (face only about 4% of the picture), then about 10 cm away with a live face-size readout ×6 (face 20–31% of the picture) |
 | `screen_replay` | 6 | the subject's selfie video playing on the phone |
-| `screen_replay_monitor` | 4 | F5: the subject's own 2-minute selfie video (blinks, smiles, head turns and nods) on a **tablet (Galaxy Tab, about 11 in)** at maximum brightness, 40–60 cm from the webcam, the subject's own face out of view. There is no desktop monitor yet (section 4.6). The 2026-10-28 retake at real-face size (8 takes) is evaluated on its own in section 4.6 and not counted here |
+| `screen_replay_monitor` | 4 | F5: the subject's own 2-minute selfie video (blinks, smiles, head turns and nods) on a **tablet (Galaxy Tab, about 11 in)** at maximum brightness, 40–60 cm from the webcam, the subject's own face out of view. There is no desktop monitor yet (section 4.6). The 2026-10-28 retake at real-face size (8 takes) is evaluated on its own in section 4.6 and not counted here; renumbered 9–16 since, it is part of the F9 run (section 4.7) |
 | `print_flat` | 6 | colour A4 prints held flat: the subject's selfie ×2 and close ×1, the NASA portrait ×2 and close ×1 |
 | `print_curved` | 6 | the same prints, bent |
 | `screen_photo_multi` | 38 | a phone slideshow of 42 labelled photos of 15 consented people, at normal distance; one take per photo found, 14 of the 15 people (s01 among them), 14–56 frames each |
 | `print_multi` | 45 | printed cut-outs of 13 people (12 from source photos, 1 unknown), 6 to an A4 page, held about 20 cm away: flat ×21, curved ×24, 12–163 frames each |
+
+**F9 (2026-10-28): four bona fide subjects.**
+- Three teammates, s02, s03 and s04, recorded the bona fide run sheet: 12 takes each (normal ×3, close ×2, far ×2,
+  dim, moving ×2, close with the whole face ×2), 720 frames each.
+- Each one agreed to the protocol's consent text and to aggregate-only numbers in these documents. Each meta.json
+  records it.
+- All three also appear among the photographed people of the many-identity species, as s01 does. The tools treat
+  such a person as one subject (`-SubjectMap`, codes only).
+- With the F5 retake renumbered into the dataset (section 4.6), the F9 run covers **178 takes, 9,098 frames**:
+  - bona fide: 47 takes from 4 subjects;
+  - `screen_replay_monitor`: 12 takes;
+  - every other row as above.
 
 ## 4. Results
 
@@ -266,6 +280,8 @@ Replayed offline, the passing attempt goes to a challenge at 0.600, with both gu
 - The cost is a challenge, never a rejection.
 - Re-check per subject on the multi-subject data (F9) with `models/tools/session_guard_replay.py`. If more than 25%
   of real-face passive passes become challenges across subjects, evaluate 0.80.
+- **Re-checked (F9, section 4.7):** across s01–s04, 2 of 34 real-face passive passes (5.9%) became challenges at
+  0.85, so **0.85 stays**.
 
 ### 4.6 Second-screen replay on a tablet (F5)
 
@@ -308,7 +324,8 @@ covered 20–35% of the picture: the size at which a phone fooled the models (se
 video guided the positioning. Production settings with the F18 guards, model bundle pad-2026.10.5.
 
 *Recorded takes* (`PadEvaluation` over the retake's 8 takes on their own: they are kept apart from the 134 takes of
-section 3, and their numbers 1–4 repeat the first recording's):
+section 3. They were recorded as takes 1–8 in another working copy, so their numbers 1–4 repeated the first
+recording's; F9 renumbered them, see below):
 
 | Takes | Prompt | Face size (per-take medians) | Responding | Passive pass | Challenge | PAD reject | Non-response | PadMonitor below 0.30 |
 |---|---|---|---|---|---|---|---|---|
@@ -352,8 +369,92 @@ section 3, and their numbers 1–4 repeat the first recording's):
   other panel types are not covered.
 - Real-face size is no longer untested: the retake answers the first recording's open question (its takes were all
   non-responses). A tablet held closer still, with the face over 35% of the picture, was not tested.
-- The retake's takes 1–4 have the same numbers as the first recording's, in another folder. Renumber them before the
-  two are evaluated together; the totals of section 3 do not include the retake.
+- The retake is now evaluated together with the first recording: since 2026-10-28 it is takes 9–16 (below). The
+  134-take totals of section 3 do not include it; the F9 run's 178 takes do (section 4.7).
+
+**Renumbered into the main dataset (2026-10-28, before the F9 run).**
+- The retake's frames were copied from the F5 working copy into the main `eval-data/`:
+
+  | Retake takes | Prompt | Takes in the main dataset |
+  |---|---|---|
+  | 1–4 | `selfie_video` | 9–12 |
+  | 5–8 | `video_realsize` | 13–16 |
+
+- Each copied `meta.json` has the new `take`, and keeps the original number (`sourceTake`) and the working copy
+  (`sourceTree`, `Mosip26-f5`).
+- Nothing was overwritten. Every frame (60 per take), the three session logs, and the two reports with their logs
+  were copied unchanged and checked by SHA-256.
+- In the F9 run, `screen_replay_monitor` has 12 takes: 0/12 passive passes [≤ 22.1%], 5 challenges, 2 PAD rejects,
+  5 non-responses. These are the sums of the tables above.
+
+### 4.7 Four bona fide subjects (F9, 2026-10-28)
+
+**The run.**
+- **Data:** the 47 bona fide takes of s01–s04 and every attack take, 178 takes in all (section 3).
+- **Settings:** production, with the F18 guards on (model bundle `pad-2026.10.5`).
+- **Command:** one, `scripts\f9-reeval.ps1 -Subjects s01,s02,s03,s04 -SubjectMap "s02=p05,s03=p06,s04=p02"
+  -LabelsConfirmed`.
+- **Decision rules:** R0 to R5, fixed in the script's header before the teammates' data, and applied as written.
+
+**Bona fide per subject**, at passive 0.85 and reject 0.30 (production):
+
+| Subject | Takes | Passive pass | Challenge | PAD reject (BPCER) | Non-response |
+|---|---|---|---|---|---|
+| s01 | 11 | 6/8 | 2/8 | 0/8 | 3 |
+| s02 | 12 | 8/10 | 2/10 | 0/10 | 2 |
+| s03 | 12 | 8/8 | 0/8 | 0/8 | 4 |
+| s04 | 12 | 10/10 | 0/10 | 0/10 | 2 |
+| **all** | **47** | **32/36 (88.9%)** | **4/36 (11.1%)** | **0/36 [≤ 8.0%]** | **11/47 (23.4%)** |
+
+The rates are over the responding takes. s01 has 11 takes: its dim take was skipped (section 3).
+
+**Every class, three zones** (178 takes, production; the bounds are over all N):
+
+| Class | N | Passive pass | Challenge | PAD reject | Non-response | PadMonitor < 0.30 at some point |
+|---|---|---|---|---|---|---|
+| bona fide | 47 | 32 | 4 | **0** [≤ 6.2%] | 11 | 0 |
+| `screen_photo` | 6 | 0 [≤ 39.3%] | 0 | 0 | 6 | 6 |
+| `screen_photo_close` | 12 | 0 [≤ 22.1%] | 6 | 4 | 2 | 6 |
+| `screen_replay` | 6 | 0 [≤ 39.3%] | 0 | 6 | 0 | 6 |
+| `screen_replay_monitor` | 12 | 0 [≤ 22.1%] | 5 | 2 | 5 | 11 |
+| `print_flat` | 6 | 0 [≤ 39.3%] | 1 | 5 | 0 | 6 |
+| `print_curved` | 6 | 0 [≤ 39.3%] | 0 | 6 | 0 | 6 |
+| `screen_photo_multi` | 38 | 0 [≤ 7.6%] | 0 | 8 | 30 | 29 |
+| `print_multi` | 45 | 0 [≤ 6.4%] | 9 | 19 | 17 | 34 |
+
+- **Attacks.** No attack passes passively: max APCER at 0.85 is 0. The headline species is still `screen_photo_close`,
+  0/10 [≤ 25.9%]; `screen_replay_monitor` is 0/7 responding [≤ 34.8%]. F9 added bona fide data only: the attack rows
+  are those of sections 4.2, 4.4 and 4.6, with `screen_replay_monitor` now holding all 12 tablet takes.
+- **Bona fide.** No PAD rejection among the 4 people. The moiré cap and the F18 guards together moved 2 of the 36
+  responding takes (5.6%) from a passive pass to a challenge, and rejected none.
+
+**The decision rules:**
+
+| Rule | Result |
+|---|---|
+| R0 consent | Every bona fide take of s01–s04 records consent. s01 has 11 takes, the others 12 |
+| R1 thresholds (report only) | The section 5 rule gives 0.67 / 0.50. Nothing is adopted |
+| R2 F18 volatility cap | 2 of 34 real-face passive passes (5.9%) become challenges at 0.85: s01 1/7, s02 1/9, s03 0/8, s04 0/10. At 0.80: 0/34. At or below 25%, **0.85 stays**. Replaying 295 attack attempts (the recorded attack takes and the live logs' attack attempts) at 0.85 and at 0.80 changed no verdict and passed none. No bona fide PAD rejection |
+| R3 moiré cap on new faces | Share of scored bona fide frames that the cap capped: s01 12/581 (2.1%), s02 116/675 (17.2%), s03 122/676 (18.0%), s04 97/656 (14.8%). **s02, s03 and s04 are flagged** (above 10%; section 6). The cap does not change this week |
+| R4 F15 identity threshold | No value meets the rule, so 0.40 stays ([part2-pad-architecture.md](part2-pad-architecture.md) section 12.1) |
+| R5 size | 4 subjects, at least 3. No result changes production |
+
+**Bona fide non-responses: 11 of 47 takes.**
+- By condition:
+  - far: 6/8 (both far takes of s02, s03 and s04; s01's responded);
+  - moving: 3/8 (s01 1, s03 2);
+  - close: 2/8 (s01's two);
+  - normal 0/12, close with the whole face 0/8, dim 0/3.
+- **Face size caused 8 of them.**
+  - The six far takes of the teammates had no eligible frame: FACE_TOO_SMALL in 59–60 of 60 frames.
+    - Their median face area was 1.2–2.6% of the picture. The analyzer's minimum is 4% (and 80 px).
+    - The run sheet's far is about 50 cm further back. s01's far takes stayed above the minimum.
+  - s03's two moving takes had FACE_TOO_SMALL in 54 and 47 frames.
+- **The other 3 are s01's, as in section 4.2:** the two close takes (FACE_CUT_OFF) and one moving take (BLURRY).
+- **What it means live.** A live session shows "move closer" for FACE_TOO_SMALL, so far away is a guidance case,
+  not a failure.
+  - The 23.4% is the quality gate of a recording at a fixed distance, with no feedback to the person.
+  - None of the 47 takes was PAD-rejected.
 
 ## 5. Thresholds: recommendation, and why the defaults stay
 
@@ -367,22 +468,36 @@ The rule (provisional, on the grid 0.05 … 0.95, 0.99, 0.999):
 | MEAN + cap (shipped) | 0.67 / 0.62 | Round 1. Degenerate: the cap pins the close-up attacks at exactly 0.60, so the rule hugs it |
 | MEAN + cap, all 130 takes, before F18 | 0.87 / 0.75 | One `print_multi` take reached a window median of 0.816, the highest attack score below 0.85; the rule adds its margin above that. The reject value still comes from one bona fide subject |
 | MEAN + cap + F18 guards (shipped), all 130 takes | 0.67 / 0.55 | Degenerate again: the guards pin the attacks that used to score high at exactly 0.60 |
+| MEAN + cap + F18 guards (shipped), 178 takes, 4 bona fide subjects (F9) | 0.67 / 0.50 | The passive value is degenerate, as above. The reject value now comes from 4 people: the lowest responding bona fide window median lies between 0.55 and 0.60 (BPCER 1/36 at τ 0.60) |
 
-**Decision: keep 0.85 / 0.30.** With one bona fide subject, moving a security threshold would be fitting noise.
+**Decision: keep 0.85 / 0.30.** With one bona fide subject, moving a security threshold would be fitting noise. F9's
+four subjects do not change that: the rule's passive value is still pinned by the caps, and four people are not the
+ten this decision waits for.
 - The moiré cap and the F18 guards remove the observed passive failures without any bona fide rejection.
 - The prints are now in. Revisit when there are at least 10 bona fide subjects.
 
 ## 6. Limitations
 
-- One subject, one camera, one phone, one session of lighting. No children, older subjects, glasses or different skin
-  tones yet.
+- **Subjects.** Four bona fide subjects (s01–s04, F9), one camera, one room.
+  - That is too few for field error rates, and it is not a demographic sample. The F2 note asks for 10 to 20 people,
+    with varied skin tones, with and without glasses, and of different ages.
+  - The single-species attacks still come from one subject (s01).
+- **The moiré cap on new faces (F9 rule R3: s02, s03 and s04 flagged).** The cap capped 17.2% (s02), 18.0% (s03) and
+  14.8% (s04) of the scored bona fide frames, against 2.1% for s01.
+  - Its 1.40 threshold was set on s01's data.
+  - At the level of whole takes, the cap and the F18 guards together moved 2 of 36 responding takes to a challenge
+    and rejected none (section 4.7).
+  - The cap does not change this week. It needs a per-subject look before the hard veto is considered.
+- **Bona fide non-responses.** 11 of 47 F9 takes (23.4%) had no full window. 6 of them were the teammates' far takes,
+  where the face was smaller than the analyzer's minimum. Live, that is a "move closer" hint (section 4.7).
 - Second-screen replays: one tablet only (section 4.6), judged at real-face size in the 2026-10-28 retake (0 of 7
   responding takes and 0 of 2 live sessions passed). There is no desktop monitor yet. The prints come from one printer
   and one paper; the cut-outs were held by the subject, who knew the system.
 - The many-identity species are recorded at distances where most faces are small, so many takes are non-responses
   (section 4.4). Their APCER covers only the responding takes.
-- The F18 guards were tuned on the cut-out that passed and checked on one bona fide subject. Their bona fide cost,
-  about 1 in 7 passive passes becoming a challenge, needs the multi-subject data (F9).
+- The F18 guards were tuned on the cut-out that passed and checked on one bona fide subject. Their bona fide cost was
+  re-checked per subject in F9: 2 of 34 real-face passive passes (5.9%) become challenges, so 0.85 stays (section
+  4.7). That is four people, not a field estimate.
 - The rotate and tilt tricks against challenges were not exercised. PAD stopped those cut-outs before any challenge
   appeared.
 - The PAD latch lasts one session. A new session after a final failure starts clean; the operator workflow's
@@ -419,9 +534,10 @@ Then:
 - Add more phones, tablets and monitors as `screen_*` takes, and a second camera.
 - Re-validate the moiré cap on that data (the per-condition moiré table in `report.md`) before enabling the hard veto.
 - Re-check the thresholds with the section 5 rule once there are at least 10 subjects.
-- Re-check the F18 volatility cap per subject (section 4.5). Record each subject's real-face sessions with
-  `scripts\session-series.ps1 -LogDir eval-data\sessions`, then run `models/tools/session_guard_replay.py` on the
-  logs. If more than 25% of real-face passive passes become challenges across subjects, evaluate 0.80.
+- Re-check the F18 volatility cap per subject with each new group of subjects. F9 did it for s01–s04: 5.9%, so 0.85
+  stays (section 4.7). `scripts\f9-reeval.ps1` runs it with the other rules. Quote the subject map:
+  `-SubjectMap "s02=p05,s03=p06"`, because PowerShell reads the unquoted list as an array and refuses it.
+- Look at the moiré cap per subject (F9 R3 flagged s02, s03 and s04) before any change to the cap or the hard veto.
 
 ## 8. ISO/IEC 30107-3 alignment checklist
 
