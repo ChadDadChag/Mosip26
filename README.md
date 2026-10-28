@@ -360,7 +360,7 @@ The engine is the same Java code as on the Desktop. It runs on the phone's camer
 
 | Path | What | Ships in the app |
 |---|---|---|
-| `android-integration/patches/` | 58 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, face binding of the SBI face capture (F1), the liveness texts in all six languages (five machine-translated; Arabic right to left), the online model update (`ModelUpdateWorker`, off by default), audit events REG-EVT-009..019, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), per-ABI APKs, tests | yes |
+| `android-integration/patches/` | 60 patches against the client's `v1.1.1` tag: the native `android/liveness` module, the Pigeon bridge, `LivenessPage`, `LivenessGate` and the five hooks, face binding of the SBI face capture (F1), the liveness texts in all six languages (five machine-translated; Arabic right to left), the online model update (`ModelUpdateWorker`, off by default), audit events REG-EVT-009..019, config reload after sync, persisted metrics, a diagnostics page (debug and profile builds only), per-ABI APKs, tests | yes |
 | `android-integration/person5-liveness.diff` | the same changes as one diff | yes |
 | `android-integration/scripts/` | `sync-engine.ps1` (engine jars, signed models and the camera source into the client), `apply-integration.ps1` (clone, apply, sync, build), `export-patches.ps1` (regenerate the patches) | no |
 | `android-liveness-frame-source/` | Part 1's `CameraXFrameSource`, copied into the client by the sync | yes |
@@ -373,13 +373,13 @@ The patches leave out the engine jars, the model bundle and `CameraXFrameSource.
 
 That runs these steps:
 1. Clones `v1.1.1`.
-2. Applies the 58 patches with `git am`.
+2. Applies the 60 patches with `git am`.
 3. Builds and syncs the engine.
 4. Generates the Pigeon code.
 5. Builds an arm64 debug APK.
 
-The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 121 liveness module tests and 302 Flutter tests (`test/liveness`), measured on the client state the
-58 patches on `main` reproduce (clone 95ebc5f; the module tests at a4cc328, with no native change since).
+The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 121 liveness module tests and 325 Flutter tests (`test/liveness`), measured on the client state the
+60 patches on `main` reproduce (clone f729dd5; the module tests at a4cc328, with no native change since).
 
 **Documentation:**
 - [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations

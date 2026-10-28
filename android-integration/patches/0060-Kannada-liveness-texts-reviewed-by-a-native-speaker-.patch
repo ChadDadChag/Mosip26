@@ -1,0 +1,116 @@
+From f729dd5ddd2dbfd3158d1228cc1c192d79f42052 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 18:02:03 +0530
+Subject: [PATCH 60/60] Kannada liveness texts reviewed by a native speaker: 2
+ corrections and 1 suggestion (task 27)
+
+The Kannada review of 2026-10-28 (both batches). The liveness term is confirmed correct by the reviewer
+(it comes from the word for "alive"), so no other text changes. Texts are taken from the reviewer's files,
+not retyped.
+- The 2 corrections (rows marked N): liveness_status_passed and liveness_tips_capture_area (everyday words
+  instead of the formal or technical ones).
+- One optional suggestion adopted, to match Hindi: liveness_feedback_action_detected.
+- Not adopted: the improve_lighting alternative (longer; the hint line stays short), the "more formal"
+  variant of model_installed, and the loanword for "model" (the reviewer asked for one consistent choice;
+  the current word stays everywhere).
+- The review notes of app_kn.arb record the review; Arabic is the only language still pending.
+
+Tests: liveness_l10n_test and model_bundle_test expect the Kannada review note. flutter test test/liveness:
+325 passing, 20 skipped.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ assets/l10n/app_kn.arb                | 10 +++++-----
+ test/liveness/liveness_l10n_test.dart |  6 +++---
+ test/liveness/model_bundle_test.dart  |  6 +++---
+ 3 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/assets/l10n/app_kn.arb b/assets/l10n/app_kn.arb
+index 24556a8..e03f682 100644
+--- a/assets/l10n/app_kn.arb
++++ b/assets/l10n/app_kn.arb
+@@ -369,13 +369,13 @@
+   "cron_expression": "ಕ್ರಾನ್ ಎಕ್ಸ್‌ಪ್ರೆಶನ್",
+   "id": "ID",
+   "name": "ಹೆಸರು",
+-  "@@x-liveness-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
+   "liveness_title_resident": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ",
+   "liveness_title_operator": "ಆಪರೇಟರ್ ಮುಖ ಪರಿಶೀಲನೆ",
+   "liveness_title_supervisor": "ಮೇಲ್ವಿಚಾರಕರ ಮುಖ ಪರಿಶೀಲನೆ",
+   "liveness_status_starting": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆ ಪ್ರಾರಂಭವಾಗುತ್ತಿದೆ…",
+   "liveness_status_checking": "ಮುಖದ ಜೀವಂತಿಕೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…",
+-  "liveness_status_passed": "ಒಳ್ಳೆಯದು, ಮುಖವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ",
++  "liveness_status_passed": "ಒಳ್ಳೆಯದು, ನಿಮ್ಮ ಮುಖದ ಫೋಟೋ ತೆಗೆಯಲಾಗಿದೆ",
+   "liveness_status_cancelled": "ಮುಖದ ಜೀವಂತಿಕೆ ಪರಿಶೀಲನೆಯನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.",
+   "liveness_challenge_blink": "ದಯವಿಟ್ಟು ಕಣ್ಣು ಮಿಟುಕಿಸಿ",
+   "liveness_challenge_smile": "ದಯವಿಟ್ಟು ಮುಗುಳ್ನಗಿ",
+@@ -384,7 +384,7 @@
+   "liveness_challenge_look_up": "ದಯವಿಟ್ಟು ಮೇಲೆ ನೋಡಿ",
+   "liveness_challenge_look_down": "ದಯವಿಟ್ಟು ಕೆಳಗೆ ನೋಡಿ",
+   "liveness_feedback_continue": "ದಯವಿಟ್ಟು ಮುಂದುವರಿಸಿ",
+-  "liveness_feedback_action_detected": "ಕ್ರಿಯೆ ಪತ್ತೆಯಾಗಿದೆ",
++  "liveness_feedback_action_detected": "ಸರಿ, ಆಯಿತು",
+   "liveness_feedback_hold_still": "ಅಲುಗಾಡಬೇಡಿ",
+   "liveness_guidance_no_face": "ಯಾವುದೇ ಮುಖ ಪತ್ತೆಯಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
+   "liveness_guidance_multiple_faces": "ಒಬ್ಬ ವ್ಯಕ್ತಿ ಮಾತ್ರ ಕಾಣಿಸಬೇಕು.",
+@@ -403,7 +403,7 @@
+   "liveness_tips_look_at_camera": "ನೇರವಾಗಿ ಕ್ಯಾಮರಾವನ್ನು ನೋಡಿ.",
+   "liveness_tips_face_visible": "ನಿಮ್ಮ ಮುಖ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿದೆಯೇ ಎಂದು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಿ.",
+   "liveness_tips_lighting": "ಬೆಳಕನ್ನು ಸುಧಾರಿಸಿ.",
+-  "liveness_tips_capture_area": "ನಿಮ್ಮ ಮುಖವನ್ನು ಸೆರೆಹಿಡಿಯುವ ಪ್ರದೇಶದೊಳಗೆ ಇರಿಸಿ.",
++  "liveness_tips_capture_area": "ನಿಮ್ಮ ಮುಖವನ್ನು ಪರದೆಯ ಮೇಲೆ ತೋರಿಸಿರುವ ಜಾಗದೊಳಗೆ ಇರಿಸಿ.",
+   "liveness_tips_follow_prompt": "ಸೂಚಿಸಿದ ಕ್ರಿಯೆಯನ್ನು ಮಾಡಿ.",
+   "liveness_retry_attempts_left": "ಉಳಿದ ಪ್ರಯತ್ನಗಳು: {n}",
+   "liveness_progress_step": "ಹಂತ {i} / {n}",
+@@ -415,7 +415,7 @@
+   "liveness_button_cancel": "ರದ್ದುಮಾಡಿ",
+   "liveness_button_close": "ಮುಚ್ಚಿ",
+   "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ",
+-  "@@x-liveness-model-translation": "machine-translated; needs native-speaker review",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
+   "liveness_model_title": "ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳು",
+   "liveness_model_current": "ಬಳಕೆಯಲ್ಲಿರುವ ಮಾದರಿಗಳು: {version}",
+   "liveness_model_install": "ಮಾದರಿ ಬಂಡಲ್ ಅನ್ನು ಸ್ಥಾಪಿಸಿ",
+diff --git a/test/liveness/liveness_l10n_test.dart b/test/liveness/liveness_l10n_test.dart
+index 54d1323..70ebdeb 100644
+--- a/test/liveness/liveness_l10n_test.dart
++++ b/test/liveness/liveness_l10n_test.dart
+@@ -10,13 +10,13 @@ import 'package:registration_client/ui/liveness/liveness_strings.dart';
+ /// translation note in each translated file (machine-translated, and its review).
+ void main() {
+   const languages = ['ar', 'fr', 'hi', 'kn', 'ta'];
+-  // The native-speaker review (2026-10-28): Tamil had no changes, French and Hindi were corrected; the others are
+-  // pending.
++  // The native-speaker review (2026-10-28): Tamil had no changes; French, Hindi and Kannada were corrected; Arabic
++  // is pending.
+   const review = {
+     'ar': 'machine-translated; needs native-speaker review',
+     'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+     'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+-    'kn': 'machine-translated; needs native-speaker review',
++    'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+     'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
+   };
+   // A placeholder {n}, or the argument of an ICU plural {n, plural, ...}.
+diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
+index 8a479bf..4683ae6 100644
+--- a/test/liveness/model_bundle_test.dart
++++ b/test/liveness/model_bundle_test.dart
+@@ -163,13 +163,13 @@ void main() {
+     final keys = en.keys.where((k) => k.startsWith('liveness_model_')).toList();
+     expect(keys, hasLength(15));
+     final placeholder = RegExp(r'\{(\w+)\}');
+-    // The native-speaker review (2026-10-28): Tamil had no changes, French and Hindi were corrected; the others are
+-    // pending.
++    // The native-speaker review (2026-10-28): Tamil had no changes; French, Hindi and Kannada were corrected; Arabic
++    // is pending.
+     const review = {
+       'ar': 'machine-translated; needs native-speaker review',
+       'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+       'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+-      'kn': 'machine-translated; needs native-speaker review',
++      'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+       'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
+     };
+     for (final lang in ['ar', 'fr', 'hi', 'kn', 'ta']) {

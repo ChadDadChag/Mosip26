@@ -12,7 +12,8 @@ PR #11 (F17), and, since the previous version of this matrix:
 - PR #16, F5: a second-screen replay on a tablet, evaluated at two distances;
 - PR #17: the F2b fine-tuning preparation.
 
-It also includes the native-speaker review of the translations on 2026-10-28 (Tamil without changes, French corrected).
+It also includes the native-speaker review of the translations on 2026-10-28 (Tamil without changes; French, Hindi
+and Kannada corrected; Arabic pending).
 Only facts from the documents and code in this repository are used.
 
 **Read the evidence with its qualifiers.** Every PAD error rate, threshold check and live session in this repository
@@ -90,7 +91,7 @@ The "Where" column uses these short prefixes. Tests live in the same packages un
 | `desktop/` | `registration-services/src/main/java/io/mosip/registration/liveness/desktop/` |
 | `ctl/` | `registration-client/src/main/java/io/mosip/registration/controller/liveness/` |
 | `cam/` | `android-liveness-frame-source/src/main/java/io/mosip/registration/liveness/device/android/` |
-| `arc:` | a file of the Android Registration Client v1.1.1 after applying the patches in `android-integration/patches/` (58 on `main`) |
+| `arc:` | a file of the Android Registration Client v1.1.1 after applying the patches in `android-integration/patches/` (60 on `main`) |
 
 The Desktop hooks are in existing client classes: `GenericBiometricsController` and `BiometricsController`
 (`controller/device/`), `LoginController` and `AuthenticationController` (`controller/auth/`),
@@ -186,7 +187,7 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | Requirement | Status | Where (Part, code/doc path) | Evidence / verification | Notes / gaps |
 |---|---|---|---|---|
 | **IN-1** Desktop: Java, the existing Registration Client stack and device integration framework, a camera/device abstraction | ✅ | Java modules of `registration-client-parent` (JDK 11); SBI through the existing `MosipDeviceSpecificationFactory` and `BioService.getStream()`; `FrameSource` as the abstraction | Built and tested inside Registration Client v1.2.0.2 | Part 1 modified no existing client class ([README](../README.md)); the Part 4 hooks are additive ([P4 §1](part4-desktop-integration.md)) |
-| **IN-2** Android: Java/Flutter, Android camera APIs, the vendor device SDK | ✅ | Flutter screens + a Java native module (`arc:android/liveness/`); CameraX; SBI intents stay the source of the stored face | 121 module tests and 302 Flutter tests, measured on the client state the 58 patches on `main` reproduce (clone 95ebc5f; the module tests at a4cc328, with no native change since) ([P5 §10](part5-android-integration.md)) | — |
+| **IN-2** Android: Java/Flutter, Android camera APIs, the vendor device SDK | ✅ | Flutter screens + a Java native module (`arc:android/liveness/`); CameraX; SBI intents stay the source of the stored face | 121 module tests and 325 Flutter tests, measured on the client state the 60 patches on `main` reproduce (clone f729dd5; the module tests at a4cc328, with no native change since) ([P5 §10](part5-android-integration.md)) | — |
 | **IN-3** Common face capture device interface | ✅ | `api/Frame`, `api/FrameSource`, `api/DeviceCapabilities` ([P1 arch §2](part1-frame-streaming-architecture.md)) | `FrameTest`; `DevicePathInteropTest` | — |
 | **IN-4** Device adapter pattern for several vendors | ✅ | Adapters `device/sbi/SbiStreamFrameSource`, `device/mock/MockFrameSource`, `cam/CameraXFrameSource`; `PreviewFrameSource` tee | `DevicePathInteropTest`: the mock device and the SBI adapter give identical frames and the same decision | — |
 | **IN-5** Configurable liveness quality validation | ✅ | P2 analyzer keys `mosip.registration.liveness.face.analyzer.*` (luma, blur, face size, centring, moiré) ([P2 arch §9](part2-pad-architecture.md)); P3 thresholds | `AnalyzerConfigTest`, `QualityAssessorTest`, `RelativeBlurTest` | — |
@@ -434,7 +435,7 @@ screens rendered again from the production code. Android debug and profile build
 | **D2.12** Maximum retry/failure flow | ✅ | [UI spec §3, §6](ui-liveness-spec.md) | As UI-7.2 | — |
 | **D2.13** Device error handling | ✅ | [UI spec §3](ui-liveness-spec.md) (DEVICE_ERROR row) | Desktop screen 10; Android screens 15–16 | — |
 | **D2.14** Online/offline UI behaviour | ✅ | [UI spec §1](ui-liveness-spec.md), principle 3: identical | — | — |
-| **D2.15** Consistent Desktop and Android experience | ✅ | One spec, same states, texts and message keys | Desktop `LivenessMessagesTest` (catalogue equals the spec); Android ARB tests (45 liveness keys, F15's among them, and F17's 15 model-page keys, in six languages) | Translations are machine-translated; Tamil and French were reviewed by a native speaker on 2026-10-28 (French corrected). Desktop has English, Arabic and French (the languages v1.2.0.2 ships); Android has six languages |
+| **D2.15** Consistent Desktop and Android experience | ✅ | One spec, same states, texts and message keys | Desktop `LivenessMessagesTest` (catalogue equals the spec); Android ARB tests (45 liveness keys, F15's among them, and F17's 15 model-page keys, in six languages) | Translations are machine-translated; Tamil, French, Hindi and Kannada were reviewed by a native speaker on 2026-10-28 (French, Hindi and Kannada corrected; Arabic pending). Desktop has English, Arabic and French (the languages v1.2.0.2 ships); Android has six languages |
 
 ### 13.3 Implementation / build
 
@@ -456,7 +457,7 @@ screens rendered again from the production code. Android debug and profile build
 | **D3.14** Configuration support | ✅ | Section 5 | Section 5 | — |
 | **D3.15** Audit and diagnostic logging | ✅ | As ET-20 | As ET-20 | — |
 | **D3.16** Desktop Registration Client changes | ✅ | `desktop-integration/person4-desktop.diff` (69 text files on `main`) plus 14 screen images; [P4 doc](part4-desktop-integration.md) | Measured on `main` at 57b4c95 (2026-10-28), the Part 4 test command runs `registration-services` 179 (Part 1's 81 and Part 4's 52 liveness tests, the four F16 clips, and the existing audit, login and config sync suites) and `registration-client` 43, all passing; `RecordedVideoE2ETest` 5 of 5 ([P4 §10](part4-desktop-integration.md)) | Compiled and tested, not launched end to end (needs a registered machine, database and server) |
-| **D3.17** Android Registration Client changes | ✅ | `android-integration/patches/` (58 patches against v1.1.1 on `main`), `person5-liveness.diff`, `scripts/` | For `main` with its 58 patches, measured on the client state they reproduce (clone 95ebc5f: the Flutter tests on 2026-10-28; the module tests at a4cc328, with no native change since): 121 module tests, 302 Flutter tests and 17 clientmanager tests (3 refresh-listener, 14 `SessionManagerTest`) pass. A fresh clone of v1.1.1 with the 58 patches, or with the consolidated diff, gives the integration branch's tree; rebuilt engine jars differ only in their embedded build info | 14 upstream v1.1.1 clientmanager tests fail identically before any liveness change ([P5 §10](part5-android-integration.md)) |
+| **D3.17** Android Registration Client changes | ✅ | `android-integration/patches/` (60 patches against v1.1.1 on `main`), `person5-liveness.diff`, `scripts/` | For `main` with its 60 patches, measured on the client state they reproduce (clone f729dd5: the Flutter tests on 2026-10-28; the module tests at a4cc328, with no native change since): 121 module tests, 325 Flutter tests and 17 clientmanager tests (3 refresh-listener, 14 `SessionManagerTest`) pass. A fresh clone of v1.1.1 with the 60 patches, or with the consolidated diff, gives the integration branch's tree; rebuilt engine jars differ only in their embedded build info | 14 upstream v1.1.1 clientmanager tests fail identically before any liveness change ([P5 §10](part5-android-integration.md)) |
 
 ---
 
@@ -471,7 +472,7 @@ screens rendered again from the production code. Android debug and profile build
 | **F11: low-end phone performance** | Only a Samsung Galaxy S23 FE was tested; times and the 370 MB session memory may not hold on low-end devices | Benchmark a low-end phone with the debug page; try `intraOpThreads` 1, XNNPACK, a smaller `detectorMaxWidth` | [P5 bench, "Low-end phones"](part5-android-benchmark.md) |
 | **No MOSIP backend** | Neither client was run end to end. Desktop hooks were checked by compilation, code review, unit tests and rendered screens; Android hooks by the debug page's "Hook gates" (the same `LivenessGate.run` call), widget tests and code review. No SBI capture was made on Android | Run both clients against a MOSIP environment with a real L0/L1 device | [P4 §11](part4-desktop-integration.md), [P5 §11](part5-android-integration.md) |
 | **Android liveness frames come from the phone camera** | On Android the liveness stream is CameraX, not the L0/L1 device; the SBI capture stays the stored face | By design: the Android SBI has no stream. Mitigated by F1 face binding (the SBI capture is stored only if it matches the live face) | [P1 arch §5](part1-frame-streaming-architecture.md), [UI spec §6](ui-liveness-spec.md) |
-| **Translations are machine-translated** | Arabic, Hindi and Kannada texts need a native speaker's review; Tamil (no changes) and French (corrected: « détection du vivant ») were reviewed on 2026-10-28. Desktop carries Arabic and French only | Native-speaker review; add Hindi, Kannada and Tamil to the Desktop when the client has full translations | [UI spec, Appendix A](ui-liveness-spec.md) |
+| **Translations are machine-translated** | Arabic texts need a native speaker's review; Tamil (no changes), French (corrected: « détection du vivant »), Hindi (corrected: the liveness term and plainer words) and Kannada (term confirmed, 2 corrections) were reviewed on 2026-10-28. Desktop carries Arabic and French only | Native-speaker review; add Hindi, Kannada and Tamil to the Desktop when the client has full translations | [UI spec, Appendix A](ui-liveness-spec.md) |
 | **Development signing key** | The model bundle is signed with `mosip-liveness-dev-2026-10` | Replace it with a production key held in an HSM or offline signing machine, then re-sign and release | [P2 arch §8](part2-pad-architecture.md), [models/README.md](../models/README.md) |
 
 **Closed by PRs #12 to #17** (since the previous version of this matrix):
@@ -496,8 +497,8 @@ screens rendered again from the production code. Android debug and profile build
   moiré cap. A desktop monitor, faces over 35% and more subjects are still open (OV-15, under F9).
 
 **Still open after PRs #12 to #17:** the F9 data run (the runner of PR #15 is ready; the teammate recordings come
-first), the F2b real fine-tuning run (the preparation of PR #17 needs the F9 data), the review of the Arabic, Hindi and
-Kannada texts (Tamil and French were reviewed on 2026-10-28), and
+first), the F2b real fine-tuning run (the preparation of PR #17 needs the F9 data), the review of the Arabic texts (Tamil,
+French, Hindi and Kannada were reviewed on 2026-10-28), and
 the F10b (a reduced ONNX Runtime) and F11 (a low-end phone) limits. The table above has the details.
 
 **Closed by PRs #9 to #11:**
@@ -533,8 +534,8 @@ Android.
 
 **Where test counts are recorded.** Current counts are `main` at 57b4c95 (2026-10-28). The engine modules and the Desktop
 suites (the Part 4 test command: the liveness, audit, login and config sync tests, `RecordedVideoE2ETest` included) were
-run on that commit for this version. The Android counts were measured on the client state its 58 patches reproduce
-(clone 95ebc5f): the Flutter tests there on 2026-10-28, the module tests at a4cc328, with no native code change since.
+run on that commit for this version. The Android counts were measured on the client state its 60 patches reproduce
+(clone f729dd5): the Flutter tests there on 2026-10-28, the module tests at a4cc328, with no native code change since.
 The Desktop suites gave the same counts on the translation review's commit (3fa6731). A count recorded for an earlier phase is labelled with that phase.
 
 | Suite | Count | Recorded in |
@@ -546,7 +547,7 @@ The Desktop suites gave the same counts on the translation review's commit (3fa6
 | `registration-client` | 43 | same |
 | Part 1 device pipeline | 96 at Part 1's delivery: 72 in `registration-services` (81 with F13b's 9 `WebcamGrabbersTest`), and 24 that moved with the heuristic analyzer to `liveness-analyzer` (counted in its 258). MockMDS patch: `FaceStreamProviderTest` 7 | [README, Part 1](../README.md) |
 | Android `android/liveness` module | 121 | [P5 §10](part5-android-integration.md), [android-integration/README.md](../android-integration/README.md) |
-| Flutter `test/liveness` | 302 | same |
+| Flutter `test/liveness` | 325 | same |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | 3 | [P5 §10](part5-android-integration.md) |
 | clientmanager `SessionManagerTest` | 14 | same |
 | Part 3 requirement audit | 29 DONE, 0 PARTIAL, 0 MISSING, 0 BROKEN | [PART3_STATUS](../PART3_STATUS.md) |

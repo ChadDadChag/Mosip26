@@ -1,7 +1,7 @@
 From 64813491b3cb9846a924fac3275c3af90e0a74e6 Mon Sep 17 00:00:00 2001
 From: Varun-iiitb <var3907@gmail.com>
 Date: Wed, 28 Oct 2026 12:07:55 +0530
-Subject: [PATCH 54/58] One font for the app: Noto Sans, with the Arabic,
+Subject: [PATCH 54/60] One font for the app: Noto Sans, with the Arabic,
  Devanagari, Kannada and Tamil families as fallbacks (task 21, C)
 
 The same typeface now covers the app's six languages. Static unhinted TTFs
