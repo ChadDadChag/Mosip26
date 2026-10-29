@@ -1,0 +1,525 @@
+From 7aa448600e787428e64fbeec70040449eb27c0b0 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 22:38:35 +0530
+Subject: [PATCH 62/68] Demo page and Developer tools: the identity verdict
+ follows the test face, a check always ends, the overrides shown are the ones
+ that run, the models' load state, and TalkBack roles (task 29)
+
+Review fixes (debug and profile builds only), each with a widget test that failed on the old page:
+- W1: a test face enrolled or deleted on Developer tools left the old verdict ("Same person") and note
+  ("Enrolled - now anyone can use 2. Check identity") on the demo page. A changed enrolment time now clears them.
+- W3: verifyIdentity throwing anything but a PlatformException, or the identity override failing to switch off,
+  left the page "Checking..." with every control disabled (and the override possibly on, so every identity check
+  of this process, the real sign-in's included, used the test face). Both are caught; a failed switch-off says to
+  restart the app before signing in. The debug page's identity check had the same pattern: fixed the same way.
+- W2: the debug page started its switches from defaults while the native overrides set by the demo page (fake
+  scenario, forced challenges) stayed active: it showed PASS_ACTIVE and ran ENGINE_ERROR. Its controls now start
+  from the recorded overrides (LivenessDevOverrides), so what they show is what runs. A hot restart still resets
+  the Dart record while the native side keeps its overrides (developer only; not fixable without a native list).
+- W4: a bundle that fails verification never loads, and the page said "Models loading..." for good. While the
+  version reads '', it is read again every 2 s; after 30 s the page says "Models not loaded".
+- W5: the run cards, the simulated rows and Developer tools are buttons with an enabled state for TalkBack (they
+  were plain tap targets: disabled while busy, with nothing said), and the identity verdict and the result panel
+  are live regions.
+
+flutter test test/liveness: 330 passing, 20 skipped (325 + 5).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ lib/ui/liveness/liveness_debug_page.dart   |  22 ++-
+ lib/ui/liveness/liveness_demo_page.dart    | 150 ++++++++++++++----
+ test/liveness/liveness_demo_page_test.dart | 167 ++++++++++++++++++++-
+ 3 files changed, 307 insertions(+), 32 deletions(-)
+
+diff --git a/lib/ui/liveness/liveness_debug_page.dart b/lib/ui/liveness/liveness_debug_page.dart
+index 876fa3a..db95ef4 100644
+--- a/lib/ui/liveness/liveness_debug_page.dart
++++ b/lib/ui/liveness/liveness_debug_page.dart
+@@ -156,12 +156,25 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+   @override
+   void initState() {
+     super.initState();
++    _readRecordedOverrides();
+     _subscription = _service.messages.listen(_onMessage);
+     _refreshPolicy();
+     _refreshDiagnostics();
+     _refreshIdentityTemplate();
+   }
+ 
++  /// The controls start from the overrides this process has set, by this page before or by the demo page (the native
++  /// side keeps them while the process lives), not from the defaults: what they show is what runs.
++  void _readRecordedOverrides() {
++    final scenario = LivenessDevOverrides.valueOf(_fakeScenarioKey);
++    if (scenario != null && _fakeScenarios.contains(scenario)) _fakeScenario = scenario;
++    _forceChallenges = LivenessDevOverrides.valueOf(_passiveThresholdKey) == '0.9999';
++    _exposureAssist = LivenessDevOverrides.valueOf(_exposureAssistKey) != 'false';
++    if (LivenessDevOverrides.valueOf(_fakeTimeScaleKey) == '3') _fakeSpeed = '3';
++    final only = LivenessDevOverrides.valueOf(_challengeTypesKey);
++    if (only != null && _onlyChallenges.contains(only)) _onlyChallenge = only;
++  }
++
+   Future<void> _refreshIdentityTemplate() async {
+     try {
+       final bool present = await _api.hasIdentityTestTemplate();
+@@ -221,8 +234,15 @@ class _LivenessDebugPageState extends State<LivenessDebugPage> {
+             ', threshold ${info.threshold.toStringAsFixed(2)}';
+       } on PlatformException catch (e) {
+         text = 'identity check failed: ${e.message}';
++      } catch (e) {
++        text = 'identity check failed: $e';
+       } finally {
+-        await _api.setIdentityDiagnosticOverride(false);
++        try {
++          await _api.setIdentityDiagnosticOverride(false);
++        } catch (e) {
++          // The native side may still check every identity, the real sign-in's too, against the test face.
++          text = 'identity override not switched off ($e): restart the app before signing in';
++        }
+       }
+     }
+     if (!mounted) return;
+diff --git a/lib/ui/liveness/liveness_demo_page.dart b/lib/ui/liveness/liveness_demo_page.dart
+index fd97054..65402e2 100644
+--- a/lib/ui/liveness/liveness_demo_page.dart
++++ b/lib/ui/liveness/liveness_demo_page.dart
+@@ -101,6 +101,11 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   _Run? _lastRun;
+   GateResult? _lastResult;
+   String _modelVersion = '';
++  // The models load in the background: while the version reads '', it is read again, for up to 30 s.
++  Timer? _modelPoll;
++  bool _modelsNotLoaded = false;
++  static const Duration _modelPollEvery = Duration(seconds: 2);
++  static const int _modelPolls = 15;
+   String _camera = 'front';
+   bool _forceActions = false;
+   // The test face: when it was enrolled (milliseconds since the epoch), null when there is none.
+@@ -130,6 +135,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   @override
+   void dispose() {
+     _subscription?.cancel();
++    _modelPoll?.cancel();
+     _scroll.dispose();
+     super.dispose();
+   }
+@@ -165,11 +171,46 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+       _modelVersion = version;
+       _camera = camera;
+       _forceActions = LivenessDevOverrides.valueOf(_passiveThresholdKey) == _forcedThreshold;
++      if (enrolledAt != _identityEnrolledAt) {
++        // The test face changed elsewhere (Developer tools): a verdict or note about the old one no longer holds.
++        _identityNote = null;
++        _identityInfo = null;
++        _identityProblem = null;
++      }
+       _identityEnrolledAt = enrolledAt;
++      _modelsNotLoaded = false;
+     });
++    _watchModels();
+     await _refreshMetrics();
+   }
+ 
++  /// The models load in the background, at start and again after an install or a rollback, and their version reads
++  /// '' until then. A bundle that fails verification never loads, and nothing else tells this page: the version is
++  /// read again every 2 s, and after 30 s the page says the models did not load.
++  void _watchModels() {
++    _modelPoll?.cancel();
++    _modelPoll = null;
++    if (_modelVersion.isNotEmpty) return;
++    var polls = 0;
++    _modelPoll = Timer.periodic(_modelPollEvery, (timer) async {
++      polls++;
++      final last = polls >= _modelPolls;
++      if (last) timer.cancel();
++      String version = '';
++      try {
++        version = await _service.modelVersion();
++      } on PlatformException catch (e) {
++        debugPrint('liveness demo: model version failed: ${e.message}');
++      }
++      if (!mounted || _modelPoll != timer) return;
++      if (version.isNotEmpty) timer.cancel();
++      setState(() {
++        _modelVersion = version;
++        _modelsNotLoaded = version.isEmpty && last;
++      });
++    });
++  }
++
+   Future<void> _refreshMetrics() async {
+     try {
+       final text = await _api.metrics();
+@@ -344,8 +385,17 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+         info = await _service.verifyIdentity(gate.sessionId!, _identityTestUser, 'diagnostics', 1);
+       } on PlatformException catch (e) {
+         problem = 'Identity check failed: ${e.message}';
++      } catch (e) {
++        problem = 'Identity check failed: $e';
+       } finally {
+-        await _api.setIdentityDiagnosticOverride(false);
++        try {
++          await _api.setIdentityDiagnosticOverride(false);
++        } catch (e) {
++          // The native side may still check every identity, the real sign-in's too, against the test face.
++          debugPrint('liveness demo: identity override off failed: $e');
++          info = null;
++          problem = 'The test face could not be switched off – restart the app before signing in';
++        }
+       }
+     }
+     await _identityDone(info: info, problem: problem);
+@@ -544,7 +594,11 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                     Flexible(
+                       child: Text(
+                         // A version is shown only once its signed bundle has been verified and loaded.
+-                        _modelVersion.isEmpty ? 'Models loading…' : 'Models $_modelVersion · signed',
++                        _modelVersion.isNotEmpty
++                            ? 'Models $_modelVersion · signed'
++                            : _modelsNotLoaded
++                                ? 'Models not loaded'
++                                : 'Models loading…',
+                         style: _t.chip,
+                       ),
+                     ),
+@@ -575,6 +629,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   Widget _runCard(_Run run) => _DemoCard(
+         key: Key('demo.run.${run.workflow}'),
+         onTap: _busy ? null : () => _runCheck(run),
++        button: true,
+         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+         child: Row(
+           children: [
+@@ -667,7 +722,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+         );
+       }
+     }
+-    return _DemoCard(key: const Key('demo.result'), child: content);
++    return _DemoCard(key: const Key('demo.result'), liveRegion: true, child: content);
+   }
+ 
+   Widget _settings(BuildContext context) {
+@@ -832,17 +887,22 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+     }
+     return KeyedSubtree(
+       key: _verdictKey,
+-      child: Container(
+-        key: const Key('demo.identity.verdict'),
+-        padding: const EdgeInsets.all(16),
+-        decoration: BoxDecoration(color: tone.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
+-        child: _ResultRow(
+-          sentenceKey: const Key('demo.identity.verdict.sentence'),
+-          icon: icon,
+-          tone: tone,
+-          sentence: sentence,
+-          message: message,
+-          detail: detail,
++      // TalkBack reads the verdict when the face check closes.
++      child: Semantics(
++        container: true,
++        liveRegion: true,
++        child: Container(
++          key: const Key('demo.identity.verdict'),
++          padding: const EdgeInsets.all(16),
++          decoration: BoxDecoration(color: tone.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
++          child: _ResultRow(
++            sentenceKey: const Key('demo.identity.verdict.sentence'),
++            icon: icon,
++            tone: tone,
++            sentence: sentence,
++            message: message,
++            detail: detail,
++          ),
+         ),
+       ),
+     );
+@@ -878,8 +938,14 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+                     children: [
+                       Text('Models in use', style: _t.caption),
+                       const SizedBox(height: 2),
+-                      Text(_modelVersion.isEmpty ? 'Loading…' : _modelVersion,
+-                          key: const Key('demo.modelVersion'), style: _t.cardTitle),
++                      Text(
++                          _modelVersion.isNotEmpty
++                              ? _modelVersion
++                              : _modelsNotLoaded
++                                  ? 'Not loaded'
++                                  : 'Loading…',
++                          key: const Key('demo.modelVersion'),
++                          style: _t.cardTitle),
+                       const SizedBox(height: 2),
+                       Text('Signed bundle, verified when loaded', style: _t.caption),
+                     ],
+@@ -973,18 +1039,23 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+           children: [
+             for (var i = 0; i < _scenarios.length; i++) ...[
+               if (i > 0) const Divider(height: 1, indent: 56, endIndent: 16),
+-              InkWell(
+-                key: Key('demo.fake.${_scenarios[i][0]}'),
+-                onTap: _busy ? null : () => _runSimulated(_scenarios[i][0]),
+-                child: Padding(
+-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+-                  child: Row(
+-                    children: [
+-                      const Icon(Icons.play_circle_outline, color: LivenessStyle.primary),
+-                      const SizedBox(width: 16),
+-                      Expanded(child: Text(_scenarios[i][1], style: _t.body)),
+-                      const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
+-                    ],
++              Semantics(
++                container: true,
++                button: true,
++                enabled: !_busy,
++                child: InkWell(
++                  key: Key('demo.fake.${_scenarios[i][0]}'),
++                  onTap: _busy ? null : () => _runSimulated(_scenarios[i][0]),
++                  child: Padding(
++                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
++                    child: Row(
++                      children: [
++                        const Icon(Icons.play_circle_outline, color: LivenessStyle.primary),
++                        const SizedBox(width: 16),
++                        Expanded(child: Text(_scenarios[i][1], style: _t.body)),
++                        const Icon(Icons.chevron_right, color: LivenessStyle.textSecondary),
++                      ],
++                    ),
+                   ),
+                 ),
+               ),
+@@ -996,6 +1067,7 @@ class _LivenessDemoPageState extends State<LivenessDemoPage> {
+   Widget _developerToolsCard() => _DemoCard(
+         key: const Key('demo.developerTools'),
+         onTap: _busy ? null : _openDeveloperTools,
++        button: true,
+         child: Row(
+           children: [
+             const _IconBadge(Icons.build_outlined, tone: LivenessStyle.neutral),
+@@ -1065,16 +1137,26 @@ class _Run {
+ 
+ /// A white card with a soft shadow and no outline; tappable when [onTap] is set.
+ class _DemoCard extends StatelessWidget {
+-  const _DemoCard({super.key, required this.child, this.onTap, this.padding = const EdgeInsets.all(16)});
++  const _DemoCard(
++      {super.key,
++      required this.child,
++      this.onTap,
++      this.button = false,
++      this.liveRegion = false,
++      this.padding = const EdgeInsets.all(16)});
+ 
+   final Widget child;
+   final VoidCallback? onTap;
++  // A control: TalkBack hears a button, disabled while onTap is null (another check runs).
++  final bool button;
++  // TalkBack reads its new content when it changes.
++  final bool liveRegion;
+   final EdgeInsetsGeometry padding;
+ 
+   @override
+   Widget build(BuildContext context) {
+     final radius = BorderRadius.circular(16);
+-    return DecoratedBox(
++    final card = DecoratedBox(
+       decoration: BoxDecoration(color: Colors.white, borderRadius: radius, boxShadow: _Demo.shadow),
+       child: Material(
+         type: MaterialType.transparency,
+@@ -1085,6 +1167,14 @@ class _DemoCard extends StatelessWidget {
+         ),
+       ),
+     );
++    if (!button && !liveRegion) return card;
++    return Semantics(
++      container: true,
++      button: button ? true : null,
++      enabled: button ? onTap != null : null,
++      liveRegion: liveRegion ? true : null,
++      child: card,
++    );
+   }
+ }
+ 
+diff --git a/test/liveness/liveness_demo_page_test.dart b/test/liveness/liveness_demo_page_test.dart
+index 0e79d43..6735571 100644
+--- a/test/liveness/liveness_demo_page_test.dart
++++ b/test/liveness/liveness_demo_page_test.dart
+@@ -54,8 +54,14 @@ class FakeDemoApi implements LivenessApi {
+     return had;
+   }
+ 
++  // Thrown when the identity override is switched off (a channel failure).
++  Object? throwOnOverrideOff;
++
+   @override
+-  Future<void> setIdentityDiagnosticOverride(bool on) async => calls.add('identityOverride $on');
++  Future<void> setIdentityDiagnosticOverride(bool on) async {
++    calls.add('identityOverride $on');
++    if (!on && throwOnOverrideOff != null) throw throwOnOverrideOff!;
++  }
+ 
+   @override
+   Future<void> setModelBundleDiagnosticOverride(bool on) async => calls.add('modelOverride $on');
+@@ -501,6 +507,165 @@ void main() {
+     expect(await tile('failureRate'), '–', reason: 'a field the metrics do not have');
+   });
+ 
++  testWidgets('a failed identity call or override switch-off still ends the check, and says so', (tester) async {
++    api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++    // Not a PlatformException: a reply that fails to decode, for example.
++    service.throwOnIdentity = StateError('bad reply');
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(api.calls, containsAllInOrder(['identityOverride true', 'identityOverride false']));
++    expect(verdict(tester), startsWith('Identity check failed'));
++    expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.enroll'))).onPressed, isNotNull);
++
++    // The override stays on in the native side when switching it off fails: the page says to restart the app.
++    service.throwOnIdentity = null;
++    api.throwOnOverrideOff = PlatformException(code: 'error', message: 'channel closed');
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(verdict(tester), contains('restart the app'));
++    expect(tester.widget<TextButton>(find.byKey(const Key('demo.identity.enroll'))).onPressed, isNotNull);
++  });
++
++  testWidgets('models that load late show their version; models that never load say so after 30 s', (tester) async {
++    final messenger = tester.binding.defaultBinaryMessenger;
++    messenger.setMockMethodCallHandler(
++        const MethodChannel('io.mosip.registration_client/liveness/events'), (_) async => null);
++    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (call) async => call.method == 'create' ? 0 : null);
++    addTearDown(() {
++      messenger.setMockMethodCallHandler(const MethodChannel('io.mosip.registration_client/liveness/events'), null);
++      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
++    });
++    // The models load in the background: their version reads '' until then, and stays '' when they fail to load.
++    service.version = '';
++    await pumpDemo(tester);
++    expect(find.text('Models loading…'), findsOneWidget);
++    service.version = 'pad-2026.10.5';
++    await tester.pump(const Duration(seconds: 2));
++    await tester.pump();
++    expect(find.text('Models pad-2026.10.5 · signed'), findsOneWidget);
++
++    // A bundle that fails verification: the preload fails, and nothing else would ever tell the page.
++    service.version = '';
++    listPosition(tester).jumpTo(0);
++    await tapKey(tester, 'demo.developerTools');
++    expect(find.byType(LivenessDebugPage), findsOneWidget);
++    Navigator.of(tester.element(find.byType(LivenessDebugPage))).pop();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    listPosition(tester).jumpTo(0);
++    await tester.pump();
++    expect(find.text('Models loading…'), findsOneWidget);
++    await tester.pump(const Duration(seconds: 20));
++    expect(find.text('Models loading…'), findsOneWidget);
++    await tester.pump(const Duration(seconds: 11));
++    await tester.pump();
++    expect(find.text('Models not loaded'), findsOneWidget);
++  });
++
++  testWidgets('the tappable cards and rows are buttons with an enabled state; the verdict and result are live regions',
++      (tester) async {
++    final semantics = tester.ensureSemantics();
++    await pumpDemo(tester);
++    for (final key in const ['demo.run.RESIDENT', 'demo.fake.PAD_ATTACK', 'demo.developerTools']) {
++      await reveal(tester, find.byKey(Key(key)));
++      expect(tester.getSemantics(find.byKey(Key(key))),
++          containsSemantics(isButton: true, hasEnabledState: true, isEnabled: true, hasTapAction: true),
++          reason: key);
++    }
++    // TalkBack is told the verdict when the face check closes, and the result of each run.
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(tester.getSemantics(find.byKey(const Key('demo.identity.verdict'))), containsSemantics(isLiveRegion: true));
++    await tapKey(tester, 'demo.run.RESIDENT');
++    await passSession(tester);
++    await reveal(tester, find.byKey(const Key('demo.result')));
++    expect(tester.getSemantics(find.byKey(const Key('demo.result'))), containsSemantics(isLiveRegion: true));
++    semantics.dispose();
++  });
++
++  testWidgets('Developer tools shows the overrides the demo set: what it shows is what runs', (tester) async {
++    final messenger = tester.binding.defaultBinaryMessenger;
++    messenger.setMockMethodCallHandler(
++        const MethodChannel('io.mosip.registration_client/liveness/events'), (_) async => null);
++    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (call) async => call.method == 'create' ? 0 : null);
++    addTearDown(() {
++      messenger.setMockMethodCallHandler(const MethodChannel('io.mosip.registration_client/liveness/events'), null);
++      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
++    });
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.fake.ENGINE_ERROR');
++    Navigator.of(tester.element(find.byType(LivenessPage))).pop();
++    await tester.pump();
++    await tester.pump(const Duration(milliseconds: 400));
++    await tapKey(tester, 'demo.forceActions');
++
++    await tapKey(tester, 'demo.developerTools');
++    expect(find.byType(LivenessDebugPage), findsOneWidget);
++    expect(
++        tester
++            .widget<SwitchListTile>(find.widgetWithText(SwitchListTile, 'Force challenges (passiveThreshold 0.9999)',
++                skipOffstage: false))
++            .value,
++        isTrue);
++    // The fake engine runs the scenario the demo left set: the scenario list must show it, not its default.
++    tester.widget<DropdownButton<bool>>(find.byType(DropdownButton<bool>, skipOffstage: false)).onChanged!(true);
++    await tester.pump();
++    final scenario = tester.widget<DropdownButton<String>>(find.byWidgetPredicate(
++        (w) => w is DropdownButton<String> && (w.items ?? const []).any((i) => i.value == 'ENGINE_ERROR'),
++        skipOffstage: false));
++    expect(scenario.value, 'ENGINE_ERROR');
++  });
++
++  testWidgets('a test-face change made on Developer tools clears the verdict and the note', (tester) async {
++    final messenger = tester.binding.defaultBinaryMessenger;
++    messenger.setMockMethodCallHandler(
++        const MethodChannel('io.mosip.registration_client/liveness/events'), (_) async => null);
++    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (call) async => call.method == 'create' ? 0 : null);
++    addTearDown(() {
++      messenger.setMockMethodCallHandler(const MethodChannel('io.mosip.registration_client/liveness/events'), null);
++      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
++    });
++    api.templateTime = DateTime(2025, 10, 27, 9, 5).millisecondsSinceEpoch;
++    service.identityResults = [
++      IdentityCheckInfo(outcome: 'MATCH', accepted: true, retryable: false, similarity: 0.82, threshold: 0.40),
++    ];
++    await pumpDemo(tester);
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    expect(verdict(tester), 'Same person');
++
++    Future<void> developerTools(void Function() change) async {
++      await tapKey(tester, 'demo.developerTools');
++      expect(find.byType(LivenessDebugPage), findsOneWidget);
++      change();
++      Navigator.of(tester.element(find.byType(LivenessDebugPage))).pop();
++      await tester.pump();
++      await tester.pump(const Duration(milliseconds: 400));
++    }
++
++    // The test face is deleted there: the verdict was against it.
++    await developerTools(() => api.templateTime = null);
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(enrolled(tester), 'No test face enrolled');
++    expect(verdict(tester), 'No identity check yet');
++
++    // An enrolment here, then another face enrolled there: the "Enrolled" note no longer holds either.
++    await tapKey(tester, 'demo.identity.enroll');
++    await passSession(tester);
++    expect(find.byKey(const Key('demo.identity.note')), findsOneWidget);
++    await developerTools(() => api.templateTime = DateTime(2025, 10, 28, 7, 30).millisecondsSinceEpoch);
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(find.byKey(const Key('demo.identity.note')), findsNothing);
++    expect(verdict(tester), 'No identity check yet');
++
++    // Coming back with nothing changed keeps a verdict.
++    await tapKey(tester, 'demo.identity.check');
++    await passSession(tester);
++    await developerTools(() {});
++    await reveal(tester, find.byKey(const Key('demo.identity.verdict')));
++    expect(verdict(tester), 'Same person');
++  });
++
+   testWidgets('Developer tools opens the debug page', (tester) async {
+     final messenger = tester.binding.defaultBinaryMessenger;
+     // The debug page's own engine and camera view: no platform side in a test.

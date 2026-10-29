@@ -1,0 +1,149 @@
+From 21a46b28d1995b95df018392eb1f6f5c169a9897 Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 22:43:14 +0530
+Subject: [PATCH 65/68] The rotation test runs the real bind and checks the
+ Activity's own display: sync CameraXFrameSource (F19, task 29)
+
+Two F19 test gaps, each shown by a mutation that left all 6 tests green:
+- R2: window() reading the default display (the pre-F19 behaviour) instead of Activity.getDisplay(). New test:
+  an Activity whose own display reports 0 while the default display is at 90 gives window 0, display 90. It fails
+  under that mutation.
+- R3: the tests bound through bindForTest(), a copy of the bind's steps, so the real bind without
+  followRotation() (the app never following a rotation) went unnoticed. The tests now run the real bind
+  (bindUseCases, package-private since Mosip26 c0e8f6a) with a mock ProcessCameraProvider; 4 of them fail under
+  that mutation. "A bind that finishes after stop" now runs the bind's own clean-up (unbindAll twice, no watch).
+
+- CameraXFrameSource from Mosip26 c0e8f6a (Part 1); engine-sync.txt: the engine commit and the source's SHA-256.
+  The four jars are unchanged (synced with -SkipBuild, the branch's jars kept).
+- :liveness:testDebugUnitTest: 123 passing (122 + 1).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt              |  4 +-
+ .../CameraXFrameSourceRotationTest.java       | 40 ++++++++++++++++---
+ 2 files changed, 36 insertions(+), 8 deletions(-)
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 2254bf1..7f31c49 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,5 +1,5 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit 56bf83b
++engine commit c0e8f6a
+ libs/liveness-api-1.2.0.2.jar 8afcd23e6b2835629216d5d7ee02e627f4e94b04e9714bf1e8c643a6ee67af8b
+ libs/liveness-core-1.2.0.2.jar 542ac4ab9cfad3f990fcbba83ed42672f6d7ded8aa23dd2739bb20738c3a1672
+ libs/liveness-fake-1.2.0.2.jar 7a60dba0fb88d1c2afc8cb903083140cb64eef50a89936c56bcc081551068ca8
+@@ -11,4 +11,4 @@ assets/liveness/models/face_mesh_v2.onnx 4bcf3c8ce1f19627bb2e0e790850372653cb5ad
+ assets/liveness/models/minifasnet_v2_s2.7.onnx 7a08c271aedc4c7722c28be076d278163eb971e638e6bffafaac7a80f5d72665
+ assets/liveness/models/minifasnet_v1se_s4.0.onnx d61727ec68d9b94e08dc7b07f8597d07a57985c490fdd3ea48df26f75e843b84
+ assets/liveness/models/face_recognition_sface_2021dec_int8.onnx 2b0e941e6f16cc048c20aee0c8e31f569118f65d702914540f7bfdc14048d78a
+-src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java 14288f1a84f6cc94f4bf3d4269083c5a9ada04d7b61b6bdf5796a8b52d40a771
++src/main/java/io/mosip/registration/liveness/device/android/CameraXFrameSource.java eacb9253371dc9540e9fa846b081feb7c0b8104c6fb681fac772c5cef13cd27a
+diff --git a/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceRotationTest.java b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceRotationTest.java
+index 3c62883..ff62037 100644
+--- a/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceRotationTest.java
++++ b/android/liveness/src/test/java/io/mosip/registration/liveness/device/android/CameraXFrameSourceRotationTest.java
+@@ -4,6 +4,9 @@ import static org.junit.Assert.assertEquals;
+ import static org.junit.Assert.assertNotNull;
+ import static org.junit.Assert.assertTrue;
+ import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.times;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
+ import static org.robolectric.Shadows.shadowOf;
+ 
+ import android.app.Activity;
+@@ -14,6 +17,7 @@ import android.view.Surface;
+ 
+ import androidx.camera.core.CameraSelector;
+ import androidx.camera.core.Preview;
++import androidx.camera.lifecycle.ProcessCameraProvider;
+ import androidx.lifecycle.LifecycleOwner;
+ 
+ import org.junit.Test;
+@@ -41,7 +45,7 @@ public class CameraXFrameSourceRotationTest {
+     public void bindUsesTheWindowsRotationNotTheDisplays() {
+         // The window at 270, the display at 90: neither the display's rotation nor CameraX's unset default (0) passes.
+         FakeRotation rotation = new FakeRotation(Surface.ROTATION_270, Surface.ROTATION_90);
+-        CameraXFrameSource.UseCases useCases = running(rotation, true).bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(running(rotation, true));
+         assertEquals(Surface.ROTATION_270, useCases.analysis.getTargetRotation());
+         assertNotNull(useCases.preview);
+         assertEquals(Surface.ROTATION_270, useCases.preview.getTargetRotation());
+@@ -53,7 +57,7 @@ public class CameraXFrameSourceRotationTest {
+         // As on the phone: the display at 90 under another app's fixed-rotation transform, the app portrait.
+         FakeRotation rotation = new FakeRotation(Surface.ROTATION_0, Surface.ROTATION_90);
+         CameraXFrameSource source = running(rotation, true);
+-        CameraXFrameSource.UseCases useCases = source.bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(source);
+ 
+         // The transform ends: the display turns to 0, the window stays at 0.
+         rotation.display = Surface.ROTATION_0;
+@@ -77,7 +81,7 @@ public class CameraXFrameSourceRotationTest {
+     @Test
+     public void withoutAPreviewOnlyTheAnalysisFollows() {
+         FakeRotation rotation = new FakeRotation(Surface.ROTATION_90, Surface.ROTATION_0);
+-        CameraXFrameSource.UseCases useCases = running(rotation, false).bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(running(rotation, false));
+         assertEquals(null, useCases.preview);
+         assertEquals(Surface.ROTATION_90, useCases.analysis.getTargetRotation());
+         rotation.window = Surface.ROTATION_0;
+@@ -89,7 +93,7 @@ public class CameraXFrameSourceRotationTest {
+     public void stopUnregistersTheWatch() {
+         FakeRotation rotation = new FakeRotation(Surface.ROTATION_0, Surface.ROTATION_90);
+         CameraXFrameSource source = running(rotation, true);
+-        CameraXFrameSource.UseCases useCases = source.bindForTest();
++        CameraXFrameSource.UseCases useCases = bind(source);
+         source.stop();
+         assertEquals(1, rotation.unwatched);
+ 
+@@ -107,15 +111,34 @@ public class CameraXFrameSourceRotationTest {
+         FakeRotation rotation = new FakeRotation(Surface.ROTATION_0, Surface.ROTATION_90);
+         CameraXFrameSource source = running(rotation, true);
+         source.stop(); // on another thread, while the provider was still binding
+-        source.bindForTest();
++        ProcessCameraProvider provider = mock(ProcessCameraProvider.class);
++        source.bindUseCases(provider);
+         assertEquals(0, rotation.watches);
++        // The bind's own clean-up: before binding, and again because stop() found nothing bound to release.
++        verify(provider, times(2)).unbindAll();
++    }
++
++    @Test
++    public void anActivitysWindowIsItsOwnDisplaysRotationNotTheDefaultDisplays() {
++        // F19 on the phone: under another app's fixed-rotation transform, the default display is at 90 while the
++        // Activity's own display (API 30+) reports its window at 0. The source must read the Activity's.
++        shadowOf(ShadowDisplay.getDefaultDisplay()).setRotation(Surface.ROTATION_90);
++        Display own = mock(Display.class);
++        when(own.getRotation()).thenReturn(Surface.ROTATION_0);
++        Activity activity = mock(Activity.class);
++        when(activity.getApplicationContext()).thenReturn(RuntimeEnvironment.getApplication());
++        when(activity.getDisplay()).thenReturn(own);
++
++        CameraXFrameSource.WindowRotation rotation = CameraXFrameSource.windowRotationOf(activity);
++        assertEquals("the window", Surface.ROTATION_0, rotation.window());
++        assertEquals("the physical display, for the log", Surface.ROTATION_90, rotation.display());
+     }
+ 
+     @Test
+     public void anActivitysWindowRotationAndItsDisplayListener() {
+         Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+         // Robolectric's Activity is not a UI context (getDisplay() throws), so this reads the WindowManager's display:
+-        // the fallback path. The phone reads Activity.getDisplay().
++        // the fallback path. The phone reads Activity.getDisplay(): see the test above.
+         shadowOf(ShadowDisplay.getDefaultDisplay()).setRotation(Surface.ROTATION_90);
+         CameraXFrameSource.WindowRotation rotation = CameraXFrameSource.windowRotationOf(activity);
+         assertEquals(Surface.ROTATION_90, rotation.window());
+@@ -134,6 +157,11 @@ public class CameraXFrameSourceRotationTest {
+         assertEquals("nothing after the watch is stopped", before, changes[0]);
+     }
+ 
++    /** The source's real bind, with a provider that binds no camera: the use cases it built and bound. */
++    private static CameraXFrameSource.UseCases bind(CameraXFrameSource source) {
++        return source.bindUseCases(mock(ProcessCameraProvider.class));
++    }
++
+     /** A source that is running, without a camera, with {@code rotation} and optionally a preview surface. */
+     private static CameraXFrameSource running(FakeRotation rotation, boolean withPreview) {
+         CameraXFrameSource source = new CameraXFrameSource(RuntimeEnvironment.getApplication(),

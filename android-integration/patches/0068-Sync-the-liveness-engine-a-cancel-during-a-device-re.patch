@@ -1,0 +1,40 @@
+From 4d5e6b9f8acb588131ee24ca9f6b94a3dae3793f Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 23:42:35 +0530
+Subject: [PATCH 68/68] Sync the liveness engine: a cancel during a device
+ restart no longer leaves the camera on (R5, task 30)
+
+Engine from Mosip26 review-fixes-1029 (engine commit 5777716, "Part 3: a cancel during a device restart no longer
+leaves the source started"). In a session, a Retry after a device error restarts the camera. A cancel that landed
+between the restart's stop and its start left CameraXFrameSource started after the session ended, with its
+display listener holding the Activity. The session now stops the source again if it was released meanwhile.
+
+- The four engine jars were built in the review-fixes worktree with git-commit-id skipped (the plugin cannot read a
+  git worktree). So they carry no git.properties; nothing reads it at runtime.
+- engine-sync.txt has the engine commit and the jars' SHA-256. The models and the camera source are unchanged.
+- :liveness:testDebugUnitTest: 123 passing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ android/liveness/engine-sync.txt | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/android/liveness/engine-sync.txt b/android/liveness/engine-sync.txt
+index 7f31c49..1034ce1 100644
+--- a/android/liveness/engine-sync.txt
++++ b/android/liveness/engine-sync.txt
+@@ -1,9 +1,9 @@
+ # Written by Mosip26 android-integration/scripts/sync-engine.ps1. Do not edit; sync again.
+-engine commit c0e8f6a
+-libs/liveness-api-1.2.0.2.jar 8afcd23e6b2835629216d5d7ee02e627f4e94b04e9714bf1e8c643a6ee67af8b
+-libs/liveness-core-1.2.0.2.jar 542ac4ab9cfad3f990fcbba83ed42672f6d7ded8aa23dd2739bb20738c3a1672
+-libs/liveness-fake-1.2.0.2.jar 7a60dba0fb88d1c2afc8cb903083140cb64eef50a89936c56bcc081551068ca8
+-libs/liveness-analyzer-1.2.0.2.jar c9937eab042bee8adf020a27c98ca515b6f4c50ae93a881ced4b8069d086fa14
++engine commit 5777716
++libs/liveness-api-1.2.0.2.jar b0ab1892d90577d8f40f57a8fe0080ff06e3951b8b7a9d5e52a11356d3f21c36
++libs/liveness-core-1.2.0.2.jar 4e5c0cca253f06eddacaaadefad30955df9ad0d67cac3c43bf39ba54e3a050f3
++libs/liveness-fake-1.2.0.2.jar 2c3bd7c51628d73e16dc577f548a14d2964e45ed9e5a99f5943954cd65f20d9c
++libs/liveness-analyzer-1.2.0.2.jar 5e5cf201f3d2434928a3981a73ee2d2db5092d1d03c8bcb0d388c7a7de307056
+ assets/liveness/models/manifest.json 766843ce4f9d1e1f2d225610c94d17296de8bd0ceb8ca6f86c5f81dffb6d40e0
+ assets/liveness/models/manifest.sig df3e1d839968134bb41fdcefc04f09bd294285f482ee52f091c8850e49b04c23
+ assets/liveness/models/yunet_2026may.onnx ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0

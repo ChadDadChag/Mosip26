@@ -298,3 +298,9 @@ never detected, either with small tilts (the eye and mouth changes stay below th
 ones (the guard discards the tilted frames and cancels in-progress actions). Before P3-3, a tilted close-up photo
 passed BLINK and SMILE. The per-frame features of these runs are in `liveness-eval/target/sessions-*.jsonl` (numbers
 only, never committed).
+
+### Review fix (2026-10-28, task 30)
+
+| Finding | Fix | Guarded by |
+|---|---|---|
+| A Retry after a device problem restarts the source (`RESTART_SOURCE`: stop, then start) with no lock against `cancel()`. A cancel landing between the restart's check and its start released the source (once per session), and the restart then left it started: the camera, and on Android a display listener holding the Activity, stayed on after the session ended. | After the restart's start, the source is stopped again if it was released meanwhile (`DefaultLivenessSession`, the `RESTART_SOURCE` effect). The release sets its flag before it stops, so every interleaving ends stopped. | `EngineScenarioTest.aCancelBetweenADeviceRestartsStopAndStartLeavesTheSourceStopped`: the scripted source's stop hook runs the cancel at exactly that point; it failed before the fix. liveness-core: 228 tests. |

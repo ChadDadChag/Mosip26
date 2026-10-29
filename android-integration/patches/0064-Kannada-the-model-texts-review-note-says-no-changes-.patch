@@ -1,0 +1,51 @@
+From 248181c46c097f50c3b826bcc4e013a868cc422e Mon Sep 17 00:00:00 2001
+From: Varun-iiitb <var3907@gmail.com>
+Date: Wed, 28 Oct 2026 22:38:36 +0530
+Subject: [PATCH 64/68] Kannada: the model texts' review note says "no changes"
+ (task 29)
+
+L1: app_kn.arb's @@x-liveness-model-translation said "corrected", but the Kannada review changed no model text
+(f729dd5 changed three screen texts; the model-text suggestions were not adopted). Arabic, French and Hindi did
+change model texts (3, 6 and 6), so theirs stay "corrected"; Tamil stays "no changes". model_bundle_test expects
+the corrected note. Metadata only: nothing shown changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ assets/l10n/app_kn.arb               | 2 +-
+ test/liveness/model_bundle_test.dart | 6 +++---
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/assets/l10n/app_kn.arb b/assets/l10n/app_kn.arb
+index e03f682..402fec7 100644
+--- a/assets/l10n/app_kn.arb
++++ b/assets/l10n/app_kn.arb
+@@ -415,7 +415,7 @@
+   "liveness_button_cancel": "ರದ್ದುಮಾಡಿ",
+   "liveness_button_close": "ಮುಚ್ಚಿ",
+   "liveness_button_open_settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ",
+-  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: corrected",
++  "@@x-liveness-model-translation": "machine-translated; reviewed by a native speaker on 2026-10-28: no changes",
+   "liveness_model_title": "ಮುಖದ ಜೀವಂತಿಕೆ ಮಾದರಿಗಳು",
+   "liveness_model_current": "ಬಳಕೆಯಲ್ಲಿರುವ ಮಾದರಿಗಳು: {version}",
+   "liveness_model_install": "ಮಾದರಿ ಬಂಡಲ್ ಅನ್ನು ಸ್ಥಾಪಿಸಿ",
+diff --git a/test/liveness/model_bundle_test.dart b/test/liveness/model_bundle_test.dart
+index 0e90bb6..449871b 100644
+--- a/test/liveness/model_bundle_test.dart
++++ b/test/liveness/model_bundle_test.dart
+@@ -163,13 +163,13 @@ void main() {
+     final keys = en.keys.where((k) => k.startsWith('liveness_model_')).toList();
+     expect(keys, hasLength(15));
+     final placeholder = RegExp(r'\{(\w+)\}');
+-    // The native-speaker review (2026-10-28): Tamil had no changes; Arabic, French, Hindi and Kannada were
+-    // corrected.
++    // The native-speaker review of the model texts (2026-10-28): Arabic, French and Hindi were corrected; Kannada
++    // (its suggestions there were not adopted) and Tamil had no changes.
+     const review = {
+       'ar': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+       'fr': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+       'hi': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
+-      'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: corrected',
++      'kn': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
+       'ta': 'machine-translated; reviewed by a native speaker on 2026-10-28: no changes',
+     };
+     for (final lang in ['ar', 'fr', 'hi', 'kn', 'ta']) {

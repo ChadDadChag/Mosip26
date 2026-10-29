@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.text.Bidi;
 import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
@@ -74,5 +75,17 @@ public class ModelBundleTextsTest {
 			assertNotNull(lang, labels.getProperty("rollbackModelBundle"));
 		}
 		assertEquals(en.getProperty("liveness.model.install"), bundle("labels_en.properties").getProperty("installModelBundle"));
+	}
+
+	@Test
+	public void theArabicFilePickerTitleKeepsTheZipExtensionInOrder() throws IOException {
+		// Task 30 (L3): drawn right to left (an Arabic Windows), "(.zip)" after Arabic text resolved its period right to
+		// left and showed "(zip.)". A left-to-right mark before the period ties it to "zip"; it is invisible.
+		String text = bundle("messages_ar.properties").getProperty("liveness.model.select_file");
+		int dot = text.indexOf(".zip");
+		assertTrue(text, dot > 0);
+		Bidi bidi = new Bidi(text, Bidi.DIRECTION_RIGHT_TO_LEFT);
+		assertEquals("the period runs left to right", 0, bidi.getLevelAt(dot) % 2);
+		assertEquals("with zip", bidi.getLevelAt(dot + 1), bidi.getLevelAt(dot));
 	}
 }

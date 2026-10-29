@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 class DatasetSessionTest {
@@ -140,24 +141,74 @@ class DatasetSessionTest {
         assertThat(shown.getRGB(14, 14)).isNotEqualTo(WHITE);
         assertThat(shown.getRGB(625, 14)).isEqualTo(WHITE);
         // Green inside the 20-35% target, orange outside.
-        assertThat(count(plain, new Color(80, 220, 80))).isGreaterThan(100);
-        assertThat(count(render(0.12f, false), new Color(255, 160, 0))).isGreaterThan(100);
-        assertThat(count(render(0.12f, false), new Color(80, 220, 80))).isZero();
+        assertThat(count(plain, GREEN)).isGreaterThan(100);
+        assertThat(count(render(0.12f, false), ORANGE)).isGreaterThan(100);
+        assertThat(count(render(0.12f, false), GREEN)).isZero();
+    }
+
+    @Test
+    void theFaceSizeLabelJudgesEachStepAgainstTheTargetItsPromptStates() {
+        // Not the F5 retake's 20-35% on every step (task 29, E6): close_whole asks for 25-40%, the fill and close
+        // takes for 20% or more, and a step that states no size gets no colour judgement.
+        assertThat(target("video_realsize")).containsExactly(0.20f, 0.35f);
+        assertThat(target("close_whole")).containsExactly(0.25f, 0.40f);
+        assertThat(target("selfie_fill")).containsExactly(0.20f, 1f);
+        assertThat(target("nasa_close")).containsExactly(0.20f, 1f);
+        assertThat(target("normal")).isNull();
+        assertThat(DatasetSession.sizeTarget(SessionDemo.SECOND_SCREEN_REALSIZE)).containsExactly(0.20f, 0.35f);
+
+        float[] whole = target("close_whole");
+        assertThat(count(render(0.38f, false, whole), GREEN)).as("38% is inside close_whole's 25-40%").isGreaterThan(100);
+        assertThat(count(render(0.22f, false, whole), ORANGE)).as("22% is below it").isGreaterThan(100);
+        assertThat(count(render(0.50f, false, target("selfie_fill")), GREEN)).as("20% or more").isGreaterThan(100);
+        BufferedImage none = render(0.30f, false, null);
+        assertThat(count(none, GREEN) + count(none, ORANGE)).as("no target, no judgement").isZero();
+    }
+
+    @Test
+    void theSubjectCodeIsRequiredAndIsACodeNotAName() {
+        // E8 (task 29): there is no default s01 any more; a teammate recorded without --subject filled s01's gaps.
+        assertThatThrownBy(() -> DatasetSession.subjectOf(args()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("--subject <code> is required");
+        assertThat(DatasetSession.subjectOf(args("--subject", "s02"))).isEqualTo("s02");
+        assertThat(DatasetSession.subjectOf(args("--subject", "p05"))).isEqualTo("p05");
+        assertThatThrownBy(() -> DatasetSession.subjectOf(args("--subject", "Alice")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("never a name");
+        assertThatThrownBy(() -> DatasetSession.subjectOf(args("--subject", "s1")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static ModelBundleTool.Args args(String... a) {
+        return ModelBundleTool.Args.parse(a, 0);
+    }
+
+    /** The size target of the first protocol step with this condition. */
+    private static float[] target(String condition) {
+        for (DatasetSession.Step s : DatasetSession.plan()) {
+            if (s.condition.equals(condition)) return DatasetSession.sizeTarget(s.prompt);
+        }
+        throw new AssertionError("no step " + condition);
     }
 
     private static final int WHITE = Color.WHITE.getRGB();
+    private static final Color GREEN = new Color(80, 220, 80);
+    private static final Color ORANGE = new Color(255, 160, 0);
 
     private static FrameAnalysis analysis(int faces, float[] box) {
         return new FrameAnalysis(null, faces, box, null, 0, 0, 0, null, 0.9f, null, 1);
     }
 
-    /** The overlay on a white 640 x 480 picture, without a box: the label alone. */
+    /** The overlay on a white 640 x 480 picture, without a box: the label alone, judged against the F5 retake's target. */
     private static BufferedImage render(float area, boolean mirrored) {
+        return render(area, mirrored, new float[] {0.20f, 0.35f});
+    }
+
+    private static BufferedImage render(float area, boolean mirrored, float[] target) {
         BufferedImage img = new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         g.setColor(Color.WHITE);
         g.fillRect(0, 0, 640, 480);
-        DatasetSession.Readout.sizeOverlay(null, area, 640, mirrored).paint(g);
+        DatasetSession.Readout.sizeOverlay(null, area, 640, mirrored, target).paint(g);
         g.dispose();
         return img;
     }
