@@ -358,8 +358,37 @@ goes. The release build type's `ndk.abiFilters` (upstream) made Gradle refuse `-
 - **Distribute per ABI: split APKs for sideloading (`flutter build apk --release --split-per-abi`),
   or an Android App Bundle (`flutter build appbundle`) through a store.** Most current Android
   phones and tablets are arm64, so the arm64 split is the one to test.
-- Backlog: a reduced ONNX Runtime build containing only the operators these five models use
-  would shrink the 32.6 MiB arm64 library further. Not done.
+- A reduced ONNX Runtime build containing only the operators these five models use would shrink the 32.6 MiB arm64
+  library further: F10b, below.
+
+**F10b: a reduced ONNX Runtime, not built this week (the user's decision, 2026-10-29).** The recipe, for later:
+- **Toolchain.**
+  - ONNX Runtime v1.31.0, the version the app ships, built for arm64-v8a.
+  - Android NDK 28.0.13004108, the one ONNX Runtime's own CI pins.
+  - CMake 3.28 or later, and Ninja.
+  - When cross-compiling, ONNX Runtime's build downloads a prebuilt host `protoc` (protoc-33.6-win64), so a
+    Windows host needs no MSVC.
+- **Operators.** `--include_ops_by_config models/tools/ort-reduced-ops.config`, written by
+  `models/tools/ort_reduced_ops.py` from the committed models.
+  - 35 operators: ai.onnx opset 11 (16), ai.onnx opset 13 (15) and com.microsoft (4).
+  - They include Gemm, FusedConv and QLinearConv. The models do not contain them, but ONNX Runtime's optimizer adds
+    them at load time (the engine opens every model with ALL_OPT).
+- **Model format.** ONNX is kept: no `--minimal_build` and no `.ort` conversion, so the signed bundle
+  (`pad-2026.10.5`) and its manifest are unchanged.
+- **Command** (Windows):
+  ```
+  python tools\ci_build\build.py --build_dir <dir> --config MinSizeRel --android --android_abi arm64-v8a
+    --android_api 24 --android_sdk_path <sdk> --android_ndk_path <sdk>\ndk\28.0.13004108 --cmake_generator Ninja
+    --build_shared_lib --build_java --include_ops_by_config models\tools\ort-reduced-ops.config
+    --use_xnnpack --use_nnapi --skip_tests
+  ```
+  XNNPACK and NNAPI stay because the engine's `accelerator` setting offers them.
+- **Then:** swap the AAR in on a client branch and measure the arm64 APK. Before any adoption, run a full on-device
+  parity check of every model's outputs and a liveness regression.
+- **What it would shrink.** The released arm64 `libonnxruntime.so` is 34,208,680 bytes: 12.9 MB compressed in the
+  AAR, and the 32.6 MiB in the tables above. The released AAR also carries NNAPI, XNNPACK and WebGPU, built with LTO.
+- **Why not this week.** A custom native runtime needs that full on-device parity check and a regression run, three
+  days before the deadline.
 
 ## Low-end phones: caveat and what to try
 

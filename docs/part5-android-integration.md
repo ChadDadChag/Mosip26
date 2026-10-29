@@ -1017,8 +1017,11 @@ provisional.
     MOSIP's own Arabic texts use it (task 27). All five translated languages are reviewed. Each file's
     `"@@x-liveness-translation"` records its status.
   - Arabic is laid out right to left. The turn arrows keep pointing to the user's physical left and right.
-- **APK size.** Distribute per ABI (split APKs or an App Bundle; section 9). A reduced ONNX Runtime
-  build with only the needed operators is in the backlog.
+- **APK size.** Distribute per ABI (split APKs or an App Bundle; section 9).
+  - A reduced ONNX Runtime build with only the needed operators (F10b) was not built this week; the user decided this
+    on 2026-10-29.
+  - A custom native runtime needs a full on-device parity check and regression first.
+  - The recipe and the 35-operator config are in the benchmark document, section G (`models/tools/ort_reduced_ops.py`).
 - **INT8 models.** For the four liveness models: evaluated and rejected, slower and less accurate
   (`models/README.md`). For SFace, OpenCV Zoo's own int8 file is used since `pad-2026.10.5`: it
   met every adoption criterion and is faster on the phone.
@@ -1028,5 +1031,5 @@ provisional.
 - **Review findings (F-items) handled for Android.**
   - Done: F8 (dim faces, exposure assist), F12 (permanently refused permission) and F19 (the camera's rotation,
     found on the phone, above).
-  - Backlog: F10 (ONNX Runtime size).
+  - Backlog: F10b (a reduced ONNX Runtime). It has a recipe and is not built (the user's decision, 2026-10-29).
   - The other F-items are in the fix phase that follows Person 5.

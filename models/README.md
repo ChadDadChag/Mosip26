@@ -143,6 +143,7 @@ python -I models/tools/make_golden.py --binding            # main env: golden/bi
 python -I models/tools/calibrate_pitch.py                  # main env: re-derive PITCH_BIAS_DEG
 python -I models/tools/inspect_models.py                   # main env: regenerate tools/model-io.md
 python -I models/tools/sanity_webcam.py                    # main env, with a person at the camera
+python -I models/tools/ort_reduced_ops.py                  # main env: tools/ort-reduced-ops.config (F10b, not built)
 ```
 
 Downloads go to `models/tools/.cache/`, which is gitignored. A re-converted mesh will differ in
