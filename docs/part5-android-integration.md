@@ -983,6 +983,23 @@ provisional.
   that the source binds at the Activity's own display's rotation and follows it; that this display reports the
   window's rotation under a fixed-rotation transform is the platform's behaviour (API 30+), which neither a test nor
   the live check reproduced. The bind's log line shows any future mismatch.
+  - **Live check on APK 8 (2026-10-29, task 30).**
+    - Sessions started at 0, 90 and 270 all PASSED.
+    - At 270 the target was 270 and the analysis rotation 180 (frames 640x480), and the session PASSED after
+      TURN_RIGHT and SMILE. So the rotated frames and the yaw signs hold in reverse landscape.
+    - During a session, the phone was flipped 180°. Each time Android turned the display (90 → 270, and
+      0 → 270 → 0), the target followed within about 15 ms, logged as "changed", with the right analysis rotation.
+      So the stale target that the task 29 review feared (R1) does not occur.
+    - 2 of 3 landscape sessions went to a challenge (score capped at 0.60); every portrait session passed passively.
+      The sample is small: recorded only.
+  - **Limit: the check follows the screen's rotation.**
+    - Every failure in that check (no face, poor quality) came while the phone was turned but the screen was not.
+    - This phone does not use upside-down portrait, and once the display stayed at 90 for about 40 s after a flip.
+    - The frames then reach the face detector upside down or sideways, so the face check finds no face until the
+      phone is held so that the screen reads normally.
+    - Operators hold the device upright, or in either landscape position.
+  - **Possible future work** (not this week): take the analysis's target rotation from an
+    `OrientationEventListener`. That is CameraX's own advice when the UI rotation does not follow the device.
 - **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
