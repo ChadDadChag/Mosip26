@@ -224,6 +224,24 @@ DatasetRecorder --consent --label screen_photo_close --subject s01 --take 7 --co
      - **Replay.** `models/tools/session_guard_replay.py <log>` replays a log through the print-guard spec, and
        Part 3's first passive window per attempt, with and without each guard.
      - **Plan length.** Keep plans to about 15 runs. Two longer series windows ended early (exit 116, F13).
+- **Known limits of the recording tools** (task 30; documented, not changed):
+  - **z and zf: wait for the camera before SPACE.** The positioning readout's camera is stopped when the run starts,
+    and its grab thread gets 2 s to finish. SPACE pressed while the camera is still opening (0.8–2.5 s) can let the
+    old thread close the camera the session has just opened. The session then reports a device error. Retry, or
+    start again.
+  - **The scripts rebuild only when the pom changes.** `dataset-session.ps1` and `session-series.ps1` compile
+    `liveness-eval` when `target/classes` or its classpath file is missing, or `pom.xml` is newer than that file,
+    not when a Java source changes. After pulling or editing code, run `mvn -f liveness-eval\pom.xml compile`
+    first, or the old tools run.
+  - **A take that fails while recording keeps its number.** Its folder stays, without `meta.json`.
+    - `PadEvaluation` and `BindingEvaluation` skip it, as they read only takes with `meta.json`.
+    - A rerun of the session skips that number too, as it skips any folder on disk.
+    - To record it again, delete that folder first. It holds only the failed take's frames.
+  - **The subject map's codes must be in the data.** `f9_reeval.py inventory` (step a of `scripts\f9-reeval.ps1`)
+    and `finetune_minifasnet.py` refuse an `sNN=pNN` whose codes are not in the data.
+    - sNN must be a listed subject.
+    - pNN must have attack takes or labelled photos.
+    - Unchecked, a typo such as `s02=p50` would turn that person's genuine pairs into impostors without a word.
 
 ## 9. Evaluation
 
@@ -246,7 +264,7 @@ PadEvaluation [--data eval-data] [--out eval-data/reports/pad-eval-<yyyyMMdd>] [
   - `scores.csv` (per take), `frames.csv` (per frame: features only, no pixels or landmarks) and `scatter.csv` stay
     local under `eval-data/`.
 
-**The F9 re-evaluation (several subjects).** `scripts\f9-reeval.ps1 -Subjects s01,s02,... [-SubjectMap s02=pXX,...]`
+**The F9 re-evaluation (several subjects).** `scripts\f9-reeval.ps1 -Subjects s01,s02,... [-SubjectMap "s02=pXX,..."]`
 runs the steps in order and writes `eval-data/reports/f9-<yyyyMMdd-HHmmss>/summary.md` (an `-Out` folder must be
 empty). The steps:
 - the inventory and the consent check;

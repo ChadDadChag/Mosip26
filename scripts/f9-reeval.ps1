@@ -1,7 +1,7 @@
 # F9 re-evaluation of the multi-subject data in one command (Windows; development only). Run it from any folder after
 # dot-sourcing the toolchain (liveness-env.ps1: JDK and Maven):
 #
-#   scripts\f9-reeval.ps1 -Subjects s01,s02,s03 [-SubjectMap s02=p05,s03=p11] [-Out eval-data\reports\f9-...]
+#   scripts\f9-reeval.ps1 -Subjects s01,s02,s03 [-SubjectMap "s02=p05,s03=p11"] [-Out eval-data\reports\f9-...]
 #                         [-Labelled "test images\labels.csv"] [-LabelsConfirmed] [-NoLabelled]
 #                         [-Python <python>] [-PythonPath <site-packages>]
 #
@@ -107,7 +107,11 @@ $tool = Join-Path $repo "models\tools\f9_reeval.py"
 
 Step "a. inventory (R0)" {
     $global:LASTEXITCODE = -1
-    & $Python $tool inventory --data $Data --subjects $subjectList --out $outFull
+    # The subject map's codes are checked against the data here, before any step uses them (a typo stops the run).
+    $iargs = @($tool, "inventory", "--data", $Data, "--subjects", $subjectList, "--out", $outFull)
+    if ($SubjectMap) { $iargs += @("--subject-map", $SubjectMap) }
+    if (-not $NoLabelled) { $iargs += @("--labelled", $Labelled) }
+    & $Python @iargs
     if ($LASTEXITCODE -ne 0) { throw "STOPPED at 'a. inventory': see the REFUSED line above" }
 }
 

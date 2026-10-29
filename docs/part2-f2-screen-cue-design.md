@@ -412,3 +412,8 @@ bound it.
   whether any common phone bands strongly enough.
 - **Next cue.** Fine-tuning MiniFASNet on close-up screens (section 3.4) is the most direct fix for the case that
   fills the view, and needs the multi-subject dataset.
+- **Update, 2026-10-28: fine-tuning not adopted.** It ran on the F9 data: four bona fide subjects, leaving one
+  subject out ([part2-f2b-finetune-prep.md](part2-f2b-finetune-prep.md)).
+  - It gained only in folds where the attack species and devices were in training.
+  - It did not gain in the fold that holds every close-up screen take.
+  - A real test needs the held-out devices of section 4.

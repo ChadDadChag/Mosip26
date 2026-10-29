@@ -133,9 +133,11 @@ def crops(takes, scale, step, limit, yunet):
     return out, skipped
 
 
-def subject_map(spec):
+def subject_map(spec, codes=None):
     """--subject-map s02=p05,s03=p11, as BindingEvaluation takes it: the recorded subject sNN is the photographed
-    person pNN. {code: the person's fold, named by the sNN}. Codes only: anything but sNN=pNN is refused."""
+    person pNN. {code: the person's fold, named by the sNN}. Codes only: anything but sNN=pNN is refused. codes: the
+    subject codes in the data; a mapped code that is not among them (a typo such as s02=p50) is refused, as it would
+    silently leave that face on both sides of a fold."""
     person = {}
     for part in (p.strip() for p in (spec or "").split(",")):
         if not part:
@@ -145,6 +147,10 @@ def subject_map(spec):
         s, p = part.split("=")
         if s in person or p in person:
             raise SystemExit(f"--subject-map: {part} repeats a subject or a person")
+        missing = [c for c in (s, p) if codes is not None and c not in codes]
+        if missing:
+            raise SystemExit(f"--subject-map: {part}: {', '.join(missing)} not in the data (a typo would leave that "
+                             f"face on both sides of a fold)")
         person[s] = person[p] = s
     return person
 
@@ -324,7 +330,7 @@ def run(args):
     takes = scan(data)
     if not takes:
         raise SystemExit(f"no takes under {data}")
-    person = subject_map(args.subject_map)
+    person = subject_map(args.subject_map, {t.subject for t in takes})
     yunet = rp.YuNet(rp.MODELS / rp.YUNET_FILE, args.threads)
     only = set(args.folds.split(",")) if args.folds else None
     plan = folds(takes, only, person)
@@ -422,6 +428,14 @@ def self_test():
             raise AssertionError(f"--subject-map {bad} accepted")
         except SystemExit:
             pass
+    # A typo (task 30): p50 is not in the data, so s02's face would be on both sides of a fold. Refused.
+    assert subject_map("s02=p05", {"s01", "s02", "p05"}) == person
+    for bad, missing in (("s02=p50", "p50"), ("s03=p05", "s03")):
+        try:
+            subject_map(bad, {"s01", "s02", "p05"})
+            raise AssertionError(f"--subject-map {bad} accepted with {missing} not in the data")
+        except SystemExit as e:
+            assert f"{missing} not in the data" in str(e), e
 
     tally = Tally()
     for v in (0.95, 0.50, 0.10):
