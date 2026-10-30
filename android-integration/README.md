@@ -58,7 +58,7 @@ steps are the same; run the sync steps of `sync-engine.ps1` with `pwsh` or by ha
 | tool | version used |
 |---|---|
 | git | 2.4x (Git for Windows, which provides Git Bash) |
-| Engine build | JDK 11 and Maven 3.9.9 (`sync-engine.ps1` dot-sources `%USERPROFILE%\tools\liveness-env.ps1`, which puts them on PATH for the script only) |
+| Engine build | JDK 11 and Maven 3.9.9. Keep Maven on PATH and set `LIVENESS_JDK11_HOME` to the JDK 11 (or pass `-Jdk11Home`), because the Android build itself runs on JDK 21. `sync-engine.ps1` applies this for the script only |
 | Android build | JDK 21, Android SDK platform 34 and build-tools 34.0.0, Flutter 3.10.4 (Dart 3.0) |
 | Phone | Android 9 or later (minSdk 28), arm64; tested on a Samsung Galaxy S23 FE with Android 16 |
 

@@ -3,8 +3,8 @@
 Builds the liveness engine and copies it into an Android Registration Client checkout.
 
 .DESCRIPTION
-Installs the engine modules (liveness-api, -core, -fake, -analyzer) with JDK 11 and Maven from
-%USERPROFILE%\tools\liveness-env.ps1, then copies into <Clone>\android\liveness:
+Installs the engine modules (liveness-api, -core, -fake, -analyzer) with JDK 11 and Maven, then
+copies into <Clone>\android\liveness:
 
   libs\                                  the four engine jars
   src\main\assets\liveness\models\       the signed model bundle: the ONNX files listed in manifest.json (5 since F1), manifest.json, manifest.sig
@@ -29,13 +29,20 @@ Reuse the jars already in liveness-*\target instead of running Maven.
 .PARAMETER RunTests
 Run the engine tests while installing (slower; the default skips them).
 
+.PARAMETER Jdk11Home
+The JDK 11 that builds the engine, because the Android build itself runs on JDK 21. Default: the
+LIVENESS_JDK11_HOME environment variable. If neither is set, the script uses
+%USERPROFILE%\tools\liveness-env.ps1 when that file exists, otherwise the JAVA_HOME already set.
+Maven must be on PATH.
+
 .EXAMPLE
 .\android-integration\scripts\sync-engine.ps1 -Clone $env:USERPROFILE\dev\android-registration-client
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Clone,
     [switch]$SkipBuild,
-    [switch]$RunTests
+    [switch]$RunTests,
+    [string]$Jdk11Home = $env:LIVENESS_JDK11_HOME
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,7 +73,16 @@ function Copy-Verified([string]$source, [string]$target) {
 if (-not $SkipBuild) {
     $saved = @{ JAVA_HOME = $env:JAVA_HOME; MAVEN_HOME = $env:MAVEN_HOME; PATH = $env:PATH }
     try {
-        . (Join-Path $env:USERPROFILE 'tools\liveness-env.ps1')
+        $toolchain = Join-Path $env:USERPROFILE 'tools\liveness-env.ps1'
+        if ($Jdk11Home) {
+            $env:JAVA_HOME = $Jdk11Home
+            $env:PATH = "$Jdk11Home\bin;$env:PATH"
+        } elseif (Test-Path -LiteralPath $toolchain) {
+            . $toolchain
+        }
+        if (-not (Get-Command mvn -ErrorAction SilentlyContinue)) {
+            throw "Maven is not on PATH. Add it, and pass -Jdk11Home or set LIVENESS_JDK11_HOME to a JDK 11."
+        }
         $mvnArgs = @('-q', '-Dgpg.skip')
         if (-not $RunTests) { $mvnArgs += '-DskipTests' }
         Push-Location $repo
