@@ -555,7 +555,7 @@ Then:
 | Decision measured at the system's real decision point (production window and thresholds), not the raw model | covered |
 | Bona fide and attack conditions documented; protocol, consent and data handling written down | covered (`part2-dataset-protocol.md`) |
 | Confidence for small samples | covered (Clopper-Pearson upper bounds) |
-| Subjects and PAIs per species in the numbers the standard expects for a conformance claim | **not covered** (1 bona fide subject; 4–45 takes per species, at most 14 attack identities) |
+| Subjects and PAIs per species in the numbers the standard expects for a conformance claim | **not covered** (4 bona fide subjects; 6–45 takes per species, at most 14 attack identities) |
 | PAI species catalogue completeness (prints, masks, 3D, partial attacks, deepfake replays) | **partly covered** (screens and prints; no masks, 3D, partial attacks or deepfake replays) |
 | Attack potential rating (expertise, equipment, time) | **not covered** (low-effort, self-made attacks only) |
 | Digital injection attacks (virtual cameras, stream tampering) | **out of scope** for PAD; the frame source and audit chain are Part 1 and Part 3 |

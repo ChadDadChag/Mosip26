@@ -106,7 +106,7 @@ The "Where" column uses these short prefixes. Tests live in the same packages un
 | `desktop/` | `registration-services/src/main/java/io/mosip/registration/liveness/desktop/` |
 | `ctl/` | `registration-client/src/main/java/io/mosip/registration/controller/liveness/` |
 | `cam/` | `android-liveness-frame-source/src/main/java/io/mosip/registration/liveness/device/android/` |
-| `arc:` | a file of the Android Registration Client v1.1.1 after applying the patches in `android-integration/patches/` (61 on `main`) |
+| `arc:` | a file of the Android Registration Client v1.1.1 after applying the patches in `android-integration/patches/` (68 on `main`) |
 
 The Desktop hooks are in existing client classes: `GenericBiometricsController` and `BiometricsController`
 (`controller/device/`), `LoginController` and `AuthenticationController` (`controller/auth/`),
@@ -505,7 +505,7 @@ screens rendered again from the production code. Android debug and profile build
   rendered again; on Android a face liveness demo page (debug and profile builds) and one font, Noto Sans, for the six
   languages (section 10).
 - **The Android camera's rotation** (F19, PR #14): the camera takes the app window's rotation, not the physical
-  display's. 6 unit tests, 3 of which fail without the fix; on APK 4 the live check passed twice, though the original
+  display's. 7 unit tests, 3 of which fail without the fix; on APK 4 the live check passed twice, though the original
   mismatch did not recur. On APK 8 (task 30) the target followed every display rotation; a screen that has not turned
   (upside-down portrait) is a limit (M1.4).
 - **A second-screen replay on a tablet** (F5, PR #16): 0 of 8 live sessions passed (6 at 40–60 cm, 2 at real-face
