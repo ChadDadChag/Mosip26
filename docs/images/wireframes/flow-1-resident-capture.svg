@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="860" viewBox="0 0 1120 860" role="img" aria-label="User flow 1: resident face capture" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>User flow 1: resident face capture</title>
+<defs><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker><marker id="a2E7D32" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#2E7D32"/></marker><marker id="a2E7D32s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#2E7D32"/></marker><marker id="aC8640A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C8640A"/></marker><marker id="aC8640As" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C8640A"/></marker><marker id="aC62828" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C62828"/></marker><marker id="aC62828s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C62828"/></marker></defs>
+<rect x="0" y="0" width="1120" height="860" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">User flow 1: resident face capture</text>
+<text x="24" y="54" font-size="14" fill="#616161">What the operator and the resident see. The person never picks a challenge. Texts are the exact screen texts.</text>
+<rect x="24" y="74" width="26" height="15" rx="3" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="56" y="86" font-size="12" fill="#212121">What the person sees</text>
+<rect x="196.72" y="74" width="26" height="15" rx="3" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="228.72" y="86" font-size="12" fill="#212121">What the person does, or what happens</text>
+<rect x="465.51" y="74" width="26" height="15" rx="3" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="497.51" y="86" font-size="12" fill="#212121">Passed, or the flow goes on</text>
+<rect x="669.59" y="74" width="26" height="15" rx="3" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="701.59" y="86" font-size="12" fill="#212121">Failed, or blocked</text>
+<rect x="410" y="104" width="300" height="46" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="130.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">The operator presses Scan on the Face tile</text>
+<rect x="410" y="174" width="300" height="44" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="560" y="200.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Starting face liveness check…</text>
+<rect x="410" y="242" width="300" height="62" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="560" y="268.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Checking face liveness…</text>
+<text x="560" y="287.24" font-size="12" fill="#212121" text-anchor="middle">The resident only looks at the camera</text>
+<polygon points="560,330 675,388 560,446 445,388" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="391.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Can the check decide?</text>
+<rect x="410" y="478" width="300" height="68" rx="6" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="560" y="507.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Good, face captured successfully</text>
+<text x="560" y="526.24" font-size="12" fill="#212121" text-anchor="middle">Goes on by itself after about 1 second</text>
+<rect x="410" y="572" width="300" height="44" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="597.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">The existing face capture runs</text>
+<polygon points="560,642 675,694 560,746 445,694" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="689.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Same person as the live</text>
+<text x="560" y="706.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">face?</text>
+<rect x="410" y="778" width="300" height="56" rx="6" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="560" y="801.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">The face is stored</text>
+<text x="560" y="820.24" font-size="12" fill="#212121" text-anchor="middle">Registration goes on</text>
+<path d="M560 150 L560 174" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M560 218 L560 242" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M560 304 L560 330" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M560 446 L560 478" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="565" y="453.5" width="28.01" height="17" rx="2" fill="#FFFFFF"/>
+<text x="568" y="466.2" font-size="12" fill="#2E7D32" text-anchor="start">Live</text>
+<path d="M560 546 L560 572" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M560 616 L560 642" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M560 746 L560 778" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="565" y="753.5" width="26.68" height="17" rx="2" fill="#FFFFFF"/>
+<text x="568" y="766.2" font-size="12" fill="#2E7D32" text-anchor="start">Yes</text>
+<rect x="780" y="174" width="280" height="104" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="920" y="204.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please blink</text>
+<text x="920" y="221.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please smile</text>
+<text x="920" y="238.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please turn your head to the left</text>
+<text x="920" y="257.24" font-size="12" fill="#212121" text-anchor="middle">One at a time, chosen by the system</text>
+<rect x="780" y="300" width="280" height="42" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="920" y="325.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please continue</text>
+<rect x="780" y="364" width="280" height="42" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="920" y="389.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Action detected</text>
+<rect x="780" y="490" width="280" height="42" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="920" y="515.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Hold still</text>
+<path d="M675 388 L738 388 Q745 388 745 381 L745 233 Q745 226 752 226 L780 226" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<rect x="686.33" y="365.5" width="51.35" height="17" rx="2" fill="#FFFFFF"/>
+<text x="712" y="378.2" font-size="12" fill="#C8640A" text-anchor="middle">Not sure</text>
+<path d="M920 278 L920 300" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M920 342 L920 364" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M920 406 L920 490" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="925" y="439.5" width="48.02" height="17" rx="2" fill="#FFFFFF"/>
+<text x="928" y="452.2" font-size="12" fill="#616161" text-anchor="start">all done</text>
+<path d="M1060 385 L1075 385 Q1082 385 1082 378 L1082 233 Q1082 226 1075 226 L1060 226" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="1084" y="297.5" width="28.68" height="17" rx="2" fill="#FFFFFF"/>
+<text x="1087" y="310.2" font-size="12" fill="#616161" text-anchor="start">next</text>
+<path d="M780 511 L710 511" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<text x="780" y="560" font-size="12" fill="#616161">A resident gets two challenges.</text>
+<text x="780" y="576" font-size="12" fill="#616161">An operator or supervisor gets one.</text>
+<rect x="40" y="340" width="300" height="96" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="190" y="374.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">We could not verify face liveness. Please try</text>
+<text x="190" y="391.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">again.</text>
+<text x="190" y="410.74" font-size="12" fill="#212121" text-anchor="middle">Or the generic text. Flow 3 shows Retry and the limit.</text>
+<path d="M445 388 L340 388" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="358.66" y="365.5" width="66.68" height="17" rx="2" fill="#FFFFFF"/>
+<text x="392" y="378.2" font-size="12" fill="#C62828" text-anchor="middle">Not verified</text>
+<rect x="40" y="648" width="300" height="92" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="190" y="680.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Face verification could not be completed.</text>
+<text x="190" y="697.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please try again.</text>
+<text x="190" y="716.74" font-size="12" fill="#212121" text-anchor="middle">Nothing stored, no attempt counted</text>
+<path d="M445 694 L340 694" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="381.33" y="671.5" width="21.34" height="17" rx="2" fill="#FFFFFF"/>
+<text x="392" y="684.2" font-size="12" fill="#C62828" text-anchor="middle">No</text>
+<path d="M40 694 L25 694 Q18 694 18 687 L18 134 Q18 127 25 127 L410 127" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="101.28" y="104.5" width="197.44" height="17" rx="2" fill="#FFFFFF"/>
+<text x="200" y="117.2" font-size="12" fill="#616161" text-anchor="middle">The next Scan runs the check again</text>
+<rect x="40" y="174" width="300" height="130" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="190" y="218.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">At any time</text>
+<text x="190" y="237.24" font-size="12" fill="#212121" text-anchor="middle">A hint can appear under the status, such as “Please</text>
+<text x="190" y="253.24" font-size="12" fill="#212121" text-anchor="middle">move closer.” Cancel goes back with no message. A</text>
+<text x="190" y="269.24" font-size="12" fill="#212121" text-anchor="middle">device problem goes to flow 4.</text>
+</svg>

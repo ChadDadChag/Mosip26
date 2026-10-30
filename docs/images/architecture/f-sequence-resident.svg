@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1462" viewBox="0 0 1200 1462" role="img" aria-label="Sequence: resident face capture (Desktop classes)" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Sequence: resident face capture (Desktop classes)</title>
+<defs><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker><marker id="a616161" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#616161"/></marker><marker id="a616161s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#616161"/></marker><marker id="aC8640A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C8640A"/></marker><marker id="aC8640As" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C8640A"/></marker></defs>
+<rect x="0" y="0" width="1200" height="1462" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Sequence: resident face capture (Desktop classes)</text>
+<text x="24" y="54" font-size="14" fill="#616161">Blue arrows are calls, grey dashed arrows are events and returns, orange arrows are audit records. Android has the same steps; see the table in the text.</text>
+<rect x="15" y="78" width="138" height="50" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="84" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Operator and</text>
+<text x="84" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">resident</text>
+<rect x="163" y="78" width="138" height="50" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="232" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">GenericBiometrics</text>
+<text x="232" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Controller</text>
+<rect x="311" y="78" width="138" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="380" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">LivenessGate,</text>
+<text x="380" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">LivenessView</text>
+<rect x="459" y="78" width="138" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="528" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">DesktopLiveness</text>
+<text x="528" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Service</text>
+<rect x="607" y="78" width="138" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="676" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">DefaultLiveness</text>
+<text x="676" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Session, analyzer</text>
+<rect x="755" y="78" width="138" height="50" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="824" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">SBI /stream</text>
+<text x="824" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">and /capture</text>
+<rect x="903" y="78" width="138" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="972" y="106.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">FaceBinding</text>
+<rect x="1051" y="78" width="138" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="1120" y="106.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">DesktopAuditSink</text>
+<line x1="84" y1="128" x2="84" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="232" y1="128" x2="232" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="380" y1="128" x2="380" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="528" y1="128" x2="528" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="676" y1="128" x2="676" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="824" y1="128" x2="824" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="972" y1="128" x2="972" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="1120" y1="128" x2="1120" y2="1448" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/>
+<rect x="98.64" y="143" width="118.73" height="16" rx="1" fill="#FFFFFF"/>
+<text x="158" y="155.5" font-size="12" fill="#212121" text-anchor="middle">Scan on the Face tile</text>
+<path d="M84 163 L232 163" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="260" y="173" width="92" height="16" rx="1" fill="#FFFFFF"/>
+<text x="306" y="185.5" font-size="12" fill="#212121" text-anchor="middle">run(RESIDENT)</text>
+<path d="M232 193 L380 193" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="384.32" y="203" width="139.36" height="16" rx="1" fill="#FFFFFF"/>
+<text x="454" y="215.5" font-size="12" fill="#212121" text-anchor="middle">newSession(RESIDENT)</text>
+<path d="M380 223 L528 223" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="378" y="234" width="300" height="40" rx="4" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="528" y="250" font-size="12" fill="#212121" text-anchor="middle">Returns null when liveness is off for RESIDENT:</text>
+<text x="528" y="265" font-size="12" fill="#212121" text-anchor="middle">PROCEED at once, the legacy flow, no window</text>
+<rect x="430.66" y="282" width="46.68" height="16" rx="1" fill="#FFFFFF"/>
+<text x="454" y="294.5" font-size="12" fill="#212121" text-anchor="middle">session</text>
+<path d="M528 302 L380 302" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="428.98" y="312" width="198.04" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="324.5" font-size="12" fill="#212121" text-anchor="middle">start(PreviewFrameSource, listener)</text>
+<path d="M380 332 L676 332" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="711.98" y="342" width="76.03" height="16" rx="1" fill="#FFFFFF"/>
+<text x="750" y="354.5" font-size="12" fill="#212121" text-anchor="middle">open /stream</text>
+<path d="M676 362 L824 362" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="834.32" y="372" width="127.37" height="16" rx="1" fill="#FFFFFF"/>
+<text x="898" y="384.5" font-size="12" fill="#212121" text-anchor="middle">LIVENESS_STARTED</text>
+<path d="M676 392 L1120 392" fill="none" stroke="#C8640A" stroke-width="1.4" marker-end="url(#aC8640A)"/>
+<rect x="728.66" y="402" width="42.67" height="16" rx="1" fill="#FFFFFF"/>
+<text x="750" y="414.5" font-size="12" fill="#212121" text-anchor="middle">frames</text>
+<path d="M824 422 L676 422" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="360.28" y="432" width="335.44" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="444.5" font-size="12" fill="#212121" text-anchor="middle">STARTED, CHECKING_PASSIVE, GUIDANCE when needed</text>
+<path d="M676 452 L380 452" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="463" width="1164" height="505" rx="3" fill="#FFFFFF" fill-opacity="0.6" stroke="#9E9E9E" stroke-width="1.2"/>
+<rect x="18" y="465" width="1164" height="23" fill="#E8F3E9"/>
+<text x="28" y="480" font-size="12" fill="#2E7D32" font-weight="600">Median of 10 frames is 0.85 or above</text>
+<rect x="450.97" y="495" width="154.07" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="507.5" font-size="12" fill="#212121" text-anchor="middle">PASSED, with no challenge</text>
+<path d="M676 515 L380 515" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="527" width="1164" height="23" fill="#FFF4E8"/>
+<line x1="18" y1="527" x2="1182" y2="527" stroke="#C8640A" stroke-width="1"/>
+<text x="28" y="542" font-size="12" fill="#C8640A" font-weight="600">Median from 0.30 up to 0.85: two random challenges</text>
+<rect x="380.96" y="557" width="294.07" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="380.96" y="572" width="294.07" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="569.5" font-size="12" fill="#212121" text-anchor="middle">CHALLENGE_PROMPT, CHALLENGE_PROGRESS,</text>
+<text x="528" y="584.5" font-size="12" fill="#212121" text-anchor="middle">ACTION_DETECTED, for each challenge</text>
+<path d="M676 592 L380 592" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="461.31" y="602" width="133.38" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="614.5" font-size="12" fill="#212121" text-anchor="middle">HOLD_STILL, PASSED</text>
+<path d="M676 622 L380 622" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="634" width="1164" height="23" fill="#FBEAEA"/>
+<line x1="18" y1="634" x2="1182" y2="634" stroke="#C62828" stroke-width="1"/>
+<text x="28" y="649" font-size="12" fill="#C62828" font-weight="600">The attempt fails and retries are left</text>
+<rect x="692.27" y="664" width="411.46" height="16" rx="1" fill="#FFFFFF"/>
+<text x="898" y="676.5" font-size="12" fill="#212121" text-anchor="middle">LIVENESS_ATTEMPT_FAILED, plus PAD_ATTACK_SUSPECTED on PAD</text>
+<path d="M676 684 L1120 684" fill="none" stroke="#C8640A" stroke-width="1.4" marker-end="url(#aC8640A)"/>
+<rect x="441.98" y="694" width="172.03" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="706.5" font-size="12" fill="#212121" text-anchor="middle">ATTEMPT_FAILED(retriesLeft)</text>
+<path d="M676 714 L380 714" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="101.95" y="724" width="260.1" height="16" rx="1" fill="#FFFFFF"/>
+<text x="232" y="736.5" font-size="12" fill="#212121" text-anchor="middle">Failure text, tips when they apply, Retry, Cancel</text>
+<path d="M380 744 L84 744" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="214.67" y="754" width="34.67" height="16" rx="1" fill="#FFFFFF"/>
+<text x="232" y="766.5" font-size="12" fill="#212121" text-anchor="middle">Retry</text>
+<path d="M84 774 L380 774" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="375.62" y="784" width="304.76" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="796.5" font-size="12" fill="#212121" text-anchor="middle">retry(): same session, new window, new challenge order</text>
+<path d="M380 804 L676 804" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="18" y="816" width="1164" height="23" fill="#FBEAEA"/>
+<line x1="18" y1="816" x2="1182" y2="816" stroke="#C62828" stroke-width="1"/>
+<text x="28" y="831" font-size="12" fill="#C62828" font-weight="600">The attempt fails and no retries are left</text>
+<rect x="768.28" y="846" width="259.44" height="16" rx="1" fill="#FFFFFF"/>
+<text x="898" y="858.5" font-size="12" fill="#212121" text-anchor="middle">LIVENESS_FAILED_FINAL, with the last cause</text>
+<path d="M676 866 L1120 866" fill="none" stroke="#C8640A" stroke-width="1.4" marker-end="url(#aC8640A)"/>
+<rect x="422.97" y="876" width="210.06" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="888.5" font-size="12" fill="#212121" text-anchor="middle">FAILED_FINAL, onComplete(FAILED)</text>
+<path d="M676 896 L380 896" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="142.97" y="906" width="178.06" height="16" rx="1" fill="#FFFFFF"/>
+<text x="232" y="918.5" font-size="12" fill="#212121" text-anchor="middle">Failure text, recovery text, Close</text>
+<path d="M380 926 L84 926" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="187.94" y="936" width="236.12" height="16" rx="1" fill="#FFFFFF"/>
+<text x="306" y="948.5" font-size="12" fill="#212121" text-anchor="middle">BLOCKED: no capture, no attempt counted</text>
+<path d="M380 956 L232 956" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="463" width="1164" height="505" rx="3" fill="none" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="18" y="992" font-size="13" fill="#616161" font-weight="600">After PASSED</text>
+<rect x="705.65" y="1001" width="88.69" height="16" rx="1" fill="#FFFFFF"/>
+<text x="750" y="1013.5" font-size="12" fill="#212121" text-anchor="middle">release /stream</text>
+<path d="M676 1021 L824 1021" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="762.62" y="1031" width="270.77" height="16" rx="1" fill="#FFFFFF"/>
+<text x="898" y="1043.5" font-size="12" fill="#212121" text-anchor="middle">LIVENESS_PASSED: scores, challenges, timings</text>
+<path d="M676 1051 L1120 1051" fill="none" stroke="#C8640A" stroke-width="1.4" marker-end="url(#aC8640A)"/>
+<rect x="432.31" y="1061" width="191.39" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="1073.5" font-size="12" fill="#212121" text-anchor="middle">onComplete(PASSED, bestFrame)</text>
+<path d="M676 1081 L380 1081" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="534.96" y="1091" width="282.08" height="16" rx="1" fill="#FFFFFF"/>
+<text x="676" y="1103.5" font-size="12" fill="#212121" text-anchor="middle">arm(RESIDENT, result): one use, 5 minutes at most</text>
+<path d="M380 1111 L972 1111" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="128.2" y="1121" width="355.6" height="16" rx="1" fill="#FFFFFF"/>
+<text x="306" y="1133.5" font-size="12" fill="#212121" text-anchor="middle">PROCEED, after about 1 s of “Good, face captured successfully”</text>
+<path d="M380 1141 L232 1141" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="449.63" y="1151" width="156.73" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="1163.5" font-size="12" fill="#212121" text-anchor="middle">existing stream and /capture</text>
+<path d="M232 1171 L824 1171" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="430.29" y="1181" width="195.42" height="16" rx="1" fill="#FFFFFF"/>
+<text x="528" y="1193.5" font-size="12" fill="#212121" text-anchor="middle">captured face (ISO 19794-5 record)</text>
+<path d="M824 1201 L232 1201" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="502.31" y="1211" width="199.38" height="16" rx="1" fill="#FFFFFF"/>
+<text x="602" y="1223.5" font-size="12" fill="#212121" text-anchor="middle">verifyCapture(RESIDENT, captured)</text>
+<path d="M232 1231 L972 1231" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="965.98" y="1241" width="160.04" height="16" rx="1" fill="#FFFFFF"/>
+<text x="1046" y="1253.5" font-size="12" fill="#212121" text-anchor="middle">LIVENESS_FACE_BINDING</text>
+<path d="M972 1261 L1120 1261" fill="none" stroke="#C8640A" stroke-width="1.4" marker-end="url(#aC8640A)"/>
+<rect x="18" y="1272" width="1164" height="160" rx="3" fill="#FFFFFF" fill-opacity="0.6" stroke="#9E9E9E" stroke-width="1.2"/>
+<rect x="18" y="1274" width="1164" height="23" fill="#E8F3E9"/>
+<text x="28" y="1289" font-size="12" fill="#2E7D32" font-weight="600">MATCH: SFace cosine of 0.45 or more</text>
+<rect x="112" y="1305" width="240" height="40" rx="4" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="232" y="1321" font-size="12" fill="#212121" text-anchor="middle">Stores the face and counts the attempt,</text>
+<text x="232" y="1336" font-size="12" fill="#212121" text-anchor="middle">unchanged</text>
+<rect x="18" y="1355" width="1164" height="23" fill="#FBEAEA"/>
+<line x1="18" y1="1355" x2="1182" y2="1355" stroke="#C62828" stroke-width="1"/>
+<text x="28" y="1370" font-size="12" fill="#C62828" font-weight="600">Anything else: another person, no face, several faces, an error</text>
+<rect x="23" y="1385" width="330.25" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="23" y="1400" width="330.25" height="16" rx="1" fill="#FFFFFF"/>
+<text x="188.13" y="1397.5" font-size="12" fill="#212121" text-anchor="middle">“Face verification could not be completed. Please try again.”</text>
+<text x="188.13" y="1412.5" font-size="12" fill="#212121" text-anchor="middle">Nothing stored, no attempt counted</text>
+<path d="M232 1420 L84 1420" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="1272" width="1164" height="160" rx="3" fill="none" stroke="#9E9E9E" stroke-width="1.2"/>
+</svg>

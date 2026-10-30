@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="880" viewBox="0 0 1120 880" role="img" aria-label="Online and offline: what runs where" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Online and offline: what runs where</title>
+<defs><marker id="aC8640A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C8640A"/></marker><marker id="aC8640As" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C8640A"/></marker><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker></defs>
+<rect x="0" y="0" width="1120" height="880" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Online and offline: what runs where</text>
+<text x="24" y="54" font-size="14" fill="#616161">The network never decides whether liveness is enforced. It only delivers configuration, audit uploads and optional model updates.</text>
+<rect x="30" y="88" width="500" height="380" rx="6" fill="#F7F9FD" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="42" y="108" font-size="14" fill="#1F4E9E" font-weight="600">Runs on the device in every case</text>
+<rect x="46" y="124" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="161" y="147.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Frame capture</text>
+<rect x="284" y="124" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="399" y="147.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Face detection and landmarks</text>
+<rect x="46" y="174" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="161" y="197.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Passive liveness and PAD</text>
+<rect x="284" y="174" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="399" y="197.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Challenge selection</text>
+<rect x="46" y="224" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="161" y="247.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Action detection</text>
+<rect x="284" y="224" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="399" y="247.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Retries, timeouts, cooldown</text>
+<rect x="46" y="274" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="161" y="297.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Face binding, identity binding</text>
+<rect x="284" y="274" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="399" y="297.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Audit records, written locally</text>
+<rect x="46" y="324" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="161" y="347.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Model verification at start-up</text>
+<rect x="284" y="324" width="230" height="40" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="399" y="347.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Screens and texts</text>
+<rect x="46" y="380" width="468" height="74" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="280" y="404.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Configuration when offline</text>
+<text x="280" y="423.24" font-size="12" fill="#212121" text-anchor="middle">The last synced values. A missing key uses the bundled default. An invalid value</text>
+<text x="280" y="439.24" font-size="12" fill="#212121" text-anchor="middle">falls back to the bundled defaults, so liveness stays on, and the error is audited.</text>
+<rect x="590" y="88" width="500" height="380" rx="6" fill="#FFFBF6" stroke="#C8640A" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="602" y="108" font-size="14" fill="#C8640A" font-weight="600">Needs the network, and only for these three</text>
+<rect x="606" y="124" width="468" height="92" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="840" y="149.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">1. Configuration sync (existing)</text>
+<text x="840" y="168.24" font-size="12" fill="#212121" text-anchor="middle">The client’s own sync stores registration-default.properties in GLOBAL_PARAM</text>
+<text x="840" y="184.24" font-size="12" fill="#212121" text-anchor="middle">(Desktop) or the global params (Android). New sessions use it; a running session</text>
+<text x="840" y="200.24" font-size="12" fill="#212121" text-anchor="middle">keeps its policy.</text>
+<rect x="606" y="228" width="468" height="66" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="840" y="256.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">2. Audit records in packets (existing)</text>
+<text x="840" y="275.24" font-size="12" fill="#212121" text-anchor="middle">Written locally first, then carried to the server inside registration packets.</text>
+<rect x="606" y="306" width="468" height="148" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="840" y="343.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">3. Online model update (off by default)</text>
+<text x="840" y="362.24" font-size="12" fill="#212121" text-anchor="middle">Needs model.update.enabled and model.update.url. Desktop checks after each</text>
+<text x="840" y="378.24" font-size="12" fill="#212121" text-anchor="middle">successful config sync; Android runs a WorkManager job every 24 hours. HTTPS</text>
+<text x="840" y="394.24" font-size="12" fill="#212121" text-anchor="middle">only. The index is at most 16 KiB and the zip at most 64 MiB. A failure changes</text>
+<text x="840" y="410.24" font-size="12" fill="#212121" text-anchor="middle">nothing, and the sync never waits for it. New sessions use a new bundle; a running</text>
+<text x="840" y="426.24" font-size="12" fill="#212121" text-anchor="middle">session keeps its models.</text>
+<rect x="30" y="492" width="1060" height="374" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="42" y="512" font-size="14" fill="#212121" font-weight="600">How a bundle gets in: one verification path for every route</text>
+<rect x="46" y="530" width="320" height="70" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="206" y="552.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Online</text>
+<text x="206" y="571.24" font-size="12" fill="#212121" text-anchor="middle">ModelUpdater.check: latest.json, then the zip if newer,</text>
+<text x="206" y="587.24" font-size="12" fill="#212121" text-anchor="middle">then its SHA-256</text>
+<rect x="400" y="530" width="320" height="70" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="560" y="552.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Offline, from removable media</text>
+<text x="560" y="571.24" font-size="12" fill="#212121" text-anchor="middle">A supervisor or admin picks a signed zip.</text>
+<text x="560" y="587.24" font-size="12" fill="#212121" text-anchor="middle">ModelUpdater.installZip unpacks it</text>
+<rect x="754" y="530" width="320" height="70" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="914" y="552.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Bundled with the client</text>
+<text x="914" y="571.24" font-size="12" fill="#212121" text-anchor="middle">pad-2026.10.5, in the analyzer jar or the Android app.</text>
+<text x="914" y="587.24" font-size="12" fill="#212121" text-anchor="middle">Steps 1 to 3 run at every load</text>
+<rect x="46" y="636" width="1028" height="24" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="560" y="651.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">ModelStore.install and VerifiedBundle.load</text>
+<path d="M206 600 L206 636" fill="none" stroke="#C8640A" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#aC8640A)"/>
+<path d="M560 600 L560 636" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<path d="M914 600 L914 636" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="46" y="676" width="196" height="118" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="144" y="698.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">1 Signature</text>
+<text x="144" y="717.24" font-size="12" fill="#212121" text-anchor="middle">ECDSA (Elliptic Curve Digital</text>
+<text x="144" y="733.24" font-size="12" fill="#212121" text-anchor="middle">Signature Algorithm) P-256 over</text>
+<text x="144" y="749.24" font-size="12" fill="#212121" text-anchor="middle">manifest.json, before anything is</text>
+<text x="144" y="765.24" font-size="12" fill="#212121" text-anchor="middle">parsed. The key is compiled into</text>
+<text x="144" y="781.24" font-size="12" fill="#212121" text-anchor="middle">the client</text>
+<rect x="254" y="676" width="196" height="118" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="352" y="714.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">2 Manifest</text>
+<text x="352" y="733.24" font-size="12" fill="#212121" text-anchor="middle">Strict parse: schema, version, the</text>
+<text x="352" y="749.24" font-size="12" fill="#212121" text-anchor="middle">five model roles once each, safe</text>
+<text x="352" y="765.24" font-size="12" fill="#212121" text-anchor="middle">file names</text>
+<path d="M242 735 L254 735" fill="none" stroke="#1F4E9E" stroke-width="1.3" marker-end="url(#a1F4E9E)"/>
+<rect x="462" y="676" width="196" height="118" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="560" y="722.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">3 Files</text>
+<text x="560" y="741.24" font-size="12" fill="#212121" text-anchor="middle">Every file’s size, then its</text>
+<text x="560" y="757.24" font-size="12" fill="#212121" text-anchor="middle">SHA-256</text>
+<path d="M450 735 L462 735" fill="none" stroke="#1F4E9E" stroke-width="1.3" marker-end="url(#a1F4E9E)"/>
+<rect x="670" y="676" width="196" height="118" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="768" y="714.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">4 Version</text>
+<text x="768" y="733.24" font-size="12" fill="#212121" text-anchor="middle">Strictly newer than the store’s</text>
+<text x="768" y="749.24" font-size="12" fill="#212121" text-anchor="middle">current bundle and the client’s</text>
+<text x="768" y="765.24" font-size="12" fill="#212121" text-anchor="middle">own: anti-rollback</text>
+<path d="M658 735 L670 735" fill="none" stroke="#1F4E9E" stroke-width="1.3" marker-end="url(#a1F4E9E)"/>
+<rect x="878" y="676" width="196" height="118" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="976" y="714.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">5 Switch</text>
+<text x="976" y="733.24" font-size="12" fill="#212121" text-anchor="middle">Write, fsync, verify again from</text>
+<text x="976" y="749.24" font-size="12" fill="#212121" text-anchor="middle">disk, then switch atomically. The</text>
+<text x="976" y="765.24" font-size="12" fill="#212121" text-anchor="middle">previous bundle stays for rollback</text>
+<path d="M866 735 L878 735" fill="none" stroke="#1F4E9E" stroke-width="1.3" marker-end="url(#a1F4E9E)"/>
+<path d="M150 660 L150 676" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="46" y="808" width="1028" height="44" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="560" y="825.25" font-size="12.5" fill="#212121" text-anchor="middle">Any failure: MODEL_INTEGRITY_FAILED or a refusal, the store unchanged, and no fallback to unverified files. Rollback is an explicit action, and the previous bundle must verify</text>
+<text x="560" y="842.25" font-size="12.5" fill="#212121" text-anchor="middle">again.</text>
+</svg>

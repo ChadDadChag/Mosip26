@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1265" viewBox="0 0 1200 1265" role="img" aria-label="Sequence: operator authentication (Desktop classes)" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Sequence: operator authentication (Desktop classes)</title>
+<defs><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker><marker id="a616161" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#616161"/></marker><marker id="a616161s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#616161"/></marker></defs>
+<rect x="0" y="0" width="1200" height="1265" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Sequence: operator authentication (Desktop classes)</text>
+<text x="24" y="54" font-size="14" fill="#616161">The face login and the password login share one session. The operator policy gives 1 challenge and a 60 s cooldown after 4 failed attempts.</text>
+<rect x="11" y="78" width="158" height="50" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="90" y="106.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Operator</text>
+<rect x="179" y="78" width="158" height="50" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="258" y="106.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">LoginController</text>
+<rect x="347" y="78" width="158" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="426" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">LivenessGate,</text>
+<text x="426" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">LivenessView</text>
+<rect x="515" y="78" width="158" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="594" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">DefaultLiveness</text>
+<text x="594" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Session, analyzer</text>
+<rect x="683" y="78" width="158" height="50" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="762" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">FaceBinding,</text>
+<text x="762" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">IdentityBinding</text>
+<rect x="851" y="78" width="158" height="50" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="930" y="106.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">SessionContext</text>
+<rect x="1019" y="78" width="158" height="50" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="1098" y="98.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Authentication</text>
+<text x="1098" y="114.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">Service</text>
+<line x1="90" y1="128" x2="90" y2="1251" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="258" y1="128" x2="258" y2="1251" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="426" y1="128" x2="426" y2="1251" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="594" y1="128" x2="594" y2="1251" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="762" y1="128" x2="762" y2="1251" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="930" y1="128" x2="930" y2="1251" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/><line x1="1098" y1="128" x2="1098" y2="1251" stroke="#9E9E9E" stroke-width="1" stroke-dasharray="4 4"/>
+<rect x="89.63" y="143" width="168.73" height="16" rx="1" fill="#FFFFFF"/>
+<text x="174" y="155.5" font-size="12" fill="#212121" text-anchor="middle">User id, then password or face</text>
+<path d="M90 163 L258 163" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="192.28" y="173" width="299.44" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="192.28" y="188" width="299.44" height="16" rx="1" fill="#FFFFFF"/>
+<text x="342" y="185.5" font-size="12" fill="#212121" text-anchor="middle">Face login: run(OPERATOR). Password login, after the</text>
+<text x="342" y="200.5" font-size="12" fill="#212121" text-anchor="middle">password: runWithIdentity(OPERATOR, user id)</text>
+<path d="M258 208 L426 208" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="412.98" y="218" width="194.04" height="16" rx="1" fill="#FFFFFF"/>
+<text x="510" y="230.5" font-size="12" fill="#212121" text-anchor="middle">newSession(OPERATOR), start(...)</text>
+<path d="M426 238 L594 238" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="18" y="249" width="1164" height="475" rx="3" fill="#FFFFFF" fill-opacity="0.6" stroke="#9E9E9E" stroke-width="1.2"/>
+<rect x="18" y="251" width="1164" height="23" fill="#FBEAEA"/>
+<text x="28" y="266" font-size="12" fill="#C62828" font-weight="600">A cooldown is active: within 60 s of the last failed session</text>
+<rect x="369.3" y="281" width="281.4" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="369.3" y="296" width="281.4" height="16" rx="1" fill="#FFFFFF"/>
+<text x="510" y="293.5" font-size="12" fill="#212121" text-anchor="middle">FAILED_FINAL(MAX_RETRIES_EXCEEDED). The</text>
+<text x="510" y="308.5" font-size="12" fill="#212121" text-anchor="middle">camera is not opened</text>
+<path d="M594 316 L426 316" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="94.85" y="326" width="326.3" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="94.85" y="341" width="326.3" height="16" rx="1" fill="#FFFFFF"/>
+<text x="258" y="338.5" font-size="12" fill="#212121" text-anchor="middle">“Face verification could not be completed.” “Please contact</text>
+<text x="258" y="353.5" font-size="12" fill="#212121" text-anchor="middle">your administrator or try again later.”</text>
+<path d="M426 361 L90 361" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="246.62" y="371" width="190.76" height="16" rx="1" fill="#FFFFFF"/>
+<text x="342" y="383.5" font-size="12" fill="#212121" text-anchor="middle">BLOCKED: back on the login page</text>
+<path d="M426 391 L258 391" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="403" width="1164" height="23" fill="#FBEAEA"/>
+<line x1="18" y1="403" x2="1182" y2="403" stroke="#C62828" stroke-width="1"/>
+<text x="28" y="418" font-size="12" fill="#C62828" font-weight="600">The session fails: all 4 attempts used</text>
+<rect x="364.28" y="433" width="291.43" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="364.28" y="448" width="291.43" height="16" rx="1" fill="#FFFFFF"/>
+<text x="510" y="445.5" font-size="12" fill="#212121" text-anchor="middle">FAILED_FINAL, onComplete(FAILED). The cooldown</text>
+<text x="510" y="460.5" font-size="12" fill="#212121" text-anchor="middle">starts</text>
+<path d="M594 468 L426 468" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="184.31" y="478" width="147.38" height="16" rx="1" fill="#FFFFFF"/>
+<text x="258" y="490.5" font-size="12" fill="#212121" text-anchor="middle">The same two texts, Close</text>
+<path d="M426 498 L90 498" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="246.62" y="508" width="190.76" height="16" rx="1" fill="#FFFFFF"/>
+<text x="342" y="520.5" font-size="12" fill="#212121" text-anchor="middle">BLOCKED: back on the login page</text>
+<path d="M426 528 L258 528" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="540" width="1164" height="23" fill="#EFEFEF"/>
+<line x1="18" y1="540" x2="1182" y2="540" stroke="#9E9E9E" stroke-width="1"/>
+<text x="28" y="555" font-size="12" fill="#212121" font-weight="600">Cancel</text>
+<rect x="236.33" y="570" width="43.34" height="16" rx="1" fill="#FFFFFF"/>
+<text x="258" y="582.5" font-size="12" fill="#212121" text-anchor="middle">Cancel</text>
+<path d="M90 590 L426 590" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="239.29" y="600" width="205.43" height="16" rx="1" fill="#FFFFFF"/>
+<text x="342" y="612.5" font-size="12" fill="#212121" text-anchor="middle">CANCELLED: back on the login page</text>
+<path d="M426 620 L258 620" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="632" width="1164" height="23" fill="#E8F3E9"/>
+<line x1="18" y1="632" x2="1182" y2="632" stroke="#2E7D32" stroke-width="1"/>
+<text x="28" y="647" font-size="12" fill="#2E7D32" font-weight="600">PASSED: passive, or after 1 random challenge (never BLINK alone)</text>
+<rect x="414.31" y="662" width="191.39" height="16" rx="1" fill="#FFFFFF"/>
+<text x="510" y="674.5" font-size="12" fill="#212121" text-anchor="middle">onComplete(PASSED, bestFrame)</text>
+<path d="M594 682 L426 682" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="524.99" y="692" width="138.01" height="16" rx="1" fill="#FFFFFF"/>
+<text x="594" y="704.5" font-size="12" fill="#212121" text-anchor="middle">arm(OPERATOR, result)</text>
+<path d="M426 712 L762 712" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="18" y="249" width="1164" height="475" rx="3" fill="none" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="18" y="748" font-size="13" fill="#616161" font-weight="600">After PASSED</text>
+<rect x="18" y="758" width="1164" height="477" rx="3" fill="#FFFFFF" fill-opacity="0.6" stroke="#9E9E9E" stroke-width="1.2"/>
+<rect x="18" y="760" width="1164" height="23" fill="#EFEFEF"/>
+<text x="28" y="775" font-size="12" fill="#212121" font-weight="600">Face login</text>
+<rect x="309.33" y="790" width="65.34" height="16" rx="1" fill="#FFFFFF"/>
+<text x="342" y="802.5" font-size="12" fill="#212121" text-anchor="middle">PROCEED</text>
+<path d="M426 810 L258 810" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="474.29" y="820" width="239.42" height="16" rx="1" fill="#FFFFFF"/>
+<text x="594" y="832.5" font-size="12" fill="#212121" text-anchor="middle">SessionContext.create(FACE): SBI /capture</text>
+<path d="M258 840 L930 840" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="746.31" y="850" width="199.38" height="16" rx="1" fill="#FFFFFF"/>
+<text x="846" y="862.5" font-size="12" fill="#212121" text-anchor="middle">verifyCapture(OPERATOR, capture)</text>
+<path d="M930 870 L762 870" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="903.28" y="880" width="221.44" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="903.28" y="895" width="221.44" height="16" rx="1" fill="#FFFFFF"/>
+<text x="1014" y="892.5" font-size="12" fill="#212121" text-anchor="middle">authValidator: template match, only after</text>
+<text x="1014" y="907.5" font-size="12" fill="#212121" text-anchor="middle">MATCH</text>
+<path d="M930 915 L1098 915" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="407.87" y="925" width="540.26" height="16" rx="1" fill="#FFFFFF"/>
+<text x="678" y="937.5" font-size="12" fill="#212121" text-anchor="middle">Match: next login step or home page. No match, or not the live face: the existing failed-login handling</text>
+<path d="M1098 945 L258 945" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="957" width="1164" height="23" fill="#E8F3E9"/>
+<line x1="18" y1="957" x2="1182" y2="957" stroke="#2E7D32" stroke-width="1"/>
+<text x="28" y="972" font-size="12" fill="#2E7D32" font-weight="600">Password login, and this is the user’s onboarded face</text>
+<rect x="442.59" y="987" width="302.82" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="442.59" y="1002" width="302.82" height="16" rx="1" fill="#FFFFFF"/>
+<text x="594" y="999.5" font-size="12" fill="#212121" text-anchor="middle">IdentityBinding.verify: best frame against the onboarded</text>
+<text x="594" y="1014.5" font-size="12" fill="#212121" text-anchor="middle">face, match at 0.40</text>
+<path d="M426 1022 L762 1022" fill="none" stroke="#1F4E9E" stroke-width="1.4" marker-end="url(#a1F4E9E)"/>
+<rect x="174.59" y="1032" width="334.82" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="174.59" y="1047" width="334.82" height="16" rx="1" fill="#FFFFFF"/>
+<text x="342" y="1044.5" font-size="12" fill="#212121" text-anchor="middle">PROCEED: next login step or home page. With no onboarded</text>
+<text x="342" y="1059.5" font-size="12" fill="#212121" text-anchor="middle">face the login goes on, audited, unless requireTemplate is set</text>
+<path d="M426 1067 L258 1067" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="18" y="1079" width="1164" height="23" fill="#FBEAEA"/>
+<line x1="18" y1="1079" x2="1182" y2="1079" stroke="#C62828" stroke-width="1"/>
+<text x="28" y="1094" font-size="12" fill="#C62828" font-weight="600">Password login, and this is not the user’s face</text>
+<rect x="81.23" y="1109" width="353.53" height="16" rx="1" fill="#FFFFFF"/>
+<rect x="81.23" y="1124" width="353.53" height="16" rx="1" fill="#FFFFFF"/>
+<text x="258" y="1121.5" font-size="12" fill="#212121" text-anchor="middle">“Face verification could not be completed for this user. Please try</text>
+<text x="258" y="1136.5" font-size="12" fill="#212121" text-anchor="middle">again.” Retry runs one new session; Cancel</text>
+<path d="M426 1144 L90 1144" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="264.65" y="1154" width="154.69" height="16" rx="1" fill="#FFFFFF"/>
+<text x="342" y="1166.5" font-size="12" fill="#212121" text-anchor="middle">IDENTITY_NOT_VERIFIED</text>
+<path d="M426 1174 L258 1174" fill="none" stroke="#616161" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#a616161)"/>
+<rect x="123" y="1185" width="270" height="40" rx="4" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="258" y="1201" font-size="12" fill="#212121" text-anchor="middle">Ends the session, shows the login page, counts</text>
+<text x="258" y="1216" font-size="12" fill="#212121" text-anchor="middle">one failed login</text>
+<rect x="18" y="758" width="1164" height="477" rx="3" fill="none" stroke="#9E9E9E" stroke-width="1.2"/>
+</svg>

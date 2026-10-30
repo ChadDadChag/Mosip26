@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="790" viewBox="0 0 1120 790" role="img" aria-label="User flow 3: retry and maximum attempts" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>User flow 3: retry and maximum attempts</title>
+<defs><marker id="aC62828" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C62828"/></marker><marker id="aC62828s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C62828"/></marker><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker></defs>
+<rect x="0" y="0" width="1120" height="790" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">User flow 3: retry and maximum attempts</text>
+<text x="24" y="54" font-size="14" fill="#616161">Four attempts by default. Each failed attempt says how many are left. After the last one, each workflow gets its own recovery text.</text>
+<rect x="24" y="74" width="26" height="15" rx="3" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="56" y="86" font-size="12" fill="#212121">What the person sees</text>
+<rect x="196.72" y="74" width="26" height="15" rx="3" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="228.72" y="86" font-size="12" fill="#212121">What the person does, or what happens</text>
+<rect x="465.51" y="74" width="26" height="15" rx="3" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="497.51" y="86" font-size="12" fill="#212121">Passed, or the flow goes on</text>
+<rect x="669.59" y="74" width="26" height="15" rx="3" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="701.59" y="86" font-size="12" fill="#212121">Failed, or blocked</text>
+<rect x="30" y="106" width="230" height="66" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="145" y="134.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Attempt 1 of 4</text>
+<text x="145" y="153.24" font-size="12" fill="#212121" text-anchor="middle">Checking, then challenges if needed</text>
+<rect x="30" y="208" width="230" height="118" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="145" y="253.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">We could not verify face liveness.</text>
+<text x="145" y="270.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please try again.</text>
+<text x="145" y="289.74" font-size="12" fill="#212121" text-anchor="middle">3 attempts left. Tips, Retry, Cancel</text>
+<path d="M145 172 L145 208" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M260 267 L278 267 Q285 267 285 260 L285 146 Q285 139 292 139 L310 139" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="267.67" y="195.5" width="34.67" height="17" rx="2" fill="#FFFFFF"/>
+<text x="285" y="208.2" font-size="12" fill="#616161" text-anchor="middle">Retry</text>
+<rect x="310" y="106" width="230" height="66" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="425" y="134.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Attempt 2 of 4</text>
+<text x="425" y="153.24" font-size="12" fill="#212121" text-anchor="middle">Checking, then challenges if needed</text>
+<rect x="310" y="208" width="230" height="118" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="425" y="253.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">We could not verify face liveness.</text>
+<text x="425" y="270.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please try again.</text>
+<text x="425" y="289.74" font-size="12" fill="#212121" text-anchor="middle">2 attempts left. Tips, Retry, Cancel</text>
+<path d="M425 172 L425 208" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M540 267 L558 267 Q565 267 565 260 L565 146 Q565 139 572 139 L590 139" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="547.67" y="195.5" width="34.67" height="17" rx="2" fill="#FFFFFF"/>
+<text x="565" y="208.2" font-size="12" fill="#616161" text-anchor="middle">Retry</text>
+<rect x="590" y="106" width="230" height="66" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="705" y="134.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Attempt 3 of 4</text>
+<text x="705" y="153.24" font-size="12" fill="#212121" text-anchor="middle">Checking, then challenges if needed</text>
+<rect x="590" y="208" width="230" height="118" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="705" y="253.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">We could not verify face liveness.</text>
+<text x="705" y="270.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please try again.</text>
+<text x="705" y="289.74" font-size="12" fill="#212121" text-anchor="middle">1 attempt left. Tips, Retry, Cancel</text>
+<path d="M705 172 L705 208" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M820 267 L838 267 Q845 267 845 260 L845 146 Q845 139 852 139 L870 139" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="827.67" y="195.5" width="34.67" height="17" rx="2" fill="#FFFFFF"/>
+<text x="845" y="208.2" font-size="12" fill="#616161" text-anchor="middle">Retry</text>
+<rect x="870" y="106" width="230" height="66" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="985" y="134.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Attempt 4 of 4</text>
+<text x="985" y="153.24" font-size="12" fill="#212121" text-anchor="middle">Checking, then challenges if needed</text>
+<rect x="30" y="352" width="510" height="130" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="42" y="372" font-size="13" fill="#212121" font-weight="600">Which failure text appears</text>
+<rect x="46" y="382" width="232" height="88" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="162" y="405.76" font-size="12" fill="#212121" text-anchor="middle">Most failures show the text above, and</text>
+<text x="162" y="421.76" font-size="12" fill="#212121" text-anchor="middle">these tips: look at the camera, clear</text>
+<text x="162" y="437.76" font-size="12" fill="#212121" text-anchor="middle">face, lighting, capture area, follow the</text>
+<text x="162" y="453.76" font-size="12" fill="#212121" text-anchor="middle">prompt.</text>
+<rect x="292" y="382" width="232" height="88" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="408" y="413.76" font-size="12" fill="#212121" text-anchor="middle">A PAD failure shows “Face verification</text>
+<text x="408" y="429.76" font-size="12" fill="#212121" text-anchor="middle">could not be completed. Please try</text>
+<text x="408" y="445.76" font-size="12" fill="#212121" text-anchor="middle">again.”, with no tips and no reason.</text>
+<rect x="590" y="352" width="230" height="130" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="705" y="396.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">After a PAD failure</text>
+<text x="705" y="415.24" font-size="12" fill="#212121" text-anchor="middle">Retry stays in the same session, so the</text>
+<text x="705" y="431.24" font-size="12" fill="#212121" text-anchor="middle">next attempts cannot pass without a</text>
+<text x="705" y="447.24" font-size="12" fill="#212121" text-anchor="middle">challenge.</text>
+<path d="M985 172 L985 524" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="943.98" y="321.5" width="82.03" height="17" rx="2" fill="#FFFFFF"/>
+<text x="985" y="334.2" font-size="12" fill="#616161" text-anchor="middle">Attempt 4 fails</text>
+<rect x="30" y="524" width="1060" height="34" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="560" y="545.72" font-size="14" fill="#212121" font-weight="600" text-anchor="middle">Face verification could not be completed.</text>
+<rect x="30" y="576" width="340" height="84" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="200" y="605.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Face liveness check</text>
+<text x="200" y="624.24" font-size="12" fill="#212121" text-anchor="middle">Please contact the supervisor. The resident can be</text>
+<text x="200" y="640.24" font-size="12" fill="#212121" text-anchor="middle">registered using the biometric exception process.</text>
+<rect x="30" y="678" width="340" height="50" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="200" y="706.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">The face is not captured. The supervisor takes over</text>
+<path d="M200 660 L200 678" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="205" y="660.5" width="36.67" height="17" rx="2" fill="#FFFFFF"/>
+<text x="208" y="673.2" font-size="12" fill="#616161" text-anchor="start">Close</text>
+<path d="M200 558 L200 576" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="390" y="576" width="340" height="84" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="560" y="613.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Operator face verification</text>
+<text x="560" y="632.24" font-size="12" fill="#212121" text-anchor="middle">Please contact your administrator or try again later.</text>
+<rect x="390" y="678" width="340" height="50" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="698.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">No login. For 60 seconds a new check ends on this</text>
+<text x="560" y="715.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">same screen</text>
+<path d="M560 660 L560 678" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="565" y="660.5" width="36.67" height="17" rx="2" fill="#FFFFFF"/>
+<text x="568" y="673.2" font-size="12" fill="#616161" text-anchor="start">Close</text>
+<path d="M560 558 L560 576" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="750" y="576" width="340" height="84" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="920" y="613.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Supervisor face verification</text>
+<text x="920" y="632.24" font-size="12" fill="#212121" text-anchor="middle">Please contact your administrator.</text>
+<rect x="750" y="678" width="340" height="50" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="920" y="706.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Nothing is approved</text>
+<path d="M920 660 L920 678" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="925" y="660.5" width="36.67" height="17" rx="2" fill="#FFFFFF"/>
+<text x="928" y="673.2" font-size="12" fill="#616161" text-anchor="start">Close</text>
+<path d="M920 558 L920 576" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<text x="30" y="756" font-size="12.5" fill="#616161">Cancel is on every screen above until the last one, and goes back with no message. A device problem never uses an attempt (flow 4).</text>
+</svg>

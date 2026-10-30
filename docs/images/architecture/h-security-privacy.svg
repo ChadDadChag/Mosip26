@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="768" viewBox="0 0 1120 768" role="img" aria-label="Security and privacy" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Security and privacy</title>
+<defs><marker id="a616161" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#616161"/></marker><marker id="a616161s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#616161"/></marker></defs>
+<rect x="0" y="0" width="1120" height="768" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Security and privacy</text>
+<text x="24" y="54" font-size="14" fill="#616161">Signed models, a generic message on PAD failure, audit details for those who need them, and no face images kept by the liveness code.</text>
+<rect x="30" y="88" width="340" height="290" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="44" y="112" font-size="14" fill="#1F4E9E" font-weight="600">Signed models</text>
+<circle cx="49" cy="130" r="2.2" fill="#616161"/>
+<text x="58" y="134" font-size="12" fill="#212121">ECDSA (Elliptic Curve Digital Signature Algorithm)</text>
+<text x="58" y="150" font-size="12" fill="#212121">P-256 signature over the manifest, checked before it is</text>
+<text x="58" y="166" font-size="12" fill="#212121">parsed.</text>
+<circle cx="49" cy="183" r="2.2" fill="#616161"/>
+<text x="58" y="187" font-size="12" fill="#212121">SHA-256 and size of all five model files. Sessions are</text>
+<text x="58" y="203" font-size="12" fill="#212121">built from those same verified bytes.</text>
+<circle cx="49" cy="220" r="2.2" fill="#616161"/>
+<text x="58" y="224" font-size="12" fill="#212121">The public key is compiled into the client, so it cannot</text>
+<text x="58" y="240" font-size="12" fill="#212121">be swapped with the files.</text>
+<circle cx="49" cy="257" r="2.2" fill="#616161"/>
+<text x="58" y="261" font-size="12" fill="#212121">Any failure is MODEL_INTEGRITY_FAILED, with no</text>
+<text x="58" y="277" font-size="12" fill="#212121">fallback.</text>
+<circle cx="49" cy="294" r="2.2" fill="#616161"/>
+<text x="58" y="298" font-size="12" fill="#212121">Only supervisors and admins can install a bundle by</text>
+<text x="58" y="314" font-size="12" fill="#212121">hand.</text>
+<circle cx="49" cy="331" r="2.2" fill="#616161"/>
+<text x="58" y="335" font-size="12" fill="#212121">Limit: today’s key is a development key. It must be</text>
+<text x="58" y="351" font-size="12" fill="#212121">replaced before release.</text>
+<rect x="390" y="88" width="340" height="290" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="404" y="112" font-size="14" fill="#1F4E9E" font-weight="600">Generic message on PAD failure</text>
+<rect x="406" y="128" width="308" height="34" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="148.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">PAD_FAILURE or ENGINE_ERROR</text>
+<rect x="406" y="180" width="308" height="34" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="200.76" font-size="12" fill="#212121" font-weight="600" text-anchor="middle">UserMessage: VERIFICATION_NOT_COMPLETED</text>
+<rect x="406" y="232" width="308" height="54" rx="6" fill="#F5F5F5" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="560" y="254.74" font-size="13" fill="#212121" text-anchor="middle">“Face verification could not be completed. Please</text>
+<text x="560" y="271.74" font-size="13" fill="#212121" text-anchor="middle">try again.”</text>
+<path d="M560 162 L560 180" fill="none" stroke="#616161" stroke-width="1.5" marker-end="url(#a616161)"/>
+<path d="M560 214 L560 232" fill="none" stroke="#616161" stroke-width="1.5" marker-end="url(#a616161)"/>
+<text x="406" y="306" font-size="12" fill="#212121">Same text and same screen for both, with no tips. The</text>
+<text x="406" y="322" font-size="12" fill="#212121">screen never shows a score, a threshold, a model name</text>
+<text x="406" y="338" font-size="12" fill="#212121">or a reason, so an attacker learns nothing about what to</text>
+<text x="406" y="354" font-size="12" fill="#212121">change.</text>
+<rect x="750" y="88" width="340" height="290" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="764" y="112" font-size="14" fill="#1F4E9E" font-weight="600">Audit details</text>
+<circle cx="769" cy="130" r="2.2" fill="#616161"/>
+<text x="778" y="134" font-size="12" fill="#212121">Goes through the existing audit module: Desktop</text>
+<text x="778" y="150" font-size="12" fill="#212121">REG-LIV-001 to 013, Android REG-EVT-009 to 020.</text>
+<circle cx="769" cy="167" r="2.2" fill="#616161"/>
+<text x="778" y="171" font-size="12" fill="#212121">PAD_ATTACK_SUSPECTED: median score,</text>
+<text x="778" y="187" font-size="12" fill="#212121">per-model medians, reason.</text>
+<circle cx="769" cy="204" r="2.2" fill="#616161"/>
+<text x="778" y="208" font-size="12" fill="#212121">Every attempt: error code, retries left, model version,</text>
+<text x="778" y="224" font-size="12" fill="#212121">device id.</text>
+<circle cx="769" cy="241" r="2.2" fill="#616161"/>
+<text x="778" y="245" font-size="12" fill="#212121">Challenges as TYPE:OUTCOME:ms. Timings, frames</text>
+<text x="778" y="261" font-size="12" fill="#212121">analysed and dropped.</text>
+<circle cx="769" cy="278" r="2.2" fill="#616161"/>
+<text x="778" y="282" font-size="12" fill="#212121">Records are linked by a random session id.</text>
+<circle cx="769" cy="299" r="2.2" fill="#616161"/>
+<text x="778" y="303" font-size="12" fill="#212121">Diagnostic mode adds statistics to audit and logs only.</text>
+<text x="778" y="319" font-size="12" fill="#212121">The screen never changes.</text>
+<text x="30" y="416" font-size="14" fill="#212121" font-weight="600">Where each kind of data goes</text>
+<rect x="30" y="428" width="250" height="30" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1"/>
+<text x="40" y="448" font-size="13" fill="#FFFFFF" font-weight="600">Data</text>
+<rect x="280" y="428" width="150" height="30" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1"/>
+<text x="290" y="448" font-size="13" fill="#FFFFFF" font-weight="600">Screen</text>
+<rect x="430" y="428" width="210" height="30" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1"/>
+<text x="440" y="448" font-size="13" fill="#FFFFFF" font-weight="600">Memory</text>
+<rect x="640" y="428" width="150" height="30" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1"/>
+<text x="650" y="448" font-size="13" fill="#FFFFFF" font-weight="600">Audit trail</text>
+<rect x="790" y="428" width="150" height="30" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1"/>
+<text x="800" y="448" font-size="13" fill="#FFFFFF" font-weight="600">Logs</text>
+<rect x="940" y="428" width="150" height="30" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1"/>
+<text x="950" y="448" font-size="13" fill="#FFFFFF" font-weight="600">Disk</text>
+<rect x="30" y="458" width="250" height="42" fill="#FFFFFF" stroke="#BDBDBD" stroke-width="1"/>
+<text x="40" y="483" font-size="12" fill="#212121" font-weight="600">Camera frames</text>
+<rect x="280" y="458" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="290" y="483" font-size="12" fill="#212121">Mirrored preview</text>
+<rect x="430" y="458" width="210" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="440" y="483" font-size="12" fill="#212121">During the session</text>
+<rect x="640" y="458" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="650" y="483" font-size="12" fill="#616161">Never</text>
+<rect x="790" y="458" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="800" y="483" font-size="12" fill="#616161">Never</text>
+<rect x="940" y="458" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="950" y="483" font-size="12" fill="#616161">Never</text>
+<rect x="30" y="500" width="250" height="42" fill="#FFFFFF" stroke="#BDBDBD" stroke-width="1"/>
+<text x="40" y="525" font-size="12" fill="#212121" font-weight="600">Best frame</text>
+<rect x="280" y="500" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="290" y="525" font-size="12" fill="#616161">Never</text>
+<rect x="430" y="500" width="210" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="440" y="525" font-size="12" fill="#212121">One use, 5 minutes at most</text>
+<rect x="640" y="500" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="650" y="525" font-size="12" fill="#212121">Numbers only</text>
+<rect x="790" y="500" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="800" y="525" font-size="12" fill="#616161">Never</text>
+<rect x="940" y="500" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="950" y="525" font-size="12" fill="#616161">Never</text>
+<rect x="30" y="542" width="250" height="42" fill="#FFFFFF" stroke="#BDBDBD" stroke-width="1"/>
+<text x="40" y="567" font-size="12" fill="#212121" font-weight="600">Face captured through the SBI</text>
+<rect x="280" y="542" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="290" y="567" font-size="12" fill="#212121">Existing screen</text>
+<rect x="430" y="542" width="210" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="440" y="567" font-size="12" fill="#212121">Until the check ends</text>
+<rect x="640" y="542" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="650" y="567" font-size="12" fill="#616161">Never</text>
+<rect x="790" y="542" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="800" y="567" font-size="12" fill="#616161">Never</text>
+<rect x="940" y="542" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="950" y="559" font-size="12" fill="#212121">Existing flow, after</text>
+<text x="950" y="575" font-size="12" fill="#212121">MATCH</text>
+<rect x="30" y="584" width="250" height="42" fill="#FFFFFF" stroke="#BDBDBD" stroke-width="1"/>
+<text x="40" y="609" font-size="12" fill="#212121" font-weight="600">Landmarks, face features</text>
+<rect x="280" y="584" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="290" y="609" font-size="12" fill="#616161">Never</text>
+<rect x="430" y="584" width="210" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="440" y="609" font-size="12" fill="#212121">During the call</text>
+<rect x="640" y="584" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="650" y="609" font-size="12" fill="#616161">Never</text>
+<rect x="790" y="584" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="800" y="609" font-size="12" fill="#616161">Never</text>
+<rect x="940" y="584" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="950" y="609" font-size="12" fill="#616161">Never</text>
+<rect x="30" y="626" width="250" height="42" fill="#FFFFFF" stroke="#BDBDBD" stroke-width="1"/>
+<text x="40" y="651" font-size="12" fill="#212121" font-weight="600">Scores, per-model PAD outputs</text>
+<rect x="280" y="626" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="290" y="651" font-size="12" fill="#616161">Never</text>
+<rect x="430" y="626" width="210" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="440" y="651" font-size="12" fill="#212121">During the session</text>
+<rect x="640" y="626" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="650" y="651" font-size="12" fill="#212121">Yes</text>
+<rect x="790" y="626" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="800" y="651" font-size="12" fill="#212121">Numbers only</text>
+<rect x="940" y="626" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="950" y="651" font-size="12" fill="#212121">Audit table only</text>
+<rect x="30" y="668" width="250" height="42" fill="#FFFFFF" stroke="#BDBDBD" stroke-width="1"/>
+<text x="40" y="693" font-size="12" fill="#212121" font-weight="600">Error codes, model version</text>
+<rect x="280" y="668" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="290" y="693" font-size="12" fill="#212121">Generic text only</text>
+<rect x="430" y="668" width="210" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="440" y="693" font-size="12" fill="#212121">During the session</text>
+<rect x="640" y="668" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="650" y="693" font-size="12" fill="#212121">Yes</text>
+<rect x="790" y="668" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="800" y="693" font-size="12" fill="#212121">Yes</text>
+<rect x="940" y="668" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="950" y="693" font-size="12" fill="#212121">Audit table only</text>
+<rect x="30" y="710" width="250" height="42" fill="#FFFFFF" stroke="#BDBDBD" stroke-width="1"/>
+<text x="40" y="735" font-size="12" fill="#212121" font-weight="600">Metrics: counts and averages</text>
+<rect x="280" y="710" width="150" height="42" fill="#EEEEEE" stroke="#BDBDBD" stroke-width="1"/>
+<text x="290" y="735" font-size="12" fill="#616161">Never</text>
+<rect x="430" y="710" width="210" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="440" y="735" font-size="12" fill="#212121">Since start-up</text>
+<rect x="640" y="710" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="650" y="727" font-size="12" fill="#212121">Desktop, every 20</text>
+<text x="650" y="743" font-size="12" fill="#212121">sessions</text>
+<rect x="790" y="710" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="800" y="735" font-size="12" fill="#212121">Diagnostic mode</text>
+<rect x="940" y="710" width="150" height="42" fill="#E8EEF9" stroke="#BDBDBD" stroke-width="1"/>
+<text x="950" y="735" font-size="12" fill="#212121">Android counters only</text>
+</svg>
