@@ -106,7 +106,7 @@ MOSIP's `registration-client`, and its Android changes are patches against `andr
 ## Team
 
 Work was split into five parts. The history of each part is in the Git log, and all of it went through
-[20 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
+[21 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
 
 | Part | Scope | Lead commit author |
 |---|---|---|
