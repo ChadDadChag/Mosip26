@@ -349,7 +349,7 @@ sequenceDiagram
             BC-->>AC: false → existing "face not matched" alert, nothing added
         end
     else BLOCKED / CANCELLED
-        G-->>AC: no capture; the packet is not submitted; the step stays
+        G-->>AC: no capture, the packet is not submitted, the step stays
     end
 ```
 
@@ -431,10 +431,10 @@ sequenceDiagram
         S->>S: background thread: ModelUpdater.check(url, ModelStore, bundled, keys)
         S->>S: LIVENESS_MODEL_UPDATE (outcome, version, reason, durationMs, trigger)
         alt INSTALLED
-            S->>E: new sessions use the new bundle (MODEL_LOADED); running sessions keep theirs
+            S->>E: new sessions use the new bundle (MODEL_LOADED), running sessions keep theirs
         end
     end
-    Note over S: the sync never waits for the update and never fails because of it;<br/>tampered or unsigned = refused, the current models stay
+    Note over S: the sync never waits for the update and never fails because of it,<br/>tampered or unsigned = refused, the current models stay
 ```
 
 ## 4. UI screens

@@ -60,10 +60,10 @@ attacks using prints, photos on screens and replayed videos.
 | Bona fide takes passed with no action | 32 of 36 responding takes (88.9%). The other 4 went to a challenge |
 | Bona fide takes with no decision | 11 of 47 (23.4%), mostly a face too far away in a fixed recording. Live, the screen says "move closer" |
 | Automated tests | 1,267, none failing across ten modules, all passing on a clean build. See the [test report](docs/test-cases-and-results.md) |
-| Requirements traced | 229 from the problem statement: 212 done, 17 partial, 0 not started. See the [traceability matrix](docs/requirements-traceability.md) |
-| Android speed | About 42 to 57 ms per analysed frame on a Samsung Galaxy S23 FE |
+| Requirements traced | 229 from the problem statement: 213 done, 16 partial, 0 not started. See the [traceability matrix](docs/requirements-traceability.md) |
+| Android speed | About 42 to 57 ms per analysed frame on a Samsung Galaxy S23 FE, and about 140 ms on a 2019 Redmi Note 7 |
 
-**Please read these results with their limits.** They come from one webcam, one test phone and four people, so they are
+**Please read these results with their limits.** They come from one webcam, two test phones and four people, so they are
 provisional and do not estimate error rates in the field. Nothing has been run on real L0/L1 biometric hardware: the phone
 camera, a webcam and MOSIP's MockMDS stood in for the device. Neither client has been run from end to end against a MOSIP
 server. The identity check is the weakest result. It compares a live face with a stored face, and it refused the right person

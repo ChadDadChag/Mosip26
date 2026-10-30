@@ -1,6 +1,7 @@
 # Part 5: Android liveness on a real phone (benchmark and field checks)
 
-Person 5, P5-5, 2026-10-24. One phone, one tester. Numbers that come from a person's
+Person 5, P5-5, 2026-10-24. One phone, one tester, plus a budget phone on 2026-10-30 (see
+"Budget phone: Redmi Note 7"). Numbers that come from a person's
 recordings are **single subject s01, provisional**. Everything here is aggregates and
 timings: no images, no landmarks and no per-frame data of a person.
 
@@ -42,6 +43,8 @@ chosen from it.
   - an arm64-only APK would be about 145 MiB; measured in fix round 2 with `--split-per-abi` and
     the five-model bundle: 151.3 MiB (section G);
   - distribute per ABI (an Android App Bundle, or split APKs).
+- **Budget phone (2026-10-30):** on a Redmi Note 7 the same defaults were the fastest of the nine settings,
+  at about 124 ms per frame. Plain checks took 2.1-3.2 s, and airplane mode worked.
 
 ## Device and builds
 
@@ -392,14 +395,16 @@ goes. The release build type's `ndk.abiFilters` (upstream) made Gradle refuse `-
 
 ## Low-end phones: caveat and what to try
 
-Only the S23 FE was tested. It is a mid-to-high-end phone with one fast core, three
-medium-fast cores and four slow cores. Do not assume these times on a low-end device.
+Two phones were tested. The S23 FE is a mid-to-high-end phone with one fast core, three
+medium-fast cores and four slow cores. The Redmi Note 7 is a 2019 budget phone (see
+"Budget phone: Redmi Note 7"). Do not assume these times on a weaker device.
 
 **Budget.**
 - **Time per frame:** the passive check needs 10 good frames. Below about 8 analysed frames per
   second, sessions get longer. The camera keeps only the latest frame, so a slow device skips
   frames rather than queueing them.
-- **Memory:** the app needs about 370 MB during a session.
+- **Memory:** the app used up to 367 MB during a session on the S23 FE, and at most 217 MB on the
+  Redmi Note 7 (sampled every 5 s).
 
 **Ways to cut work per frame, in the order to try:**
 1. Compare `intraOpThreads` 1 and 2. On a phone with only slow cores, 1 thread can win.
@@ -411,6 +416,62 @@ medium-fast cores and four slow cores. Do not assume these times on a low-end de
 4. Lower the analysis resolution. `LivenessApi.ANALYSIS_RESOLUTION` is 640 x 480 and needs a code
    change. Face crops get fewer pixels, so re-check the quality thresholds.
 5. Avoid INT8 as it stands: it was slower and less accurate here.
+
+On the Redmi Note 7, steps 1 and 2 did not help: 2 threads on the CPU stayed the fastest.
+
+## Budget phone: Redmi Note 7
+
+Checked on 2026-10-30 (finding F11). One phone, one tester, s01.
+
+| | |
+|---|---|
+| Phone | Xiaomi Redmi Note 7 (lavender), a 2019 budget phone |
+| Chip | Snapdragon 660: four cores at 2.21 GHz and four at 1.84 GHz |
+| Memory | 3.8 GB reported |
+| OS | Android 10 (API 29), MIUI 12.5 |
+| Build | profile build, arm64, 152.9 MiB, client commit `4d5e6b9`, bundle `pad-2026.10.5` |
+| Camera | front camera, 640 x 480 analysis stream |
+
+**Results.**
+
+| Check | Result |
+|---|---|
+| Real-face checks | 8 of 8 completed checks passed: 6 with no action and 2 after actions. 3 more were cancelled |
+| Plain checks, no forced actions | 6 of 7 passed with no action, at score 1.0000, in 2.1-3.2 s. The other was capped at 0.60 and passed after 2 actions in 11.6 s. This build does not log which guard set the cap |
+| Forced actions | Passed in 8.8 s |
+| Time per analysed frame, real sessions | 134-147 ms at p50 over 10 sessions, or 6.7-7.3 analysed frames per second |
+| Photo attack, front camera | One session: a public-domain portrait on a laptop screen. PAD_FAILURE on attempts 1 to 3, then MAX_RETRIES_EXCEEDED after 4 attempts, 30.0 s, last score 0.1278 |
+| Back camera | About 15 frames per second arrived, but no face was found in 52 of 52 frames. The tester reported a very blurry picture. This is not an attack result |
+| Airplane mode | Cold start with airplane mode on and Wi-Fi off. Models loaded in 815 ms, and a plain check passed in 3.2 s at score 1.0000 |
+| Model loading | 563 ms and 815 ms over 2 cold starts, plus about 100 ms for the face matcher |
+| Memory | At most 217 MB during checks and 333 MB during the benchmark: whole app, PSS, sampled every 5 s |
+| Stability | No crash, ANR or out-of-memory error in the logs. Temperature zone 0 stayed at 36-38 C |
+
+**Benchmark.** Only 25 of the 60 captured frames had one face, because the benchmark shows no preview. The
+report's total at p50 therefore counts frames with no face and reads too low. This table uses the sum of the
+stage medians, where each stage counts only the frames it ran on, and the total at p95. Times are in ms.
+
+| setting | detect | mesh | pad | sum of stages | total p95 | matches CPU, 1 thread |
+|---|---|---|---|---|---|---|
+| CPU, 1 thread | 81.0 | 67.6 | 28.5 | 180 | 183 | reference |
+| **CPU, 2 threads (default)** | 56.3 | 45.4 | 19.1 | **124** | **127** | yes |
+| CPU, 4 threads | 52.0 | 48.0 | 26.5 | 129 | 200 | yes |
+| XNNPACK, 1 thread | 80.6 | 71.4 | 30.0 | 185 | 187 | yes |
+| XNNPACK, 2 threads | 79.7 | 60.7 | 22.7 | 166 | 169 | yes |
+| XNNPACK, 4 threads | 80.3 | 56.7 | 19.8 | 160 | 173 | yes |
+| NNAPI, 1 thread | 80.6 | 69.6 | 209.6 | 362 | 366 | yes |
+| NNAPI, 2 threads | 55.7 | 45.5 | 209.4 | 313 | 318 | yes |
+| NNAPI, 4 threads | 49.4 | 56.8 | 210.5 | 320 | 351 | yes |
+
+An earlier run with 7 of 60 frames with one face ranked the settings in the same order.
+
+**Reading these numbers.**
+- The S23 FE's defaults are also the best of the nine settings here, so this phone needs no tuning.
+- The analysed rate is just under the budget of about 8 frames per second. Sessions take a little longer, as
+  predicted above, and the checks stay usable.
+- This is a spot check: one phone, one tester and one attack session. It is a budget phone with a 2017
+  upper-mid chip, not the weakest kind of device.
+- The submission pack's APK is a debug build, which is about 30% slower on CPU than this profile build.
 
 ## Reproduce
 

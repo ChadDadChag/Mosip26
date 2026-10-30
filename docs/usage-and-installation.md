@@ -34,7 +34,7 @@ build because only those builds have the demo page. It is signed with a debug ke
 install it.
 
 **Needs:** a 64-bit (arm64) phone with Android 9 or later and a front camera. We tested on a Samsung Galaxy S23 FE with
-Android 16.
+Android 16. A profile build of the same code also ran on a Redmi Note 7 with Android 10.
 
 ### Install
 
@@ -248,6 +248,7 @@ To add liveness to a Desktop deployment, put the block in
 | A file name is too long on Windows during a clone | Run `git config --global core.longpaths true`, or pass `-c core.longpaths=true` to `git clone` |
 | Android: `OutOfMemoryError: Java heap space` in a build | Stop the Gradle daemons with `cd android; .\gradlew.bat --stop`, then build again |
 | Android: the install is blocked | Follow the Samsung and Play Protect steps in route A |
+| `adb install` fails with `INSTALL_FAILED_USER_RESTRICTED` on a Xiaomi phone | MIUI's Install via USB setting is off, and it needs a Mi account. Copy the APK to the phone and tap it in a file app instead |
 | Android: the app stops at the login page | This is expected with no MOSIP server. Use **Face liveness demo** at the top right |
 | The check keeps saying "move closer" | The face is too small. Move closer. The face must be at least 80 pixels wide and 4% of the picture |
 | The webcam will not open | Close any other program that uses it, and start the tool again |
@@ -260,7 +261,7 @@ On 2026-10-30 we ran routes C, D and E from fresh clones, on a Windows 11 laptop
 
 | Route | What was run | Result |
 |---|---|---|
-| A | This APK was installed on the test phone on 2026-10-29. It was not installed again | The phone ran a rotation check on it. Attacks on a phone were last recorded on an earlier build, and most attack results come from the laptop webcam |
+| A | This APK was installed on the test phone on 2026-10-29. It was not installed again | The phone ran a rotation check on it. One photo attack ran on a Redmi Note 7 on 2026-10-30, on a profile build of the same code. Before that, attacks on a phone were last recorded on an earlier build, and most attack results come from the laptop webcam |
 | B | The packed folder: the Java version check on Java 8 and Java 11, the window and the signed models. The webcam was not opened | Java 8 gets a clear message. On Java 11 the window opens with the models loaded |
 | C | Every command, from a fresh clone with an empty Maven cache | All builds and tests passed, in about 9 minutes. The tools ran |
 | D | The build, the tests, the recorded attack and the screen images. The two interactive windows were not opened in this check | All passed. The recorded attack was refused |

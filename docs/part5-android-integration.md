@@ -157,7 +157,7 @@ sequenceDiagram
     Api-->>Scr: stored as before, "Ok"
   else anything else
     Api-->>Scr: not stored, LIVENESS_BINDING_FAILED
-    Note over Scr: generic text; no attempt counted, no scan dialog
+    Note over Scr: generic text, no attempt counted, no scan dialog
   end
   Note over Scr: Not proceed (cancelled or blocked): return before the SBI call. No capture and no capture attempt is counted.
 ```
@@ -389,7 +389,7 @@ sequenceDiagram
     VB-->>D: MODEL_INTEGRITY_FAILED, store untouched
   else verified
     H->>MS: install(staged, bundled assets)
-    MS->>MS: verify both; staged newer than the bundled version? (else "not newer", refused)
+    MS->>MS: verify both, staged newer than the bundled version? (else "not newer", refused)
     opt store empty, or its current version older than the bundled one
       MS->>MS: install the bundled assets as the rollback base, remove older bundles
     end
@@ -1000,7 +1000,8 @@ provisional.
     - Operators hold the device upright, or in either landscape position.
   - **Possible future work** (not this week): take the analysis's target rotation from an
     `OrientationEventListener`. That is CameraX's own advice when the UI rotation does not follow the device.
-- **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
+- **Two devices.** A mid-to-high-end phone, and a profile build on one 2019 budget phone (a Redmi Note 7,
+  2026-10-30). See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
   yet. It was tested against a laptop server (section 10).

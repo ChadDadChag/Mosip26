@@ -15,10 +15,11 @@ v1.2.0.2.
 - In the four-subject evaluation of 2026-10-28, none of the 131 attack takes passed without a challenge, and none of the 47 real-face takes was rejected as an attack. These figures are provisional.
 - With the print guards on, 0 of 29 live print attack sessions passed. 0 of 8 live tablet replay sessions passed.
 - Every required error case has an automated test. Both clients refuse tampered and unsigned model files.
+- On a 2019 budget phone, 8 of 8 completed real-face checks passed, one photo attack was refused and airplane mode worked (section 6.3).
 
 **Main limits.**
 - The evaluation used four real people, one webcam and one room, and most attacks show one person. It shows tendencies, not field error rates.
-- Never tested: real L0/L1 Secure Biometric Interface (SBI) hardware, a live MOSIP backend end to end, low-end phones, replay on a desktop monitor, and masks.
+- Never tested: real L0/L1 Secure Biometric Interface (SBI) hardware, a live MOSIP backend end to end, phones weaker than a 2019 budget phone, replay on a desktop monitor, and masks.
 - 21 attack takes reached the challenge stage, and a recorded evaluation cannot test challenges. 60 of the 131 attack takes gave no decision.
 - A printed cut-out passed twice live before the print guards were added.
 - The identity check rejects the right person in 42 of 155 pairs (27.1%) when the stored face is an old photo.
@@ -131,6 +132,7 @@ before it. "(Desktop)" and "(Android)" mark classes that exist on both clients. 
 | PAD-11 | Video replay on a tablet | The subject's 2-minute video on a tablet of about 11 inches: 6 sessions at 40 to 60 cm, 2 sessions at real-face size | None passes | 0 of 8 passed. At 40 to 60 cm, all 18 attempts that reported a code ended in PAD_FAILURE. At real-face size both sessions ended in MAX_RETRIES_EXCEEDED. The moiré cap did not fire: the models, the PAD latch and the PAD monitor decided | live, 2026-10-27 and 2026-10-28 | `docs/part2-iso30107-evaluation.md`, section 4.6 |
 | PAD-12 | A face photo on a laptop screen, seen by the phone | Back camera, three runs | Rejected on every attempt | Rejected on all 4 attempts in each run; final screen with recovery text. This is the only attack result recorded on a phone. It predates the print guards | live, 2026-10-24 | `docs/part5-android-integration.md`, section 10 |
 | PAD-13 | Recorded evaluation of all species | 131 attack takes and 47 real-face takes from four subjects | No attack passes without a challenge; no real face is rejected | See section 4 | evaluation, 2026-10-28 | `docs/part2-iso30107-evaluation.md`, section 4.7 |
+| PAD-14 | A photo on a budget phone's camera | A public-domain portrait on a laptop screen, shown to the front camera of a Redmi Note 7. One session, profile build | Refused | Pass. PAD_FAILURE on attempts 1 to 3, then MAX_RETRIES_EXCEEDED after 4 attempts, last score 0.1278. A spot check: one session and one screen | live, 2026-10-30 | `docs/part5-android-benchmark.md`, "Budget phone: Redmi Note 7" |
 
 ### 3.4 Active challenges and dynamic selection
 
@@ -236,6 +238,7 @@ There are six key families. All keys start with `mosip.registration.liveness.`.
 | ONL-01 | Liveness with no network | Phone in airplane mode with Wi-Fi off; cold start; the real and the fake resident gate | Models verify; gates finish; no network errors | Models loaded in 259 ms. Real gate passed, 0.967 in 2.0 s. Fake gate finished as scripted. No network errors in the liveness logs. **Resident gate only** | live, 2026-10-24 | `docs/part5-android-benchmark.md`, section F |
 | ONL-02 | No calls home from the runtime | ONNX Runtime telemetry | Switched off; the Android telemetry component is removed | Pass. Phone: the merged manifest no longer has it, and models still load | automated and live, 2026-10-24 | `OnnxModelsTest.telemetryIsSwitchedOffAndCreateStillWorks`; `docs/part5-android-benchmark.md`, section F |
 | ONL-03 | A missing or failing network does not hurt a sync | Updates off; updates on with no URL; an update server that answers 404 | No request when off or with no URL; the sync returns in under 1 s; the models stay; the failure is audited | Pass | automated | `DesktopModelUpdateTest.disabledOrWithoutAUrlTheSyncMakesNoNetworkCall`, `.aFailedUpdateNeverFailsTheSyncAndKeepsTheModels` |
+| ONL-04 | Liveness with no network on a budget phone | Redmi Note 7 in airplane mode with Wi-Fi off; cold start; the real resident gate; profile build | Models verify; the gate finishes | Pass. Models loaded in 815 ms. The gate passed at score 1.0000 in 3.2 s | live, 2026-10-30 | `docs/part5-android-benchmark.md`, "Budget phone: Redmi Note 7" |
 
 ### 3.12 Model integrity and updates
 
@@ -302,6 +305,8 @@ the user's onboarded face at gates that have only a password. Section 5 has the 
 | PRF-01 | Time per frame on the laptop | 20 warm-up and 300 timed calls, 2 threads | Fast enough for 15 frames per second | Median 18.0 ms, 95th percentile 21.9 ms. Predates face binding | evaluation, 2026-10-23 | `liveness-eval/reports/benchmark-20261023.md` |
 | PRF-02 | Time per frame on the phone, and accelerator parity | 60 captured frames, profile build, CPU, XNNPACK and NNAPI | Fast enough, and each provider gives the reference score | CPU with 2 threads: median 26.6 ms, 95th percentile 32.3 ms. Every provider matched the reference (difference below 0.00005). XNNPACK about 2 times slower, NNAPI about 4 times slower | evaluation, 2026-10-24 | `docs/part5-android-benchmark.md`, section A; `OnnxModelsAcceleratorTest.nnapiOnTheDesktopFallsBackToCpu` |
 | PRF-03 | Real sessions, memory and size on the phone | Five sessions, resident, front camera; `dumpsys meminfo`; split APK (Android Package) builds | About 8 analysed frames per second in the passive check; memory and size recorded | 42 to 57 ms per frame at the median. 8.0 frames per second passive, 11.9 in the session with challenges, 5.9 in the dark session. 236 MB idle, 367 MB peak in a session. arm64 split APK 151.3 MiB | evaluation, 2026-10-24 (sessions, memory) and 2026-10-25 (split size) | `docs/part5-android-benchmark.md`, "Real sessions" and section G |
+| PRF-04 | Time per frame on a budget phone, and accelerator parity | Redmi Note 7, the nine settings of PRF-02, 60 captured frames of which 25 had one face | The default stays the fastest, and each provider gives the reference score | CPU with 2 threads was the fastest: about 124 ms per full frame (the sum of the stage medians), 95th percentile 127 ms. Every provider matched the reference | evaluation, 2026-10-30 | `docs/part5-android-benchmark.md`, "Budget phone: Redmi Note 7" |
+| PRF-05 | Real sessions on a budget phone | Redmi Note 7, resident workflow, front camera, profile build | Checks finish at a usable speed | 8 of 8 completed real-face checks passed. 6 of 7 plain checks passed with no action, in 2.1 to 3.2 s. 134 to 147 ms per frame at the median, 6.7 to 7.3 analysed frames per second. At most 217 MB in checks. No crash | live, 2026-10-30 | `docs/part5-android-benchmark.md`, "Budget phone: Redmi Note 7" |
 
 ## 4. Presentation attack evaluation (ISO/IEC 30107-3)
 
@@ -630,6 +635,29 @@ Application size:
 
 ONNX Runtime is 32.6 MiB of the arm64 split. A reduced runtime was not built.
 
+### 6.3 Budget phone
+
+**Device.** One Xiaomi Redmi Note 7, Snapdragon 660, 3.8 GB memory, Android 10. Profile build from client commit
+`4d5e6b9`, bundle `pad-2026.10.5`, front camera, 640 × 480 analysis stream. One tester, 2026-10-30.
+
+Time per frame, benchmark of 60 captured frames, of which 25 had one face. The first number is the sum of the stage
+medians, because the report's total median counts frames with no face. The second is the total at the 95th percentile:
+
+| Setting | Time per frame | Matches CPU with 1 thread |
+|---|---|---|
+| CPU, 1 thread | 180 / 183 ms | reference |
+| **CPU, 2 threads (default)** | **124 / 127 ms** | yes |
+| CPU, 4 threads | 129 / 200 ms | yes |
+| XNNPACK, 1, 2, 4 threads | 185 / 187, 166 / 169, 160 / 173 ms | yes |
+| NNAPI, 1, 2, 4 threads | 362 / 366, 313 / 318, 320 / 351 ms | yes |
+
+Real sessions gave 134 to 147 ms per frame at the median, or 6.7 to 7.3 analysed frames per second. That is just
+under the budget of about 8, and the plain checks still took 2.1 to 3.2 s.
+
+This is a spot check on one phone, with one tester and one attack session. The back camera gave a picture too blurry
+to find a face, so no attack result came from it. The submission pack's APK is a debug build, which is slower than
+this profile build. `docs/part5-android-benchmark.md`, "Budget phone: Redmi Note 7", has all the results.
+
 ## 7. Stability and recovery checks
 
 | Check | What was done | Result | Evidence |
@@ -693,7 +721,8 @@ task is outside the table in section 2, which covers the liveness suites only.
     (RES-05), widget tests and code review, not inside the real screens.
   - No SBI capture was made on Android.
   - The identity check and the production model page were not tried in a logged-in client.
-- **Low-end phones.** Only one mid-to-high-end phone was tested. The times and the 367 MB peak may not hold elsewhere.
+- **Weaker phones.** Two phones were tested: a mid-to-high-end phone, and a 2019 budget phone in a profile build. The
+  times may not hold on weaker devices.
 - **Replay on a desktop monitor.** Only one tablet. No other screens.
 - **Masks.** No masks, 3D attacks, partial attacks or deepfake replays.
 - **Digital injection.** Virtual cameras and stream tampering are out of scope for PAD and were not tested.
@@ -732,11 +761,14 @@ task is outside the table in section 2, which covers the liveness suites only.
 this repository at `57b2624` with client commit `4d5e6b9`.
 
 The live evidence here is a set of dated checks, each on the build of its day:
-- The last live check on the phone was rotation, on 2026-10-29, on the debug build from client commit `4d5e6b9`. That
+- The last live checks on a phone were on a Redmi Note 7 on 2026-10-30, on a profile build from client commit
+  `4d5e6b9` (section 6.3).
+- The last live check on the S23 FE was rotation, on 2026-10-29, on the debug build from client commit `4d5e6b9`. That
   is the APK in the submission pack.
 - The last live identity checks were on 2026-10-28.
 - The last live attack sessions were on the laptop on 2026-10-28, the tablet replay.
-- The last live attack on a phone was on 2026-10-24, before the print guards existed. It was not repeated with them.
+- The last live attack on a phone was one photo session on the Redmi Note 7 on 2026-10-30, which was refused. On the
+  S23 FE it was on 2026-10-24, before the print guards existed, and it was not repeated with them.
 
 The last code changes, on 2026-10-28, are in that build, but only automated tests cover them: the cancel during a device
 restart, an Arabic text, and three texts on MOSIP's own screens.

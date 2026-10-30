@@ -17,6 +17,7 @@ French, Hindi and Kannada corrected).
 It also includes the F9 run of 2026-10-28: four bona fide subjects, evaluated with the decision rules R0–R5 (OV-5,
 OV-13, OV-14, OP-7, SV-2, ET-6, and F9 under the known gaps), and the F2b fine-tuning run on the same data, not
 adopted (F2 under the known gaps).
+It also includes the Redmi Note 7 check of 2026-10-30 (BT-7, ET-21, and F11 under the known gaps).
 Only facts from the documents and code in this repository are used.
 
 **Read the evidence with its qualifiers.** Every PAD error rate, threshold check and live session in this repository
@@ -26,7 +27,8 @@ comes from **one laptop webcam** and few people, and is **provisional**.
 - The attacks use one phone, A4 prints, printed cut-outs of 13 people, a phone slideshow of photos of 14 people
   (consented photos; only aggregates are kept) and, in F5, one tablet replaying the subject's video. The
   single-species attacks show s01.
-- The phone results come from one Samsung Galaxy S23 FE and one tester.
+- The phone results come from one Samsung Galaxy S23 FE and one tester, plus a Redmi Note 7 check on 2026-10-30
+  by the same tester (BT-7, ET-21).
 - Nothing was run against real L0/L1 SBI hardware, and neither client was run end to end against a MOSIP backend.
 
 ## Legend
@@ -54,10 +56,10 @@ that repeats an overview requirement points back to it with "As OV-n").
 | 8. Expected tasks | 19 | 2 | 0 |
 | 9. Mandatory tasks 1–9 | 59 | 3 | 0 |
 | 10. UI/UX 10.1–10.8 | 19 | 0 | 0 |
-| 11. Bonus tasks | 7 | 1 | 0 |
+| 11. Bonus tasks | 8 | 0 | 0 |
 | 12. Good-to-have tasks | 10 | 2 | 0 |
 | 13. Deliverables | 47 | 1 | 0 |
-| **Total (229)** | **212** | **17** | **0** |
+| **Total (229)** | **213** | **16** | **0** |
 
 PRs #12 to #17 change no status. Their rows were ✅ already (F13b, F19, the visual design), or stay 🟡 for a reason
 they do not remove: F15 and F5 add evidence to SV-2, OV-15 and M3.2, which then rested on one bona fide subject. With
@@ -71,12 +73,16 @@ The F9 run (2026-10-28) changes no status either.
 - F15's FNMR with a same-session webcam template is 1/43 (2.3%) at 0.40. That is within the 5% that would have
   reopened OP-7 and SV-2.
 
+The Redmi Note 7 check (2026-10-30) changes one status. BT-7 moves from 🟡 to ✅: the benchmark-chosen defaults
+were again the fastest on a 2019 budget phone, and the checks ran there at a usable speed. ET-21 stays 🟡,
+because it also needs a real SBI device.
+
 The 🟡 rows come down to four themes:
 - no real L0/L1 hardware (OV-2, RR-2, IN-7, M1.1, GT-6, D3.1);
 - PAD evidence from few people (four bona fide subjects since F9, the single-species attacks from one), with
   desktop-monitor replay and masks not yet covered (OV-13 to OV-16, SV-2, ET-6,
   M3.2, M3.5);
-- one mid-to-high-end test phone (ET-21, BT-7);
+- performance testing on two phones and no real SBI device (ET-21);
 - GT-4: guidance texts are not server-configurable.
 
 ## Who did what
@@ -233,7 +239,7 @@ The Desktop hooks are in existing client classes: `GenericBiometricsController` 
 | **ET-18** Implement the required UI/UX changes | ✅ | Section 10 | Section 10 | — |
 | **ET-19** Implement configuration changes | ✅ | Section 5 | Section 5 | — |
 | **ET-20** Implement audit and diagnostic logging | ✅ | P3 `core/audit/AuditRecorder`; P4 `desktop/DesktopAuditSink` (REG-LIV-001 to 013, [P4 §6](part4-desktop-integration.md)); P5 `AndroidAuditSink` (REG-EVT-009 to 020, [P5 §6](part5-android-integration.md)); `diagnosticMode` adds `diag.*` statistics | `AuditRecorderTest.publicApiCannotAcceptImagesOrLandmarks` (reflection), `DesktopAuditSinkTest`, `AndroidAuditSinkTest` (11) | No image, landmark or coordinate reaches the audit trail |
-| **ET-21** Perform performance and interoperability testing | 🟡 | Performance: `eval/AnalyzerBenchmark`, the Android debug-page benchmark. Interoperability: `DevicePathInteropTest`, `device/demo/SbiStreamProbe`, MockMDS | Laptop `analyze()` p50 18.0 ms. S23 FE: 26.6 ms p50 in the benchmark, 42–57 ms per frame in real sessions, 236 MB idle and 367 MB peak memory ([P5 bench](part5-android-benchmark.md)) | No real SBI device; one mid-to-high-end phone, no low-end phone (F11) |
+| **ET-21** Perform performance and interoperability testing | 🟡 | Performance: `eval/AnalyzerBenchmark`, the Android debug-page benchmark. Interoperability: `DevicePathInteropTest`, `device/demo/SbiStreamProbe`, MockMDS | Laptop `analyze()` p50 18.0 ms. S23 FE: 26.6 ms p50 in the benchmark, 42–57 ms per frame in real sessions, 236 MB idle and 367 MB peak memory. Redmi Note 7 (2026-10-30): about 124 ms per frame in the benchmark, 134–147 ms in real sessions, 333 MB peak memory ([P5 bench](part5-android-benchmark.md)) | No real SBI device; two phones, neither of them the weakest kind of device (F11) |
 
 ## 9. Mandatory tasks
 
@@ -389,7 +395,7 @@ screens rendered again from the production code. Android debug and profile build
 | **BT-4** An interoperability testing framework | ✅ | `DevicePathInteropTest`, `SbiStreamProbe` (checks any MDS answers the client's exact `/stream` request) | `SbiStreamProbeTest`; MockMDS run | No real vendor device |
 | **BT-5** Liveness model version management | ✅ | Signed `models/manifest.json` with `bundleVersion` `pad-YYYY.MM.N`; `analyzer/integrity/ModelStore` (anti-rollback, keeps current and previous, rollback); `modelVersion` in every audit record; `eval/ModelBundleTool` | `ModelStoreTest`, `VerifiedBundleTest`, `ModelBundleToolTest`; phone model-update cases a to e ([P5 bench §E](part5-android-benchmark.md)) | — |
 | **BT-6** Secure offline model updates | ✅ | `ModelStore.install` (verify, anti-rollback, atomic switch); `ModelBundleTool install` and `rollback`; the Android debug page. F17, in release builds: `analyzer/integrity/ModelUpdater.installZip` takes the zip the online update downloads, from removable media (size, entry and name limits, zip-slip refused, a temporary folder that is always deleted; signature, sizes and hashes are checked before the version). Desktop: `desktop/DesktopLivenessService.installOfflineBundle` and `rollbackModelBundle`, as two operational-task tiles. Android: a "Face liveness models" page with the system file picker. Supervisors and admins only, switch `model.offlineInstall.enabled`; audited as REG-LIV-012 / REG-EVT-019, with codes and versions only | Phone (debug page): install, "not newer" refused, a tampered copy refused before the store was touched, rollback, restart persistence. F17: `ModelUpdaterTest` (19), `DesktopOfflineModelInstallTest` (7), `LivenessOfflineModelInstallTest` (10), widget tests (6). The real test zips were run through `installZip` with the built-in keys: installed, tampered refused, zip-slip refused, rolled back | F17 was not tried in a logged-in client, because there is no backend. The role gate is proven by tests and the release build. The Android phone check opens the same production page from the debug build. It passed on 2026-10-27 on a Galaxy S23 FE: 10.5 in use, 10.8 installed from Downloads with the system file picker, then rolled back to 10.5 |
-| **BT-7** Optimise liveness processing for low-resource Android devices | 🟡 | Benchmark-chosen defaults (CPU, 2 threads); frames paced to 15/s, newest frame only; 8 fps passive; per-ABI APKs; int8 SFace ([P5 bench](part5-android-benchmark.md)) | S23 FE: 26.6 ms per frame p50; the arm64 split APK is 151.3 MiB, against 256 MiB for the single arm64-targeted APK; INT8 for the liveness models measured and rejected (slower and less accurate) | Only one mid-to-high-end phone tested (F11). A reduced ONNX Runtime build (F10b) is not built this week (the user's decision, 2026-10-29); its recipe and operator config are in [P5 bench §G](part5-android-benchmark.md) |
+| **BT-7** Optimise liveness processing for low-resource Android devices | ✅ | Benchmark-chosen defaults (CPU, 2 threads); frames paced to 15/s, newest frame only; 8 fps passive; per-ABI APKs; int8 SFace ([P5 bench](part5-android-benchmark.md)) | S23 FE: 26.6 ms per frame p50; the arm64 split APK is 151.3 MiB, against 256 MiB for the single arm64-targeted APK; INT8 for the liveness models measured and rejected (slower and less accurate). Redmi Note 7, a 2019 budget phone (2026-10-30): the same defaults were the fastest of nine settings, about 124 ms per frame; plain checks passed in 2.1–3.2 s at 6.7–7.3 analysed frames per second, and airplane mode worked | One budget phone, one tester and a profile build; not the weakest kind of device (F11). A reduced ONNX Runtime build (F10b) is not built this week (the user's decision, 2026-10-29); its recipe and operator config are in [P5 bench §G](part5-android-benchmark.md) |
 | **BT-8** Hardware acceleration where available | ✅ | Analyzer key `accelerator` (CPU, XNNPACK, NNAPI) with CPU fallback; `factory.activeAccelerator()` reports what runs | `OnnxModelsAcceleratorTest`; phone: every provider gave the reference scores (difference below 0.00005); XNNPACK about 2x and NNAPI about 4x slower than CPU, so CPU is the default | No GPU provider evaluated |
 
 ## 12. Good-to-have tasks
@@ -484,7 +490,7 @@ screens rendered again from the production code. Android debug and profile build
 | **F3: prints evaluated on few subjects** | Prints and cut-outs give APCER 0/6, 0/6 and 0/28, but the cut-out margin is thin (highest window median 0.82). The cost of the F18 guards on real faces was known for s01 only (1 of 7 passive passes became a challenge). Re-checked per subject on F9: 2 of 34 (5.9%), at or below the 25% bar, so the volatility cap stays at 0.85 | Prints and cut-outs of more bona fide subjects, other printers and paper; re-check the guards with each new group of subjects | [P2 eval §4–§5](part2-iso30107-evaluation.md) |
 | **F9: the evaluation is provisional (four bona fide subjects)** | Until 2026-10-28 every PAD rate, the moiré cap and the 0.85 / 0.30 thresholds rested on s01, one webcam and one phone. The F9 run added s02, s03 and s04, with rules R0–R5 fixed before their data. BPCER 0/36. 0.85 / 0.30 kept (the rule's 0.67 / 0.50 reported only). The volatility cap kept at 0.85 (5.9%). F15 kept at 0.40, with FNMR 27.1% on photo templates and 2.3% on same-session webcam templates. The moiré cap fired on 15–18% of the new subjects' frames: s02–s04 flagged, the cap unchanged this week. 11 of 47 bona fide takes were non-responses, mostly far takes with the face below the size minimum | At least 10 subjects with varied skin tones, glasses, more phones and cameras; then re-check the thresholds with the rule in [P2 eval §5](part2-iso30107-evaluation.md), and F15's identity threshold (0.40) with its rule, on real onboarding templates. The runner (PR #15: `models/tools/f9_reeval.py`, `scripts/f9-reeval.ps1`) ran on 2026-10-28 ([P2 eval §4.7](part2-iso30107-evaluation.md), [P2 arch §12.1](part2-pad-architecture.md)). Second screens (F5) still need a desktop monitor, more tablets and phones, and faces over 35% of the picture | [P2 eval §6](part2-iso30107-evaluation.md), [dataset protocol](part2-dataset-protocol.md), [P2 eval §4.6](part2-iso30107-evaluation.md) |
 | **F10b: reduced ONNX Runtime build (F10 backlog)** | ONNX Runtime is 32.6 MiB of the 151.3 MiB arm64 APK (the released arm64 `libonnxruntime.so`: 34,208,680 bytes, 12.9 MB compressed) | Not built this week (the user's decision, 2026-10-29): a custom native runtime needs a full on-device parity check and regression. The recipe: ONNX Runtime v1.31.0, NDK 28.0.13004108, CMake 3.28 or later and Ninja (a downloaded host protoc, no MSVC), `--include_ops_by_config` with the 35-operator config of `models/tools/ort_reduced_ops.py` (including the optimizer's Gemm, FusedConv and QLinearConv), ONNX format kept, so the signed bundle is unchanged | [P5 bench §G](part5-android-benchmark.md), [P5 §11](part5-android-integration.md) |
-| **F11: low-end phone performance** | Only a Samsung Galaxy S23 FE was tested; times and the 370 MB session memory may not hold on low-end devices | Benchmark a low-end phone with the debug page; try `intraOpThreads` 1, XNNPACK, a smaller `detectorMaxWidth` | [P5 bench, "Low-end phones"](part5-android-benchmark.md) |
+| **F11: low-end phone performance** | A Samsung Galaxy S23 FE and, on 2026-10-30, a 2019 Redmi Note 7 were tested. The defaults stayed the fastest on both. Times may not hold on weaker devices | Benchmark a weaker phone with the debug page; try `intraOpThreads` 1, a smaller `detectorMaxWidth` | [P5 bench, "Low-end phones"](part5-android-benchmark.md) |
 | **No MOSIP backend** | Neither client was run end to end. Desktop hooks were checked by compilation, code review, unit tests and rendered screens; Android hooks by the debug page's "Hook gates" (the same `LivenessGate.run` call), widget tests and code review. No SBI capture was made on Android | Run both clients against a MOSIP environment with a real L0/L1 device | [P4 §11](part4-desktop-integration.md), [P5 §11](part5-android-integration.md) |
 | **Android liveness frames come from the phone camera** | On Android the liveness stream is CameraX, not the L0/L1 device; the SBI capture stays the stored face | By design: the Android SBI has no stream. Mitigated by F1 face binding (the SBI capture is stored only if it matches the live face) | [P1 arch §5](part1-frame-streaming-architecture.md), [UI spec §6](ui-liveness-spec.md) |
 | **Translations: Desktop languages** | The five translated languages were reviewed by a native speaker on 2026-10-28: Tamil (no changes), French (corrected: « détection du vivant »), Hindi (corrected: the liveness term and plainer words), Kannada (term confirmed, 2 corrections) and Arabic (polite, gender-neutral instructions, 12 texts). Desktop carries Arabic and French only | Add Hindi, Kannada and Tamil to the Desktop when the client has full translations (their reviewed texts are in Appendix A) | [UI spec, Appendix A](ui-liveness-spec.md) |
@@ -515,8 +521,8 @@ screens rendered again from the production code. Android debug and profile build
 **Still open after PRs #12 to #17 and the F9 run:**
 - more bona fide subjects: F9 ran on 2026-10-28 with four;
 - a second screen cue (F2): the F2b fine-tuning run on the F9 data was not adopted (2026-10-28);
-- the F10b limit (a reduced ONNX Runtime: not built this week, the recipe in P5 bench §G) and the F11 limit (a low-end
-  phone).
+- the F10b limit (a reduced ONNX Runtime: not built this week, the recipe in P5 bench §G) and the F11 limit (phones
+  weaker than a Redmi Note 7).
 
 The table above has the details.
 
