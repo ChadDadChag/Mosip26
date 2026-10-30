@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1060" viewBox="0 0 1120 1060" role="img" aria-label="Passive-to-active decision flow" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Passive-to-active decision flow</title>
+<defs><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker><marker id="aC62828" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C62828"/></marker><marker id="aC62828s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C62828"/></marker><marker id="aC8640A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C8640A"/></marker><marker id="aC8640As" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C8640A"/></marker><marker id="a2E7D32" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#2E7D32"/></marker><marker id="a2E7D32s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#2E7D32"/></marker></defs>
+<rect x="0" y="0" width="1120" height="1060" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Passive-to-active decision flow</text>
+<text x="24" y="54" font-size="14" fill="#616161">The real default values. Thresholds, challenge count, timeouts and retries can be set for each workflow.</text>
+<rect x="36" y="92" width="214" height="62" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="143" y="118.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Start, or Retry</text>
+<text x="143" y="137.24" font-size="12" fill="#212121" text-anchor="middle">New window, new challenge order</text>
+<rect x="300" y="92" width="380" height="62" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="490" y="110.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Analyse 8 frames a second</text>
+<text x="490" y="129.24" font-size="12" fill="#212121" text-anchor="middle">Eligible frame: one face, no quality issue, a score, yaw and pitch</text>
+<text x="490" y="145.24" font-size="12" fill="#212121" text-anchor="middle">within 25°</text>
+<rect x="730" y="92" width="354" height="62" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="907" y="118.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Median of 10 eligible frames</text>
+<text x="907" y="137.24" font-size="12" fill="#212121" text-anchor="middle">About 1.25 seconds of good frames</text>
+<path d="M250 123 L300 123" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M680 123 L730 123" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<text x="140" y="186" font-size="13" fill="#212121" font-weight="600">Median liveness score</text>
+<rect x="140" y="196" width="282" height="40" fill="#FBEAEA" stroke="#C62828" stroke-width="1.3"/>
+<rect x="422" y="196" width="517" height="40" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.3"/>
+<rect x="939" y="196" width="141" height="40" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.3"/>
+<text x="281" y="221" font-size="13" fill="#C62828" font-weight="600" text-anchor="middle">Below 0.30: attack</text>
+<text x="680.5" y="221" font-size="13" fill="#C8640A" font-weight="600" text-anchor="middle">From 0.30 up to 0.85: not sure, so ask</text>
+<text x="1009.5" y="221" font-size="13" fill="#2E7D32" font-weight="600" text-anchor="middle">0.85 or above</text>
+<text x="140" y="252" font-size="12" fill="#616161" text-anchor="start">0</text>
+<text x="422" y="252" font-size="12" fill="#616161" text-anchor="middle">0.30</text>
+<text x="939" y="252" font-size="12" fill="#616161" text-anchor="middle">0.85</text>
+<text x="1080" y="252" font-size="12" fill="#616161" text-anchor="end">1</text>
+<path d="M907 154 L907 196" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="151" y="286" width="260" height="78" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="281" y="312.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Attempt fails: PAD_FAILURE</text>
+<text x="281" y="331.24" font-size="12" fill="#212121" text-anchor="middle">No challenge is offered. Audit records</text>
+<text x="281" y="347.24" font-size="12" fill="#212121" text-anchor="middle">PAD_ATTACK_SUSPECTED</text>
+<path d="M281 236 L281 286" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="475.5" y="286" width="410" height="90" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="680.5" y="310.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Select the challenges</text>
+<text x="680.5" y="329.24" font-size="12" fill="#212121" text-anchor="middle">SecureRandom draws from BLINK, SMILE, TURN_LEFT, TURN_RIGHT.</text>
+<text x="680.5" y="345.24" font-size="12" fill="#212121" text-anchor="middle">Opposite turns are never adjacent, BLINK is never alone, and a retry</text>
+<text x="680.5" y="361.24" font-size="12" fill="#212121" text-anchor="middle">never repeats the order.</text>
+<path d="M680.5 236 L680.5 286" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<rect x="475.5" y="392" width="410" height="62" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="680.5" y="410.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Before each prompt</text>
+<text x="680.5" y="429.24" font-size="12" fill="#212121" text-anchor="middle">A random 0 to 400 ms delay, then 5 stable, near-frontal frames as the</text>
+<text x="680.5" y="445.24" font-size="12" fill="#212121" text-anchor="middle">baseline (4 s at most)</text>
+<rect x="475.5" y="470" width="410" height="62" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="680.5" y="496.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Prompt, then 6 seconds to act</text>
+<text x="680.5" y="515.24" font-size="12" fill="#212121" text-anchor="middle">Up to 15 frames a second. The action must follow the prompt and be held</text>
+<rect x="475.5" y="548" width="410" height="62" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="680.5" y="566.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">On every challenge frame</text>
+<text x="680.5" y="585.24" font-size="12" fill="#212121" text-anchor="middle">The 3-frame PAD median stays at 0.30 or above, exactly one face, the</text>
+<text x="680.5" y="601.24" font-size="12" fill="#212121" text-anchor="middle">same face as before</text>
+<rect x="475.5" y="626" width="410" height="56" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="680.5" y="649.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">All detected: hold 400 ms to 2 s</text>
+<text x="680.5" y="668.24" font-size="12" fill="#212121" text-anchor="middle">Picks a neutral, frontal best frame</text>
+<path d="M680.5 376 L680.5 392" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<path d="M680.5 454 L680.5 470" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<path d="M680.5 532 L680.5 548" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<path d="M680.5 610 L680.5 626" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<rect x="914.5" y="286" width="190" height="78" rx="6" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="1009.5" y="320.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Pass, passive only</text>
+<text x="1009.5" y="339.24" font-size="12" fill="#212121" text-anchor="middle">No challenge, no “Hold still”</text>
+<path d="M1009.5 236 L1009.5 286" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="914.5" y="626" width="190" height="56" rx="6" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="1009.5" y="649.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">PASSED</text>
+<text x="1009.5" y="668.24" font-size="12" fill="#212121" text-anchor="middle">Best frame to the client</text>
+<path d="M1009.5 364 L1009.5 626" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<path d="M885.5 654 L914.5 654" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="60" y="470" width="320" height="96" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="220" y="497.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Attempt failed</text>
+<text x="220" y="516.24" font-size="12" fill="#212121" text-anchor="middle">Wrong action, timeout, PAD, face lost for 1 s, several</text>
+<text x="220" y="532.24" font-size="12" fill="#212121" text-anchor="middle">faces, face changed. Or no full window in 8 s. Or active</text>
+<text x="220" y="548.24" font-size="12" fill="#212121" text-anchor="middle">challenges switched off</text>
+<path d="M281 364 L281 470" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M475.5 501 L380 501" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M475.5 579 L407 579 Q400 579 400 572 L400 542 Q400 535 393 535 L380 535" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M320 154 L320 159 Q320 164 315 164 L31 164 Q24 164 24 171 L24 511 Q24 518 31 518 L60 518" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="53.31" y="155.5" width="113.38" height="17" rx="2" fill="#FFFFFF"/>
+<text x="110" y="168.2" font-size="12" fill="#C62828" text-anchor="middle">no full window in 8 s</text>
+<polygon points="220,604 290,650 220,696 150,650" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="220" y="653.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Retries left?</text>
+<path d="M220 566 L220 604" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M150 650 L17 650 Q10 650 10 643 L10 130 Q10 123 17 123 L36 123" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="20.64" y="628.5" width="118.73" height="17" rx="2" fill="#FFFFFF"/>
+<text x="80" y="641.2" font-size="12" fill="#616161" text-anchor="middle">Yes: the Retry button</text>
+<rect x="60" y="732" width="320" height="62" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="220" y="749.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">FAILED_FINAL: MAX_RETRIES_EXCEEDED</text>
+<text x="220" y="768.75" font-size="12" fill="#212121" text-anchor="middle">After 4 attempts (1 + maxRetries 3). Audit keeps the last</text>
+<text x="220" y="784.75" font-size="12" fill="#212121" text-anchor="middle">cause</text>
+<path d="M220 696 L220 732" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="229.33" y="705.5" width="21.34" height="17" rx="2" fill="#FFFFFF"/>
+<text x="240" y="718.2" font-size="12" fill="#616161" text-anchor="middle">No</text>
+<text x="36" y="826" font-size="14" fill="#212121" font-weight="600">What each workflow does</text>
+<rect x="36" y="838" width="340" height="192" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="50" y="862" font-size="14" fill="#1F4E9E" font-weight="600">Resident</text>
+<text x="50" y="886" font-size="12" fill="#616161">Challenges per attempt</text>
+<text x="362" y="886" font-size="12" fill="#212121" font-weight="600" text-anchor="end">2</text>
+<text x="50" y="906" font-size="12" fill="#616161">Attempts</text>
+<text x="362" y="906" font-size="12" fill="#212121" font-weight="600" text-anchor="end">4</text>
+<text x="50" y="926" font-size="12" fill="#616161">On repeated failure</text>
+<text x="362" y="926" font-size="12" fill="#212121" font-weight="600" text-anchor="end">BLOCK</text>
+<line x1="50" y1="942" x2="362" y2="942" stroke="#BDBDBD" stroke-width="1"/>
+<text x="50" y="962" font-size="12" fill="#212121">Face capture is blocked. The screen points to the</text>
+<text x="50" y="979" font-size="12" fill="#212121">supervisor and the biometric exception process. The</text>
+<text x="50" y="996" font-size="12" fill="#212121">exception photo is not gated.</text>
+<rect x="390" y="838" width="340" height="192" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="404" y="862" font-size="14" fill="#1F4E9E" font-weight="600">Operator</text>
+<text x="404" y="886" font-size="12" fill="#616161">Challenges per attempt</text>
+<text x="716" y="886" font-size="12" fill="#212121" font-weight="600" text-anchor="end">1</text>
+<text x="404" y="906" font-size="12" fill="#616161">Attempts</text>
+<text x="716" y="906" font-size="12" fill="#212121" font-weight="600" text-anchor="end">4</text>
+<text x="404" y="926" font-size="12" fill="#616161">On repeated failure</text>
+<text x="716" y="926" font-size="12" fill="#212121" font-weight="600" text-anchor="end">COOLDOWN, 60 s</text>
+<line x1="404" y1="942" x2="716" y2="942" stroke="#BDBDBD" stroke-width="1"/>
+<text x="404" y="962" font-size="12" fill="#212121">No login. New operator sessions are refused for 60 s</text>
+<text x="404" y="979" font-size="12" fill="#212121">without opening the camera. The cooldown is in memory,</text>
+<text x="404" y="996" font-size="12" fill="#212121">so a restart clears it.</text>
+<rect x="744" y="838" width="340" height="192" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="758" y="862" font-size="14" fill="#1F4E9E" font-weight="600">Supervisor</text>
+<text x="758" y="886" font-size="12" fill="#616161">Challenges per attempt</text>
+<text x="1070" y="886" font-size="12" fill="#212121" font-weight="600" text-anchor="end">1</text>
+<text x="758" y="906" font-size="12" fill="#616161">Attempts</text>
+<text x="1070" y="906" font-size="12" fill="#212121" font-weight="600" text-anchor="end">4</text>
+<text x="758" y="926" font-size="12" fill="#616161">On repeated failure</text>
+<text x="1070" y="926" font-size="12" fill="#212121" font-weight="600" text-anchor="end">BLOCK</text>
+<line x1="758" y1="942" x2="1070" y2="942" stroke="#BDBDBD" stroke-width="1"/>
+<text x="758" y="962" font-size="12" fill="#212121">Nothing is approved. The screen asks the supervisor to</text>
+<text x="758" y="979" font-size="12" fill="#212121">contact their administrator.</text>
+<path d="M220 794 L220 838" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+</svg>

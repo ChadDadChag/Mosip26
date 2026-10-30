@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="660" viewBox="0 0 980 660" role="img" aria-label="Wireframe 8: attempt failed, with tips and Retry" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Wireframe 8: attempt failed, with tips and Retry</title>
+<rect x="0" y="0" width="980" height="660" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Wireframe 8: attempt failed, with tips and Retry</text>
+<text x="24" y="54" font-size="14" fill="#616161">Liveness could not be established. Clear guidance, and the attempts left.</text>
+<text x="24" y="88" font-size="13" fill="#616161" font-weight="600">Desktop: a modal window over the landscape client</text>
+<text x="684" y="88" font-size="13" fill="#616161" font-weight="600">Android: full screen, portrait</text>
+<rect x="24" y="100" width="640" height="520" rx="6" fill="#FAFAFA" stroke="#8A8A8A" stroke-width="1.5"/>
+<rect x="24" y="100" width="640" height="26" fill="#E0E0E0"/>
+<text x="36" y="118" font-size="12" fill="#616161">Registration Client</text>
+<rect x="38" y="144" width="96" height="12" rx="2" fill="#EDEDED"/>
+<rect x="38" y="166" width="96" height="12" rx="2" fill="#EDEDED"/>
+<rect x="38" y="188" width="96" height="12" rx="2" fill="#EDEDED"/>
+<rect x="554" y="144" width="96" height="60" rx="2" fill="#EDEDED"/>
+<rect x="554" y="214" width="96" height="60" rx="2" fill="#EDEDED"/>
+<rect x="154" y="110" width="380" height="500" rx="3" fill="#FFFFFF" stroke="#424242" stroke-width="1.8"/>
+<clipPath id="c29t"><rect x="154" y="110" width="380" height="500" rx="3"/></clipPath>
+<rect x="154" y="110" width="380" height="32" fill="#424242" clip-path="url(#c29t)"/>
+<text x="168" y="131" font-size="14" fill="#FFFFFF" font-weight="600">Face liveness check</text>
+<rect x="226" y="152" width="236" height="177" rx="10" fill="#8A8A8A"/>
+<clipPath id="c30"><ellipse cx="344" cy="240.5" rx="55.46" ry="72.57"/></clipPath>
+<ellipse cx="344" cy="240.5" rx="55.46" ry="72.57" fill="#BDBDBD" stroke="#212121" stroke-width="2.5"/>
+<g clip-path="url(#c30)"><circle cx="344" cy="230.34" r="19.97" fill="#8A8A8A"/><ellipse cx="344" cy="297.1" rx="41.04" ry="36.28" fill="#8A8A8A"/></g>
+<circle cx="344" cy="167.93" r="11" fill="#424242" stroke="#FFFFFF" stroke-width="1.5"/>
+<polyline points="340.25,164.18 347.75,171.68" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/><polyline points="347.75,164.18 340.25,171.68" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="178" y="337" width="332" height="56" rx="8" fill="#F2F2F2" stroke="#8A8A8A" stroke-width="1.2"/>
+<circle cx="222.03" cy="365" r="10" fill="#424242"/>
+<polyline points="218.53,361.5 225.53,368.5" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/><polyline points="225.53,361.5 218.53,368.5" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="358" y="359.7" font-size="15" fill="#212121" font-weight="600" text-anchor="middle">We could not verify face liveness.</text>
+<text x="358" y="379.7" font-size="15" fill="#212121" font-weight="600" text-anchor="middle">Please try again.</text>
+<text x="344" y="415" font-size="13" fill="#616161" text-anchor="middle">3 attempts left</text>
+<rect x="178" y="427" width="332" height="110" rx="8" fill="#F2F2F2"/>
+<text x="190" y="443" font-size="12" fill="#212121" font-weight="600">Tips:</text>
+<circle cx="193" cy="455" r="1.8" fill="#424242"/>
+<text x="202" y="459" font-size="12" fill="#212121">Look directly at the camera.</text>
+<circle cx="193" cy="471" r="1.8" fill="#424242"/>
+<text x="202" y="475" font-size="12" fill="#212121">Ensure your face is clearly visible.</text>
+<circle cx="193" cy="487" r="1.8" fill="#424242"/>
+<text x="202" y="491" font-size="12" fill="#212121">Improve lighting.</text>
+<circle cx="193" cy="503" r="1.8" fill="#424242"/>
+<text x="202" y="507" font-size="12" fill="#212121">Keep your face within the capture area.</text>
+<circle cx="193" cy="519" r="1.8" fill="#424242"/>
+<text x="202" y="523" font-size="12" fill="#212121">Follow the prompted action.</text>
+<rect x="178" y="562" width="162" height="36" rx="8" fill="#424242" stroke="#424242" stroke-width="1.3"/>
+<text x="259" y="585" font-size="13" fill="#FFFFFF" font-weight="600" text-anchor="middle">Retry</text>
+<rect x="348" y="562" width="162" height="36" rx="8" fill="#FFFFFF" stroke="#424242" stroke-width="1.3"/>
+<text x="429" y="585" font-size="13" fill="#424242" font-weight="600" text-anchor="middle">Cancel</text>
+<circle cx="533" cy="126" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="533" y="130.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">1</text>
+<circle cx="226" cy="187.4" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="226" y="191.7" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">2</text>
+<circle cx="288.54" cy="255.01" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="288.54" y="259.31" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">3</text>
+<circle cx="368" cy="167.93" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="368" y="172.23" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">4</text>
+<circle cx="155" cy="365" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="155" y="369.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">5</text>
+<circle cx="155" cy="411" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="155" y="415.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">7</text>
+<circle cx="155" cy="482" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="155" y="486.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">8</text>
+<circle cx="155" cy="580" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="155" y="584.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">9</text>
+<rect x="696" y="100" width="260" height="520" rx="18" fill="#FFFFFF" stroke="#424242" stroke-width="2.5"/>
+<clipPath id="c31t"><rect x="696" y="100" width="260" height="520" rx="18"/></clipPath>
+<rect x="696" y="100" width="260" height="40" fill="#616161" clip-path="url(#c31t)"/>
+<polyline points="721.76,120 710.56,120" fill="none" stroke="#FFFFFF" stroke-width="1.76" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="715.2,115.2 710.4,120 715.2,124.8" fill="none" stroke="#FFFFFF" stroke-width="1.76" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="736" y="125" font-size="14" fill="#FFFFFF" font-weight="600">Face liveness check</text>
+<rect x="778" y="150" width="96" height="128" rx="10" fill="#8A8A8A"/>
+<clipPath id="c32"><ellipse cx="826" cy="214" rx="32.16" ry="42.88"/></clipPath>
+<ellipse cx="826" cy="214" rx="32.16" ry="42.88" fill="#BDBDBD" stroke="#212121" stroke-width="2.5"/>
+<g clip-path="url(#c32)"><circle cx="826" cy="208" r="11.58" fill="#8A8A8A"/><ellipse cx="826" cy="247.45" rx="23.8" ry="21.44" fill="#8A8A8A"/></g>
+<circle cx="826" cy="171.12" r="11" fill="#424242" stroke="#FFFFFF" stroke-width="1.5"/>
+<polyline points="822.25,167.37 829.75,174.87" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/><polyline points="829.75,167.37 822.25,174.87" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="708" y="286" width="236" height="56" rx="8" fill="#F2F2F2" stroke="#8A8A8A" stroke-width="1.2"/>
+<circle cx="729.65" cy="314" r="10" fill="#424242"/>
+<polyline points="726.15,310.5 733.15,317.5" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/><polyline points="733.15,310.5 726.15,317.5" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="840" y="308.7" font-size="15" fill="#212121" font-weight="600" text-anchor="middle">We could not verify face</text>
+<text x="840" y="328.7" font-size="15" fill="#212121" font-weight="600" text-anchor="middle">liveness. Please try again.</text>
+<text x="826" y="364" font-size="13" fill="#616161" text-anchor="middle">3 attempts left</text>
+<rect x="708" y="376" width="236" height="126" rx="8" fill="#F2F2F2"/>
+<text x="720" y="392" font-size="12" fill="#212121" font-weight="600">Tips:</text>
+<circle cx="723" cy="404" r="1.8" fill="#424242"/>
+<text x="732" y="408" font-size="12" fill="#212121">Look directly at the camera.</text>
+<circle cx="723" cy="420" r="1.8" fill="#424242"/>
+<text x="732" y="424" font-size="12" fill="#212121">Ensure your face is clearly visible.</text>
+<circle cx="723" cy="436" r="1.8" fill="#424242"/>
+<text x="732" y="440" font-size="12" fill="#212121">Improve lighting.</text>
+<circle cx="723" cy="452" r="1.8" fill="#424242"/>
+<text x="732" y="456" font-size="12" fill="#212121">Keep your face within the capture</text>
+<text x="732" y="472" font-size="12" fill="#212121">area.</text>
+<circle cx="723" cy="484" r="1.8" fill="#424242"/>
+<text x="732" y="488" font-size="12" fill="#212121">Follow the prompted action.</text>
+<rect x="708" y="570" width="114" height="36" rx="8" fill="#424242" stroke="#424242" stroke-width="1.3"/>
+<text x="765" y="593" font-size="13" fill="#FFFFFF" font-weight="600" text-anchor="middle">Retry</text>
+<rect x="830" y="570" width="114" height="36" rx="8" fill="#FFFFFF" stroke="#424242" stroke-width="1.3"/>
+<text x="887" y="593" font-size="13" fill="#424242" font-weight="600" text-anchor="middle">Cancel</text>
+<circle cx="955" cy="120" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="955" y="124.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">1</text>
+<circle cx="778" cy="175.6" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="778" y="179.9" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">2</text>
+<circle cx="793.84" cy="222.58" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="793.84" y="226.88" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">3</text>
+<circle cx="850" cy="171.12" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="850" y="175.42" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">4</text>
+<circle cx="697" cy="314" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="697" y="318.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">5</text>
+<circle cx="697" cy="360" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="697" y="364.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">7</text>
+<circle cx="697" cy="439" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="697" y="443.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">8</text>
+<circle cx="697" cy="588" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="697" y="592.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">9</text>
+<circle cx="34" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="34" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">1</text>
+<text x="49" y="646.5" font-size="13" fill="#212121">Title</text>
+<circle cx="99.56" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="99.56" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">2</text>
+<text x="114.56" y="646.5" font-size="13" fill="#212121">Live preview</text>
+<circle cx="212.8" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="212.8" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">3</text>
+<text x="227.8" y="646.5" font-size="13" fill="#212121">Oval guide</text>
+<circle cx="315.94" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="315.94" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">4</text>
+<text x="330.94" y="646.5" font-size="13" fill="#212121">State badge</text>
+<circle cx="427.05" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="427.05" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">5</text>
+<text x="442.05" y="646.5" font-size="13" fill="#212121">Status line</text>
+<circle cx="528.74" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="528.74" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">7</text>
+<text x="543.74" y="646.5" font-size="13" fill="#212121">Progress</text>
+<circle cx="621.76" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="621.76" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">8</text>
+<text x="636.76" y="646.5" font-size="13" fill="#212121">Tips</text>
+<circle cx="687.31" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="687.31" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">9</text>
+<text x="702.31" y="646.5" font-size="13" fill="#212121">Buttons</text>
+<text x="956" y="32" font-size="13" fill="#616161" text-anchor="end">Real screen: red oval, cross icon</text>
+</svg>

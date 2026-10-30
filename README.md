@@ -1,4 +1,128 @@
-# Face Liveness — Part 1: Device & Frame Pipeline
+# Face liveness and presentation attack detection for the MOSIP Registration Clients
+
+Our solution to **MOSIP Decode 2026, problem statement 04: Face Liveness Detection and Presentation Attack Detection for
+Registration and Biometric Authentication.**
+
+Before a MOSIP Registration Client accepts a face, this project checks that the face belongs to a live person in front of
+the camera, and not a printed photo, a photo on a screen or a replayed video. It works in both clients, Desktop (Java) and
+Android (Flutter), through one shared engine, and it runs entirely on the device, so it behaves the same with or without a
+network.
+
+- **Passive check first.** The person just looks at the camera. AI models on the device score the face from the normal
+  frame stream, and in our tests most people passed in a few seconds with nothing to do.
+- **Active check when needed.** If the score is not high enough, the client asks for random actions (blink, smile, turn
+  left, turn right). The person cannot choose them or predict them.
+- **Presentation Attack Detection (PAD) runs the whole time,** including during challenges. A suspected attack gets only a
+  generic message, and the details go to the audit log.
+- **All three workflows are covered:** resident capture, operator authentication and supervisor authentication, each with
+  its own configurable policy.
+- **Face binding.** The live face must also be the person whose face is captured, so the check cannot be passed by one
+  person and the capture done by another.
+- **Device independent.** Frames arrive through one common interface, with adapters for MOSIP's Secure Biometric Interface
+  (SBI), a mock device, a webcam and the Android camera.
+- **Signed models.** The models load only from a bundle whose signature and hashes verify. A tampered bundle is refused,
+  with no fallback.
+
+## Try it
+
+You do not need a MOSIP server or a biometric device.
+
+| Route | What you need | Time |
+|---|---|---|
+| Android app on a phone | The APK from the submission pack, an arm64 Android 9+ phone | 5 minutes |
+| Desktop demo on a webcam | The demo folder from the submission pack, Windows, Java 11+ | 3 minutes |
+| Build the engine and run its tests | JDK 11, Maven, Git | About 10 minutes |
+| Build the real Desktop client | As above, plus MOSIP's `registration-client` v1.2.0.2 | About 20 minutes |
+| Build the Android client | Flutter 3.10.4, JDK 21, Android SDK 34 | About 20 minutes |
+
+Step-by-step instructions for each route are in **[docs/usage-and-installation.md](docs/usage-and-installation.md)**.
+
+## How it works
+
+![System overview](docs/images/architecture/a-system-overview.svg)
+
+A device or camera delivers frames through `FrameSource`. The analyzer finds the face, checks its quality, fits landmarks,
+estimates head pose and scores liveness with ONNX Runtime models. The engine turns those per-frame results into a decision.
+At a score of 0.85 or above the face passes; below 0.30 the attempt fails as an attack; in between, a challenge starts. All
+of these values can be configured, per workflow, through MOSIP's normal configuration.
+
+More diagrams are in [docs/architecture-diagrams.md](docs/architecture-diagrams.md).
+
+## Results
+
+Evaluated with the metrics of ISO/IEC 30107-3, on 178 recorded presentations: 47 bona fide takes from four people, and 131
+attacks using prints, photos on screens and replayed videos.
+
+| Measure | Result |
+|---|---|
+| Attacks accepted by the passive check | 0 of 131. For the headline attack type, 0 of 10 responding takes (95% upper bound 25.9%) |
+| Bona fide takes rejected as attacks | 0 of 36 responding takes (95% upper bound 8.0%) |
+| Bona fide takes passed with no action | 32 of 36 responding takes (88.9%). The other 4 went to a challenge |
+| Bona fide takes with no decision | 11 of 47 (23.4%), mostly a face too far away in a fixed recording. Live, the screen says "move closer" |
+| Automated tests | 1,267, none failing across ten modules, all passing on a clean build. See the [test report](docs/test-cases-and-results.md) |
+| Requirements traced | 229 from the problem statement: 213 done, 16 partial, 0 not started. See the [traceability matrix](docs/requirements-traceability.md) |
+| Android speed | About 42 to 57 ms per analysed frame on a Samsung Galaxy S23 FE, and about 140 ms on a 2019 Redmi Note 7 |
+
+**Please read these results with their limits.** They come from one webcam, two test phones and four people, so they are
+provisional and do not estimate error rates in the field. Nothing has been run on real L0/L1 biometric hardware: the phone
+camera, a webcam and MOSIP's MockMDS stood in for the device. Neither client has been run from end to end against a MOSIP
+server. The identity check is the weakest result. It compares a live face with a stored face, and it refused the right person
+in 27.1% of pairs when the stored face was a single old photo from another camera, against 2.3% with a same-session template.
+At the same threshold it accepted a different person in 3.5% of same-room webcam pairs. The
+[test report](docs/test-cases-and-results.md) has the full figures.
+
+## Submission documents
+
+| Deliverable | Where |
+|---|---|
+| Usage and installation instructions | [docs/usage-and-installation.md](docs/usage-and-installation.md) |
+| API documentation | [docs/api-documentation.md](docs/api-documentation.md) |
+| Architecture diagrams | [docs/architecture-diagrams.md](docs/architecture-diagrams.md) |
+| Design mockups and wireframes | [docs/design-mockups-and-wireframes.md](docs/design-mockups-and-wireframes.md) |
+| Test data | [docs/test-data.md](docs/test-data.md) |
+| Test cases and results | [docs/test-cases-and-results.md](docs/test-cases-and-results.md) |
+| Requirements traceability | [docs/requirements-traceability.md](docs/requirements-traceability.md) |
+| ISO/IEC 30107-3 evaluation | [docs/part2-iso30107-evaluation.md](docs/part2-iso30107-evaluation.md) |
+
+## Repository map
+
+This repository is an overlay on MOSIP's code, not a fork. Its Java modules go on top of the `registration/` folder of
+MOSIP's `registration-client`, and its Android changes are patches against `android-registration-client`.
+
+| Path | What it is |
+|---|---|
+| `liveness-api/` | The shared contract: `Frame`, `FrameSource`, `FaceAnalyzer`, `LivenessService`, error codes, configuration |
+| `liveness-core/` | The engine: session state machine, passive decision, random challenges, action detectors, retries, policy, audit |
+| `liveness-analyzer/` | The ONNX analyzer, PAD, face binding, signed-bundle checks and model updates |
+| `liveness-fake/` | A scripted engine, so that each screen can be shown on demand |
+| `liveness-tools/`, `liveness-eval/` | Developer tools: traces, tuning, benchmark, dataset recording, ISO/IEC 30107-3 evaluation |
+| `models/` | The five signed ONNX models, their licences and the Python reference pipeline |
+| `registration-services/`, `registration-client/` | The Desktop integration, added to MOSIP's own modules |
+| `android-integration/` | 68 patches against the Android client v1.1.1, with build scripts |
+| `android-liveness-frame-source/` | The Android camera source (CameraX) |
+| `mock-mds-patch/` | The patch that lets MOSIP's MockMDS stream real face frames |
+| `docs/` | Design, evaluation and submission documents |
+
+## Team
+
+Work was split into five parts. The history of each part is in the Git log, and all of it went through
+[21 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
+
+| Part | Scope | Lead commit author |
+|---|---|---|
+| 1 | Device and frame pipeline, mock device, MockMDS patch | Pennam Nikhil |
+| 2 | Passive liveness, PAD, signed models, ISO/IEC 30107-3 evaluation | Varun-iiitb |
+| 3 | Challenges and the liveness engine | Tejas Kollipara |
+| 4 | Desktop Registration Client integration | saket |
+| 5 | Android Registration Client integration | Varun-iiitb |
+
+The AI models are third-party work under their own licences, listed in [models/LICENSES.md](models/LICENSES.md).
+
+---
+
+The rest of this file holds the detailed notes for each part, in the order the parts were delivered.
+
+# Part 1: Device and frame pipeline
 
 Part 1 gets face frames from a biometric device (or a stand-in) into one common
 shape, so the liveness code (Parts 2/3) never depends on SBI, MDS or camera APIs.
@@ -68,14 +192,14 @@ JDKs), **Maven 3.6+**, **Git**, and internet access for the first build.
 
 PowerShell, from `registration-client\registration` (adjust the JDK/Maven paths to yours):
 
-    $env:JAVA_HOME = "C:\Users\penna\tools\jdk-11.0.32.1+1"
-    $mvn = "C:\Users\penna\tools\apache-maven-3.9.9\bin\mvn.cmd"
+    $env:JAVA_HOME = "C:\path\to\jdk-11"
+    $mvn = "C:\path\to\apache-maven\bin\mvn.cmd"
 
     # build + Part 1 tests only (fast)
     & $mvn -pl liveness-api,liveness-core,registration-services -am test "-Dtest=**/liveness/**/*Test,FrameTest" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dgpg.skip"
 
     # build without tests
-    & $mvn -pl liveness-api,liveness-core,registration-services -am install -DskipTests "-Dgpg.skip"
+    & $mvn -pl liveness-api,liveness-core,registration-services -am install "-DskipTests" "-Dgpg.skip"
 
 The first build downloads all MOSIP dependencies and takes a while; later builds are offline-fast.
 
@@ -246,9 +370,9 @@ Part 3 is the liveness engine. It takes frames from any `FrameSource` (Part 1) a
 
 Use the same setup as above (JDK 11, Registration Client v1.2.0.2 checkout, patch copied over `registration/`), and also copy `liveness-core`, `liveness-fake` and `liveness-tools`. Then, from `registration-client/registration`:
 
-    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify -Dgpg.skip
+    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-tools -am verify "-Dgpg.skip"
 
-As of 2026-10-28 (task 30) this runs 289 tests (api 5, core 228, fake 44, tools 12), enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
+As of 2026-10-28 this runs 289 tests (api 5, core 228, fake 44, tools 12), enforces 85% line coverage on `liveness-core`, and checks API use against the Java 8 and Android API 21 signatures.
 
 ## Use (Parts 4 and 5)
 
@@ -285,13 +409,13 @@ Part 2 is the face analyzer behind Part 3's engine. For each frame it detects th
 
 This builds standalone from this repository with JDK 11. PowerShell, from the repository root:
 
-    mvn -N install -Dgpg.skip
-    mvn -f liveness-api/pom.xml install -Dgpg.skip
-    mvn -f liveness-core/pom.xml install -Dgpg.skip
-    mvn -f liveness-fake/pom.xml install -Dgpg.skip
-    mvn -f liveness-tools/pom.xml install -Dgpg.skip
-    mvn -f liveness-analyzer/pom.xml install -Dgpg.skip
-    mvn -f liveness-eval/pom.xml verify -Dgpg.skip
+    mvn -N install "-Dgpg.skip"
+    mvn -f liveness-api/pom.xml install "-Dgpg.skip"
+    mvn -f liveness-core/pom.xml install "-Dgpg.skip"
+    mvn -f liveness-fake/pom.xml install "-Dgpg.skip"
+    mvn -f liveness-tools/pom.xml install "-Dgpg.skip"
+    mvn -f liveness-analyzer/pom.xml install "-Dgpg.skip"
+    mvn -f liveness-eval/pom.xml verify "-Dgpg.skip"
 
 As of 2026-10-28 (`main` at 57b4c95), `liveness-analyzer` runs 258 tests and `liveness-eval` 70. The analyzer tests include:
 - Java vs Python parity on public-domain golden images, stage by stage.
@@ -379,7 +503,7 @@ That runs these steps:
 5. Builds an arm64 debug APK.
 
 The step-by-step version, verification and phone setup are in [android-integration/README.md](android-integration/README.md). A fresh clone with the patches applied and the engine synced gives a tree identical to the integration branch. Its tests pass: 123 liveness module tests and 339 Flutter tests (`test/liveness`), measured on the client state the
-68 patches reproduce (clone 4d5e6b9, task 30).
+68 patches reproduce (clone 4d5e6b9).
 
 **Documentation:**
 - [docs/part5-android-integration.md](docs/part5-android-integration.md): architecture, sequence diagrams for the five hooks, failures, permission, config reload and model update; configuration keys; audit events; metrics; security and privacy; testing; limitations
@@ -409,8 +533,8 @@ The face is accepted, or the authentication completes, only when the session ret
 
 Build and test (JDK 11, from `registration-client/registration`):
 
-    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install -DskipTests -Dgpg.skip
-    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false -Dgpg.skip
+    mvn -pl liveness-api,liveness-core,liveness-fake,liveness-analyzer,registration-services,registration-client -am install "-DskipTests" "-Dgpg.skip"
+    mvn -pl registration-services,registration-client test "-Dtest=**/liveness/**/*Test,AuditFactoryTest,LoginServiceTest,GlobalParamServiceTest" "-Dsurefire.failIfNoSpecifiedTests=false" "-DfailIfNoTests=false" "-Dgpg.skip"
 
 Result measured on `main` at 57b4c95 (2026-10-28), all passing: registration-services 137 liveness tests (Part 1's 81, Part 4's 52, the four F16 clips) and registration-client 43. The command also runs the existing audit (`AuditFactoryTest`, 4), login (`LoginServiceTest`, 26) and config sync (`GlobalParamServiceTest`, 12) suites, which pass too. Outside a git checkout add `-Dmaven.gitcommitid.skip=true`.
 

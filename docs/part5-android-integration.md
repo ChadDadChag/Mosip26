@@ -87,7 +87,7 @@ flowchart TB
   Holder --> Metrics
   Cam --> Real
   subgraph Client["Existing client (clientmanager)"]
-    AMS["AuditManagerService<br/>(audit table, synced to the server)"]
+    AMS["AuditManagerService<br/>(audit table, carried to the server in registration packets)"]
     GPR["GlobalParamRepository<br/>(synced global params)"]
     Prefs["SharedPreferences"]
   end
@@ -157,7 +157,7 @@ sequenceDiagram
     Api-->>Scr: stored as before, "Ok"
   else anything else
     Api-->>Scr: not stored, LIVENESS_BINDING_FAILED
-    Note over Scr: generic text; no attempt counted, no scan dialog
+    Note over Scr: generic text, no attempt counted, no scan dialog
   end
   Note over Scr: Not proceed (cancelled or blocked): return before the SBI call. No capture and no capture attempt is counted.
 ```
@@ -389,7 +389,7 @@ sequenceDiagram
     VB-->>D: MODEL_INTEGRITY_FAILED, store untouched
   else verified
     H->>MS: install(staged, bundled assets)
-    MS->>MS: verify both; staged newer than the bundled version? (else "not newer", refused)
+    MS->>MS: verify both, staged newer than the bundled version? (else "not newer", refused)
     opt store empty, or its current version older than the bundled one
       MS->>MS: install the bundled assets as the rollback base, remove older bundles
     end
@@ -520,7 +520,7 @@ debug page's "Identity binding test (F15)" card exercises the production path:
 |---|---|
 | liveness sessions, model loading, decisions | **no**: everything runs on the device |
 | liveness config (`mosip.registration.liveness.*`) | only through the client's existing sync; the last synced values are used offline, and missing keys use the engine's bundled defaults |
-| audit records | written locally; uploaded later by the client's existing audit sync |
+| audit records | written locally; the client adds them to registration packets, which upload later |
 | persisted metrics | local only; never uploaded |
 | model updates | **online:** `ModelUpdateWorker` downloads and installs a newer signed bundle while the network is connected (off by default; section 3 (j)). **Offline:** a supervisor or admin installs a signed bundle zip from removable media on the "Face liveness models" page (F17, release builds included); `adb push` and the debug page remain for debug and profile builds |
 
@@ -879,7 +879,7 @@ Counts as of 2026-10-28.
 | Flutter `test/liveness` | **339**, all passing | controller (36), page (11), gate (9): prompts, guidance timing, errors and recovery texts, permission paths, outcome mapping, fail closed, root navigator from a dialog; face binding in the hooks (8); translations: all 45 keys in the six ARB files with the English placeholders, the machine-translation note, every key in every locale, and "attempts left" as a plural in English and French (13); the page in Arabic (right to left, arrows not mirrored), in Hindi, and every state in all six languages without a layout error (8); F17 "Face liveness models": the entry shown only when allowed, install, refusals with generic texts, rollback confirmation, translations and the 15 keys in all six languages (6); F15 `IdentityBinding.run`: a match, one retry with a new session, a second rejection, Cancel, not bound and required, errors and missing session ids, gates that never call the check, and the dialog's text and buttons without a score (8); the visual design (spec §9): all 23 states at 360×640 and 412×915 dp, in English, in Arabic and at a 1.3 text scale, with the bundled Noto fonts (task 21; Roboto before): no overflow, nothing scrolls but the tips, buttons on screen and 48 high, the camera card 3:4, the badge on the oval's top centre, the status at most 2 lines (the English device-error text: at most 3 below about 380 dp, measured), one attempts line after a failure, right-to-left order; a wrapped status keeps its badge beside its longest line, a wrapped tip continues under its text; the 200 ms fade and the step bar (141); Hindi at 360×640 dp, every state: buttons on screen and 48 high, each button label on one line, the status at most 2 lines (23, task 27); landscape (640×360) and a 2.0 text scale scroll without overflow in every state, and during the fade the live region holds only the new status (47); the demo page (20): no overflow at 360×640 and 412×915 dp at a 1.0 and a 1.3 text scale (also with a failed result, a refused identity check and the replace question), the header at the gutter, the app bar shows the title only once the header has scrolled away, each check card runs the gate with its workflow, no image in the result panel, each simulated row runs its scenario on the fake engine and none is the random one, the overrides, F15 enroll, check and delete with the new labels and the enrolled time, the replace question (only when a test face exists; Cancel does not enroll), every outcome in the verdict panel at 360×640 and a 1.3 text scale (sentence, icon, colour, the numbers line or none, no image), the panel scrolled into view after a check, the metrics tiles and Reset, Developer tools opens the debug page and the return refreshes the shown state; a test face changed on Developer tools clears the verdict and the note, a failed identity call or override switch-off still ends the check, the debug page starts from the overrides the demo set, models that load late or never, and the TalkBack roles and live regions (task 29); MOSIP's own screens with Noto Sans at 360×740 dp, 1.0 and 1.3, English, French and Hindi, no overflow and no text cut off, with a self-check of both detectors (9, task 30, above). Not counted: the 20 tests that render `docs/images/android`, skipped unless `LIVENESS_SCREENSHOTS` names a folder |
 | clientmanager `GlobalParamRepositoryRefreshListenerTest` | **3**, all passing | refresh listeners run after a successful refresh only |
 | clientmanager `SessionManagerTest` | **14**, all passing | upstream's tests, and the login token's user name stored as the user id that onboarding uses, removed at logout (task 19) |
-| engine (Mosip26) | api 5, core 228, fake 44, tools 12, analyzer 258, eval 77 (review-fixes-1029 with f9-results-1028 merged, 2026-10-28; on `main` at 57b4c95: core 227, eval 70) | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 14) and `ModelBundleTool pack`; see their documents |
+| engine (Mosip26) | api 5, core 228, fake 44, tools 12, analyzer 258, eval 77 (review-fixes-1029 with f9-results-1028 merged, 2026-10-28; on `main` at 57b4c95: core 227, eval 70) | Parts 1 to 3, and the online update (`ModelUpdaterTest`, 19) and `ModelBundleTool pack`; see their documents |
 
 **Upstream test failures (not ours).** `:clientmanager:testDebugUnitTest` has **14 failing tests
 in upstream v1.1.1**:
@@ -1000,7 +1000,8 @@ provisional.
     - Operators hold the device upright, or in either landscape position.
   - **Possible future work** (not this week): take the analysis's target rotation from an
     `OrientationEventListener`. That is CameraX's own advice when the UI rotation does not follow the device.
-- **One device.** Only a mid-to-high-end phone was tested. See the low-end notes in the
+- **Two devices.** A mid-to-high-end phone, and a profile build on one 2019 budget phone (a Redmi Note 7,
+  2026-10-30). See the low-end notes in the
   benchmark document.
 - **Model download.** `ModelUpdateWorker` is built but off by default: MOSIP has no update server for these bundles
   yet. It was tested against a laptop server (section 10).
@@ -1025,8 +1026,9 @@ provisional.
 - **INT8 models.** For the four liveness models: evaluated and rejected, slower and less accurate
   (`models/README.md`). For SFace, OpenCV Zoo's own int8 file is used since `pad-2026.10.5`: it
   met every adoption criterion and is faster on the phone.
-- **Attack coverage.** Tested so far: screen photos and replays on a laptop. Printed photos and
-  masks are not tested yet.
+- **Attack coverage.** On the phone, the one recorded attack is a face photo on a laptop screen. Prints, phone screens
+  and tablet replays were evaluated on the laptop webcam ([part2-iso30107-evaluation.md](part2-iso30107-evaluation.md)).
+  Masks are not tested.
 - **Signing key.** The model bundle is signed with a development key; replace it before release.
 - **Review findings (F-items) handled for Android.**
   - Done: F8 (dim faces, exposure assist), F12 (permanently refused permission) and F19 (the camera's rotation,

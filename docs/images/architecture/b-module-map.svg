@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="860" viewBox="0 0 1160 860" role="img" aria-label="Module map: what is built, and what ships where" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Module map: what is built, and what ships where</title>
+<defs><marker id="a616161" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#616161"/></marker><marker id="a616161s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#616161"/></marker><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker><marker id="aC8640A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C8640A"/></marker><marker id="aC8640As" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C8640A"/></marker></defs>
+<rect x="0" y="0" width="1160" height="860" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Module map: what is built, and what ships where</text>
+<text x="24" y="54" font-size="14" fill="#616161">The Maven modules, the folders beside them, and the Android client that takes the same engine. An arrow means “depends on” or “goes into”.</text>
+<rect x="24" y="74" width="26" height="15" rx="3" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="56" y="86" font-size="12" fill="#212121">New</text>
+<rect x="104" y="74" width="26" height="15" rx="3" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="136" y="86" font-size="12" fill="#212121">Existing MOSIP module, changed</text>
+<rect x="339.41" y="74" width="26" height="15" rx="3" fill="#FFFFFF" stroke="#616161" stroke-width="1.3" stroke-dasharray="2 3"/>
+<text x="371.41" y="86" font-size="12" fill="#212121">Development only, never ships</text>
+<rect x="559.48" y="74" width="26" height="15" rx="3" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="591.48" y="86" font-size="12" fill="#212121">Signed model files</text>
+<rect x="30" y="110" width="290" height="110" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="175" y="128.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">registration-client</text>
+<text x="175" y="147.24" font-size="12" fill="#212121" text-anchor="middle">Desktop JavaFX client, v1.2.0.2. New:</text>
+<text x="175" y="163.24" font-size="12" fill="#212121" text-anchor="middle">LivenessGate, LivenessView,</text>
+<text x="175" y="179.24" font-size="12" fill="#212121" text-anchor="middle">LivenessScreenModel. Five controllers call the</text>
+<text x="175" y="195.24" font-size="12" fill="#212121" text-anchor="middle">gate.</text>
+<text x="175" y="211.24" font-size="12" fill="#212121" text-anchor="middle">Ships in Desktop.</text>
+<rect x="30" y="280" width="290" height="110" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="175" y="306.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">registration-services</text>
+<text x="175" y="325.24" font-size="12" fill="#212121" text-anchor="middle">Desktop services. New: DesktopLivenessService,</text>
+<text x="175" y="341.24" font-size="12" fill="#212121" text-anchor="middle">SbiStreamFrameSource, MockFrameSource,</text>
+<text x="175" y="357.24" font-size="12" fill="#212121" text-anchor="middle">FaceBinding, audit and config adapters.</text>
+<text x="175" y="373.24" font-size="12" fill="#212121" text-anchor="middle">Ships in Desktop.</text>
+<path d="M175 220 L175 280" fill="none" stroke="#616161" stroke-width="1.5" marker-end="url(#a616161)"/>
+<rect x="30" y="480" width="290" height="94" rx="6" fill="#EFEFEF" stroke="#616161" stroke-width="1.5" stroke-dasharray="7 4"/>
+<text x="175" y="514.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Android Registration Client</text>
+<text x="175" y="533.24" font-size="12" fill="#212121" text-anchor="middle">A separate repository, tag v1.1.1. Not in the Maven</text>
+<text x="175" y="549.24" font-size="12" fill="#212121" text-anchor="middle">build. Gradle module android/liveness.</text>
+<rect x="30" y="636" width="290" height="78" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="175" y="662.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">android-integration</text>
+<text x="175" y="681.24" font-size="12" fill="#212121" text-anchor="middle">68 patches against v1.1.1, and the</text>
+<text x="175" y="697.24" font-size="12" fill="#212121" text-anchor="middle">sync-engine.ps1 script</text>
+<rect x="30" y="750" width="290" height="78" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="175" y="776.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">android-liveness-frame-source</text>
+<text x="175" y="795.24" font-size="12" fill="#212121" text-anchor="middle">CameraXFrameSource.java. Not in the Maven</text>
+<text x="175" y="811.24" font-size="12" fill="#212121" text-anchor="middle">build. Ships in Android.</text>
+<path d="M175 636 L175 574" fill="none" stroke="#616161" stroke-width="1.5" marker-end="url(#a616161)"/>
+<rect x="178" y="596.5" width="109.39" height="17" rx="2" fill="#FFFFFF"/>
+<text x="181" y="609.2" font-size="12" fill="#616161" text-anchor="start">applied to the client</text>
+<path d="M320 789 L345 789 Q352 789 352 782 L352 547 Q352 540 345 540 L320 540" fill="none" stroke="#616161" stroke-width="1.5" marker-end="url(#a616161)"/>
+<rect x="355" y="671.5" width="54.02" height="17" rx="2" fill="#FFFFFF"/>
+<text x="358" y="684.2" font-size="12" fill="#616161" text-anchor="start">copied in</text>
+<rect x="420" y="110" width="370" height="718" rx="6" fill="#F7F9FD" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="432" y="130" font-size="13" fill="#1F4E9E" font-weight="600">Shared engine, pure Java</text>
+<text x="432" y="146" font-size="12" fill="#616161">Checked against the Java 8 and Android API 21 signatures</text>
+<rect x="436" y="158" width="166" height="158" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="519" y="192.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">liveness-fake</text>
+<text x="519" y="211.24" font-size="12" fill="#212121" text-anchor="middle">Scripted engine for screens</text>
+<text x="519" y="227.24" font-size="12" fill="#212121" text-anchor="middle">and tests. Ships in both.</text>
+<text x="519" y="243.24" font-size="12" fill="#212121" text-anchor="middle">Only a JVM property selects</text>
+<text x="519" y="259.24" font-size="12" fill="#212121" text-anchor="middle">it on Desktop, and only</text>
+<text x="519" y="275.24" font-size="12" fill="#212121" text-anchor="middle">debug and profile builds</text>
+<text x="519" y="291.24" font-size="12" fill="#212121" text-anchor="middle">reach it on Android.</text>
+<rect x="610" y="158" width="166" height="158" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="693" y="200.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">liveness-analyzer</text>
+<text x="693" y="219.24" font-size="12" fill="#212121" text-anchor="middle">OnnxFaceAnalyzer,</text>
+<text x="693" y="235.24" font-size="12" fill="#212121" text-anchor="middle">FaceMatcher,</text>
+<text x="693" y="251.24" font-size="12" fill="#212121" text-anchor="middle">VerifiedBundle, ModelStore,</text>
+<text x="693" y="267.24" font-size="12" fill="#212121" text-anchor="middle">ModelUpdater.</text>
+<text x="693" y="283.24" font-size="12" fill="#212121" text-anchor="middle">Ships in both.</text>
+<rect x="475" y="396" width="260" height="104" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="605" y="419.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">liveness-core</text>
+<text x="605" y="438.24" font-size="12" fill="#212121" text-anchor="middle">DefaultLivenessService, session state</text>
+<text x="605" y="454.24" font-size="12" fill="#212121" text-anchor="middle">machine, challenges, detectors, policy, audit</text>
+<text x="605" y="470.24" font-size="12" fill="#212121" text-anchor="middle">records.</text>
+<text x="605" y="486.24" font-size="12" fill="#212121" text-anchor="middle">Ships in both.</text>
+<rect x="475" y="580" width="260" height="120" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="605" y="603.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">liveness-api</text>
+<text x="605" y="622.24" font-size="12" fill="#212121" text-anchor="middle">The contract and the defaults:</text>
+<text x="605" y="638.24" font-size="12" fill="#212121" text-anchor="middle">LivenessService, FrameSource,</text>
+<text x="605" y="654.24" font-size="12" fill="#212121" text-anchor="middle">FaceAnalyzer, ErrorCode,</text>
+<text x="605" y="670.24" font-size="12" fill="#212121" text-anchor="middle">liveness-default.properties.</text>
+<text x="605" y="686.24" font-size="12" fill="#212121" text-anchor="middle">Ships in both.</text>
+<rect x="436" y="738" width="340" height="76" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="606" y="763.76" font-size="12" fill="#212121" text-anchor="middle">liveness-analyzer and liveness-eval also declare liveness-api</text>
+<text x="606" y="779.76" font-size="12" fill="#212121" text-anchor="middle">and liveness-core directly. ONNX Runtime 1.31.0 comes</text>
+<text x="606" y="795.76" font-size="12" fill="#212121" text-anchor="middle">from each client’s own build.</text>
+<path d="M519 316 L519 396" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M693 316 L693 396" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M605 500 L605 580" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M320 335 L420 335" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="328.65" y="294" width="82.69" height="32" rx="2" fill="#FFFFFF"/>
+<text x="370" y="306.7" font-size="12" fill="#616161" text-anchor="middle">all four jars,</text>
+<text x="370" y="321.7" font-size="12" fill="#616161" text-anchor="middle">compile scope</text>
+<path d="M320 500 L420 500" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="323.31" y="454" width="93.37" height="32" rx="2" fill="#FFFFFF"/>
+<text x="370" y="466.7" font-size="12" fill="#616161" text-anchor="middle">sync-engine.ps1</text>
+<text x="370" y="481.7" font-size="12" fill="#616161" text-anchor="middle">copies four jars</text>
+<rect x="880" y="110" width="250" height="104" rx="6" fill="#FFF4E8" stroke="#C8640A" stroke-width="1.5"/>
+<text x="1005" y="141.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">models</text>
+<text x="1005" y="160.24" font-size="12" fill="#212121" text-anchor="middle">Five ONNX files, manifest.json,</text>
+<text x="1005" y="176.24" font-size="12" fill="#212121" text-anchor="middle">manifest.sig. A folder, not a module. Ships</text>
+<text x="1005" y="192.24" font-size="12" fill="#212121" text-anchor="middle">in both, inside the analyzer.</text>
+<rect x="880" y="262" width="250" height="92" rx="6" fill="#FFFFFF" stroke="#616161" stroke-width="1.3" stroke-dasharray="2 3"/>
+<text x="1005" y="287.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">liveness-eval</text>
+<text x="1005" y="306.24" font-size="12" fill="#212121" text-anchor="middle">PAD evaluation, benchmarks, demos,</text>
+<text x="1005" y="322.24" font-size="12" fill="#212121" text-anchor="middle">ModelBundleTool (signs and packs</text>
+<text x="1005" y="338.24" font-size="12" fill="#212121" text-anchor="middle">bundles)</text>
+<rect x="880" y="410" width="250" height="80" rx="6" fill="#FFFFFF" stroke="#616161" stroke-width="1.3" stroke-dasharray="2 3"/>
+<text x="1005" y="437.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">liveness-tools</text>
+<text x="1005" y="456.24" font-size="12" fill="#212121" text-anchor="middle">Trace recording, replay, detector tuning</text>
+<text x="1005" y="472.24" font-size="12" fill="#212121" text-anchor="middle">report</text>
+<rect x="880" y="560" width="250" height="84" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="1005" y="589.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">desktop-integration</text>
+<text x="1005" y="608.24" font-size="12" fill="#212121" text-anchor="middle">Folder: the Desktop change as one diff,</text>
+<text x="1005" y="624.24" font-size="12" fill="#212121" text-anchor="middle">with a README</text>
+<rect x="880" y="660" width="250" height="84" rx="6" fill="#FFFFFF" stroke="#616161" stroke-width="1.3" stroke-dasharray="2 3"/>
+<text x="1005" y="689.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">mock-mds-patch</text>
+<text x="1005" y="708.24" font-size="12" fill="#212121" text-anchor="middle">Folder: a patch so MOSIP’s MockMDS</text>
+<text x="1005" y="724.24" font-size="12" fill="#212121" text-anchor="middle">serves real frames on /stream</text>
+<path d="M880 190 L776 190" fill="none" stroke="#C8640A" stroke-width="1.5" marker-end="url(#aC8640A)"/>
+<rect x="798.99" y="165.5" width="62.03" height="17" rx="2" fill="#FFFFFF"/>
+<text x="830" y="178.2" font-size="12" fill="#616161" text-anchor="middle">into the jar</text>
+<path d="M880 300 L835 300 Q828 300 828 293 L828 287 Q828 280 821 280 L776 280" fill="none" stroke="#616161" stroke-width="1.5" stroke-dasharray="2 3" marker-end="url(#a616161)"/>
+<path d="M1005 354 L1005 410" fill="none" stroke="#616161" stroke-width="1.5" stroke-dasharray="2 3" marker-end="url(#a616161)"/>
+<path d="M880 450 L735 450" fill="none" stroke="#616161" stroke-width="1.5" stroke-dasharray="2 3" marker-end="url(#a616161)"/>
+</svg>

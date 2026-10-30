@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="660" viewBox="0 0 980 660" role="img" aria-label="Wireframe 1: checking" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>Wireframe 1: checking</title>
+<rect x="0" y="0" width="980" height="660" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">Wireframe 1: checking</text>
+<text x="24" y="54" font-size="14" fill="#616161">The engine is looking at frames. The person does nothing.</text>
+<text x="24" y="88" font-size="13" fill="#616161" font-weight="600">Desktop: a modal window over the landscape client</text>
+<text x="684" y="88" font-size="13" fill="#616161" font-weight="600">Android: full screen, portrait</text>
+<rect x="24" y="100" width="640" height="520" rx="6" fill="#FAFAFA" stroke="#8A8A8A" stroke-width="1.5"/>
+<rect x="24" y="100" width="640" height="26" fill="#E0E0E0"/>
+<text x="36" y="118" font-size="12" fill="#616161">Registration Client</text>
+<rect x="38" y="144" width="96" height="12" rx="2" fill="#EDEDED"/>
+<rect x="38" y="166" width="96" height="12" rx="2" fill="#EDEDED"/>
+<rect x="38" y="188" width="96" height="12" rx="2" fill="#EDEDED"/>
+<rect x="554" y="144" width="96" height="60" rx="2" fill="#EDEDED"/>
+<rect x="554" y="214" width="96" height="60" rx="2" fill="#EDEDED"/>
+<rect x="154" y="110" width="380" height="500" rx="3" fill="#FFFFFF" stroke="#424242" stroke-width="1.8"/>
+<clipPath id="c1t"><rect x="154" y="110" width="380" height="500" rx="3"/></clipPath>
+<rect x="154" y="110" width="380" height="32" fill="#424242" clip-path="url(#c1t)"/>
+<text x="168" y="131" font-size="14" fill="#FFFFFF" font-weight="600">Face liveness check</text>
+<rect x="226" y="152" width="236" height="177" rx="10" fill="#8A8A8A"/>
+<clipPath id="c2"><ellipse cx="344" cy="240.5" rx="55.46" ry="72.57"/></clipPath>
+<ellipse cx="344" cy="240.5" rx="55.46" ry="72.57" fill="#BDBDBD" stroke="#212121" stroke-width="2.5"/>
+<g clip-path="url(#c2)"><circle cx="344" cy="230.34" r="19.97" fill="#8A8A8A"/><ellipse cx="344" cy="297.1" rx="41.04" ry="36.28" fill="#8A8A8A"/></g>
+<circle cx="344" cy="167.93" r="11" fill="#424242" stroke="#FFFFFF" stroke-width="1.5"/>
+<polyline points="338.6,165.38 338.6,162.53 341.45,162.53" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="349.4,165.38 349.4,162.53 346.55,162.53" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="338.6,170.48 338.6,173.33 341.45,173.33" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="349.4,170.48 349.4,173.33 346.55,173.33" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="344" cy="167.93" r="1.5" fill="#FFFFFF"/>
+<rect x="178" y="337" width="332" height="52" rx="8" fill="#F2F2F2" stroke="#8A8A8A" stroke-width="1.2"/>
+<circle cx="250.75" cy="363" r="10" fill="#424242"/>
+<polyline points="245.71,360.62 245.71,357.96 248.37,357.96" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="255.79,360.62 255.79,357.96 253.13,357.96" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="245.71,365.38 245.71,368.04 248.37,368.04" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="255.79,365.38 255.79,368.04 253.13,368.04" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="250.75" cy="363" r="1.4" fill="#FFFFFF"/>
+<text x="358" y="367.7" font-size="15" fill="#212121" font-weight="600" text-anchor="middle">Checking face liveness…</text>
+<text x="344" y="410" font-size="12" fill="#616161" text-anchor="middle">Attempt 1 of 4</text>
+<rect x="263" y="562" width="162" height="36" rx="8" fill="#FFFFFF" stroke="#424242" stroke-width="1.3"/>
+<text x="344" y="585" font-size="13" fill="#424242" font-weight="600" text-anchor="middle">Cancel</text>
+<circle cx="533" cy="126" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="533" y="130.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">1</text>
+<circle cx="226" cy="187.4" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="226" y="191.7" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">2</text>
+<circle cx="288.54" cy="255.01" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="288.54" y="259.31" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">3</text>
+<circle cx="368" cy="167.93" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="368" y="172.23" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">4</text>
+<circle cx="155" cy="363" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="155" y="367.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">5</text>
+<circle cx="155" cy="406" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="155" y="410.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">7</text>
+<circle cx="155" cy="580" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="155" y="584.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">9</text>
+<rect x="696" y="100" width="260" height="520" rx="18" fill="#FFFFFF" stroke="#424242" stroke-width="2.5"/>
+<clipPath id="c3t"><rect x="696" y="100" width="260" height="520" rx="18"/></clipPath>
+<rect x="696" y="100" width="260" height="40" fill="#616161" clip-path="url(#c3t)"/>
+<polyline points="721.76,120 710.56,120" fill="none" stroke="#FFFFFF" stroke-width="1.76" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="715.2,115.2 710.4,120 715.2,124.8" fill="none" stroke="#FFFFFF" stroke-width="1.76" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="736" y="125" font-size="14" fill="#FFFFFF" font-weight="600">Face liveness check</text>
+<rect x="748" y="150" width="156" height="208" rx="10" fill="#8A8A8A"/>
+<clipPath id="c4"><ellipse cx="826" cy="254" rx="52.26" ry="69.68"/></clipPath>
+<ellipse cx="826" cy="254" rx="52.26" ry="69.68" fill="#BDBDBD" stroke="#212121" stroke-width="2.5"/>
+<g clip-path="url(#c4)"><circle cx="826" cy="244.24" r="18.81" fill="#8A8A8A"/><ellipse cx="826" cy="308.35" rx="38.67" ry="34.84" fill="#8A8A8A"/></g>
+<circle cx="826" cy="184.32" r="11" fill="#424242" stroke="#FFFFFF" stroke-width="1.5"/>
+<polyline points="820.6,181.77 820.6,178.92 823.45,178.92" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="831.4,181.77 831.4,178.92 828.55,178.92" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="820.6,186.87 820.6,189.72 823.45,189.72" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="831.4,186.87 831.4,189.72 828.55,189.72" fill="none" stroke="#FFFFFF" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="826" cy="184.32" r="1.5" fill="#FFFFFF"/>
+<rect x="708" y="366" width="236" height="52" rx="8" fill="#F2F2F2" stroke="#8A8A8A" stroke-width="1.2"/>
+<circle cx="732.75" cy="392" r="10" fill="#424242"/>
+<polyline points="727.71,389.62 727.71,386.96 730.37,386.96" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="737.79,389.62 737.79,386.96 735.13,386.96" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="727.71,394.38 727.71,397.04 730.37,397.04" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="737.79,394.38 737.79,397.04 735.13,397.04" fill="none" stroke="#FFFFFF" stroke-width="1.54" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="732.75" cy="392" r="1.4" fill="#FFFFFF"/>
+<text x="840" y="396.7" font-size="15" fill="#212121" font-weight="600" text-anchor="middle">Checking face liveness…</text>
+<text x="826" y="439" font-size="12" fill="#616161" text-anchor="middle">Attempt 1 of 4</text>
+<rect x="769" y="570" width="114" height="36" rx="8" fill="#FFFFFF" stroke="#424242" stroke-width="1.3"/>
+<text x="826" y="593" font-size="13" fill="#424242" font-weight="600" text-anchor="middle">Cancel</text>
+<circle cx="955" cy="120" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="955" y="124.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">1</text>
+<circle cx="748" cy="191.6" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="748" y="195.9" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">2</text>
+<circle cx="773.74" cy="267.94" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="773.74" y="272.24" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">3</text>
+<circle cx="850" cy="184.32" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="850" y="188.62" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">4</text>
+<circle cx="697" cy="392" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="697" y="396.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">5</text>
+<circle cx="697" cy="435" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="697" y="439.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">7</text>
+<circle cx="697" cy="588" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="697" y="592.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">9</text>
+<circle cx="34" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="34" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">1</text>
+<text x="49" y="646.5" font-size="13" fill="#212121">Title</text>
+<circle cx="99.56" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="99.56" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">2</text>
+<text x="114.56" y="646.5" font-size="13" fill="#212121">Live preview</text>
+<circle cx="212.8" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="212.8" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">3</text>
+<text x="227.8" y="646.5" font-size="13" fill="#212121">Oval guide</text>
+<circle cx="315.94" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="315.94" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">4</text>
+<text x="330.94" y="646.5" font-size="13" fill="#212121">State badge</text>
+<circle cx="427.05" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="427.05" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">5</text>
+<text x="442.05" y="646.5" font-size="13" fill="#212121">Status line</text>
+<circle cx="528.74" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="528.74" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">7</text>
+<text x="543.74" y="646.5" font-size="13" fill="#212121">Progress</text>
+<circle cx="621.76" cy="642" r="10" fill="#1F4E9E" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="621.76" y="646.3" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="middle">9</text>
+<text x="636.76" y="646.5" font-size="13" fill="#212121">Buttons</text>
+<text x="956" y="32" font-size="13" fill="#616161" text-anchor="end">Real screen: blue oval, scanning icon</text>
+</svg>

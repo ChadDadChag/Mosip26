@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="780" viewBox="0 0 1120 780" role="img" aria-label="User flow 2: operator and supervisor authentication" font-family="'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Arabic', sans-serif">
+<title>User flow 2: operator and supervisor authentication</title>
+<defs><marker id="a1F4E9E" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#1F4E9E"/></marker><marker id="a1F4E9Es" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#1F4E9E"/></marker><marker id="a2E7D32" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#2E7D32"/></marker><marker id="a2E7D32s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#2E7D32"/></marker><marker id="aC62828" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0.8 L9.6 5 L0 9.2 z" fill="#C62828"/></marker><marker id="aC62828s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M10 0.8 L0.4 5 L10 9.2 z" fill="#C62828"/></marker></defs>
+<rect x="0" y="0" width="1120" height="780" fill="#FFFFFF"/>
+<text x="24" y="32" font-size="21" fill="#212121" font-weight="600">User flow 2: operator and supervisor authentication</text>
+<text x="24" y="54" font-size="14" fill="#616161">The same screen as the resident, with its own title and one challenge at most. Nobody chooses a test.</text>
+<rect x="24" y="74" width="26" height="15" rx="3" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="56" y="86" font-size="12" fill="#212121">What the person sees</text>
+<rect x="196.72" y="74" width="26" height="15" rx="3" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="228.72" y="86" font-size="12" fill="#212121">What the person does, or what happens</text>
+<rect x="465.51" y="74" width="26" height="15" rx="3" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="497.51" y="86" font-size="12" fill="#212121">Passed, or the flow goes on</text>
+<rect x="669.59" y="74" width="26" height="15" rx="3" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="701.59" y="86" font-size="12" fill="#212121">Failed, or blocked</text>
+<rect x="24" y="104" width="528" height="662" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="36" y="124" font-size="14" fill="#1F4E9E" font-weight="600">Operator</text>
+<rect x="40" y="134" width="272" height="60" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="176" y="158.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Enters the user id and password</text>
+<text x="176" y="177.75" font-size="12" fill="#212121" text-anchor="middle">On Desktop, or chooses face login</text>
+<rect x="40" y="214" width="272" height="74" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="176" y="238.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Operator face verification</text>
+<text x="176" y="257.24" font-size="12" fill="#212121" text-anchor="middle">The same texts as the resident: “Checking face</text>
+<text x="176" y="273.24" font-size="12" fill="#212121" text-anchor="middle">liveness…”, then one challenge if needed</text>
+<polygon points="176,308 276,358 176,408 76,358" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="176" y="361.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Check passed?</text>
+<polygon points="176,470 276,524 176,578 76,524" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="176" y="519.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Is this the user’s</text>
+<text x="176" y="536.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">face?</text>
+<rect x="40" y="620" width="272" height="56" rx="6" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="176" y="643.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Home page</text>
+<text x="176" y="662.24" font-size="12" fill="#212121" text-anchor="middle">Or the next login step</text>
+<path d="M176 194 L176 214" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M176 288 L176 308" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M176 408 L176 470" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="181" y="431.5" width="26.68" height="17" rx="2" fill="#FFFFFF"/>
+<text x="184" y="444.2" font-size="12" fill="#2E7D32" text-anchor="start">Yes</text>
+<path d="M176 578 L176 620" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="181" y="591.5" width="26.68" height="17" rx="2" fill="#FFFFFF"/>
+<text x="184" y="604.2" font-size="12" fill="#2E7D32" text-anchor="start">Yes</text>
+<rect x="330" y="300" width="200" height="116" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="430" y="336.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Face verification could not be</text>
+<text x="430" y="353.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">completed.</text>
+<text x="430" y="372.74" font-size="12" fill="#212121" text-anchor="middle">Please contact your administrator</text>
+<text x="430" y="388.74" font-size="12" fill="#212121" text-anchor="middle">or try again later. Close</text>
+<path d="M276 358 L330 358" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="276.99" y="320" width="52.02" height="32" rx="2" fill="#FFFFFF"/>
+<text x="303" y="332.7" font-size="12" fill="#C62828" text-anchor="middle">After 4</text>
+<text x="303" y="347.7" font-size="12" fill="#C62828" text-anchor="middle">attempts</text>
+<rect x="330" y="428" width="200" height="62" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="430" y="454.76" font-size="12" fill="#212121" text-anchor="middle">Login page. New checks end at</text>
+<text x="430" y="470.76" font-size="12" fill="#212121" text-anchor="middle">once for 60 seconds</text>
+<path d="M430 416 L430 428" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="330" y="502" width="200" height="92" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="430" y="526.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Face verification could not be</text>
+<text x="430" y="543.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">completed for this user.</text>
+<text x="430" y="560.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please try again.</text>
+<text x="430" y="579.24" font-size="12" fill="#212121" text-anchor="middle">Retry, Cancel</text>
+<path d="M276 524 L330 524" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="292.33" y="502.5" width="21.34" height="17" rx="2" fill="#FFFFFF"/>
+<text x="303" y="515.2" font-size="12" fill="#C62828" text-anchor="middle">No</text>
+<rect x="330" y="606" width="200" height="62" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="430" y="632.76" font-size="12" fill="#212121" text-anchor="middle">Login page. Counts as one failed</text>
+<text x="430" y="648.76" font-size="12" fill="#212121" text-anchor="middle">login</text>
+<path d="M430 594 L430 606" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<path d="M530 548 L536 548 Q542 548 542 542 L542 258 Q542 251 535 251 L312 251" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<rect x="386.32" y="242.5" width="67.36" height="17" rx="2" fill="#FFFFFF"/>
+<text x="420" y="255.2" font-size="12" fill="#616161" text-anchor="middle">Retry, once</text>
+<rect x="40" y="692" width="490" height="58" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="285" y="716.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Cancel</text>
+<text x="285" y="735.24" font-size="12" fill="#212121" text-anchor="middle">Back to the login page. No message.</text>
+<rect x="568" y="104" width="528" height="662" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="580" y="124" font-size="14" fill="#1F4E9E" font-weight="600">Supervisor</text>
+<rect x="584" y="134" width="272" height="60" rx="6" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="720" y="158.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Approves packets, enters the user id</text>
+<text x="720" y="177.75" font-size="12" fill="#212121" text-anchor="middle">With a password or face</text>
+<rect x="584" y="214" width="272" height="74" rx="6" fill="#E8EEF9" stroke="#1F4E9E" stroke-width="1.5"/>
+<text x="720" y="238.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Supervisor face verification</text>
+<text x="720" y="257.24" font-size="12" fill="#212121" text-anchor="middle">The same texts as the resident: “Checking face</text>
+<text x="720" y="273.24" font-size="12" fill="#212121" text-anchor="middle">liveness…”, then one challenge if needed</text>
+<polygon points="720,308 820,358 720,408 620,358" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="720" y="361.75" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Check passed?</text>
+<polygon points="720,470 820,524 720,578 620,524" fill="#FFFFFF" stroke="#9E9E9E" stroke-width="1.2"/>
+<text x="720" y="519.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">Is this the</text>
+<text x="720" y="536.25" font-size="12.5" fill="#212121" font-weight="600" text-anchor="middle">supervisor’s face?</text>
+<rect x="584" y="620" width="272" height="56" rx="6" fill="#E8F3E9" stroke="#2E7D32" stroke-width="1.5"/>
+<text x="720" y="643.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Packets approved</text>
+<text x="720" y="662.24" font-size="12" fill="#212121" text-anchor="middle">The flow goes on</text>
+<path d="M720 194 L720 214" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M720 288 L720 308" fill="none" stroke="#1F4E9E" stroke-width="1.5" marker-end="url(#a1F4E9E)"/>
+<path d="M720 408 L720 470" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="725" y="431.5" width="26.68" height="17" rx="2" fill="#FFFFFF"/>
+<text x="728" y="444.2" font-size="12" fill="#2E7D32" text-anchor="start">Yes</text>
+<path d="M720 578 L720 620" fill="none" stroke="#2E7D32" stroke-width="1.5" marker-end="url(#a2E7D32)"/>
+<rect x="725" y="591.5" width="26.68" height="17" rx="2" fill="#FFFFFF"/>
+<text x="728" y="604.2" font-size="12" fill="#2E7D32" text-anchor="start">Yes</text>
+<rect x="874" y="300" width="200" height="116" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="974" y="336.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Face verification could not be</text>
+<text x="974" y="353.74" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">completed.</text>
+<text x="974" y="372.74" font-size="12" fill="#212121" text-anchor="middle">Please contact your administrator.</text>
+<text x="974" y="388.74" font-size="12" fill="#212121" text-anchor="middle">Close</text>
+<path d="M820 358 L874 358" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="820.99" y="320" width="52.02" height="32" rx="2" fill="#FFFFFF"/>
+<text x="847" y="332.7" font-size="12" fill="#C62828" text-anchor="middle">After 4</text>
+<text x="847" y="347.7" font-size="12" fill="#C62828" text-anchor="middle">attempts</text>
+<rect x="874" y="428" width="200" height="62" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="974" y="454.76" font-size="12" fill="#212121" text-anchor="middle">Nothing is approved. There is no</text>
+<text x="974" y="470.76" font-size="12" fill="#212121" text-anchor="middle">cooldown</text>
+<path d="M974 416 L974 428" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="874" y="502" width="200" height="92" rx="6" fill="#FBEAEA" stroke="#C62828" stroke-width="1.5"/>
+<text x="974" y="518.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Face verification could not be</text>
+<text x="974" y="535.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">completed for this user.</text>
+<text x="974" y="552.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Please try again.</text>
+<text x="974" y="571.24" font-size="12" fill="#212121" text-anchor="middle">Android, Retry once. Desktop:</text>
+<text x="974" y="587.24" font-size="12" fill="#212121" text-anchor="middle">“face not matched” alert</text>
+<path d="M820 524 L874 524" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="836.33" y="502.5" width="21.34" height="17" rx="2" fill="#FFFFFF"/>
+<text x="847" y="515.2" font-size="12" fill="#C62828" text-anchor="middle">No</text>
+<rect x="874" y="606" width="200" height="62" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="974" y="640.76" font-size="12" fill="#212121" text-anchor="middle">Nothing is approved</text>
+<path d="M974 594 L974 606" fill="none" stroke="#C62828" stroke-width="1.5" marker-end="url(#aC62828)"/>
+<rect x="584" y="692" width="490" height="58" rx="6" fill="#F5F5F5" stroke="#BDBDBD" stroke-width="1"/>
+<text x="829" y="716.24" font-size="13" fill="#212121" font-weight="600" text-anchor="middle">Cancel</text>
+<text x="829" y="735.24" font-size="12" fill="#212121" text-anchor="middle">Back to the approval dialog. Nothing is approved.</text>
+</svg>
