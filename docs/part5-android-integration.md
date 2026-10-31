@@ -1026,9 +1026,9 @@ provisional.
 - **INT8 models.** For the four liveness models: evaluated and rejected, slower and less accurate
   (`models/README.md`). For SFace, OpenCV Zoo's own int8 file is used since `pad-2026.10.5`: it
   met every adoption criterion and is faster on the phone.
-- **Attack coverage.** On the phone, the one recorded attack is a face photo on a laptop screen. Prints, phone screens
-  and tablet replays were evaluated on the laptop webcam ([part2-iso30107-evaluation.md](part2-iso30107-evaluation.md)).
-  Masks are not tested.
+- **Attack coverage.** On phones there are only spot checks, all refused: a face photo on a laptop screen, a print and
+  a tablet replay. Prints, phone screens and tablet replays were evaluated on the laptop webcam
+  ([part2-iso30107-evaluation.md](part2-iso30107-evaluation.md)). Masks are not tested.
 - **Signing key.** The model bundle is signed with a development key; replace it before release.
 - **Review findings (F-items) handled for Android.**
   - Done: F8 (dim faces, exposure assist), F12 (permanently refused permission) and F19 (the camera's rotation,
