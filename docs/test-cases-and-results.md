@@ -9,13 +9,15 @@ v1.2.0.2.
 
 ## 1. Summary
 
-**What was tested.** The liveness engine, the device and camera path, the Desktop and Android client integrations, the signed model files, face matching, audit and privacy. We used automated suites (section 2), 120 test cases (section 3), live sessions on one laptop webcam and one phone, and a recorded evaluation based on ISO/IEC 30107-3, the international standard for testing presentation attack detection (PAD) (section 4).
+**What was tested.** The liveness engine, the device and camera path, the Desktop and Android client integrations, the signed model files, face matching, audit and privacy. We used automated suites (section 2), 126 test cases (section 3), live sessions on one laptop webcam and two phones, and a recorded evaluation based on ISO/IEC 30107-3, the international standard for testing presentation attack detection (PAD) (section 4).
 
 **What passed.**
 - In the four-subject evaluation of 2026-10-28, none of the 131 attack takes passed without a challenge, and none of the 47 real-face takes was rejected as an attack. These figures are provisional.
 - With the print guards on, 0 of 29 live print attack sessions passed. 0 of 8 live tablet replay sessions passed.
 - Every required error case has an automated test. Both clients refuse tampered and unsigned model files.
 - On a 2019 budget phone, 8 of 8 completed real-face checks passed, one photo attack was refused and airplane mode worked (section 6.3).
+- On the S23 FE with the submission APK, a printed photo and a tablet replay were each refused, in one session each
+  (PAD-15, PAD-16).
 
 **Main limits.**
 - The evaluation used four real people, one webcam and one room, and most attacks show one person. It shows tendencies, not field error rates.
@@ -130,9 +132,11 @@ before it. "(Desktop)" and "(Android)" mark classes that exist on both clients. 
 | PAD-09 | Print attacks with the guards on | 29 attack sessions: cut-outs still and moving, an A4 print, and four sessions forcing challenges with rotate and tilt tricks | None passes | 0 of 29 passed. 17 were judged; in the others the face was too small and the session timed out. The guards blocked 1 attempt of 63 that would have passed, at 0.923. **The rotate and tilt tricks were not exercised:** PAD stopped those cut-outs before any challenge appeared | live, 2026-10-27 | `docs/part2-iso30107-evaluation.md`, section 4.5 |
 | PAD-10 | The cost of the guards on real faces | 10 real-face sessions, s01: normal, close, far, approaching, moving | No rejection | 6 passive passes, 3 passed a challenge, 1 timed out at about 1 m. 0 PAD rejections. The guards moved 1 of 7 passive passes to a challenge | live, 2026-10-27 | `docs/part2-iso30107-evaluation.md`, section 4.5 |
 | PAD-11 | Video replay on a tablet | The subject's 2-minute video on a tablet of about 11 inches: 6 sessions at 40 to 60 cm, 2 sessions at real-face size | None passes | 0 of 8 passed. At 40 to 60 cm, all 18 attempts that reported a code ended in PAD_FAILURE. At real-face size both sessions ended in MAX_RETRIES_EXCEEDED. The moiré cap did not fire: the models, the PAD latch and the PAD monitor decided | live, 2026-10-27 and 2026-10-28 | `docs/part2-iso30107-evaluation.md`, section 4.6 |
-| PAD-12 | A face photo on a laptop screen, seen by the phone | Back camera, three runs | Rejected on every attempt | Rejected on all 4 attempts in each run; final screen with recovery text. This is the only attack result recorded on a phone. It predates the print guards | live, 2026-10-24 | `docs/part5-android-integration.md`, section 10 |
+| PAD-12 | A face photo on a laptop screen, seen by the phone | Back camera, three runs | Rejected on every attempt | Rejected on all 4 attempts in each run; final screen with recovery text. It predates the print guards | live, 2026-10-24 | `docs/part5-android-integration.md`, section 10 |
 | PAD-13 | Recorded evaluation of all species | 131 attack takes and 47 real-face takes from four subjects | No attack passes without a challenge; no real face is rejected | See section 4 | evaluation, 2026-10-28 | `docs/part2-iso30107-evaluation.md`, section 4.7 |
 | PAD-14 | A photo on a budget phone's camera | A public-domain portrait on a laptop screen, shown to the front camera of a Redmi Note 7. One session, profile build | Refused | Pass. PAD_FAILURE on attempts 1 to 3, then MAX_RETRIES_EXCEEDED after 4 attempts, last score 0.1278. A spot check: one session and one screen | live, 2026-10-30 | `docs/part5-android-benchmark.md`, "Budget phone: Redmi Note 7" |
+| PAD-15 | A print on the S23 FE with the final build | A public-domain portrait printed on A4, with the face inside the oval. Back camera. One session on the debug APK in the submission pack, recorded for the demo video | Refused | Pass. "Not verified" after 4 attempts, in 12.9 s. A spot check: one session and one tester, with no score logged | live, 2026-10-30 | The demo video, print attack scene |
+| PAD-16 | A video replay on the S23 FE with the final build | The subject's own video on a tablet, with the face inside the oval. Back camera. One session on the debug APK in the submission pack, recorded for the demo video | Refused | Pass. "Not verified" after 4 attempts, in 12.3 s. A spot check: one session and one tester, with no score logged | live, 2026-10-30 | The demo video, video replay scene |
 
 ### 3.4 Active challenges and dynamic selection
 
@@ -731,8 +735,8 @@ task is outside the table in section 2, which covers the liveness suites only.
 
 ### 8.4 Tested only in part
 
-- **Android attack coverage.** The only attack result recorded on a phone is a face photo on a laptop screen (PAD-12). Prints and replays
-  were evaluated on the laptop webcam only.
+- **Android attack coverage.** Phone attacks were spot checks, all refused: a photo on a laptop screen (PAD-12, PAD-14),
+  a print (PAD-15) and a tablet replay (PAD-16). The evaluation numbers in section 4 come from the laptop webcam only.
 - **Android frames come from the phone camera,** not the L0/L1 device. Android SBI has no stream. Face binding links
   the SBI capture to the live face.
 - **Offline.** Airplane mode was run on Android with the resident gate only. The Desktop client was not run offline.
@@ -761,14 +765,13 @@ task is outside the table in section 2, which covers the liveness suites only.
 this repository at `57b2624` with client commit `4d5e6b9`.
 
 The live evidence here is a set of dated checks, each on the build of its day:
-- The last live checks on a phone were on a Redmi Note 7 on 2026-10-30, on a profile build from client commit
-  `4d5e6b9` (section 6.3).
-- The last live check on the S23 FE was rotation, on 2026-10-29, on the debug build from client commit `4d5e6b9`. That
-  is the APK in the submission pack.
+- The Redmi Note 7 was last checked on 2026-10-30, on a profile build from client commit `4d5e6b9` (section 6.3). One
+  photo attack was refused (PAD-14).
+- The S23 FE was last checked while recording the demo video on 2026-10-30, on the debug build from client commit
+  `4d5e6b9`. That is the APK in the submission pack. A print and a tablet replay were each refused after 4 attempts
+  (PAD-15, PAD-16).
 - The last live identity checks were on 2026-10-28.
-- The last live attack sessions were on the laptop on 2026-10-28, the tablet replay.
-- The last live attack on a phone was one photo session on the Redmi Note 7 on 2026-10-30, which was refused. On the
-  S23 FE it was on 2026-10-24, before the print guards existed, and it was not repeated with them.
+- The last attack sessions on the laptop with logged scores were on 2026-10-28, the tablet replay.
 
 The last code changes, on 2026-10-28, are in that build, but only automated tests cover them: the cancel during a device
 restart, an Arabic text, and three texts on MOSIP's own screens.
