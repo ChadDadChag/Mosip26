@@ -157,8 +157,10 @@ class ModelBundleToolTest {
     }
 
     @Test
-    void keygenRefusesPathsInsideTheRepository() throws Exception {
-        File inside = new File("target/should-not-exist/key.p8").getAbsoluteFile();
+    void keygenRefusesPathsInsideTheRepository(@TempDir File tmp) throws Exception {
+        File repo = new File(tmp, "repo");
+        assertThat(new File(repo, ".git").mkdirs()).isTrue();
+        File inside = new File(repo, "target/should-not-exist/key.p8");
         assertThat(ModelBundleTool.enclosingGitWorkTree(inside)).isNotNull();
         assertThat(run("keygen", "--key-id", "x", "--out", inside.getPath())).isEqualTo(1);
         assertThat(err()).contains("REFUSED").contains("git working tree");

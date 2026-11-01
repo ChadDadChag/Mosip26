@@ -106,7 +106,7 @@ MOSIP's `registration-client`, and its Android changes are patches against `andr
 ## Team
 
 Work was split into five parts. The history of each part is in the Git log, and all of it went through
-[22 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
+[23 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
 
 | Part | Scope | Lead commit author |
 |---|---|---|
@@ -116,7 +116,9 @@ Work was split into five parts. The history of each part is in the Git log, and 
 | 4 | Desktop Registration Client integration | saket |
 | 5 | Android Registration Client integration | Varun-iiitb |
 
-The AI models are third-party work under their own licences, listed in [models/LICENSES.md](models/LICENSES.md).
+## Licence
+
+This project is under the [Mozilla Public License 2.0](LICENSE), the licence of MOSIP's own Registration Client. The AI models are third-party work under their own licences, listed in [models/LICENSES.md](models/LICENSES.md).
 
 ---
 

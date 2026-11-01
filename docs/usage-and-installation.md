@@ -95,17 +95,18 @@ This route builds the engine alone. It needs no MOSIP code, and the same command
 ```powershell
 git clone https://github.com/ChadDadChag/Mosip26.git
 cd Mosip26
-mvn -N install "-Dgpg.skip"
-mvn -f liveness-api/pom.xml install "-Dgpg.skip"
-mvn -f liveness-core/pom.xml install "-Dgpg.skip"
-mvn -f liveness-fake/pom.xml install "-Dgpg.skip"
-mvn -f liveness-tools/pom.xml install "-Dgpg.skip"
-mvn -f liveness-analyzer/pom.xml install "-Dgpg.skip"
-mvn -f liveness-eval/pom.xml verify "-Dgpg.skip"
+mvn -N install "-Dgpg.skip" "-Dmaven.gitcommitid.skip=true"
+mvn -f liveness-api/pom.xml install "-Dgpg.skip" "-Dmaven.gitcommitid.skip=true"
+mvn -f liveness-core/pom.xml install "-Dgpg.skip" "-Dmaven.gitcommitid.skip=true"
+mvn -f liveness-fake/pom.xml install "-Dgpg.skip" "-Dmaven.gitcommitid.skip=true"
+mvn -f liveness-tools/pom.xml install "-Dgpg.skip" "-Dmaven.gitcommitid.skip=true"
+mvn -f liveness-analyzer/pom.xml install "-Dgpg.skip" "-Dmaven.gitcommitid.skip=true"
+mvn -f liveness-eval/pom.xml verify "-Dgpg.skip" "-Dmaven.gitcommitid.skip=true"
 ```
 
-Each command also runs that module's tests. `-Dgpg.skip` turns off release signing, and the quotes stop PowerShell from
-splitting the argument. On a machine with an empty Maven cache, this took about 9 minutes on a laptop.
+Each command also runs that module's tests. `-Dgpg.skip` turns off release signing, and
+`-Dmaven.gitcommitid.skip=true` lets the same steps work from a GitHub Download ZIP, which has no Git history: unzip it,
+open the folder and start at the first `mvn` line. The quotes stop PowerShell from splitting the arguments. On a machine with an empty Maven cache, this took about 9 minutes on a laptop.
 
 Then run the tools. First make the class path, then pick a command:
 
