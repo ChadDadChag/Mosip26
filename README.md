@@ -105,16 +105,22 @@ MOSIP's `registration-client`, and its Android changes are patches against `andr
 
 ## Team
 
-Work was split into five parts. The history of each part is in the Git log, and all of it went through
-[23 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
+Team OFF GAurd, IIIT Bangalore. Work was split into five parts, and all of it went through
+[24 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
 
-| Part | Scope | Lead commit author |
+| Part | Scope | Members |
 |---|---|---|
-| 1 | Device and frame pipeline, mock device, MockMDS patch | Pennam Nikhil |
-| 2 | Passive liveness, PAD, signed models, ISO/IEC 30107-3 evaluation | Varun-iiitb |
+| 1 | Device and frame pipeline, mock device, MockMDS patch | Nikhil Pennam |
+| 2 | Passive liveness, PAD, signed models, ISO/IEC 30107-3 evaluation | Varun E |
 | 3 | Challenges and the liveness engine | Tejas Kollipara |
-| 4 | Desktop Registration Client integration | saket |
-| 5 | Android Registration Client integration | Varun-iiitb |
+| 4 | Desktop Registration Client integration | Saketh Kumar Reddy (commit author `saket`) |
+| 5 | Android Registration Client integration | Varun E and Shashank Peddi |
+
+How to read the Git history:
+- Parts 1 and 4 reached this repository as large uploads, so they show few commits: Part 1 in two "Add files via upload"
+  commits, and Part 4 in one commit.
+- Varun and Shashank worked on Part 5 together on Varun's laptop, so those commits are under Varun's account
+  (`Varun-iiitb`, also shown as `Varun E`).
 
 ## Licence
 
