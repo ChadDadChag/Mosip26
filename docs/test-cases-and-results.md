@@ -98,7 +98,7 @@ before it. "(Desktop)" and "(Android)" mark classes that exist on both clients. 
 |---|---|---|---|---|---|---|
 | DEV-01 | The SBI stream reaches the engine as frames | Two JPEG frames in the exact framing of MOSIP's mock device service (MockMDS), through a mocked biometric service | Both frames arrive as RGB frames, in order | Pass | automated | `SbiStreamFrameSourceTest.convertsStreamFramesIntoLivenessFrames`, `MjpegFrameReaderTest.readsExactMockMdsWireFormat` |
 | DEV-02 | Device paths are interchangeable | The same 20-frame recording through the mock device and the SBI adapter; then a live scene and an attack scene through both | Byte-identical frames in the same order; the same liveness decision | Pass | automated | `DevicePathInteropTest.mockDeviceAndSbiAdapterDeliverIdenticalFramesInTheSameOrder`, `.bothDevicePathsReachTheSameLivenessDecision` |
-| DEV-03 | MOSIP's MockMDS as a real process | Unpatched, then patched MockMDS; the probe tool and the client's own stream request | The patched service streams every frame | Unpatched returned error 605. Patched: 45 of 45 frames, in order and byte-identical. MockMDS only, no vendor device | live, 2026-10-23 (date of the commit) | `README.md`, the section on MockMDS |
+| DEV-03 | MOSIP's MockMDS as a real process | Unpatched, then patched MockMDS; the probe tool and the client's own stream request | The patched service streams every frame | Unpatched returned error 605. Patched: 45 of 45 frames, in order and byte-identical. Repeated on 2026-11-02: `SbiStreamProbe` got 60 frames, 640x480, 18.6 fps; a print and a phone attack clip streamed over `/stream` were both refused by the engine (PAD_FAILURE). MockMDS only, no vendor device | live, 2026-10-23 (date of the commit); repeated 2026-11-02 | `README.md`, the section on MockMDS; `mock-mds-patch/README.md`, "Run on 2026-11-02" |
 | DEV-04 | Frame rate control | Stride of 3 on 9 device frames; a 200 frames per second camera with a 30 ms analyzer | Every third frame delivered; one worker thread, 10 to 11 analyses, most frames dropped and not queued, no deadlock | Pass | automated | `SbiStreamFrameSourceStrideTest.strideOfThreeDeliversEveryThirdPhysicalFrame`, `Part3RequirementsAuditTest.r19_threadingUnderAFastCamera` |
 | DEV-05 | Other frame formats | A greyscale JPEG; a one-channel GRAY8 frame | Decoded with equal channels; expanded to RGB once | Pass | automated | `JpegToRgb888ConverterTest.grayscaleJpegDecodesWithEqualChannels`, `FrameTest.gray8IsExpandedToRgbOnceOnDemand` |
 | DEV-06 | The live preview cannot disturb the engine | Three preview listeners, one of which throws | The engine and the other previews get each frame; device errors reach the engine only | Pass | automated | `PreviewFrameSourceTest.everyFrameReachesTheEngineAndEveryPreviewAndErrorsOnlyTheEngine` |
@@ -668,7 +668,7 @@ this profile build. `docs/part5-android-benchmark.md`, "Budget phone: Redmi Note
 |---|---|---|---|
 | Unplug and replug, simulated | Real SBI source and real engine, device service as a test double (ERR-03) | Pass. This test found a real engine bug: a frame left over from before the unplug swallowed the user's Retry. It is fixed | `UnplugReplugIntegrationTest`; `PART3_STATUS.md`, section 7 |
 | Unplug and replug, real USB | Unplug a USB camera during capture | **Not done.** The manual check is open | `docs/part1-qa-checklist.md` |
-| Stopping MockMDS during capture | Manual check | **Not done.** The manual check is open | `docs/part1-qa-checklist.md` |
+| Stopping MockMDS during capture | MockMDS killed 15 s into a `SbiStreamProbe` stream, 2026-11-02 | **Done in part.** The probe ended cleanly after 292 frames, with no hang. The client's "Device error" screen with Retry was not exercised by hand; `UnplugReplugIntegrationTest` covers it automatically | `mock-mds-patch/README.md`, "Run on 2026-11-02"; `docs/part1-qa-checklist.md` |
 | Camera restarts, soak | `CaptureSoak`, capture plus the analyzer, a restart every 10 s, 2026-10-27 | **sarxos, the first capture library, died with a native heap corruption (0xC0000374) after about 25 restarts.** OpenCV ran 89 restarts with no error, and is now the tools' default | `docs/part2-dataset-protocol.md` |
 | Continuous capture, soak | 30 minutes, 2026-10-27 | Clean on both libraries: sarxos 14.9, OpenCV 14.8 frames per second | `docs/part2-dataset-protocol.md` |
 | Clean exit of the development tools | A close that hangs; a hung shutdown; two live runs and a delete on 2026-10-28 | Tests pass. Live runs exited with no hang. Which library ran was not captured | `WebcamGrabbersTest.aHungShutdownIsHaltedAfterTheGracePeriod`; `docs/part4-desktop-integration.md`, section 10 |
@@ -716,8 +716,8 @@ task is outside the table in section 2, which covers the liveness suites only.
 
 ### 8.3 Never tested
 
-- **Real L0/L1 SBI hardware.** L0 and L1 are MOSIP's device trust levels. All device tests used a mock device or
-  MockMDS. No vendor device was used. Every manual hardware check in `docs/part1-qa-checklist.md` is open.
+- **Real L0/L1 SBI hardware.** L0 and L1 are MOSIP's device trust levels. Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips on 2026-11-02, so any SBI-compliant L0/L1 face device plugs in without code changes. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding). No vendor device was used.
+  Every manual hardware check in `docs/part1-qa-checklist.md` is open.
 - **A live MOSIP backend end to end.** Neither client ran against one.
   - The Desktop client was compiled and its tests run, but it was **not launched**. It needs a registered machine, a
     database and a server. The hooks were checked by compilation, code review and rendered screens.
@@ -746,7 +746,11 @@ task is outside the table in section 2, which covers the liveness suites only.
 - **Signing key.** The model bundle is signed with a development key.
 - **Screen readers.** Desktop notifications were not tried with Narrator or NVDA.
 - **ISO/IEC 19794-5 face image quality.** No part measures uneven lighting, background or glasses glare.
-- **MockMDS webcam mode.** It compiles but was not run with a camera.
+- **MockMDS webcam mode.** Attempted on 2026-11-02, not completed. It was run on an Apple silicon Mac, and
+  `webcam-capture` 0.3.12's macOS driver needs an x86_64 BridJ library and Apple's retired QTKit, so it could not open
+  the camera, under the arm64 JDK or under an x86_64 JDK through Rosetta. MockMDS fell back to the static image, as
+  designed. The same day, the SBI `/stream` path ran with recorded clips (`video` mode); see DEV-03. Webcam mode still
+  needs a run on Windows.
 - **Translations on Desktop.** English, Arabic and French only.
 
 ### 8.5 The small sample
