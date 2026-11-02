@@ -29,7 +29,8 @@ comes from **one laptop webcam** and few people, and is **provisional**.
   single-species attacks show s01.
 - The phone results come from one Samsung Galaxy S23 FE and one tester, plus a Redmi Note 7 check on 2026-10-30
   by the same tester (BT-7, ET-21).
-- Nothing was run against real L0/L1 SBI hardware, and neither client was run end to end against a MOSIP backend.
+- Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips and a live webcam on 2026-11-02. It is designed to work with SBI-compliant L0/L1 face devices, which has not been tested on real hardware. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding).
+- Neither client was run end to end against a MOSIP backend.
 
 ## Legend
 
@@ -535,7 +536,7 @@ The table above has the details.
 - **Prints passing on a retry** (F18): the session print guards (OV-13).
 
 Other open items recorded in the documents:
-- **No real L0/L1 hardware.** Every manual hardware check in [part1-qa-checklist.md](part1-qa-checklist.md) is open.
+- **No real L0/L1 hardware.** Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips and a live webcam on 2026-11-02. It is designed to work with SBI-compliant L0/L1 face devices, which has not been tested on real hardware. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding). Every manual hardware check in [part1-qa-checklist.md](part1-qa-checklist.md) is open.
 - **Contract proposals P1–P7 are not applied** ([contract-change-proposals.md](contract-change-proposals.md)). The most visible effect is P1: the operator cooldown is in memory and resets when the app restarts.
 - **No model update server.** Online updates are built and tested against a laptop server, and are off by default.
 - **Accessibility.** The Desktop screen-reader notifications were not tried with Narrator or NVDA.

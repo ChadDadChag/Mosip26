@@ -64,8 +64,7 @@ attacks using prints, photos on screens and replayed videos.
 | Android speed | About 42 to 57 ms per analysed frame on a Samsung Galaxy S23 FE, and about 140 ms on a 2019 Redmi Note 7 |
 
 **Please read these results with their limits.** They come from one webcam, two test phones and four people, so they are
-provisional and do not estimate error rates in the field. Nothing has been run on real L0/L1 biometric hardware: the phone
-camera, a webcam and MOSIP's MockMDS stood in for the device. Neither client has been run from end to end against a MOSIP
+provisional and do not estimate error rates in the field. Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips and a live webcam on 2026-11-02. It is designed to work with SBI-compliant L0/L1 face devices, which has not been tested on real hardware. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding). Neither client has been run from end to end against a MOSIP
 server. The identity check is the weakest result. It compares a live face with a stored face, and it refused the right person
 in 27.1% of pairs when the stored face was a single old photo from another camera, against 2.3% with a same-session template.
 At the same threshold it accepted a different person in 3.5% of same-room webcam pairs. The
@@ -106,7 +105,7 @@ MOSIP's `registration-client`, and its Android changes are patches against `andr
 ## Team
 
 Team OFF GAurd, IIIT Bangalore. Work was split into five parts, and all of it went through
-[25 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
+[26 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
 
 | Part | Scope | Members |
 |---|---|---|
@@ -307,7 +306,8 @@ patch also makes the face stream send images, a recorded video or the webcam. Ap
 with the run command in `mock-mds-patch/README.md` and run the Registration Client's device discovery as usual.
 
 Checked live: unpatched MockMDS returned 605. Patched, it streamed 45 of 45 frames of a recording, in
-order and byte-identical through `MjpegFrameReader`.
+order and byte-identical through `MjpegFrameReader`. Repeated on 2026-11-02: `SbiStreamProbe` got 60 frames
+(640x480, 18.6 fps), and a print and a phone attack streamed through `/stream` were both refused by the engine.
 
 ## Behaviours worth knowing
 
@@ -347,8 +347,8 @@ order and byte-identical through `MjpegFrameReader`.
 - **MockMDS.** The patched MockMDS was run as a process. `SbiStreamProbe` and the client's own request got 45 of
   45 frames from a recording. The patch's own `FaceStreamProviderTest` passes (7).
 - **Not run with hardware:**
-  - The MockMDS webcam mode compiles against the real `webcam-capture` 0.3.12 jar, but has not been run with a
-    camera here.
+  - The MockMDS webcam mode was tried on 2026-11-02 on an Apple silicon Mac and could not open the camera:
+    `webcam-capture` 0.3.12's macOS driver needs x86_64 BridJ and the retired QTKit. On a Windows laptop the same day it worked, once the patch requested 640x480 (the default gave 176x144). Frames went over `/stream` at about 10 per second, were saved, and were replayed through the engine in `LivenessHarness`: a live face passed at 0.999, and a phone photo stayed at 0.60 or below and failed after 4 attempts. A first photo try was too small and dim to judge. A video replay was not run, and the Desktop client itself was not used.
   - `SarxosWebcamFrameGrabber` ran with the laptop webcam in Part 4's screen demo on 2026-10-27. Its shutdown hook
     hung the demo's exit once, which is F13b. Since F13b the development tools default to `OpenCvWebcamFrameGrabber`
     (the openpnp OpenCV that the evaluation tools already use, F13) and release the camera before they exit, with a

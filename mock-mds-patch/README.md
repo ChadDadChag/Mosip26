@@ -54,7 +54,7 @@ How each mode behaves:
   - the files written by Part 1's `MjpegRecorder`, which use exactly the `/stream` wire format (`--BoundaryString` and `Content-Length`)
   - files saved by `SbiStreamProbe --save`
   - plain concatenated JPEGs, for example `ffmpeg -i in.mp4 -f mjpeg out.mjpeg`
-- **`webcam`**: the machine's default camera, live, via `webcam-capture` 0.3.12 (the same library as Part 1's `SarxosWebcamFrameGrabber`).
+- **`webcam`**: the machine's default camera at 640x480, live, via `webcam-capture` 0.3.12 (the same library as Part 1's `SarxosWebcamFrameGrabber`).
 
 Frames advance by elapsed time, so playback speed does not depend on how fast the stream loop asks for frames.
 
@@ -115,6 +115,35 @@ The saved `probe.mjpeg` can be replayed by:
 - the harness (`LivenessHarness video probe.mjpeg`)
 - this patch's `video` mode
 - the recorded-video end-to-end tests
+
+## Run on 2026-11-02
+
+Repeated from fresh clones on an Apple silicon Mac (macOS 26), with JDK 21 for MockMDS and JDK 11 for the
+Registration Client overlay.
+
+- **Patch and build.** The patch applied to `3d2174d` with `--ignore-whitespace`. `mvn package` built
+  `mock-mds-1.3.1.jar`: 184 tests ran, and the only 3 errors were the known `BioUtilHelperTest` native-library ones.
+  `FaceStreamProviderTest` passed (7).
+- **The client's request.** `curl -X STREAM` with the client's body (`serialNo` `2345678901`, `deviceSubId` `0`) got a
+  multipart stream on port 4501. Every part had `--BoundaryString`, `Content-Length` and a complete JPEG.
+- **`SbiStreamProbe`,** with `video` mode replaying `nasa-print-normal`:
+  `HTTP/1.0 200 OK | multipart stream | frames=60 | 640x480 | 18.6 fps`.
+- **Attacks through `/stream`.** Clips from `registration-services/src/test/resources/liveness/videos/` were streamed
+  in `video` mode, saved from `/stream` for 10 s, and run with `LivenessHarness video <file> 15 --headless --diagnostic`
+  (ONNX analyzer, `pad-2026.10.5`). All three were refused on every attempt:
+
+  | Streamed through `/stream` | Frames (distinct) | Median passive score | Result |
+  |---|---|---|---|
+  | `nasa-print-normal` (print) | 270 (75) | 0.001 | FAILED, PAD_FAILURE × 4 |
+  | `nasa-phone-close-fill` (phone screen) | 277 (75) | 0.261 | FAILED, PAD_FAILURE × 4 |
+  | The static stream image (one photo, repeated) | 237 (1) | 0.212 | FAILED, PAD_FAILURE × 4 |
+
+- **MockMDS stopped during capture.** MockMDS was killed 15 s into a `SbiStreamProbe` stream. The probe ended cleanly
+  after 292 frames, with no hang. The client's "Device error" screen was not exercised by hand.
+- **Webcam mode: not completed.** On Apple silicon, `webcam-capture` 0.3.12's built-in driver could not open the
+  camera. Under the arm64 JDK, its BridJ native is x86_64 only (`UnsatisfiedLinkError`). Under an x86_64 JDK 21 through
+  Rosetta, BridJ loaded, but the grabber (`libOpenIMAJGrabber.dylib`) is built on Apple's retired QTKit and the task
+  failed. MockMDS logged the error and fell back to `static`, as designed. On a Windows laptop the same day it worked, once the patch requested 640x480 (the default gave 176x144). Frames went over `/stream` at about 10 per second, were saved, and were replayed through the engine in `LivenessHarness`: a live face passed at 0.999, and a phone photo stayed at 0.60 or below and failed after 4 attempts. A first photo try was too small and dim to judge. A video replay was not run, and the Desktop client itself was not used.
 
 ## Why a patch, not a fork
 

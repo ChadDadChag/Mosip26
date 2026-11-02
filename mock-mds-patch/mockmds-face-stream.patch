@@ -39,7 +39,7 @@ new file mode 100644
 index 0000000..b35f03d
 --- /dev/null
 +++ b/MockMDS/src/main/java/io/mosip/mock/sbi/devicehelper/face/FaceStreamProvider.java
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,252 @@
 +package io.mosip.mock.sbi.devicehelper.face;
 +
 +import java.awt.image.BufferedImage;
@@ -259,6 +259,8 @@ index 0000000..b35f03d
 +    private static Object openWebcam() {
 +        com.github.sarxos.webcam.Webcam cam = com.github.sarxos.webcam.Webcam.getDefault();
 +        if (cam == null) throw new IllegalStateException("No webcam found");
++        cam.setCustomViewSizes(new java.awt.Dimension(640, 480));
++        cam.setViewSize(new java.awt.Dimension(640, 480));
 +        cam.open();
 +        logger.info("Face stream: using webcam {}", cam.getName());
 +        return cam;
