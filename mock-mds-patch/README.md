@@ -54,7 +54,7 @@ How each mode behaves:
   - the files written by Part 1's `MjpegRecorder`, which use exactly the `/stream` wire format (`--BoundaryString` and `Content-Length`)
   - files saved by `SbiStreamProbe --save`
   - plain concatenated JPEGs, for example `ffmpeg -i in.mp4 -f mjpeg out.mjpeg`
-- **`webcam`**: the machine's default camera, live, via `webcam-capture` 0.3.12 (the same library as Part 1's `SarxosWebcamFrameGrabber`).
+- **`webcam`**: the machine's default camera at 640x480, live, via `webcam-capture` 0.3.12 (the same library as Part 1's `SarxosWebcamFrameGrabber`).
 
 Frames advance by elapsed time, so playback speed does not depend on how fast the stream loop asks for frames.
 
@@ -143,8 +143,7 @@ Registration Client overlay.
 - **Webcam mode: not completed.** On Apple silicon, `webcam-capture` 0.3.12's built-in driver could not open the
   camera. Under the arm64 JDK, its BridJ native is x86_64 only (`UnsatisfiedLinkError`). Under an x86_64 JDK 21 through
   Rosetta, BridJ loaded, but the grabber (`libOpenIMAJGrabber.dylib`) is built on Apple's retired QTKit and the task
-  failed. MockMDS logged the error and fell back to `static`, as designed. Webcam mode still needs a run on Windows or
-  Linux, which `webcam-capture` supports.
+  failed. MockMDS logged the error and fell back to `static`, as designed. On a Windows laptop the same day it worked, once the patch requested 640x480 (the default gave 176x144). Frames went over `/stream` at about 10 per second, were saved, and were replayed through the engine in `LivenessHarness`: a live face passed at 0.999, and a phone photo stayed at 0.60 or below and failed after 4 attempts. A first photo try was too small and dim to judge. A video replay was not run, and the Desktop client itself was not used.
 
 ## Why a patch, not a fork
 

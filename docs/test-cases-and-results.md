@@ -716,7 +716,7 @@ task is outside the table in section 2, which covers the liveness suites only.
 
 ### 8.3 Never tested
 
-- **Real L0/L1 SBI hardware.** L0 and L1 are MOSIP's device trust levels. Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips on 2026-11-02, so any SBI-compliant L0/L1 face device plugs in without code changes. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding). No vendor device was used.
+- **Real L0/L1 SBI hardware.** L0 and L1 are MOSIP's device trust levels. Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips and a live webcam on 2026-11-02. It is designed to work with SBI-compliant L0/L1 face devices, which has not been tested on real hardware. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding). No vendor device was used.
   Every manual hardware check in `docs/part1-qa-checklist.md` is open.
 - **A live MOSIP backend end to end.** Neither client ran against one.
   - The Desktop client was compiled and its tests run, but it was **not launched**. It needs a registered machine, a
@@ -749,8 +749,7 @@ task is outside the table in section 2, which covers the liveness suites only.
 - **MockMDS webcam mode.** Attempted on 2026-11-02, not completed. It was run on an Apple silicon Mac, and
   `webcam-capture` 0.3.12's macOS driver needs an x86_64 BridJ library and Apple's retired QTKit, so it could not open
   the camera, under the arm64 JDK or under an x86_64 JDK through Rosetta. MockMDS fell back to the static image, as
-  designed. The same day, the SBI `/stream` path ran with recorded clips (`video` mode); see DEV-03. Webcam mode still
-  needs a run on Windows.
+  designed. The same day, the SBI `/stream` path ran with recorded clips (`video` mode); see DEV-03. On a Windows laptop the same day it worked, once the patch requested 640x480 (the default gave 176x144). Frames went over `/stream` at about 10 per second, were saved, and were replayed through the engine in `LivenessHarness`: a live face passed at 0.999, and a phone photo stayed at 0.60 or below and failed after 4 attempts. A first photo try was too small and dim to judge. A video replay was not run, and the Desktop client itself was not used.
 - **Translations on Desktop.** English, Arabic and French only.
 
 ### 8.5 The small sample

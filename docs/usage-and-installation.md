@@ -278,11 +278,11 @@ On 2026-10-30 we ran routes C, D and E from fresh clones, on a Windows 11 laptop
 | C | Every command, from a fresh clone with an empty Maven cache | All builds and tests passed, in about 9 minutes. The tools ran |
 | D | The build, the tests, the recorded attack and the screen images. The two interactive windows were not opened in this check | All passed. The recorded attack was refused |
 | E | The one-command build from a fresh clone, with Maven's own cache already filled | The APK built in 11 minutes. All 68 patches applied |
-| F | Repeated on 2026-11-02 on an Apple silicon Mac: the patch applied and MockMDS built; `SbiStreamProbe`; a print and a phone attack clip in `video` mode, through the harness. Webcam mode could not open the camera on macOS | The probe got 60 frames, 640x480, 18.6 fps. Both attacks were refused. See [mock-mds-patch/README.md](../mock-mds-patch/README.md), "Run on 2026-11-02" |
+| F | Repeated on 2026-11-02 on an Apple silicon Mac: the patch applied and MockMDS built; `SbiStreamProbe`; a print and a phone attack clip in `video` mode, through the harness. Webcam mode could not open the camera on macOS, but ran on Windows | The probe got 60 frames, 640x480, 18.6 fps. Both attacks were refused. See [mock-mds-patch/README.md](../mock-mds-patch/README.md), "Run on 2026-11-02" |
 
 ## Limits of this evaluation
 
-- Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips on 2026-11-02, so any SBI-compliant L0/L1 face device plugs in without code changes. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding). SBI is MOSIP's Secure Biometric Interface.
+- Not run on certified L0/L1 hardware. The Desktop client reads faces through MOSIP's standard SBI `/stream` interface, verified with MOSIP's MockMDS streaming recorded face clips and a live webcam on 2026-11-02. It is designed to work with SBI-compliant L0/L1 face devices, which has not been tested on real hardware. Android's SBI has no stream, so liveness uses the phone camera, and the SBI capture is accepted only if it matches the live face (face binding). SBI is MOSIP's Secure Biometric Interface.
 - Neither client has been run from end to end against a MOSIP server. Each hook into the client was checked by tests,
   compilation and code review. Android's hooks were also run through a debug route on a phone.
 - The attack results come from one webcam, one phone, one tablet and four bona fide people, so they are provisional. See
