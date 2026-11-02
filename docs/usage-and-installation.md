@@ -64,6 +64,17 @@ right. Hold the phone about 40 to 50 cm from your face, in even light.
 
 A face that is too far away gives a "move closer" hint and not a decision. That is normal.
 
+### Run the whole journey
+
+This runs the checks of one registration in order, in one sitting, on the demo page:
+
+1. Tap **Operator sign-in** and pass the check. This is the operator starting work.
+2. Tap **Resident face capture** and pass the check. This is the resident being registered.
+3. Tap **Supervisor approval** and pass the check. This is the supervisor approving the packet.
+
+These buttons call the same gate as MOSIP's own screens. The screens themselves need a login and a MOSIP server, so this
+journey was not run against a backend, and it creates no registration packet.
+
 Sample images, attack set-ups and a signed model bundle for the offline install test are in
 [Test data](test-data.md).
 
