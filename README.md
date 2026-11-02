@@ -105,7 +105,7 @@ MOSIP's `registration-client`, and its Android changes are patches against `andr
 ## Team
 
 Team OFF GAurd, IIIT Bangalore. Work was split into five parts, and all of it went through
-[24 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
+[25 pull requests](https://github.com/ChadDadChag/Mosip26/pulls?q=is%3Apr+is%3Amerged).
 
 | Part | Scope | Members |
 |---|---|---|
